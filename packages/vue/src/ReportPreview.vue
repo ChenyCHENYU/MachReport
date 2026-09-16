@@ -90,6 +90,7 @@ async function reload(): Promise<void> {
   if (!props.fetcher) {
     errorMessage.value = "未提供渲染数据源 fetcher";
     invalidate();
+    emit("error", errorMessage.value);
     return;
   }
   loading.value = true;

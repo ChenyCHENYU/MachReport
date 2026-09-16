@@ -1,0 +1,25 @@
+{
+  "name": "@mach-report/federation",
+  "version": "0.1.0",
+  "description": "MachReport 模块联邦远程入口：expose 命名与 jh4j-cloud-report 对齐，供宿主零改动切换",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./reportPreview": "./src/reportPreview.vue",
+    "./reportHtmlPreview": "./src/reportHtmlPreview.vue",
+    "./filePreview": "./src/filePreview.vue"
+  },
+  "dependencies": {
+    "@mach-report/core": "workspace:*",
+    "@mach-report/vue": "workspace:*"
+  },
+  "peerDependencies": {
+    "vue": "^3.2.0"
+  },
+  "devDependencies": {
+    "@vue/test-utils": "^2.5.0",
+    "vue": "^3.5.0"
+  }
+}

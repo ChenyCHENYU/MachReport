@@ -66,6 +66,22 @@ importers:
 
   packages/core: {}
 
+  packages/federation:
+    dependencies:
+      '@mach-report/core':
+        specifier: workspace:*
+        version: link:../core
+      '@mach-report/vue':
+        specifier: workspace:*
+        version: link:../vue
+    devDependencies:
+      '@vue/test-utils':
+        specifier: ^2.5.0
+        version: 2.5.0(@vue/compiler-dom@3.5.42)(@vue/server-renderer@3.5.42)(vue@3.5.42(typescript@5.9.3))
+      vue:
+        specifier: ^3.5.0
+        version: 3.5.42(typescript@5.9.3)
+
   packages/sql-engine:
     dependencies:
       '@mach-report/core':
