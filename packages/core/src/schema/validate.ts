@@ -8,6 +8,7 @@ export interface ValidationError {
 export interface ValidationResult {
   ok: boolean;
   errors: ValidationError[];
+  warnings: ValidationError[];
 }
 
 const KNOWN_KINDS = new Set([
@@ -33,16 +34,23 @@ function checkNumber(obj: Record<string, unknown>, key: string, path: string, er
   }
 }
 
-export function validateComponent(comp: unknown, path: string, errors: ValidationError[]): void {
+export function validateComponent(
+  comp: unknown,
+  path: string,
+  errors: ValidationError[],
+  warnings: ValidationError[] = []
+): void {
   if (!isObj(comp)) {
     errors.push({ path, message: "组件应为对象" });
     return;
   }
   const kind = comp["kind"];
-  if (typeof kind !== "string" || !KNOWN_KINDS.has(kind)) {
-    errors.push({
+  if (typeof kind !== "string") {
+    errors.push({ path: `${path}.kind`, message: `组件缺少 kind 字符串` });
+  } else if (!KNOWN_KINDS.has(kind)) {
+    warnings.push({
       path: `${path}.kind`,
-      message: `未知组件类型 ${JSON.stringify(kind)}（已知：${[...KNOWN_KINDS].join("/")})`
+      message: `未知组件类型 ${JSON.stringify(kind)}，将以兜底方式渲染`
     });
   }
   for (const key of ["leftMm", "topMm", "widthMm", "heightMm"]) {
@@ -67,7 +75,7 @@ export function validateComponent(comp: unknown, path: string, errors: Validatio
           if (cell === undefined || cell === null) return;
           if (isObj(cell) && Array.isArray(cell["children"])) {
             (cell["children"] as unknown[]).forEach((child, ki) => {
-              validateComponent(child, `${path}.grid.cells.${ri}.${ci}.children.${ki}`, errors);
+              validateComponent(child, `${path}.grid.cells.${ri}.${ci}.children.${ki}`, errors, warnings);
             });
           }
         });
@@ -88,7 +96,12 @@ export function validateComponent(comp: unknown, path: string, errors: Validatio
   }
 }
 
-export function validatePage(page: unknown, path: string, errors: ValidationError[]): void {
+export function validatePage(
+  page: unknown,
+  path: string,
+  errors: ValidationError[],
+  warnings: ValidationError[] = []
+): void {
   if (!isObj(page)) {
     errors.push({ path, message: "页应为对象" });
     return;
@@ -105,12 +118,15 @@ export function validatePage(page: unknown, path: string, errors: ValidationErro
   if (comps !== undefined && !Array.isArray(comps)) {
     errors.push({ path: `${path}.components`, message: "components 应为数组" });
   } else if (Array.isArray(comps)) {
-    comps.forEach((comp, i) => validateComponent(comp, `${path}.components.${i}`, errors));
+    comps.forEach((comp, i) =>
+      validateComponent(comp, `${path}.components.${i}`, errors, warnings)
+    );
   }
 }
 
 export function validateRenderPlan(input: unknown): ValidationResult {
   const errors: ValidationError[] = [];
+  const warnings: ValidationError[] = [];
   const pages = isObj(input) ? input["pages"] : undefined;
   if (!Array.isArray(pages)) {
     errors.push({
@@ -118,9 +134,9 @@ export function validateRenderPlan(input: unknown): ValidationResult {
       message: input == null ? "渲染计划为空" : "渲染计划缺少 pages 数组"
     });
   } else {
-    pages.forEach((page, i) => validatePage(page, `$.pages.${i}`, errors));
+    pages.forEach((page, i) => validatePage(page, `$.pages.${i}`, errors, warnings));
   }
-  return { ok: errors.length === 0, errors };
+  return { ok: errors.length === 0, errors, warnings };
 }
 
 export function assertRenderPlan(input: unknown): PlanPage[] {

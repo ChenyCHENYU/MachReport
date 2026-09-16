@@ -11,7 +11,7 @@ import {
 import type { PropType } from "vue";
 import type { RenderPlan } from "@mach-report/core";
 import { renderPage as renderPageToDom, renderPlan as renderPlanToDom } from "@mach-report/core";
-import { computePageWindow } from "@mach-report/core";
+import { computePageWindow, validateRenderPlan } from "@mach-report/core";
 import { normalizeTempIds, type PlanFetcher } from "./adapters";
 
 const props = defineProps({
@@ -101,6 +101,17 @@ async function reload(): Promise<void> {
       furnitureTempId: props.furnitureTempId || undefined,
       params: { ...props.params }
     });
+    const check = validateRenderPlan(next);
+    if (!check.ok) {
+      const head = check.errors
+        .slice(0, 3)
+        .map((e) => `${e.path}: ${e.message}`)
+        .join("; ");
+      throw new Error(`渲染计划校验失败(${check.errors.length} 处): ${head}`);
+    }
+    if (check.warnings.length > 0) {
+      console.warn("[mach-report] 渲染计划告警:", check.warnings);
+    }
     plan.value = next;
     currentPage.value = 1;
     applyFitZoom();

@@ -28,7 +28,7 @@ describe("validateRenderPlan", () => {
     expect(r.errors[0]!.path).toBe("$.pages");
   });
 
-  it("非法 kind 行级定位", () => {
+  it("非法 kind 降级为 warning（兼容 jh4j 扩展组件）", () => {
     const r = validateRenderPlan({
       pages: [
         {
@@ -39,8 +39,10 @@ describe("validateRenderPlan", () => {
         }
       ]
     });
-    expect(r.errors[0]!.path).toBe("$.pages.0.components.0.kind");
-    expect(r.errors[0]!.message).toContain("video");
+    expect(r.ok).toBe(true);
+    expect(r.warnings[0]!.path).toBe("$.pages.0.components.0.kind");
+    expect(r.warnings[0]!.message).toContain("video");
+    expect(() => assertRenderPlan({ pages: [{ ...goodPage, components: [{ kind: "video", leftMm: 0, topMm: 0, widthMm: 10, heightMm: 10 }] }] })).not.toThrow();
   });
 
   it("页宽非法与几何 NaN 定位", () => {
@@ -79,7 +81,8 @@ describe("validateRenderPlan", () => {
         }
       ]
     });
-    expect(r.errors[0]!.path).toBe(
+    const located = [...r.errors, ...r.warnings].find((e) => e.message.includes("bomb"));
+    expect(located!.path).toBe(
       "$.pages.0.components.0.grid.cells.0.0.children.0.kind"
     );
   });
