@@ -110,7 +110,7 @@ function buildHeaderGrid(list: ListComponent): { grid: PlanGrid; heightMm: numbe
     text: col.header,
     style: {
       bold: list.headerBold ?? true,
-      align: "center",
+      align: "center" as const,
       verticalAlign: "middle" as const,
       backgroundColor: list.headerBackgroundColor,
       ...(col.style || {})
@@ -137,7 +137,7 @@ function buildRowGrid(
   const fontSizePt = list.fontSizePt ?? 10.5;
   const cells = list.columns.map((col) => ({
     text: cellText(row[col.field]),
-    style: { align: "left", verticalAlign: "middle" as const, ...(col.style || {}) }
+    style: { align: "left" as const, verticalAlign: "middle" as const, ...(col.style || {}) }
   }));
   const lines = list.columns.map((col) =>
     wrapText(cellText(row[col.field]), col.widthMm - (list.paddingMm ?? 1) * 2, {

@@ -92,40 +92,44 @@ function renderGrid(
   options: RenderOptions,
   doc: Document
 ): HTMLElement {
-  const table = doc.createElement("div");
+  const table = doc.createElement("table");
   table.className = classOf("grid", options);
-  const bag = new StyleBag()
-    .add("display", "table")
+  new StyleBag()
     .add("width", "100%")
     .add("border-collapse", "collapse")
-    .add("table-layout", grid.colWidthsMm ? "fixed" : "auto");
-  bag.applyTo(table);
+    .add("table-layout", grid.colWidthsMm ? "fixed" : "auto")
+    .applyTo(table);
+  if (grid.colWidthsMm) {
+    const colGroup = doc.createElement("colgroup");
+    for (const w of grid.colWidthsMm) {
+      const col = doc.createElement("col");
+      new StyleBag().mm("width", w, dpi).applyTo(col);
+      colGroup.appendChild(col);
+    }
+    table.appendChild(colGroup);
+  }
   for (const row of grid.cells) {
-    const rowEl = doc.createElement("div");
+    const rowEl = doc.createElement("tr");
     rowEl.className = classOf("row", options);
-    new StyleBag().add("display", "table-row").applyTo(rowEl);
-    (row || []).forEach((cell, colIndex) => {
-      const cellEl = doc.createElement("div");
+    (row || []).forEach((cell) => {
+      const cellEl = doc.createElement("td");
       cellEl.className = classOf("cell", options);
-      const cellBag = new StyleBag().add("display", "table-cell");
-      const colWidth = grid.colWidthsMm?.[colIndex];
-      if (colWidth != null) cellBag.mm("width", colWidth, dpi);
       if (cell?.colSpan) cellEl.colSpan = cell.colSpan;
       if (cell?.rowSpan) cellEl.rowSpan = cell.rowSpan;
       if (cell?.style) {
         const st = cell.style;
-        cellBag
+        const cellBag = new StyleBag()
           .add("text-align", st.align)
           .add("vertical-align", st.verticalAlign)
           .add("background-color", st.backgroundColor)
           .add("color", st.color)
           .add("font-weight", st.bold ? "700" : undefined);
-        if (st.fontSize != null) {
+        if (st.fontSizePx != null) cellBag.add("font-size", `${st.fontSizePx}px`);
+        else if (st.fontSize != null) {
           cellBag.add("font-size", `${round((st.fontSize * dpi) / 72, 2)}px`);
         }
-        if (st.fontSizePx != null) cellBag.add("font-size", `${st.fontSizePx}px`);
+        cellBag.applyTo(cellEl);
       }
-      cellBag.applyTo(cellEl);
       if (cell?.text != null) cellEl.textContent = cell.text;
       if (cell?.children?.length) {
         for (const child of cell.children) {

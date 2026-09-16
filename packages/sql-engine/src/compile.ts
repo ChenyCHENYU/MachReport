@@ -1,6 +1,8 @@
 import { evalExpr, ExprError, parseIfArgs } from "./expr";
 import { SqlSyntaxError, tokenize, type Token } from "./tokenizer";
 
+export { SqlSyntaxError } from "./tokenizer";
+
 export interface RenderedSql {
   sql: string;
   binds: unknown[];
