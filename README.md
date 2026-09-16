@@ -8,14 +8,15 @@
 
 | 能力 | 状态 |
 |---|---|
-| core 渲染引擎（分页/虚拟化/校验/渲染器） | ✅ 可用（分页 5k 行 56ms） |
-| sql-engine 动态 SQL（jh4j 三语法兼容） | ✅ 可用 |
+| core 渲染引擎（分页/虚拟化/校验/渲染器/builder DSL） | ✅ 可用（分页 5k 行 56ms） |
+| sql-engine 动态 SQL（三语法 + AST 级单 SELECT 校验） | ✅ 可用 |
 | vue 契约组件（props/事件/ref 1:1） | ✅ 可用 |
 | federation 入口（expose 对齐 + remoteEntry 产物） | ✅ 可用 |
 | jh4j 模板导入转换器 | ✅ 可用（逆向 schema 驱动） |
 | manager 管理端 API 客户端（含模板锁） | ✅ 可用 |
-| E2E（真 Chromium） | ✅ 3 specs |
-| 设计器 UI / PDF 直出 | 🚧 后续里程碑（见 docs/PROGRESS.md） |
+| **PDF 前端直出（中文子集嵌入）** | ✅ 可用 |
+| E2E（真 Chromium，含 PDF 下载断言） | ✅ 4 specs |
+| 设计器画布 UI | 🚧 后续里程碑（见 docs/PROGRESS.md） |
 
 ```bash
 pnpm install && pnpm test          # 106 单测全绿

@@ -3,12 +3,14 @@
 > 通宵自主执行模式 · 每个闭环 = 实现 → 测试 → 验证 → 检查点提交
 > 验证命令：`pnpm typecheck && pnpm lint && pnpm test && pnpm exec playwright test`
 
-## 最终交付状态（2026-09-17 05:00）
+## 最终交付状态（2026-09-17 03:05 · 值守至 06:00）
 
-- **22 个检查点提交 · 5 个包 · 116 单测 + 3 真浏览器 E2E 全绿**
+- **28 个检查点提交 · 6 个包 · 131 单测 + 4 真浏览器 E2E 全绿**
 - typecheck（tsc + vue-tsc SFC）/ lint 0 错误
-- core / sql-engine / vue / federation（含 remoteEntry 产物）/ manager（管理端 API 客户端）
-- jh4j 兼容三件套：gridPlan 适配器（消费侧）+ 模板导入转换器（迁移侧）+ expose 契约对齐（替换侧）
+- core / sql-engine / vue / federation（remoteEntry 产物）/ manager / pdf
+- jh4j 兼容三件套：gridPlan 适配器 + 模板导入转换器 + expose 契约对齐
+- **PDF 前端直出已落地**（pdf-lib + fontkit 中文子集嵌入，E2E 真实下载断言）
+- **AST 级 SQL 校验已落地**（node-sql-parser MySQL 方言，方言失败自动降级词法）
 
 | 检查点时间线 | commit | 内容 | 验证 |
 |---|---|---|---|
@@ -28,8 +30,13 @@
 | 14 | 04:10 | — | 字体模型校准（Chromium 实测数据驱动） | 109 tests |
 | 15 | 04:20 | — | vue-tsc SFC 类型检查（抓出 1 个真 bug）+ 打印分页保护 | 全绿 |
 | 16 | 04:55 | — | manager 包：管理端 API 客户端（模板/数据集/参数/导入导出/模板锁 holdLock） | 116 tests |
+| 17 | 02:55* | — | template builder DSL（类型化链式建模板） | 121 tests |
+| 18 | 03:10* | — | PDF 前端直出包（fontkit 中文子集）+ E2E 下载断言 | 125 tests |
+| 19 | 03:00* | — | AST 级 SQL 校验（node-sql-parser + 词法双保险） | 131 tests |
 
-最终：**116 单测 + 3 E2E 全绿 · typecheck(含 SFC)/lint 0 错误 · 22 个检查点提交**
+（* 为机器本地时间 HH:mm；同一夜内机器时间与日志序号不完全单调，以 git 顺序为准）
+
+最终：**131 单测 + 4 E2E 全绿 · typecheck(含 SFC)/lint 0 错误 · 28 个检查点提交**
 
 ## 实测性能（happy-dom 环境，真浏览器更快）
 
