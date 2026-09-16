@@ -30,7 +30,7 @@ const props = defineProps({
   showPrint: { type: Boolean, default: true },
   showPdfWindow: { type: Boolean, default: true },
   fetcher: {
-    type: Function as PropType<PlanFetcher | null>,
+    type: Function as unknown as PropType<PlanFetcher | null>,
     default: null
   }
 });
@@ -63,7 +63,6 @@ const windowRange = computed(() =>
     pageHeightsPx: pageHeightsPx.value,
     viewportHeightPx: viewportHeight.value,
     scrollTopPx: scrollTop.value,
-    gapPx: PAGE_GAP_PX,
     overscan: 1
   })
 );
