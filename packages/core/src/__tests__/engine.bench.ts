@@ -53,7 +53,7 @@ describe("engine benchmark", () => {
 
   bench("render 50 pages to DOM", () => {
     const { plan } = paginateTemplate(tpl, { rows: makeRows(1200) });
-    renderPlan(plan, document);
+    renderPlan(plan, document as unknown as Document);
   });
   bench("computePageWindow 1,000 pages", () => {
     const heights = Array.from({ length: 1000 }, () => 1122.5);
