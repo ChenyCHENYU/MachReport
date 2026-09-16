@@ -9,7 +9,7 @@ const CJK_RE = /[\u3000-\u9fff\uff00-\uffef]/;
 export function charWidthEm(ch: string): number {
   if (ch === " ") return 0.28;
   if (CJK_RE.test(ch)) return 1;
-  if (/[iljtf.,:;'`|!()\[\]]/.test(ch)) return 0.32;
+  if (/[iljtf.,:;'`|!()[\]]/.test(ch)) return 0.32;
   if (/[mwMW@]/.test(ch)) return 0.85;
   return 0.55;
 }

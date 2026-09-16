@@ -64,12 +64,6 @@ interface WorkingPage {
   components: PlanComponent[];
 }
 
-function pageContentHeight(page: TemplatePage): number {
-  const top = page.marginTopMm ?? 0;
-  const bottom = page.marginBottomMm ?? 0;
-  return page.heightMm - top - bottom;
-}
-
 function makeWorkingPage(page: TemplatePage): WorkingPage {
   return {
     widthMm: page.widthMm,
