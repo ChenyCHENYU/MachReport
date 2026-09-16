@@ -1,7 +1,10 @@
 import { bench, describe } from "vitest";
+import { Window } from "happy-dom";
 import { paginateTemplate, renderPlan, computePageWindow } from "../index";
 import type { ReportTemplate } from "../index";
-import { document } from "happy-dom";
+
+const window_ = new Window();
+const document = window_.document;
 
 const tpl: ReportTemplate = {
   pages: [
