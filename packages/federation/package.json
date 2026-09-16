@@ -11,6 +11,10 @@
     "./reportHtmlPreview": "./src/reportHtmlPreview.vue",
     "./filePreview": "./src/filePreview.vue"
   },
+  "scripts": {
+    "build": "vite build",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
+  },
   "dependencies": {
     "@mach-report/core": "workspace:*",
     "@mach-report/vue": "workspace:*"
@@ -19,7 +23,10 @@
     "vue": "^3.2.0"
   },
   "devDependencies": {
+    "@originjs/vite-plugin-federation": "^1.4.1",
+    "@vitejs/plugin-vue": "^6.0.9",
     "@vue/test-utils": "^2.5.0",
+    "vite": "^7.3.6",
     "vue": "^3.5.0"
   }
 }
