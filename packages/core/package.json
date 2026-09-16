@@ -1,0 +1,16 @@
+{
+  "name": "@mach-report/core",
+  "version": "0.1.0",
+  "description": "MachReport 渲染引擎核心：RenderPlan 模型 + 分页计算 + DOM/Canvas 渲染器（框架无关、零运行时依赖）",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "devDependencies": {}
+}

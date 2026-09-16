@@ -1,0 +1,8 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/core" },
+    { "path": "./packages/sql-engine" },
+    { "path": "./packages/vue" }
+  ]
+}
