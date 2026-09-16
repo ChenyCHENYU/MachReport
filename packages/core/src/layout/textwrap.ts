@@ -7,11 +7,13 @@ export interface TextMeasureOptions {
 const CJK_RE = /[\u3000-\u9fff\uff00-\uffef]/;
 
 export function charWidthEm(ch: string): number {
-  if (ch === " ") return 0.28;
+  if (ch === " ") return 0.3;
   if (CJK_RE.test(ch)) return 1;
-  if (/[iljtf.,:;'`|!()[\]]/.test(ch)) return 0.32;
-  if (/[mwMW@]/.test(ch)) return 0.85;
-  return 0.55;
+  if (/[iljtf.,:;'`|!()[\]]/.test(ch)) return 0.26;
+  if (/[mwMW@]/.test(ch)) return 0.95;
+  if (/[0-9]/.test(ch)) return 0.59;
+  if (/[A-Z]/.test(ch)) return 0.67;
+  return 0.54;
 }
 
 export function measureTextMm(text: string, options: TextMeasureOptions): number {
