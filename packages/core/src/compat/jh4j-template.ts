@@ -1,10 +1,9 @@
+import type { ReportTemplate, TemplatePage } from "../layout/paginate";
 import type {
   ComponentStyle,
   PlanComponent,
-  PlanGrid,
-  TemplatePage
-} from "../layout/paginate";
-import type { ReportTemplate } from "../layout/paginate";
+  PlanGrid
+} from "../schema/render-plan";
 
 export interface Jh4jImportResult {
   template: ReportTemplate;
