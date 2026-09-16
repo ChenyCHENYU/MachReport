@@ -4,6 +4,25 @@
 
 > Mach 家族命名对齐：MachTable（数据表格）→ **MachReport**（打印报表）。
 
+## 当前状态（2026-09-17 通宵迭代 v0.2）
+
+| 能力 | 状态 |
+|---|---|
+| core 渲染引擎（分页/虚拟化/校验/渲染器） | ✅ 可用（分页 5k 行 56ms） |
+| sql-engine 动态 SQL（jh4j 三语法兼容） | ✅ 可用 |
+| vue 契约组件（props/事件/ref 1:1） | ✅ 可用 |
+| federation 入口（expose 对齐） | ✅ 可用 |
+| jh4j 模板导入转换器 | ✅ 可用（逆向 schema 驱动） |
+| E2E（真 Chromium） | ✅ 3 specs |
+| 设计器 / 管理端 / PDF 直出 | 🚧 后续里程碑（见 docs/PROGRESS.md） |
+
+```bash
+pnpm install && pnpm test          # 106 单测全绿
+pnpm --filter @mach-report/example-minimal dev   # 演示：localhost:8610
+```
+
+详见：[docs/PROGRESS.md](docs/PROGRESS.md)（迭代日志/决策记录）· [docs/API.md](docs/API.md)（接入速查）· [docs/reverse-findings.md](docs/reverse-findings.md)（jh4j 逆向）。
+
 ---
 
 ## 一、背景与问题
