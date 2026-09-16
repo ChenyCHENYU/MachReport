@@ -1,6 +1,6 @@
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from "pdf-lib";
-import type { PlanComponent, PlanGrid, PlanPage, RenderPlan } from "@mach-report/core";
+import type { PlanComponent, PlanGrid, RenderPlan } from "@mach-report/core";
 
 export interface PdfRenderOptions {
   /** 嵌入字体字节（TTF，如黑体）；缺省用 Helvetica（不支持 CJK） */
