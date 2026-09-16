@@ -9,6 +9,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@mach-report/core": "workspace:*"
+    "@mach-report/core": "workspace:*",
+    "node-sql-parser": "^5.4.0"
   }
 }
