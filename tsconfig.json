@@ -5,6 +5,7 @@
     { "path": "./packages/sql-engine" },
     { "path": "./packages/vue" },
     { "path": "./packages/federation" },
-    { "path": "./packages/manager" }
+    { "path": "./packages/manager" },
+    { "path": "./packages/pdf" }
   ]
 }
