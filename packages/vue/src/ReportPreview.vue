@@ -138,6 +138,8 @@ function buildPrintHtml(): string {
     .join("");
   const first = p.pages[0]!;
   const css = `.mr-page{margin:0 auto;page-break-after:always;}
+.mr-page tr{break-inside:avoid;page-break-inside:avoid;}
+.mr-comp{break-inside:avoid;page-break-inside:avoid;}
 @page{size:${Math.round(first.pageWidthMm)}mm ${Math.round(first.pageHeightMm)}mm;margin:0;}
 body{margin:0;background:#fff;}`;
   return `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body>${pagesHtml}</body></html>`;

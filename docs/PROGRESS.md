@@ -3,10 +3,15 @@
 > 通宵自主执行模式 · 每个闭环 = 实现 → 测试 → 验证 → 检查点提交
 > 验证命令：`pnpm typecheck && pnpm lint && pnpm test && pnpm exec playwright test`
 
-## 检查点时间线
+## 最终交付状态（2026-09-17 04:30）
 
-| # | 时间 | commit | 内容 | 验证 |
-|---|---|---|---|---|
+- **21 个检查点提交 · 43 个源文件 · ~3,750 行 TS/Vue**
+- **109 单测 + 3 真浏览器 E2E 全绿；typecheck（含 vue-tsc SFC）/ lint 0 错误**
+- 四个包全部可用：core / sql-engine / vue / federation（含可部署 remoteEntry 产物）
+- jh4j 兼容三件套：gridPlan 适配器（消费侧）+ 模板导入转换器（迁移侧）+ expose 契约对齐（替换侧）
+
+| 检查点时间线 | commit | 内容 | 验证 |
+|---|---|---|---|
 | 1 | 00:46 | e5061d6 | 脚手架 + core v0.1（schema/units/textwrap/paginate/DOM 渲染器） | 28 tests |
 | 2 | 01:30 | a4cb69b | sql-engine v0.1（三语法编译 + 表达式求值 + 单 SELECT 校验） | 49 tests |
 | 3 | 01:37 | fe39161 | vue v0.1 契约组件 + jh4j/local 双适配器 | 59 tests |
@@ -19,8 +24,11 @@
 | 10 | 03:00 | — | jh4j 模板导入转换器（逆向 schema 驱动） | 90 tests |
 | 11 | 03:15 | — | Playwright 真浏览器 E2E ×3 | e2e ✓ |
 | 12 | 03:35 | — | 边界补强（嵌套 if/转义/200 条件/万行冒烟） | 106 tests |
+| 13 | 03:50 | — | federation 可部署构建（remoteEntry + 产物守卫） | 109 tests |
+| 14 | 04:10 | — | 字体模型校准（Chromium 实测数据驱动） | 109 tests |
+| 15 | 04:20 | — | vue-tsc SFC 类型检查（抓出 1 个真 bug）+ 打印分页保护 | 全绿 |
 
-最终：**106 单测 + 3 E2E 全绿 · typecheck/lint 0 错误 · 12 个检查点提交**
+最终：**109 单测 + 3 E2E 全绿 · typecheck(含 SFC)/lint 0 错误 · 21 个检查点提交**
 
 ## 实测性能（happy-dom 环境，真浏览器更快）
 
