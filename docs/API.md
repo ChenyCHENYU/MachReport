@@ -52,6 +52,64 @@ importJh4jTemplateContent(content);  // jh4j 模板 content → { template, warn
 
 Template 模型：`pages[].components[]`，静态组件（text/rect/line/ellipse/image...）+ 列表组件（`kind:"list"`，dataset 引用 + columns 列定义，自动跨页/表头重复）。
 
+### 模板构建器 DSL（推荐替代手写 JSON）
+
+```ts
+import { createTemplate } from "@mach-report/core";
+
+const template = createTemplate()                    // 单页快路径：链式直接 build
+  .page(210, 297, { marginTopMm: 12 })               // 纸张 mm + 页边距
+  .text("出库单", { leftMm: 70, topMm: 2, widthMm: 70 }, { fontSize: 16, bold: true, align: "center" })
+  .barcode("CK-001", { leftMm: 12, topMm: 14, widthMm: 40, heightMm: 12 })
+  .line(12, 28, 186)
+  .list("detail", { leftMm: 12, topMm: 32, widthMm: 186 }, [
+    { header: "序号", field: "no", widthMm: 30 },
+    { header: "物料名称", field: "name", widthMm: 156 }
+  ], { fontSizePt: 10, headerEveryPage: true })
+  .build();                                          // → ReportTemplate，直接进 paginateTemplate
+
+// 多页：done() 回到容器
+const t = createTemplate();
+t.page().text("第一页", { topMm: 5 });
+t.page().text("第二页", { topMm: 5 });
+t.build();
+```
+
+### jh4j 模板导入
+
+```ts
+import { importJh4jTemplateContent } from "@mach-report/core";
+const { template, warnings } = importJh4jTemplateContent(jh4jContentJsonOrString);
+// 文本/表格/线条/形状完整转换；图片类降级为占位；富文本降级纯文本；未知类型告警跳过，永不抛错
+```
+
+## @mach-report/manager — 管理端 API 客户端
+
+```ts
+import { createReportAdminClient } from "@mach-report/manager";
+
+const admin = createReportAdminClient({ request: platformRequest });  // 注入平台 request
+await admin.listReports({ keyword: "出库" });        // 模板列表
+await admin.getReport(id);                           // 详情（content 为 jh4j 模板 JSON）
+await admin.updateReport({ id, name, content });     // 保存
+await admin.exportDefinition([id1, id2]);            // 导出 ZIP
+await admin.importDefinition(file, "overwrite");     // 导入
+await admin.listDatasets(id); await admin.listParams(id);
+
+// 模板锁：进入设计器前持有，40s 自动心跳，异常也保证释放
+await admin.holdLock(reportId, async () => { /* 编辑保存 */ });
+```
+
+## @mach-report/pdf — 前端矢量 PDF 直出
+
+```ts
+import { renderPlanToPdf } from "@mach-report/pdf";
+
+const fontBytes = new Uint8Array(await (await fetch("/simhei.ttf")).arrayBuffer());
+const { bytes } = await renderPlanToPdf(plan, { customFontBytes: fontBytes });  // 子集嵌入中文字体
+// bytes → Blob → 下载；未提供字体时降级 Helvetica（CJK 计入 unsupportedTextCount 不崩溃）
+```
+
 ## @mach-report/sql-engine — 动态 SQL
 
 ```ts
