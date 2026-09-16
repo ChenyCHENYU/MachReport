@@ -12,6 +12,7 @@
     "@mach-report/core": "workspace:*",
     "@mach-report/sql-engine": "workspace:*",
     "@mach-report/vue": "workspace:*",
+    "@mach-report/pdf": "workspace:*",
     "vue": "^3.5.0"
   },
   "devDependencies": {

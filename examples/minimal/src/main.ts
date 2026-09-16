@@ -2,6 +2,38 @@ import { createApp, h, ref, computed } from "vue";
 import { ReportPreview, createLocalFetcher } from "@mach-report/vue";
 import type { ReportTemplate } from "@mach-report/core";
 import { renderDynamicSql } from "@mach-report/sql-engine";
+import { renderPlanToPdf } from "@mach-report/pdf";
+import { paginateTemplate } from "@mach-report/core";
+
+let cachedTemplateRef: { template: ReportTemplate; datasets: Record<string, Record<string, unknown>[]> } | null = null;
+let cachedFontBytes: Uint8Array | null = null;
+
+async function loadFont(): Promise<Uint8Array | null> {
+  if (cachedFontBytes) return cachedFontBytes;
+  try {
+    const res = await fetch("/simhei.ttf");
+    if (!res.ok) return null;
+    cachedFontBytes = new Uint8Array(await res.arrayBuffer());
+    return cachedFontBytes;
+  } catch {
+    return null;
+  }
+}
+
+async function exportPdf(): Promise<void> {
+  const entry = cachedTemplateRef;
+  if (!entry) return;
+  const { plan } = paginateTemplate(entry.template, entry.datasets);
+  const font = await loadFont();
+  const { bytes } = await renderPlanToPdf(plan, font ? { customFontBytes: font } : {});
+  const blob = new Blob([bytes as unknown as BlobPart], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "mach-report.pdf";
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 const deliveryNote: ReportTemplate = {
   pages: [
@@ -106,6 +138,13 @@ const entries = {
 };
 
 const fetcher = createLocalFetcher(entries);
+const fetcherWithCache = async (input: Parameters<typeof fetcher>[0]) => {
+  const id = input.tempIds[0] ?? "";
+  cachedTemplateRef = entries[id]
+    ? { template: entries[id]!.template, datasets: entries[id]!.datasets ?? {} }
+    : { template: entries["combined"]!.template, datasets: entries["combined"]!.datasets ?? {} };
+  return fetcher(input);
+};
 const currentTemp = ref<string | string[]>("delivery");
 const tempIds = computed(() =>
   currentTemp.value === "combined" ? ["combined", "card"] : currentTemp.value
@@ -128,6 +167,7 @@ const app = createApp({
           h("button", { onClick: () => pick("delivery") }, "出库单（96 行，多页）"),
           h("button", { onClick: () => pick("card") }, "工艺卡（LF 精炼）"),
           h("button", { onClick: () => pick("combined") }, "多模板拼接（出库单+工艺卡）"),
+          h("button", { onClick: () => void exportPdf() }, "导出 PDF（前端直出）"),
           h("div", { class: "info" }, [
             h("div", null, `sql-engine 演示渲染结果：`),
             h("div", { style: "word-break:break-all" }, sqlDemo.sql)
@@ -136,7 +176,7 @@ const app = createApp({
         h("div", { class: "main" }, [
           h(ReportPreview, {
             tempId: tempIds.value,
-            fetcher,
+            fetcher: fetcherWithCache,
             height: "100vh",
             key: String(tempIds.value)
           })

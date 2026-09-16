@@ -59,6 +59,9 @@ importers:
       '@mach-report/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@mach-report/pdf':
+        specifier: workspace:*
+        version: link:../../packages/pdf
       '@mach-report/sql-engine':
         specifier: workspace:*
         version: link:../../packages/sql-engine
