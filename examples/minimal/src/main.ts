@@ -2,8 +2,6 @@ import { createApp, h, ref, computed } from "vue";
 import { ReportPreview, createLocalFetcher } from "@mach-report/vue";
 import type { ReportTemplate } from "@mach-report/core";
 import { renderDynamicSql } from "@mach-report/sql-engine";
-import { renderPlanToPdf } from "@mach-report/pdf";
-import { paginateTemplate } from "@mach-report/core";
 
 let cachedTemplateRef: { template: ReportTemplate; datasets: Record<string, Record<string, unknown>[]> } | null = null;
 let cachedFontBytes: Uint8Array | null = null;
@@ -23,6 +21,10 @@ async function loadFont(): Promise<Uint8Array | null> {
 async function exportPdf(): Promise<void> {
   const entry = cachedTemplateRef;
   if (!entry) return;
+  const [{ renderPlanToPdf }, { paginateTemplate }] = await Promise.all([
+    import("@mach-report/pdf"),
+    import("@mach-report/core")
+  ]);
   const { plan } = paginateTemplate(entry.template, entry.datasets);
   const font = await loadFont();
   const { bytes } = await renderPlanToPdf(plan, font ? { customFontBytes: font } : {});
