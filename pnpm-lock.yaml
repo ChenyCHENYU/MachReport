@@ -103,6 +103,8 @@ importers:
         specifier: ^3.5.0
         version: 3.5.42(typescript@5.9.3)
 
+  packages/manager: {}
+
   packages/sql-engine:
     dependencies:
       '@mach-report/core':
