@@ -11,6 +11,7 @@ import {
 import type { PropType } from "vue";
 import type { RenderPlan } from "@mach-report/core";
 import { renderPage as renderPageToDom, renderPlan as renderPlanToDom } from "@mach-report/core";
+import { computePageWindow } from "@mach-report/core";
 import { normalizeTempIds, type PlanFetcher } from "./adapters";
 
 const props = defineProps({
@@ -47,9 +48,32 @@ const zoomMode = ref<"fit" | "raw">("fit");
 const currentPage = ref(1);
 const containerRef = ref<HTMLElement | null>(null);
 const viewportRef = ref<HTMLElement | null>(null);
+const scrollTop = ref(0);
+const viewportHeight = ref(800);
+const PAGE_GAP_PX = 18;
+const PX_PER_MM = 96 / 25.4;
 
 const tempIds = computed(() => normalizeTempIds(props.tempId));
 const pageCount = computed(() => plan.value?.pages.length ?? 0);
+const pageHeightsPx = computed(() =>
+  (plan.value?.pages ?? []).map((p) => p.pageHeightMm * PX_PER_MM)
+);
+const windowRange = computed(() =>
+  computePageWindow({
+    pageHeightsPx: pageHeightsPx.value,
+    viewportHeightPx: viewportHeight.value,
+    scrollTopPx: scrollTop.value,
+    gapPx: PAGE_GAP_PX,
+    overscan: 1
+  })
+);
+const visiblePages = computed(() => {
+  const p = plan.value;
+  if (!p) return [];
+  const { start, end } = windowRange.value;
+  if (end < start) return [];
+  return p.pages.slice(start, end + 1).map((page, i) => ({ page, index: start + i }));
+});
 
 function invalidate(): void {
   plan.value = null;
@@ -161,10 +185,15 @@ function openPdfWindow(): void {
 
 function gotoPage(n: number): void {
   if (pageCount.value <= 0) return;
-  currentPage.value = Math.max(1, Math.min(pageCount.value, n));
-  const viewport = viewportRef.value;
-  const target = viewport?.querySelectorAll(".mr-page")[currentPage.value - 1] as HTMLElement | undefined;
-  target?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const target = Math.max(1, Math.min(pageCount.value, n));
+  currentPage.value = target;
+  const vp = viewportRef.value;
+  if (!vp) return;
+  let offset = 0;
+  for (let i = 0; i < target - 1; i++) {
+    offset += pageHeightsPx.value[i]! + PAGE_GAP_PX;
+  }
+  vp.scrollTop = offset * zoom.value;
 }
 
 function applyFitZoom(): void {
@@ -194,13 +223,54 @@ watchEffect(() => {
   const scaleEl = containerRef.value;
   if (!scaleEl) return;
   const holders = scaleEl.querySelectorAll<HTMLElement>(".mrp-page-holder");
-  holders.forEach((holder, i) => {
-    const page = current.pages[i];
+  holders.forEach((holder) => {
+    const index = Number(holder.dataset.page ?? 0) - 1;
+    const page = current.pages[index];
     if (!page || holder.childElementCount > 0) return;
-    holder.style.width = `${(page.pageWidthMm * 96) / 25.4}px`;
+    holder.style.width = `${page.pageWidthMm * PX_PER_MM}px`;
     holder.appendChild(renderPageToDom(page, 96, {}, document));
   });
 }, { flush: "post" });
+
+let scrollRaf = 0;
+
+function onViewportScroll(): void {
+  if (scrollRaf) return;
+  scrollRaf = requestAnimationFrame(() => {
+    scrollRaf = 0;
+    const vp = viewportRef.value;
+    if (!vp) return;
+    scrollTop.value = vp.scrollTop;
+    viewportHeight.value = vp.clientHeight || 800;
+    syncCurrentPageFromScroll(vp);
+  });
+}
+
+function syncCurrentPageFromScroll(vp: HTMLElement): void {
+  if (pageCount.value <= 0) return;
+  const pageEls = vp.querySelectorAll<HTMLElement>(".mrp-page-holder");
+  if (!pageEls.length) return;
+  const threshold = vp.getBoundingClientRect().top + 56;
+  let next = 1;
+  pageEls.forEach((el) => {
+    const rect = el.getBoundingClientRect();
+    if (rect.top <= threshold) next = Number(el.dataset.page ?? 1);
+  });
+  currentPage.value = Math.max(1, Math.min(pageCount.value, next));
+}
+
+onMounted(() => {
+  window.addEventListener("resize", applyFitZoom);
+  const vp = viewportRef.value;
+  if (vp) viewportHeight.value = vp.clientHeight || 800;
+  if (props.autoLoad) void reload();
+});
+
+onUnmounted(() => {
+  window.removeEventListener("resize", applyFitZoom);
+  if (scrollRaf) cancelAnimationFrame(scrollRaf);
+  releasePrintFrame();
+});
 
 watch(
   () => [props.tempId, props.furnitureTempId, JSON.stringify(props.params)] as const,
@@ -215,16 +285,6 @@ watch(
     if (props.autoLoad) void reload();
   }
 );
-
-onMounted(() => {
-  window.addEventListener("resize", applyFitZoom);
-  if (props.autoLoad) void reload();
-});
-
-onUnmounted(() => {
-  window.removeEventListener("resize", applyFitZoom);
-  releasePrintFrame();
-});
 
 defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage });
 </script>
@@ -246,7 +306,7 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage });
       <button v-if="showPrint" class="mrp-nav" type="button" @click="print">打印</button>
       <button v-if="showPdfWindow" class="mrp-nav" type="button" @click="openPdfWindow">PDF 窗口</button>
     </div>
-    <div ref="viewportRef" class="mrp-body">
+    <div ref="viewportRef" class="mrp-body" @scroll.passive="onViewportScroll">
       <div v-if="loading" class="mrp-state">报表渲染中…</div>
       <div v-else-if="errorMessage" class="mrp-state mrp-error">
         {{ errorMessage }}
@@ -254,7 +314,24 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage });
       </div>
       <div v-else-if="!plan || pageCount === 0" class="mrp-state">暂无预览数据</div>
       <div v-else ref="containerRef" class="mrp-scale" :style="{ zoom: zoom }">
-        <div v-for="(page, i) in plan.pages" :key="i" class="mrp-page-holder" :data-page="i + 1" />
+        <div
+          v-if="windowRange.padTopPx > 0"
+          class="mrp-spacer-top"
+          :style="{ height: `${windowRange.padTopPx}px` }"
+          aria-hidden="true"
+        />
+        <div
+          v-for="item in visiblePages"
+          :key="item.index"
+          class="mrp-page-holder"
+          :data-page="item.index + 1"
+        />
+        <div
+          v-if="windowRange.padBottomPx > 0"
+          class="mrp-spacer-bottom"
+          :style="{ height: `${windowRange.padBottomPx}px` }"
+          aria-hidden="true"
+        />
       </div>
     </div>
   </div>
