@@ -5,3 +5,5 @@ coverage/
 .vite/
 .DS_Store
 Thumbs.db
+test-results/
+playwright-report/
