@@ -1,7 +1,7 @@
 # jh4j-cloud-report 逆向发现（持续更新）
 
 > 来源：SIT `https://ytiop-sit.walsin.com.cn:8443/sub/jh4j-cloud-report/assets/` 未压缩产物。
-> 已分析 chunk：remoteEntry、reportPreview、api-download、src-api-response、tags-view（含平台 bootstrap）、src-report-grid-renderer（106KB，渲染器核心）。
+> 已分析 chunk：remoteEntry、reportPreview、api-download、src-api-response、tags-view（含平台 bootstrap）、src-report-grid-renderer（106KB 渲染器核心）、designer（1.96MB 设计器全量）。
 
 ## 1. 组件模型（gridPlan → pages[].components[]）
 
@@ -67,10 +67,45 @@ emits: loaded(pageCount) / error(message)
 expose: reload / print / exportAs(format) / openPdfWindow / gotoPage(n)
 内部：watch JSON.stringify([tempId,furniture,params]) → autoLoad 时 reload；打印走 iframe+blob+30s 兜底；Excel 导出跳 /sheet/preview。
 
-## 6. 待逆向（M0 遗留）
+## 6. 模板存储与设计器（designer chunk 逆向，1.96MB 已分析）
 
-- [ ] 模板保存/读取 JSON 完整 schema（designer chunk，未拉）
-- [ ] 列表/发布/数据集 SQL 的接口出入参（reportList chunk 文件名哈希待重取）
-- [ ] furniture（页眉页脚）模板与主模板的合成规则
-- [ ] 多模板逗号串拼接时 gridPlan 的 pages 合并顺序与 furniture 继承
-- [ ] 导出 ZIP 内部结构
+### 保存链路
+- 模板保存：`PUT /report/codePrintReport/update`，body `{ id, code, name, content }`
+- `content` = `JSON.stringify(exportBackendPrintConfig(...))` —— 模板本体是序列化字符串
+- 读取：`/report/codePrintReport/getById`；数据集 `/report/codePrintReportDs/list`；参数 `/report/codePrintReportParam/list?reportId=&current=1&size=999`
+- 导入 Word/Excel 模板：`/report/codePrintReport/importTemplateContent`
+- **模板锁**（解决双标签页并发编辑）：`/report/codePrintReportLock/{acquire|heartbeat|release|status}`，心跳 40s
+
+### 模板 content JSON 结构（私有格式，PascalCase 混合）
+```ts
+// 根节点
+{
+  nid, uikey, ReportCreated: number(ts), pageTemplateCircle: true,
+  uitype: "tempContent", tenantPageCode: string, IsImgBGFlag, IsMainSubRelation,
+  GlobalConfig: {
+    paperSizeMode: "preset" | "custom", paperPreset: string,
+    paperWidthMm, paperHeightMm, marginTop/Bottom/Left/Right (mm),
+    backgroundImage, backgroundImageConfig,
+    watermarkEnabled, watermark: { text, textEn, dataType, fontFamily("黑体"),
+      fontTtf("SIMHEI.TTF"), fontSize(24), color, rotate(45), gapX(120), gapY(80) },
+    pageRepeatMode, pageRepeatCount(1..N), // 一单多打
+    ...batchPaperConfig
+  },
+  children: PageNode[]
+}
+
+// 页节点
+{
+  nid, uitype: "page", Unit: "mm", show: true, Printable: true,
+  PaperSize: preset名 | "Custom", width(mm), DesignHeight(mm),
+  MarginTop/Right/Bottom/Left(mm), marginTopMm,
+  "__print_pageheader_height": 0, "__print_pagefooter_height": 0,
+  uititle: 页名, uiisview: true,
+  children: ElementNode[]  // 按 zIndex 排序
+}
+```
+
+### 对 MachReport 的结论
+1. jh4j 模板是**私有历史格式**（PascalCase、魔法键名、`{pageNid}uititle` 动态键）——完整兼容成本高且无必要
+2. 策略确认：自研干净格式（ReportTemplate）为主，`importJh4jContent()` 单向转换器为辅（M3 里程碑）
+3. 模板锁机制值得复刻（40s 心跳 + acquire/release），解决手册 2.x 的双标签页痛点
