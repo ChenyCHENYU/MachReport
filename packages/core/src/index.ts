@@ -6,3 +6,4 @@ export * from "./layout/paginate";
 export * from "./render/dom";
 export * from "./render/window";
 export * from "./compat/jh4j-template";
+export * from "./builder/template-builder";
