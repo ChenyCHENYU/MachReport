@@ -1,0 +1,184 @@
+import { describe, expect, it, vi } from "vitest";
+import { mount } from "@vue/test-utils";
+import ReportPreview from "../ReportPreview.vue";
+import { createLocalFetcher } from "../local-adapter";
+import { createJh4jGridPlanFetcher, normalizeTempIds, joinTempIds } from "../adapters";
+import type { ReportTemplate } from "@mach-report/core";
+
+const demoTemplate: ReportTemplate = {
+  pages: [
+    {
+      widthMm: 210,
+      heightMm: 297,
+      marginTopMm: 12,
+      components: [
+        {
+          kind: "text",
+          leftMm: 70,
+          topMm: 3,
+          widthMm: 70,
+          heightMm: 10,
+          text: "MachReport 演示",
+          style: { fontSize: 14, bold: true, align: "center" }
+        },
+        {
+          kind: "list",
+          leftMm: 12,
+          topMm: 18,
+          widthMm: 186,
+          dataset: "rows",
+          fontSizePt: 10.5,
+          columns: [
+            { header: "序号", field: "no", widthMm: 30 },
+            { header: "物料", field: "name", widthMm: 90 },
+            { header: "数量", field: "qty", widthMm: 66 }
+          ]
+        }
+      ]
+    }
+  ]
+};
+
+function datasets(n: number) {
+  return {
+    rows: Array.from({ length: n }, (_, i) => ({
+      no: String(i + 1),
+      name: `物料-${i + 1}`,
+      qty: (i + 1) * 5
+    }))
+  };
+}
+
+describe("ReportPreview 契约", () => {
+  it("props 默认值与 jh4j 对齐", () => {
+    const wrapper = mount(ReportPreview, {
+      props: { fetcher: null, tempId: null }
+    });
+    expect(wrapper.props("height")).toBe("100vh");
+    expect(wrapper.props("autoLoad")).toBe(true);
+    expect(wrapper.props("showExport")).toBe(true);
+    expect(wrapper.props("showPrint")).toBe(true);
+    expect(wrapper.props("showPdfWindow")).toBe(true);
+    expect(wrapper.props("params")).toEqual({});
+  });
+
+  it("autoLoad 拉取计划并 emit loaded(pageCount)", async () => {
+    const fetcher = createLocalFetcher({
+      T1: { tempId: "T1", template: demoTemplate, datasets: datasets(30) }
+    });
+    const onLoaded = vi.fn();
+    const wrapper = mount(ReportPreview, {
+      props: { tempId: "T1", fetcher, onLoaded }
+    });
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain("报表预览");
+      expect(onLoaded).toHaveBeenCalled();
+    });
+    const pageCount = onLoaded.mock.calls[0]![0] as number;
+    expect(pageCount).toBeGreaterThanOrEqual(1);
+    await vi.waitFor(() => {
+      expect(wrapper.element.querySelectorAll(".mr-page").length).toBe(pageCount);
+    });
+    expect(wrapper.text()).toContain("MachReport 演示");
+    expect(wrapper.text()).toContain("物料-1");
+  });
+
+  it("tempId 变更自动重载（根治闪旧内容：先清空）", async () => {
+    const fetcher = createLocalFetcher({
+      A: { tempId: "A", template: demoTemplate, datasets: datasets(3) },
+      B: { tempId: "B", template: demoTemplate, datasets: datasets(60) }
+    });
+    const wrapper = mount(ReportPreview, { props: { tempId: "A", fetcher } });
+    await vi.waitFor(() => expect(wrapper.text()).toContain("物料-1"));
+    const pagesA = wrapper.element.querySelectorAll(".mr-page").length;
+
+    await wrapper.setProps({ tempId: "B" });
+    await vi.waitFor(() => {
+      const pagesB = wrapper.element.querySelectorAll(".mr-page").length;
+      expect(pagesB).toBeGreaterThan(pagesA);
+      expect(wrapper.text()).toContain("物料-60");
+    });
+  });
+
+  it("缺模板 ID 显示错误且 emit error", async () => {
+    const onError = vi.fn();
+    const wrapper = mount(ReportPreview, {
+      props: { tempId: null, fetcher: createLocalFetcher({}), onError }
+    });
+    await vi.waitFor(() => expect(onError).toHaveBeenCalled());
+    expect(wrapper.text()).toContain("缺少报表模板 ID");
+  });
+
+  it("fetcher 抛错显示错误态与重试按钮", async () => {
+    const failing = vi.fn().mockRejectedValue(new Error("后端超时"));
+    const onError = vi.fn();
+    const wrapper = mount(ReportPreview, {
+      props: { tempId: "X", fetcher: failing as any, onError }
+    });
+    await vi.waitFor(() => expect(onError).toHaveBeenCalled());
+    expect(wrapper.text()).toContain("后端超时");
+    expect(wrapper.find(".mrp-retry").exists()).toBe(true);
+  });
+
+  it("expose 契约方法齐全", () => {
+    const wrapper = mount(ReportPreview, { props: { tempId: null } });
+    const exposed = wrapper.vm as unknown as Record<string, unknown>;
+    for (const key of ["reload", "print", "exportAs", "openPdfWindow", "gotoPage"]) {
+      expect(typeof exposed[key]).toBe("function");
+    }
+  });
+
+  it("翻页按钮更新页码", async () => {
+    const fetcher = createLocalFetcher({
+      A: { tempId: "A", template: demoTemplate, datasets: datasets(120) }
+    });
+    const wrapper = mount(ReportPreview, { props: { tempId: "A", fetcher } });
+    await vi.waitFor(() =>
+      expect(wrapper.element.querySelectorAll(".mr-page").length).toBeGreaterThan(1)
+    );
+    expect(wrapper.text()).toMatch(/1 \/ \d+/);
+    const next = wrapper.findAll(".mrp-nav").find((b) => b.text().includes("下一页"))!;
+    await next.trigger("click");
+    await vi.waitFor(() => expect(wrapper.text()).toMatch(/2 \/ \d+/));
+  });
+});
+
+describe("tempId 规整", () => {
+  it("逗号串 / 数组 / 空值", () => {
+    expect(normalizeTempIds("A,B,C")).toEqual(["A", "B", "C"]);
+    expect(normalizeTempIds(["A", "B"])).toEqual(["A", "B"]);
+    expect(normalizeTempIds(" A , B ")).toEqual(["A", "B"]);
+    expect(normalizeTempIds(null)).toEqual([]);
+    expect(normalizeTempIds("")).toEqual([]);
+    expect(joinTempIds("A,B")).toBe("A,B");
+  });
+});
+
+describe("jh4j gridPlan 适配器", () => {
+  it("拼接查询参数并解析 200 响应", async () => {
+    const request = vi.fn().mockResolvedValue({
+      code: 200,
+      data: { pages: [{ pageWidthMm: 210, pageHeightMm: 297, components: [] }] }
+    });
+    const fetcher = createJh4jGridPlanFetcher({ request: request as any });
+    const plan = await fetcher({
+      tempIds: ["A", "B"],
+      furnitureTempId: "F1",
+      params: { id: "9", empty: "" }
+    });
+    expect(request).toHaveBeenCalledWith({
+      url: "/report/codePrintReport/gridPlan",
+      method: "get",
+      params: { tempId: "A,B", furnitureTempId: "F1", id: "9" }
+    });
+    expect(plan.pages).toHaveLength(1);
+  });
+
+  it("code!=200 抛错带 message", async () => {
+    const request = vi.fn().mockResolvedValue({ code: 500, message: "模板不存在" });
+    const fetcher = createJh4jGridPlanFetcher({ request: request as any });
+    await expect(
+      fetcher({ tempIds: ["X"], params: {} })
+    ).rejects.toThrowError("模板不存在");
+  });
+});

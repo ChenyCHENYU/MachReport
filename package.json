@@ -15,11 +15,15 @@
     "clean": "pnpm -r --if-present run clean"
   },
   "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.9",
     "happy-dom": "^17.0.0",
     "typescript": "^5.6.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "vue": "^3.5.42"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   }
 }
