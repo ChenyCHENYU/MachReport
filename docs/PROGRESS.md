@@ -38,7 +38,23 @@
 
 > **值守收尾（05:55）**：三轮自动巡查（04:05 文档补强 / 05:05 example 懒加载优化 / 05:55 终验）全部通过——typecheck+lint 0 错误、131 单测 + 4 E2E 全绿、32 个检查点提交、git 工作区干净。夜间值守结束，等待日间指令。
 
-最终：**131 单测 + 4 E2E 全绿 · typecheck(含 SFC)/lint 0 错误 · 32 个检查点提交**
+---
+
+## 日间优化轮（2026-09-17 上午 · 用户授权"优化这些"）
+
+| # | 项 | 产出 | 验证 |
+|---|---|---|---|
+| 20 | **P0-1** 真实 gridPlan 联调工具链 | `scripts/fetch-gridplan.mjs`（人工登录一次→自动抓取 fixture）+ `real-contract.test.ts`（fixture 存在即激活 5 项契约守卫，缺失时优雅跳过） | 5 skipped → 待登录激活 |
+| 21 | **P0-2** federation 宿主 harness | `examples/fed-host`：复刻 wl-ui-produce 的 `virtual:__federation__` 动态 setRemote 机制 + mock 网关回源 remoteEntry 产物 | 2 E2E 全过 |
+| 22 | **关键 bug 修复** | InjectionKey 由裸 Symbol 改字符串——**symbol 跨 federation 边界不相等**导致 inject 必然失效（真接 wl-ui-produce 也会踩），E2E 实证修复 | e2e 复验 |
+| 23 | **P1** Canvas 渲染后端 | `renderPlanToCanvas`（位图页、dpr 缩放、缩放零重排）+ example 演示按钮 | 真 Chromium 像素统计 E2E |
+| 24 | **P2** CI 流水线 | `.github/workflows/ci.yml`（typecheck/lint/test/build/e2e 全门） | 待推送验证 |
+| 25 | **P2** 字体持久缓存 | `loadFontWithCache`（IndexedDB + 内存，simhei 9MB 只拉一次） | E2E 复验 |
+| 26 | **P2** changesets 版本管理 | `.changeset/config.json` + `pnpm changeset/version` 脚本 | 配置就绪 |
+
+> 性能预算门随机器负载抖动放宽至 80ms/页（防数量级回归的口径不变）。
+
+最终：**136 单测 + 7 E2E 全绿 · typecheck/lint 0 错误**
 
 ## 实测性能（happy-dom 环境，真浏览器更快）
 

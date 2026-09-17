@@ -8,15 +8,16 @@
 
 | 能力 | 状态 |
 |---|---|
-| core 渲染引擎（分页/虚拟化/校验/渲染器/builder DSL） | ✅ 可用（分页 5k 行 56ms） |
+| core 渲染引擎（分页/虚拟化/校验/DOM+**Canvas 双后端**/builder DSL） | ✅ 可用（分页 5k 行 56ms） |
 | sql-engine 动态 SQL（三语法 + AST 级单 SELECT 校验） | ✅ 可用 |
 | vue 契约组件（props/事件/ref 1:1） | ✅ 可用 |
-| federation 入口（expose 对齐 + remoteEntry 产物） | ✅ 可用 |
+| federation 入口（expose 对齐 + remoteEntry 产物 + **宿主 harness 实证**） | ✅ 可用 |
 | jh4j 模板导入转换器 | ✅ 可用（逆向 schema 驱动） |
 | manager 管理端 API 客户端（含模板锁） | ✅ 可用 |
-| **PDF 前端直出（中文子集嵌入）** | ✅ 可用 |
-| E2E（真 Chromium，含 PDF 下载断言） | ✅ 4 specs |
-| 设计器画布 UI | 🚧 后续里程碑（见 docs/PROGRESS.md） |
+| **PDF 前端直出（中文子集嵌入 + IndexedDB 字体缓存）** | ✅ 可用 |
+| E2E（真 Chromium：渲染/翻页/PDF 下载/联邦宿主/Canvas 像素） | ✅ 7 specs |
+| 真实 gridPlan 契约联调 | 🟡 工具链就绪（`pnpm capture:gridplan` 登录一次即激活守卫） |
+| 设计器画布 UI | 🚧 后续里程碑 |
 
 ```bash
 pnpm install && pnpm test          # 106 单测全绿

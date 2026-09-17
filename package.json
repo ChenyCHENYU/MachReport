@@ -14,6 +14,9 @@
     "typecheck": "tsc -b tsconfig.json && vue-tsc --noEmit -p packages/vue/tsconfig.json && vue-tsc --noEmit -p packages/federation/tsconfig.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "capture:gridplan": "node scripts/fetch-gridplan.mjs",
     "clean": "pnpm -r --if-present run clean"
   },
   "devDependencies": {
