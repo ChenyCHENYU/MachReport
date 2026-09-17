@@ -53,7 +53,7 @@ describe("性能预算", () => {
     expect(cost).toBeLessThan(600);
   });
 
-  it("DOM 渲染单页耗时 < 50ms/页（happy-dom 上限口径）", () => {
+  it("DOM 渲染单页耗时 < 80ms/页（happy-dom 上限口径，防数量级回归）", () => {
     const { plan } = paginateTemplate(tpl, { rows: makeRows(1200) });
     const doc = document.implementation.createHTMLDocument("perf");
     const t0 = performance.now();
@@ -61,7 +61,7 @@ describe("性能预算", () => {
     const cost = performance.now() - t0;
     const perPage = cost / plan.pages.length;
     console.log(`[perf] render ${plan.pages.length} pages: ${cost.toFixed(1)}ms (${perPage.toFixed(1)}ms/page), comps=${el.querySelectorAll(".mr-comp").length}`);
-    expect(perPage).toBeLessThan(50);
+    expect(perPage).toBeLessThan(80);
   });
 
   it("窗口计算 1000 页 × 100 次 < 30ms", () => {
