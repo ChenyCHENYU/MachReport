@@ -4,29 +4,16 @@ import type { ReportTemplate } from "@mach-report/core";
 import { renderDynamicSql } from "@mach-report/sql-engine";
 
 let cachedTemplateRef: { template: ReportTemplate; datasets: Record<string, Record<string, unknown>[]> } | null = null;
-let cachedFontBytes: Uint8Array | null = null;
-
-async function loadFont(): Promise<Uint8Array | null> {
-  if (cachedFontBytes) return cachedFontBytes;
-  try {
-    const res = await fetch("/simhei.ttf");
-    if (!res.ok) return null;
-    cachedFontBytes = new Uint8Array(await res.arrayBuffer());
-    return cachedFontBytes;
-  } catch {
-    return null;
-  }
-}
 
 async function exportPdf(): Promise<void> {
   const entry = cachedTemplateRef;
   if (!entry) return;
-  const [{ renderPlanToPdf }, { paginateTemplate }] = await Promise.all([
+  const [{ renderPlanToPdf, loadFontWithCache }, { paginateTemplate }] = await Promise.all([
     import("@mach-report/pdf"),
     import("@mach-report/core")
   ]);
   const { plan } = paginateTemplate(entry.template, entry.datasets);
-  const font = await loadFont();
+  const font = await loadFontWithCache("/simhei.ttf");
   const { bytes } = await renderPlanToPdf(plan, font ? { customFontBytes: font } : {});
   const blob = new Blob([bytes as unknown as BlobPart], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
