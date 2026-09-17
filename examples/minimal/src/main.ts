@@ -24,6 +24,33 @@ async function exportPdf(): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
+async function showCanvas(): Promise<void> {
+  const entry = cachedTemplateRef;
+  if (!entry) return;
+  const { renderPlanToCanvas, paginateTemplate } = await import("@mach-report/core");
+  const { plan } = paginateTemplate(entry.template, entry.datasets);
+  const { canvases } = renderPlanToCanvas(plan, { dpr: 1 });
+  let overlay = document.getElementById("canvas-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "canvas-overlay";
+    overlay.style.cssText =
+      "position:fixed;inset:0;background:#323639;overflow:auto;z-index:999;padding:16px";
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = "";
+  overlay.appendChild(document.createElement("div"));
+  const info = document.createElement("div");
+  info.style.cssText = "position:sticky;top:0;background:#22252a;color:#eee;padding:6px 10px;font-size:12px";
+  info.textContent = `Canvas 位图渲染：${canvases.length} 页（data-canvas-render="done"）`;
+  overlay.appendChild(info);
+  for (const c of canvases) {
+    c.dataset.canvasRender = "done";
+    c.style.cssText = "display:block;margin:12px auto;box-shadow:0 2px 8px #0008";
+    overlay.appendChild(c);
+  }
+}
+
 const deliveryNote: ReportTemplate = {
   pages: [
     {
@@ -157,6 +184,7 @@ const app = createApp({
           h("button", { onClick: () => pick("card") }, "工艺卡（LF 精炼）"),
           h("button", { onClick: () => pick("combined") }, "多模板拼接（出库单+工艺卡）"),
           h("button", { onClick: () => void exportPdf() }, "导出 PDF（前端直出）"),
+          h("button", { onClick: () => void showCanvas() }, "Canvas 位图渲染"),
           h("div", { class: "info" }, [
             h("div", null, `sql-engine 演示渲染结果：`),
             h("div", { style: "word-break:break-all" }, sqlDemo.sql)
