@@ -1,6 +1,6 @@
 import { computed, ref, type Ref } from "vue";
-import type { PlanPage, RenderPlan } from "@agile-team/mach-report-core";
-import { computePageWindow } from "@agile-team/mach-report-core";
+import type { PlanPage, RenderPlan } from "@agile-team/mach-report";
+import { computePageWindow } from "@agile-team/mach-report";
 
 /**
  * 页级视口虚拟化（DOM 后端）。

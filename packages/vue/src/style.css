@@ -1,0 +1,2 @@
+/* 发布样式入口占位（源码消费模式下 SFC 样式随组件自动注入；
+ * 库构建后该文件被 dist/style.css 取代——见 package.json publishConfig） */

@@ -4,7 +4,7 @@ import ReportPreview from "../ReportPreview.vue";
 import { createLocalFetcher } from "../local-adapter";
 import { createJh4jGridPlanFetcher, normalizeTempIds, joinTempIds } from "../adapters";
 import type { PlanFetcher } from "../adapters";
-import type { ReportTemplate } from "@agile-team/mach-report-core";
+import type { ReportTemplate } from "@agile-team/mach-report";
 
 type MockRequest = (config: { url: string; method: string; params?: Record<string, string> }) => Promise<unknown>;
 

@@ -1,0 +1,48 @@
+{
+  "name": "@agile-team/mach-report",
+  "version": "0.3.0",
+  "description": "MachReport 报表引擎单包：RenderPlan 模型 + 分页 + DOM/Canvas/PDF 渲染 + 动态 SQL + 管理端 API（框架无关、子路径按需引入）",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./pdf": "./src/pdf.ts",
+    "./sql": "./src/sql.ts",
+    "./manager": "./src/manager.ts"
+  },
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./pdf": {
+        "types": "./dist/pdf.d.ts",
+        "default": "./dist/pdf.js"
+      },
+      "./sql": {
+        "types": "./dist/sql.d.ts",
+        "default": "./dist/sql.js"
+      },
+      "./manager": {
+        "types": "./dist/manager.d.ts",
+        "default": "./dist/manager.js"
+      }
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
+    "node-sql-parser": "^5.4.0",
+    "pdf-lib": "^1.17.1"
+  }
+}

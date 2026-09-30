@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 import { buildPrintDocument } from "../composables/usePrintExport";
-import { resolvePaper } from "@agile-team/mach-report-core";
-import type { RenderPlan } from "@agile-team/mach-report-core";
+import { resolvePaper } from "@agile-team/mach-report";
+import type { RenderPlan } from "@agile-team/mach-report";
 
 describe("buildPrintDocument（named pages 多纸张打印）", () => {
   it("混合纸张生成分组 @page 规则且页元素带 page 属性", () => {

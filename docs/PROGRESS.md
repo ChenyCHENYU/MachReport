@@ -3,7 +3,21 @@
 > 通宵自主执行模式 · 每个闭环 = 实现 → 测试 → 验证 → 检查点提交
 > 验证命令：`pnpm typecheck && pnpm lint && pnpm test && pnpm exec playwright test`
 
-## 优化轮 3（2026-09-30 下午 · 规模化与架构收敛，175 单测 + 9 E2E 全绿，发版 @mach-report 0.2.x）
+## 优化轮 4（2026-09-30 · 发布架构收敛为 mach-table 式单包，183 单测 + 9 E2E 全绿）
+
+**动因**：此前 core/pdf/sql-engine/manager 各发一个 npm 包，使用方要自己拼 4 个依赖，维护与心智成本高；对标 mach-table 家族"装一个包就行"的集中设计。
+
+| # | 项 | 产出 |
+|---|---|---|
+| 55 | **引擎单包 `@agile-team/mach-report`** | core+pdf+sql+manager 源码物理合并（src/{pdf,sql,manager}/ 子目录），exports 主入口 + `./pdf` `./sql` `./manager` 子路径（重依赖 pdf-lib/node-sql-parser 仅子路径引入）；tsc 单构建直出 4 份 d.ts+js |
+| 56 | **Vue 适配单包 `@agile-team/mach-report-vue`** | vite lib 构建（ES 单入口 + dist/style.css 样式出口 + vite-plugin-dts 含 .vue 类型）；vue 与引擎外部化，PDF 懒加载保留为运行时子路径导入；**装这一个包 = 全家桶**（依赖自动携带引擎） |
+| 57 | workspace 收敛 | packages 6 → 3（mach-report / mach-report-vue / federation），根 tsconfig 引用与全仓 import 同步收敛 |
+| 58 | 发布产物守卫 | 新增单包契约冒烟测试（主入口/子路径 API 面 + node 环境全量可加载=SSR 安全）；vue 发布产物测试（外部化断言 + d.ts/style.css 存在性 + 不含测试声明） |
+| 59 | npm 治理 | 旧 4+4 包（mach-report-core/pdf/sql-engine/manager 与首批泛名包）全部 deprecate 指向 `@agile-team/mach-report`；新包 `publishConfig.access=public` |
+
+> 联调口径：examples 已切到单包依赖（`@agile-team/mach-report` + `@agile-team/mach-report-vue`）。
+
+## 优化轮 3（2026-09-30 下午 · 规模化与架构收敛，175 单测 + 9 E2E 全绿，发版 @agile-team 0.2.x）
 
 | # | 项 | 产出 | 验证 |
 |---|---|---|---|
@@ -36,7 +50,7 @@
 | 36 | sql-engine 严谨化 | `#` 行注释剥离（排除 `#{`）；关键字校验剥离字符串字面量（`'put into box'` 不再误伤） | 3 个新单测 |
 | 37 | manager 锁丢失感知 | holdLock 心跳连续失败（默认 2 次）→ onLockLost 回调并停止心跳 | 2 个新单测（fake timers） |
 | 38 | print/PDF 窗口清理 | 打印 HTML 走 outerHTML 序列化（去 regex hack）；PDF 窗口 blob URL + 弹窗拦截提示 | E2E 复验 |
-| 39 | vue 导出双入口 | 「导出 HTML / 导出 PDF」按钮；PDF 走懒加载 @agile-team/mach-report-pdf（不影响主包体积），新增 pdfFontUrl prop | E2E + typecheck |
+| 39 | vue 导出双入口 | 「导出 HTML / 导出 PDF」按钮；PDF 走懒加载 @agile-team/mach-report/pdf（不影响主包体积），新增 pdfFontUrl prop | E2E + typecheck |
 | 40 | 工程化 | root `type:module`；lint any 清零；CI ubuntu + HTML 报告 artifact；core/sql-engine/manager 真实 dist 构建（tsconfig.build.json + publishConfig + files，产物不含测试） | `pnpm -r build` ✓ |
 | 41 | 性能增量 | computePageWindow 前缀和+二分（gapPx 口径）；paginate cellText 双调用消除；font-loader 并发去重（in-flight 共享） | window 单测 + 既有预算门 |
 
@@ -106,7 +120,7 @@
 
 ## 已完成能力清单
 
-### core (@agile-team/mach-report-core)
+### core (@agile-team/mach-report)
 - [x] RenderPlan schema（对齐 jh4j gridPlan 逆向结构）
 - [x] mm↔px↔pt 单位系统 + 纸张尺寸表
 - [x] 近似文本测量（CJK/拉丁宽度模型）与折行
@@ -117,7 +131,7 @@
 - [x] **RenderPlan 校验器**：error/warning 分级、JSON path 行级定位、坏数据防御
 - [x] **jh4j 模板导入转换器**：逆向 schema（GlobalConfig/PageNode/ElementNode）→ ReportTemplate，未知降级+告警不抛错
 
-### sql-engine (@agile-team/mach-report-sql-engine)
+### sql-engine (@agile-team/mach-report/sql)
 - [x] `#{}`/`${}`/`{if(cond,a,b)}` 全语法（手册三范式 + 嵌套 if 回退再编译）
 - [x] 表达式求值器：isEmpty/==/!=/+、双引号字符串、`\{` 转义、括号嵌套
 - [x] 单 SELECT 结构校验：注释剥离/多语句/DML/DDL/SELECT INTO 拒绝

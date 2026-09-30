@@ -1,5 +1,5 @@
-import { paginateTemplate } from "@agile-team/mach-report-core";
-import type { ReportTemplate } from "@agile-team/mach-report-core";
+import { paginateTemplate } from "@agile-team/mach-report";
+import type { ReportTemplate } from "@agile-team/mach-report";
 import type { PlanFetcher } from "./adapters";
 import { PlanLoadError } from "./adapters";
 

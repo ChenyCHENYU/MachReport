@@ -5,8 +5,8 @@ import { inject } from "vue";
 import { MACH_REPORT_FETCHER_KEY } from "@agile-team/mach-report-vue";
 import type { PlanFetcher } from "@agile-team/mach-report-vue";
 import { normalizeTempIds } from "@agile-team/mach-report-vue";
-import { renderPlan as renderPlanToDom } from "@agile-team/mach-report-core";
-import { validateRenderPlan } from "@agile-team/mach-report-core";
+import { renderPlan as renderPlanToDom } from "@agile-team/mach-report";
+import { validateRenderPlan } from "@agile-team/mach-report";
 
 const props = defineProps({
   tempId: {

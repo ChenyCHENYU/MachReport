@@ -4,29 +4,26 @@
 
 > Mach 家族命名对齐：MachTable（数据表格）→ **MachReport**（打印报表）。
 
-## 当前状态（2026-09-30 优化轮 v0.4 · 已发 npm）
+## 当前状态（2026-09-30 v0.4 · 单包架构已发 npm）
+
+> 发布形态对齐 mach-table 家族：**业务侧装一个包** `@agile-team/mach-report-vue`（自动携带引擎）；
+> 框架无关/Node 侧用 `@agile-team/mach-report`（`./pdf` `./sql` `./manager` 子路径按需引入）。
 
 | 能力 | 状态 |
 |---|---|
-| core 渲染引擎（分页/虚拟化/校验/DOM+Canvas 双后端/builder DSL/共享网格几何与样式解析/TextMeasurer 注入） | ✅ 可用（5k 行分页 ~57ms，热路径零逐行对象分配） |
+| 引擎单包（分页/虚拟化/校验/DOM+Canvas 双后端/builder DSL/共享几何与样式解析/TextMeasurer 注入/PDF 直出/动态 SQL/管理端 API） | ✅ 可用（5k 行分页 ~57ms，热路径零逐行分配） |
 | **Canvas 窗口化分页器**（画布池 + 分帧，内存 O(窗口) 而非 O(总页数)） | ✅ 可用（E2E 实证：滚动复用不增长） |
-| sql-engine 动态 SQL（三语法 + AST 级单 SELECT 校验 + 字符串字面量防误伤） | ✅ 可用 |
-| vue 契约组件（props/事件/ref 1:1 + 竞态防护 + transform 缩放 + **插件一次注入** + CSS 变量主题） | ✅ 可用 |
+| Vue 适配单包（契约组件 props/事件/ref 1:1 + 竞态防护 + transform 缩放 + **插件一次注入** + CSS 变量主题） | ✅ 可用 |
 | federation 入口（expose 对齐 + remoteEntry 产物 + **宿主 harness 实证**） | ✅ 可用 |
-| jh4j 模板导入转换器 | ✅ 可用（逆向 schema 驱动） |
-| manager 管理端 API 客户端（含模板锁 holdLock 锁丢失感知） | ✅ 可用 |
-| **PDF 前端直出**（中文子集嵌入 + IndexedDB 字体缓存 + 单元格样式/富文本降级/图片嵌入） | ✅ 可用 |
-| 打印管线（流式分块写入 + named pages 混合纸张） | ✅ 可用 |
+| jh4j 模板导入转换器 / 打印管线（流式分块 + named pages 混合纸张） | ✅ 可用 |
 | E2E（真 Chromium：渲染/翻页/缩放矩阵/PDF 下载/联邦宿主/Canvas 结构化像素/窗口化分页器） | ✅ 9 specs（0 重试稳定） |
 | 真实 gridPlan 契约联调 | 🟡 工具链就绪（`pnpm capture:gridplan` 登录一次即激活守卫） |
 | 设计器画布 UI | 🚧 后续里程碑 |
 
 ```bash
-pnpm install && pnpm test          # 175 单测全绿
+pnpm install && pnpm test          # 183 单测全绿
 pnpm --filter @agile-team/example-minimal dev   # 演示：localhost:8610
 ```
-
-npm 包（dist 产物 + 类型）：`@agile-team/mach-report-core` `@agile-team/mach-report-sql-engine` `@agile-team/mach-report-manager` `@agile-team/mach-report-pdf`（vue/federation 走源码 workspace 消费，待 vite lib 构建后开放发布）。
 
 详见：[docs/PROGRESS.md](docs/PROGRESS.md)（迭代日志/决策记录）· [docs/API.md](docs/API.md)（接入速查）· [docs/reverse-findings.md](docs/reverse-findings.md)（jh4j 逆向）。
 
@@ -34,11 +31,16 @@ npm 包（dist 产物 + 类型）：`@agile-team/mach-report-core` `@agile-team/
 
 ## 快速上手
 
-### 1) 插件一次注册（推荐，业务侧一行使用）
+### 安装一个包（Vue 业务项目，推荐）
+
+```bash
+pnpm add @agile-team/mach-report-vue
+```
 
 ```ts
 import { createApp } from "vue";
 import { ReportPreview, machReportPlugin } from "@agile-team/mach-report-vue";
+import "@agile-team/mach-report-vue/style.css";
 import axios from "axios";
 
 createApp(App)
@@ -49,14 +51,27 @@ createApp(App)
   })
   .mount("#app");
 
-// 任意业务页面：不传 fetcher 自动用插件注入的数据面
+// 任意业务页面：一行使用（不传 fetcher 自动用插件注入的数据面）
 <ReportPreview temp-id="CK_TEMPLATE_001" :params="{ id: '9' }" />
 ```
 
-### 2) 本地模板（离线/单测）
+### 框架无关 / Node 侧（引擎单包，子路径按需）
+
+```bash
+pnpm add @agile-team/mach-report
+```
 
 ```ts
-import { createTemplate } from "@agile-team/mach-report-core";
+import { createTemplate, paginateTemplate } from "@agile-team/mach-report";
+import { renderPlanToPdf } from "@agile-team/mach-report/pdf";              // PDF 直出
+import { renderDynamicSql } from "@agile-team/mach-report/sql";             // 动态 SQL
+import { createReportAdminClient } from "@agile-team/mach-report/manager";  // 管理端 API
+```
+
+### 本地模板（离线/单测）
+
+```ts
+import { createTemplate } from "@agile-team/mach-report";
 import { createLocalFetcher } from "@agile-team/mach-report-vue";
 
 const template = createTemplate()
@@ -73,10 +88,10 @@ const fetcher = createLocalFetcher({
 });
 ```
 
-### 3) 大报表 Canvas 渲染（窗口化）
+### 大报表 Canvas 渲染（窗口化）
 
 ```ts
-import { createCanvasPager } from "@agile-team/mach-report-core";
+import { createCanvasPager } from "@agile-team/mach-report";
 const pager = createCanvasPager(plan, { dpr: window.devicePixelRatio, overscan: 1 });
 pager.attach(scrollContainer);   // 视口窗口 + 画布池复用 + 每帧限量绘制
 pager.destroy();                 // 卸载释放

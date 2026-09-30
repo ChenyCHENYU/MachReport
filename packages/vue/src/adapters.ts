@@ -1,4 +1,4 @@
-import type { RenderPlan } from "@agile-team/mach-report-core";
+import type { RenderPlan } from "@agile-team/mach-report";
 
 export type TempIdInput = string | string[] | null | undefined;
 

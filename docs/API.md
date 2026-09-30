@@ -53,11 +53,11 @@ app.use(machReportPlugin, {
 
 主题：工具栏/外壳颜色走 CSS 变量 `--mrp-shell-bg / --mrp-toolbar-bg / --mrp-btn-*`，宿主覆写即可对齐设计系统。
 
-## @agile-team/mach-report-core — 引擎
+## @agile-team/mach-report — 引擎
 
 ```ts
 import { paginateTemplate, renderPlan, computePageWindow,
-         validateRenderPlan, importJh4jTemplateContent } from "@agile-team/mach-report-core";
+         validateRenderPlan, importJh4jTemplateContent } from "@agile-team/mach-report";
 
 const { plan, warnings } = paginateTemplate(template, datasets);   // 模板+数据 → RenderPlan
 // paginateTemplate(template, datasets, { measurer, mmPerRow })    // 可注入文本测量器
@@ -72,7 +72,7 @@ Template 模型：`pages[].components[]`，静态组件（text/rect/line/ellipse
 ### Canvas 窗口化分页器（大报表必用）
 
 ```ts
-import { createCanvasPager, renderPlanToCanvas } from "@agile-team/mach-report-core";
+import { createCanvasPager, renderPlanToCanvas } from "@agile-team/mach-report";
 
 // 小报表：一次性渲染（可传 start/end 区间）
 const { canvases } = renderPlanToCanvas(plan, { dpr: 2, start: 0, end: 3 });
@@ -87,7 +87,7 @@ pager.destroy();
 ### 文本测量器（三端折行一致性的开关）
 
 ```ts
-import { createCanvasMeasurer, heuristicMeasurer, paginateTemplate } from "@agile-team/mach-report-core";
+import { createCanvasMeasurer, heuristicMeasurer, paginateTemplate } from "@agile-team/mach-report";
 
 const measurer = createCanvasMeasurer(() => someCanvas.getContext("2d")); // 浏览器真字体
 const { plan } = paginateTemplate(template, data, { measurer });          // 分页与 PDF/Canvas 共用
@@ -96,7 +96,7 @@ const { plan } = paginateTemplate(template, data, { measurer });          // 分
 ### 模板构建器 DSL（推荐替代手写 JSON）
 
 ```ts
-import { createTemplate } from "@agile-team/mach-report-core";
+import { createTemplate } from "@agile-team/mach-report";
 
 const template = createTemplate()                    // 单页快路径：链式直接 build
   .page("a4", { landscape: true, margins: { marginTopMm: 12 } })   // 纸张预设（a3/a4/a5/b4/b5）
@@ -114,15 +114,15 @@ const template = createTemplate()                    // 单页快路径：链式
 ### jh4j 模板导入
 
 ```ts
-import { importJh4jTemplateContent } from "@agile-team/mach-report-core";
+import { importJh4jTemplateContent } from "@agile-team/mach-report";
 const { template, warnings } = importJh4jTemplateContent(jh4jContentJsonOrString);
 // 文本/表格/线条/形状完整转换；图片类降级为占位；富文本降级纯文本；未知类型告警跳过，永不抛错
 ```
 
-## @agile-team/mach-report-manager — 管理端 API 客户端
+## @agile-team/mach-report/manager — 管理端 API 客户端
 
 ```ts
-import { createReportAdminClient } from "@agile-team/mach-report-manager";
+import { createReportAdminClient } from "@agile-team/mach-report/manager";
 
 const admin = createReportAdminClient({ request: platformRequest });  // 注入平台 request
 await admin.listReports({ keyword: "出库" });        // 模板列表
@@ -136,20 +136,20 @@ await admin.listDatasets(id); await admin.listParams(id);
 await admin.holdLock(reportId, async () => { /* 编辑保存 */ });
 ```
 
-## @agile-team/mach-report-pdf — 前端矢量 PDF 直出
+## @agile-team/mach-report/pdf — 前端矢量 PDF 直出
 
 ```ts
-import { renderPlanToPdf } from "@agile-team/mach-report-pdf";
+import { renderPlanToPdf } from "@agile-team/mach-report/pdf";
 
 const fontBytes = new Uint8Array(await (await fetch("/simhei.ttf")).arrayBuffer());
 const { bytes } = await renderPlanToPdf(plan, { customFontBytes: fontBytes });  // 子集嵌入中文字体
 // bytes → Blob → 下载；未提供字体时降级 Helvetica（CJK 计入 unsupportedTextCount 不崩溃）
 ```
 
-## @agile-team/mach-report-sql-engine — 动态 SQL
+## @agile-team/mach-report/sql — 动态 SQL
 
 ```ts
-import { compileDynamicSql, renderDynamicSql } from "@agile-team/mach-report-sql-engine";
+import { compileDynamicSql, renderDynamicSql } from "@agile-team/mach-report/sql";
 
 const c = compileDynamicSql(
   "select * from t where 1=1 {if(isEmpty(#id), \"\", \"and id = #{id}\")}"

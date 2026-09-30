@@ -5,7 +5,7 @@ import {
   __federation_method_getRemote as getRemote
 } from "virtual:__federation__";
 import { createLocalFetcher, MACH_REPORT_FETCHER_KEY } from "@agile-team/mach-report-vue";
-import { createTemplate } from "@agile-team/mach-report-core";
+import { createTemplate } from "@agile-team/mach-report";
 
 /**
  * 宿主动态加载远程组件 —— 与 wl-ui-produce util/system.ts 相同机制：
