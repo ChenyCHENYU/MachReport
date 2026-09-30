@@ -4,7 +4,7 @@ import {
   __federation_method_setRemote as setRemote,
   __federation_method_getRemote as getRemote
 } from "virtual:__federation__";
-import { createLocalFetcher, MACH_REPORT_FETCHER_KEY } from "@agile-team/mach-report-vue";
+import { createLocalFetcher, MACH_REPORT_FETCHER_KEY } from "@agile-team/mach-report/vue";
 import { createTemplate } from "@agile-team/mach-report";
 
 /**

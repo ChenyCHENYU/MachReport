@@ -12,7 +12,7 @@
     "build": "pnpm -r --if-present run build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -b tsconfig.json && vue-tsc --noEmit -p packages/vue/tsconfig.json && vue-tsc --noEmit -p packages/federation/tsconfig.json",
+    "typecheck": "tsc -b tsconfig.json && vue-tsc --noEmit -p packages/mach-report && vue-tsc --noEmit -p packages/federation",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "changeset": "changeset",

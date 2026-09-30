@@ -17,8 +17,7 @@
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
-    "@agile-team/mach-report": "workspace:*",
-    "@agile-team/mach-report-vue": "workspace:*"
+    "@agile-team/mach-report": "workspace:*"
   },
   "peerDependencies": {
     "vue": "^3.2.0"

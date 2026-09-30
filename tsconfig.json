@@ -2,7 +2,6 @@
   "files": [],
   "references": [
     { "path": "./packages/mach-report" },
-    { "path": "./packages/vue" },
     { "path": "./packages/federation" }
   ]
 }

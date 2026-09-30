@@ -3,6 +3,18 @@
 > 通宵自主执行模式 · 每个闭环 = 实现 → 测试 → 验证 → 检查点提交
 > 验证命令：`pnpm typecheck && pnpm lint && pnpm test && pnpm exec playwright test`
 
+## 优化轮 6（2026-09-30 · 终态单包：一个包覆盖全部能力，205 单测 + 9 E2E 全绿）
+
+**动因**：用户决策——目录架构 + 子路径导出替代分包，消灭多包版本同步/双 CHANGELOG/跨包依赖的维护成本。
+
+| # | 项 | 产出 |
+|---|---|---|
+| 68 | **单包合并** | vue 适配层源码并入引擎包 `src/vue/`（子路径域）；workspace 3 包 → 2 包（mach-report + federation 内部件）；npm 只剩 `@agile-team/mach-report` 一个包 |
+| 69 | **框架零耦合保证** | `./vue` `./vue/async` `./vue/style.css` 子路径导出；vue 声明为 **optional peer**（pnpm/npm 均不给非 Vue 宿主自动装 vue）；eslint 边界规则扩至禁 core→vue；产物守卫断言主入口零 vue import |
+| 70 | **自引用（self-reference）** | vue 入口静态依赖引擎、PDF 懒加载 `./pdf` 均走包名自引用——运行时经本包 exports 解析，引擎代码全局单份、构建外部化零内联 |
+| 71 | 统一构建 | 六入口（index/pdf/sql/manager/vue/vue-async）× ESM/CJS 单 vite 构建（tsup 退役）；dts 含 .vue 声明 + 入口级 .d.cts；style.css 单一样式出口 |
+| 72 | 发版 | mach-report 0.6.0；mach-report-vue（0.2.0/0.3.0）deprecate 指向 `@agile-team/mach-report/vue` 并从 npm 删除 |
+
 ## 优化轮 5（2026-09-30 · 安装收敛到 2 包 + 配置化对齐 mach-table，201 单测 + 9 E2E 全绿）
 
 **动因**：对标审查发现安装为 5 个实体包（table 为 2 个），且插件配置面不及 mach-table-vue 的 defineConfig/presets/async 体验。
@@ -25,12 +37,12 @@
 | # | 项 | 产出 |
 |---|---|---|
 | 55 | **引擎单包 `@agile-team/mach-report`** | core+pdf+sql+manager 源码物理合并（src/{pdf,sql,manager}/ 子目录），exports 主入口 + `./pdf` `./sql` `./manager` 子路径（重依赖 pdf-lib/node-sql-parser 仅子路径引入）；tsc 单构建直出 4 份 d.ts+js |
-| 56 | **Vue 适配单包 `@agile-team/mach-report-vue`** | vite lib 构建（ES 单入口 + dist/style.css 样式出口 + vite-plugin-dts 含 .vue 类型）；vue 与引擎外部化，PDF 懒加载保留为运行时子路径导入；**装这一个包 = 全家桶**（依赖自动携带引擎） |
+| 56 | **Vue 适配单包 `@agile-team/mach-report/vue`** | vite lib 构建（ES 单入口 + dist/style.css 样式出口 + vite-plugin-dts 含 .vue 类型）；vue 与引擎外部化，PDF 懒加载保留为运行时子路径导入；**装这一个包 = 全家桶**（依赖自动携带引擎） |
 | 57 | workspace 收敛 | packages 6 → 3（mach-report / mach-report-vue / federation），根 tsconfig 引用与全仓 import 同步收敛 |
 | 58 | 发布产物守卫 | 新增单包契约冒烟测试（主入口/子路径 API 面 + node 环境全量可加载=SSR 安全）；vue 发布产物测试（外部化断言 + d.ts/style.css 存在性 + 不含测试声明） |
 | 59 | npm 治理 | 旧 4+4 包（mach-report-core/pdf/sql-engine/manager 与首批泛名包）全部 deprecate 指向 `@agile-team/mach-report`；新包 `publishConfig.access=public` |
 
-> 联调口径：examples 已切到单包依赖（`@agile-team/mach-report` + `@agile-team/mach-report-vue`）。
+> 联调口径：examples 已切到单包依赖（`@agile-team/mach-report` + `@agile-team/mach-report/vue`）。
 
 ## 优化轮 3（2026-09-30 下午 · 规模化与架构收敛，175 单测 + 9 E2E 全绿，发版 @agile-team 0.2.x）
 
@@ -152,7 +164,7 @@
 - [x] 单 SELECT 结构校验：注释剥离/多语句/DML/DDL/SELECT INTO 拒绝
 - [x] 缺参容错（NULL 绑定+告警）；200 动态条件稳定性
 
-### vue (@agile-team/mach-report-vue)
+### vue (@agile-team/mach-report/vue)
 - [x] ReportPreview 契约组件：props/emits/expose 与 jh4j 1:1
 - [x] 换单据先清空再渲染（根治闪旧内容）；错误态+重试
 - [x] jh4j gridPlan 适配器（request 注入）+ 本地适配器（core 直出）

@@ -1,5 +1,5 @@
 import { createApp, h, ref, computed } from "vue";
-import { ReportPreview, createLocalFetcher, machReportPlugin } from "@agile-team/mach-report-vue";
+import { ReportPreview, createLocalFetcher, machReportPlugin } from "@agile-team/mach-report/vue";
 import type { ReportTemplate } from "@agile-team/mach-report";
 import { renderDynamicSql } from "@agile-team/mach-report/sql";
 

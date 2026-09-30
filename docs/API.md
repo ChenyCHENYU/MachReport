@@ -2,12 +2,12 @@
 
 > 面向接入方的一页纸。完整类型见各包 `src/`。
 
-## @agile-team/mach-report-vue — 业务接入（最常用）
+## @agile-team/mach-report/vue — 业务接入（最常用）
 
 ```vue
 <script setup lang="ts">
-import ReportPreview from "@agile-team/mach-report-vue";
-import { createLocalFetcher, createJh4jGridPlanFetcher } from "@agile-team/mach-report-vue";
+import ReportPreview from "@agile-team/mach-report/vue";
+import { createLocalFetcher, createJh4jGridPlanFetcher } from "@agile-team/mach-report/vue";
 
 // 方式 A：本地模板 + 数据（离线/单测/无后端）
 const fetcher = createLocalFetcher({
@@ -44,7 +44,7 @@ emits：`loaded(pageCount)` / `error(message)`；ref：`reload / print / exportA
 ### 插件（零配置可用：一次注册，业务页面一行使用）
 
 ```ts
-import { machReportPlugin } from "@agile-team/mach-report-vue";
+import { machReportPlugin } from "@agile-team/mach-report/vue";
 
 app.use(machReportPlugin);       // 零配置：全局 fetch 同源直连 jh4j 端点
 app.use(machReportPlugin, {
@@ -62,7 +62,7 @@ app.use(machReportPlugin, {
 import {
   defineMachReportConfig,
   defineMachReportPreset
-} from "@agile-team/mach-report-vue";
+} from "@agile-team/mach-report/vue";
 
 export default defineMachReportConfig({
   defaults: {
@@ -81,7 +81,7 @@ export default defineMachReportConfig({
 ```vue
 <script setup>
 // 某路由关闭打印按钮（不影响全局）
-import { provideMachReportConfig } from "@agile-team/mach-report-vue";
+import { provideMachReportConfig } from "@agile-team/mach-report/vue";
 provideMachReportConfig({ showPrint: false, messages: { title: "工艺卡" } });
 </script>
 ```
@@ -89,7 +89,7 @@ provideMachReportConfig({ showPrint: false, messages: { title: "工艺卡" } });
 ### 异步入口（首屏敏感页面）
 
 ```ts
-import AsyncMachReportPlugin, { preloadMachReport } from "@agile-team/mach-report-vue/async";
+import AsyncMachReportPlugin, { preloadMachReport } from "@agile-team/mach-report/vue/async";
 app.use(AsyncMachReportPlugin, { baseUrl: "/sub/mach-report" });
 void preloadMachReport();   // 路由 hover 预取组件分片
 // 模板：<MachReportPreview temp-id="X" />

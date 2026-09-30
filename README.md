@@ -4,15 +4,17 @@
 
 > Mach 家族命名对齐：MachTable（数据表格）→ **MachReport**（打印报表）。
 
-## 当前状态（2026-09-30 v0.5 · 单包零依赖已发 npm）
+## 当前状态（2026-09-30 v0.6 · 单包架构已发 npm）
 
-> 发布形态对齐 mach-table 家族：**安装 = 恰好 2 个包**（vue 适配包 + 引擎单包，引擎零运行时依赖——pdf-lib/node-sql-parser 打进 `./pdf` `./sql` 子路径产物，不装不进依赖图）。
+> **只有一个包：`@agile-team/mach-report`。** 框架组件走 `./vue` 子路径（vue 为可选 peer，
+> 非 Vue 宿主不会装 vue）；重依赖打进 `./pdf` `./sql` 子路径产物（不导入不进依赖图）；
+> 零运行时依赖、ESM+CJS 双格式、单一版本号。
 
 | 能力 | 状态 |
 |---|---|
-| 引擎单包（分页/虚拟化/校验/DOM+Canvas 双后端/builder DSL/共享几何与样式解析/TextMeasurer 注入/PDF 直出/动态 SQL/管理端 API） | ✅ 可用（5k 行分页 ~57ms，热路径零逐行分配） |
+| 引擎（分页/虚拟化/校验/DOM+Canvas 双后端/builder DSL/共享几何与样式解析/TextMeasurer 注入/PDF 直出/动态 SQL/管理端 API） | ✅ 可用（5k 行分页 ~57ms，热路径零逐行分配） |
 | **Canvas 窗口化分页器**（画布池 + 分帧，内存 O(窗口) 而非 O(总页数)） | ✅ 可用（E2E 实证：滚动复用不增长） |
-| Vue 适配单包（契约组件 + **零配置插件** + **配置中心（presets/文案/主题）** + `./async` 异步入口 + transform 缩放） | ✅ 可用 |
+| `./vue` 框架子路径（契约组件 + 零配置插件 + 配置中心 presets/文案/主题 + `./vue/async` 异步入口 + transform 缩放） | ✅ 可用 |
 | federation 入口（expose 对齐 + remoteEntry 产物 + **宿主 harness 实证**） | ✅ 可用 |
 | jh4j 模板导入转换器 / 打印管线（流式分块 + named pages 混合纸张） | ✅ 可用 |
 | E2E（真 Chromium：渲染/翻页/缩放矩阵/PDF 下载/联邦宿主/Canvas 结构化像素/窗口化分页器） | ✅ 9 specs（0 重试稳定） |
@@ -20,7 +22,7 @@
 | 设计器画布 UI | 🚧 后续里程碑 |
 
 ```bash
-pnpm install && pnpm test          # 201 单测全绿
+pnpm install && pnpm test          # 205 单测全绿
 pnpm --filter @agile-team/example-minimal dev   # 演示：localhost:8610
 ```
 
@@ -30,18 +32,18 @@ pnpm --filter @agile-team/example-minimal dev   # 演示：localhost:8610
 
 ## 快速上手
 
-### 安装（Vue 业务项目：恰好 2 个包）
+### 安装一个包（Vue 业务项目）
 
 ```bash
-pnpm add @agile-team/mach-report-vue   # 自动携带 @agile-team/mach-report（引擎零依赖）
+pnpm add @agile-team/mach-report    # 唯一依赖；vue 是可选 peer（宿主已有）
 ```
 
 **零配置（同源 jh4j 部署——无 axios、无胶水代码）：**
 
 ```ts
 import { createApp } from "vue";
-import { ReportPreview, machReportPlugin } from "@agile-team/mach-report-vue";
-import "@agile-team/mach-report-vue/style.css";
+import { ReportPreview, machReportPlugin } from "@agile-team/mach-report/vue";
+import "@agile-team/mach-report/vue/style.css";
 
 createApp(App).use(machReportPlugin).mount("#app");
 
@@ -53,7 +55,7 @@ createApp(App).use(machReportPlugin).mount("#app");
 
 ```ts
 // src/config/mach-report.config.ts
-import { defineMachReportConfig, defineMachReportPreset } from "@agile-team/mach-report-vue";
+import { defineMachReportConfig, defineMachReportPreset } from "@agile-team/mach-report/vue";
 
 export default defineMachReportConfig({
   defaults: {
@@ -75,22 +77,18 @@ app.use(machReportPlugin, { request: axios, baseUrl: "/sub/mach-report", config:
 // 或零依赖 fetch 适配：app.use(machReportPlugin, { baseUrl: "/sub/mach-report" })
 ```
 
-优先级：**组件 props > 路由级 `provideMachReportConfig(overlay)` > preset > defaults > 内置缺省**（对齐 mach-table 配置中心约定）。
+优先级：**组件 props > 路由级 `provideMachReportConfig(overlay)` > preset > defaults > 内置缺省**。
 
 **首屏敏感页面（异步入口）：**
 
 ```ts
-import AsyncMachReportPlugin, { preloadMachReport } from "@agile-team/mach-report-vue/async";
+import AsyncMachReportPlugin, { preloadMachReport } from "@agile-team/mach-report/vue/async";
 app.use(AsyncMachReportPlugin, { baseUrl: "/sub/mach-report" });
 void preloadMachReport(); // 可选：路由 hover 时预取组件分片
 // 模板：<MachReportPreview temp-id="X" />
 ```
 
-### 框架无关 / Node 侧（引擎单包，子路径按需）
-
-```bash
-pnpm add @agile-team/mach-report    # 零运行时依赖；ESM + CJS 双格式
-```
+### 框架无关 / Node 侧（同一包，子路径按需）
 
 ```ts
 import { createTemplate, paginateTemplate } from "@agile-team/mach-report";
@@ -103,7 +101,7 @@ import { createReportAdminClient } from "@agile-team/mach-report/manager";  // �
 
 ```ts
 import { createTemplate } from "@agile-team/mach-report";
-import { createLocalFetcher } from "@agile-team/mach-report-vue";
+import { createLocalFetcher } from "@agile-team/mach-report/vue";
 
 const template = createTemplate()
   .page("a4", { landscape: true, margins: { marginTopMm: 12 } })   // 纸张预设 + 横向

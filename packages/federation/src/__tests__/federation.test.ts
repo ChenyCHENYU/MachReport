@@ -4,7 +4,7 @@ import { defineComponent, h, provide } from "vue";
 import ReportPreview from "../reportPreview.vue";
 import ReportHtmlPreview from "../reportHtmlPreview.vue";
 import FilePreview from "../filePreview.vue";
-import { MACH_REPORT_FETCHER_KEY, createLocalFetcher } from "@agile-team/mach-report-vue";
+import { MACH_REPORT_FETCHER_KEY, createLocalFetcher } from "@agile-team/mach-report/vue";
 import type { ReportTemplate } from "@agile-team/mach-report";
 
 const tpl: ReportTemplate = {
