@@ -130,5 +130,14 @@
     "vue-tsc": "^3.0.0"
   },
   "license": "SEE LICENSE IN LICENSE",
-  "author": "ChenyCHENYU (Agile Team)"
+  "author": "ChenyCHENYU (Agile Team)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChenyCHENYU/MachReport.git",
+    "directory": "packages/mach-report"
+  },
+  "homepage": "https://github.com/ChenyCHENYU/MachReport#readme",
+  "bugs": {
+    "url": "https://github.com/ChenyCHENYU/MachReport/issues"
+  }
 }
