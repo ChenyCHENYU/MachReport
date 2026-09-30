@@ -39,27 +39,36 @@ export interface FetchRequestOptions {
   /** 附加请求头（如鉴权 token） */
   headers?: Record<string, string>;
   credentials?: RequestCredentials;
+  /** 超时毫秒（默认 30000；超时抛 PlanLoadError） */
+  timeoutMs?: number;
 }
 
 /**
  * 零依赖请求适配器：用全局 fetch 实现 HostRequest 签名，
  * 让宿主无需引入 axios 或手写胶水代码即可接上 jh4j 数据面。
+ * 内置超时（AbortController）与网络/HTTP 错误语义。
  */
 export function createFetchRequest(options: FetchRequestOptions = {}): HostRequest {
-  const { baseUrl = "", headers, credentials } = options;
+  const { baseUrl = "", headers, credentials, timeoutMs = 30_000 } = options;
   return async ({ url, method, params }) => {
     const qs = params && Object.keys(params).length > 0 ? `?${new URLSearchParams(params)}` : "";
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     let res: Response;
     try {
       res = await fetch(`${baseUrl}${url}${qs}`, {
         method: method.toUpperCase(),
         headers: { Accept: "application/json", ...headers },
-        credentials
+        credentials,
+        signal: controller.signal
       });
     } catch (e) {
-      throw new PlanLoadError(
-        `请求失败(${url}): ${e instanceof Error ? e.message : String(e)}`
-      );
+      if (e instanceof DOMException && e.name === "AbortError") {
+        throw new PlanLoadError(`请求超时(${timeoutMs}ms): ${url}`);
+      }
+      throw new PlanLoadError(`请求失败(${url}): ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      clearTimeout(timer);
     }
     if (!res.ok) {
       throw new PlanLoadError(`HTTP ${res.status} ${url}`);

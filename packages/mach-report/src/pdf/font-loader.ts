@@ -61,7 +61,12 @@ export async function loadFontWithCache(url: string): Promise<Uint8Array | null>
       return cached;
     }
     try {
-      const res = await fetch(url);
+      // 中文字体体积大（~9MB），慢网防挂起：15s 超时后回退内置西文字体
+      const signal =
+        typeof AbortSignal !== "undefined" && "timeout" in AbortSignal
+          ? AbortSignal.timeout(15_000)
+          : undefined;
+      const res = await fetch(url, signal ? { signal } : undefined);
       if (!res.ok) return null;
       const bytes = new Uint8Array(await res.arrayBuffer());
       memory.set(url, bytes);

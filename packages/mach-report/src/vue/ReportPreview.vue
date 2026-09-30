@@ -14,6 +14,7 @@ import {
   inject,
   onMounted,
   onUnmounted,
+  provide,
   ref,
   shallowRef,
   watch,
@@ -38,6 +39,9 @@ import {
   type MachReportMessages
 } from "./config";
 import { createDefaultPdfExporter, type PdfExporter } from "./pdf-exporter";
+import { MachReportError, toErrorDetail } from "./errors";
+import { MACH_REPORT_CONTROLLER_KEY } from "./injection-keys";
+import type { MachReportController } from "./controller";
 
 const props = defineProps({
   tempId: {
@@ -69,7 +73,7 @@ const props = defineProps({
 
 const emit = defineEmits<{
   (e: "loaded", pageCount: number): void;
-  (e: "error", message: string): void;
+  (e: "error", message: string, detail?: { code: string; cause?: unknown }): void;
 }>();
 
 const plan = shallowRef<RenderPlan | null>(null);
@@ -134,13 +138,13 @@ async function reload(): Promise<void> {
   if (tempIds.value.length === 0) {
     errorMessage.value = "缺少报表模板 ID";
     invalidate();
-    emit("error", errorMessage.value);
+    emit("error", errorMessage.value, { code: "param" });
     return;
   }
   if (!fetcher) {
     errorMessage.value = "未提供渲染数据源 fetcher";
     invalidate();
-    emit("error", errorMessage.value);
+    emit("error", errorMessage.value, { code: "config" });
     return;
   }
   loading.value = true;
@@ -159,7 +163,10 @@ async function reload(): Promise<void> {
         .slice(0, 3)
         .map((e) => `${e.path}: ${e.message}`)
         .join("; ");
-      throw new Error(`渲染计划校验失败(${check.errors.length} 处): ${head}`);
+      throw new MachReportError(
+        "validate",
+        `渲染计划校验失败(${check.errors.length} 处): ${head}`
+      );
     }
     if (check.warnings.length > 0) {
       console.warn("[mach-report] 渲染计划告警:", check.warnings);
@@ -171,8 +178,16 @@ async function reload(): Promise<void> {
     emit("loaded", next.pages.length);
   } catch (error) {
     if (seq !== reloadSeq) return;
-    errorMessage.value = error instanceof Error ? error.message : "预览加载失败";
-    emit("error", errorMessage.value);
+    const normalized =
+      error instanceof MachReportError
+        ? error
+        : new MachReportError(
+            "fetch",
+            error instanceof Error ? error.message : "预览加载失败",
+            error
+          );
+    errorMessage.value = normalized.message;
+    emit("error", normalized.message, toErrorDetail(normalized));
   } finally {
     if (seq === reloadSeq) loading.value = false;
   }
@@ -193,8 +208,12 @@ function gotoPage(n: number): void {
 
 const { print, exportAs, openPdfWindow, releasePrintFrame } = usePrintExport(plan, {
   getPdfExporter: () => fallbackPdfExporter,
-  onError: (message) => emit("error", message)
+  onError: (message) => emit("error", message, { code: "print" })
 });
+
+/** 控制器注入：后代组件 useReportPreview() 免模板 ref 编程式访问（与 expose 同面） */
+const controller: MachReportController = { reload, print, exportAs, openPdfWindow, gotoPage };
+provide(MACH_REPORT_CONTROLLER_KEY, controller);
 
 /** 窗口内页 → DOM（holder 首次出现时挂载，页面级懒渲染） */
 watchEffect(() => {
@@ -300,6 +319,11 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage });
         </div>
       </div>
     </div>
+    <!-- 默认插槽（overlay 层）：自定义操作按钮/状态徽标；
+         后代组件可用 useReportPreview() 获取控制器 -->
+    <div class="mrp-overlay">
+      <slot />
+    </div>
   </div>
 </template>
 
@@ -308,6 +332,7 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage });
   /* 主题变量默认值：配置中心 theme / 宿主 CSS 覆写均可接管 */
   --mrp-shell-bg: #525659;
   --mrp-shell-fg: #e8e8e8;
+  position: relative;
   --mrp-toolbar-bg: #323639;
   --mrp-toolbar-border: #22252a;
   --mrp-toolbar-fg: #e8e8e8;
@@ -338,6 +363,12 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage });
   text-align: center;
   color: #bfbfbf;
   font-size: 13px;
+}
+/* overlay 插槽层：默认穿透点击；放入交互元素时自开 pointer-events:auto */
+.mrp-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 .mrp-error { color: #ff9d9d; }
 .mrp-retry {

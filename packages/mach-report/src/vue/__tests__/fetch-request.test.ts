@@ -48,4 +48,31 @@ describe("createFetchRequest（零依赖请求适配器）", () => {
     expect(err).toBeInstanceOf(PlanLoadError);
     expect((err as Error).message).toContain("network down");
   });
+
+  it("超时中断挂起请求并给出明确语义（AbortController）", async () => {
+    vi.useFakeTimers();
+    try {
+      // fetch 永不 resolve，只有 abort signal 能终结它
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          (_url: string, init?: { signal?: AbortSignal }) =>
+            new Promise((_resolve, reject) => {
+              init?.signal?.addEventListener("abort", () => {
+                const e = new DOMException("Aborted", "AbortError");
+                reject(e);
+              });
+            })
+        )
+      );
+      const request = createFetchRequest({ timeoutMs: 50 });
+      const pending = request({ url: "/slow", method: "get" });
+      const assertion = expect(pending).rejects.toThrowError(/请求超时\(50ms\)/);
+      await vi.advanceTimersByTimeAsync(60);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
 });

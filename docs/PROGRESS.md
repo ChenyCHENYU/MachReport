@@ -3,6 +3,22 @@
 > 通宵自主执行模式 · 每个闭环 = 实现 → 测试 → 验证 → 检查点提交
 > 验证命令：`pnpm typecheck && pnpm lint && pnpm test && pnpm exec playwright test`
 
+## 优化轮 7（2026-09-30 · README 重写 + 细粒度健壮性/集成体验，212 单测 + 9 E2E 全绿）
+
+**动因**：README 结构化（看的人懂定位、用的人能抄代码）；代码层细粒度打磨——对齐 mach-table 的插件式快速集成。
+
+| # | 项 | 产出 |
+|---|---|---|
+| 73 | **README 全面重写** | 30 秒接入（3 行代码）/特性总览/配置中心/组件与数据面 API 表格/管线图/架构图/性能表/jh4j 迁移表 |
+| 74 | **全局组件注册** | 插件默认注册 `<MachReportPreview>`（defineAsyncComponent 懒加载分片，首屏零成本；`globalComponent: false` 可关）——模板直接写组件，不再每页 import |
+| 75 | **useReportPreview()** | 后代组件免模板 ref 的编程式控制器（reload/print/exportAs/openPdfWindow/gotoPage）；组件新增 overlay 默认插槽（自定义操作按钮/徽标） |
+| 76 | **结构化错误** | MachReportError（code: param/fetch/validate/render/pdf/print/config）；error 事件第二参数 detail（契约向后兼容） |
+| 77 | 请求超时 | createFetchRequest 内置 AbortController 超时（默认 30s，明确"请求超时(Nms)"语义） |
+| 78 | 导出防抖 | print 重入忽略（防连点多打印 iframe）；exportPdf in-flight 共享（不重复生成 9MB 字节流） |
+| 79 | 渲染健壮性 | createCanvasPager ResizeObserver 视口自适应（弹窗开合/分栏拖动重算窗口）；canvas/pager SSR 清晰报错 |
+| 80 | 字体与规模守卫 | loadFontWithCache 15s 超时回退；validateRenderPlan 规模告警（>2000 页 / >5 万组件预警不阻塞） |
+| 81 | 发版 | mach-report 0.7.0 |
+
 ## 优化轮 6（2026-09-30 · 终态单包：一个包覆盖全部能力，205 单测 + 9 E2E 全绿）
 
 **动因**：用户决策——目录架构 + 子路径导出替代分包，消灭多包版本同步/双 CHANGELOG/跨包依赖的维护成本。

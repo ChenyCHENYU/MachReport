@@ -332,6 +332,9 @@ export function renderPlanToCanvas(
   plan: RenderPlan,
   options: CanvasRenderOptions = {}
 ): CanvasRenderResult {
+  if (typeof document === "undefined") {
+    throw new Error("renderPlanToCanvas 需要浏览器环境（SSR 请在客户端钩子中调用）");
+  }
   const dpr = options.dpr ?? (typeof devicePixelRatio === "number" ? devicePixelRatio : 1);
   const dpi = options.dpi ?? 96;
   const pxPerMm = (dpi / 96) * PX_PER_MM_BASE;
@@ -514,16 +517,28 @@ export function createCanvasPager(
     });
   }
 
+  let resizeObserver: ResizeObserver | null = null;
+
   return {
     attach(vp: HTMLElement) {
+      if (typeof document === "undefined") {
+        throw new Error("createCanvasPager 需要浏览器环境（SSR 请在客户端钩子中调用 attach）");
+      }
       viewport = vp;
       ensureLayout();
       vp.addEventListener("scroll", onScroll, { passive: true });
+      // 视口尺寸变化（弹窗开合/分栏拖动）时重算窗口，不只依赖滚动事件
+      if (typeof ResizeObserver !== "undefined") {
+        resizeObserver = new ResizeObserver(() => onScroll());
+        resizeObserver.observe(vp);
+      }
       onScroll();
     },
     destroy() {
       if (raf) cancelAnimationFrame(raf);
       raf = 0;
+      resizeObserver?.disconnect();
+      resizeObserver = null;
       viewport?.removeEventListener("scroll", onScroll);
       queued = [];
       contentEl?.remove();

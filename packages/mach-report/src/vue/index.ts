@@ -6,6 +6,8 @@ export * from "./injection-keys";
 export * from "./plugin";
 export * from "./config";
 export * from "./pdf-exporter";
+export * from "./errors";
+export * from "./controller";
 export * from "./composables/usePageWindow";
 export * from "./composables/useZoom";
 export * from "./composables/usePrintExport";

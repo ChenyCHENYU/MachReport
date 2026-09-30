@@ -60,6 +60,10 @@ export function usePrintExport(
   }
 ) {
   let printFrame: HTMLIFrameElement | null = null;
+  /** 打印进行中标记：重入直接忽略（防连点产生多个打印iframe） */
+  let printing = false;
+  /** PDF 导出 in-flight 共享：并发点击复用同一次导出（9MB 字节流不重复生成） */
+  let pdfInFlight: Promise<void> | null = null;
 
   function releasePrintFrame(): void {
     printFrame?.remove();
@@ -76,8 +80,10 @@ export function usePrintExport(
   }
 
   async function print(): Promise<void> {
+    if (printing) return;
     const p = plan.value;
     if (!p || p.pages.length === 0) return;
+    printing = true;
     releasePrintFrame();
     const { head, pageChunks } = buildPrintDocument(p);
     printFrame = document.createElement("iframe");
@@ -102,18 +108,30 @@ export function usePrintExport(
       frame.contentWindow?.print();
     } catch {
       hooks.onError("调用打印失败，请改用导出 PDF");
+    } finally {
+      printing = false;
     }
   }
 
   async function exportPdf(): Promise<void> {
+    // 并发去重：连续点击导出复用同一次 in-flight 导出
+    if (pdfInFlight) return pdfInFlight;
     const p = plan.value;
     if (!p || p.pages.length === 0) return;
-    try {
-      const bytes = await hooks.getPdfExporter()(p);
-      downloadBlob(new Blob([bytes as unknown as globalThis.BlobPart], { type: "application/pdf" }), "mach-report.pdf");
-    } catch (error) {
-      hooks.onError(error instanceof Error ? `PDF 导出失败: ${error.message}` : "PDF 导出失败");
-    }
+    pdfInFlight = (async () => {
+      try {
+        const bytes = await hooks.getPdfExporter()(p);
+        downloadBlob(
+          new Blob([bytes as unknown as globalThis.BlobPart], { type: "application/pdf" }),
+          "mach-report.pdf"
+        );
+      } catch (error) {
+        hooks.onError(error instanceof Error ? `PDF 导出失败: ${error.message}` : "PDF 导出失败");
+      } finally {
+        pdfInFlight = null;
+      }
+    })();
+    return pdfInFlight;
   }
 
   function exportAs(format: string): void {

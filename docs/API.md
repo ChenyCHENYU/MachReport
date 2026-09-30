@@ -51,8 +51,35 @@ app.use(machReportPlugin, {
   baseUrl: "/sub/mach-report",   // 或 request: axios（axios 风格签名），
   config: machReportConfig,      // 或 fetcher: 自定义 PlanFetcher（优先级最高）
   pdfFontUrl: "/simhei.ttf",     // '' 跳过中文字体
-  pdfExporter: customExporter    // 可选：接管 PDF 导出（如 Worker 化）
+  pdfExporter: customExporter,   // 可选：接管 PDF 导出（如 Worker 化）
+  globalComponent: true          // 注册全局 <MachReportPreview>（默认 true，懒加载分片）
 });
+```
+
+插件默认注册全局组件 `<MachReportPreview>`（`defineAsyncComponent` 懒加载——首次渲染才拉组件分片，首屏零成本）。
+
+### 编程式访问与插槽
+
+```vue
+<!-- 后代组件免模板 ref；也可用 overlay 插槽放自定义操作 -->
+<ReportPreview temp-id="T1">
+  <button class="my-btn" @click="preview?.print()">打印本单</button>
+</ReportPreview>
+
+<script setup>
+import { useReportPreview } from "@agile-team/mach-report/vue";
+const preview = useReportPreview();   // 不在预览组件内时为 null（不抛错）
+</script>
+```
+
+### 结构化错误（向后兼容）
+
+`error` 事件保持 `(message: string)` 契约，新增第二参数 `{ code, cause? }`：
+`code ∈ param | fetch | validate | render | pdf | print | config`（`MachReportError` 类同形导出），
+宿主可按码决定 UX（网络类给重试、配置类给提示）。
+
+```ts
+<ReportPreview @error="(msg, detail) => detail?.code === 'fetch' && showToast(msg)" />
 ```
 
 ### 配置中心（独立 config 文件 + presets + 路由级叠加）

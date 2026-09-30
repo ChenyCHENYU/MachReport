@@ -135,6 +135,23 @@ export function validateRenderPlan(input: unknown): ValidationResult {
     });
   } else {
     pages.forEach((page, i) => validatePage(page, `$.pages.${i}`, errors, warnings));
+    // 规模告警：异常大的计划（网关异常/模板失控）提前预警，不阻塞渲染
+    if (pages.length > 2_000) {
+      warnings.push({
+        path: "$.pages",
+        message: `页数异常大（${pages.length} 页），渲染与打印耗时可能显著增加`
+      });
+    }
+    const totalComponents = pages.reduce(
+      (s, p) => s + (isObj(p) && Array.isArray(p["components"]) ? (p["components"] as unknown[]).length : 0),
+      0
+    );
+    if (totalComponents > 50_000) {
+      warnings.push({
+        path: "$.pages",
+        message: `组件总数异常大（${totalComponents} 个），可能触发浏览器性能限制`
+      });
+    }
   }
   return { ok: errors.length === 0, errors, warnings };
 }

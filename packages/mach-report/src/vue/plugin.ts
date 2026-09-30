@@ -1,5 +1,5 @@
 import type { App } from "vue";
-import { computed } from "vue";
+import { computed, defineAsyncComponent } from "vue";
 import type { PlanFetcher } from "./adapters";
 import { createFetchRequest, createJh4jGridPlanFetcher, type HostRequest } from "./adapters";
 import type { PdfExporter } from "./pdf-exporter";
@@ -10,6 +10,12 @@ import {
   MACH_REPORT_PDF_EXPORTER_KEY
 } from "./injection-keys";
 import type { MachReportConfig } from "./config";
+
+/**
+ * 全局组件（懒加载分片：首次渲染才拉取组件与引擎依赖，
+ * 与局部 import 等价——首屏敏感页面零额外成本）
+ */
+export const MachReportPreview = defineAsyncComponent(() => import("./ReportPreview.vue"));
 
 export interface MachReportPluginOptions {
   /**
@@ -26,10 +32,12 @@ export interface MachReportPluginOptions {
   pdfFontUrl?: string;
   /** 自定义 PDF 导出器（缺省用懒加载引擎 /pdf 子路径的默认实现） */
   pdfExporter?: PdfExporter;
+  /** 注册全局组件 <MachReportPreview>（默认 true；懒加载分片不影响首屏） */
+  globalComponent?: boolean;
 }
 
 /**
- * Vue 插件（零配置可用）：
+ * Vue 插件（零配置可用，对齐 mach-table 的快速集成体验）：
  *
  * ```ts
  * app.use(machReportPlugin)                              // 同源 jh4j 部署，零胶水
@@ -37,7 +45,7 @@ export interface MachReportPluginOptions {
  * app.use(machReportPlugin, { request: axios, config: defineMachReportConfig({...}) })
  * ```
  *
- * 之后业务页面一行使用：`<ReportPreview temp-id="X" />`
+ * 之后业务模板直接写 `<MachReportPreview temp-id="X" />`。
  */
 export const machReportPlugin = {
   install(app: App, options: MachReportPluginOptions = {}): void {
@@ -58,5 +66,9 @@ export const machReportPlugin = {
 
     // 配置中心以响应式 ref 注入（路由级 provideMachReportConfig 可叠加）
     app.provide(MACH_REPORT_CONFIG_KEY, computed(() => options.config ?? null));
+
+    if (options.globalComponent !== false) {
+      app.component("MachReportPreview", MachReportPreview);
+    }
   }
 };
