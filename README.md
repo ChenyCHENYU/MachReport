@@ -89,7 +89,7 @@ const template = createTemplate()
   .build();
 ```
 
-- **格式化**在进 RenderPlan 之前完成（`formatValue`，JSON 声明式不破坏 gridPlan 契约），三后端零感知
+- **格式化**在进 RenderPlan 之前完成（`formatValue`，JSON 声明式不破坏 gridPlan 契约），三后端零感知。语义：`digits` 显式即精确保留（`12.50` 不截尾）；`thousands` 缺省 `false`（千分位显式开启）；日期串按**本地日历日**解析（不受 UTC 时区偏移）
 - **分组小计**：组头跨全列、组尾数值列求和（沿用列格式化）、`keepWithNext` 防组头孤行、末页总合计
 - **页码占位符**：含 `{page}/{totalPages}` 的文本组件转为"页锚"，每个输出页克隆注入，收尾回填总页数
 - **条件格式**：声明式规则命中才克隆样式（未命中行保持驻留引用，热路径零分配）
@@ -256,6 +256,8 @@ export default defineMachReportConfig({
 ```
 
 **优先级**：`组件 props` > `provideMachReportConfig(overlay)`（路由级响应式叠加）> `preset` > `defaults` > `内置缺省`。
+
+`defaults` 另支持 `logger`：校验告警通道（默认 `console`；静默传 `SILENT_LOGGER`，或注入上报 collector）。
 
 ```vue
 <script setup>

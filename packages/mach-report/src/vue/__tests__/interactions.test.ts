@@ -113,6 +113,32 @@ describe("交互：搜索", () => {
     await vi.waitFor(() => expect(wrapper.element.querySelectorAll("mark.mrp-hit").length).toBe(0));
     wrapper.unmount();
   });
+
+  it("变更关键字不残留旧高亮（先清后套，防嵌套 mark）", async () => {
+    vi.useFakeTimers();
+    try {
+      const wrapper = await mounted();
+      const toggle = wrapper.findAll("button").find((b) => b.text().includes("🔍"))!;
+      await toggle.trigger("click");
+      const input = wrapper.element.querySelector(".mrp-search-input") as HTMLInputElement;
+      input.value = "合金";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(300);
+      await vi.waitFor(() => expect(wrapper.element.querySelectorAll("mark.mrp-hit").length).toBe(1));
+      // 收窄查询："合金" → "合金结构钢"：旧 1 处 mark 应替换为新 1 处（而非 2 处嵌套）
+      input.value = "合金结构钢";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(300);
+      await vi.waitFor(() => {
+        const marks = wrapper.element.querySelectorAll("mark.mrp-hit");
+        expect(marks.length).toBe(1);
+        expect(marks[0]!.textContent).toBe("合金结构钢");
+      });
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("useHighlight", () => {

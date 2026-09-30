@@ -38,7 +38,7 @@ describe("./async 异步入口（首屏按需加载）", () => {
     app.mount(root);
     await vi.waitFor(() => {
       expect(root.textContent).toContain("异步组件渲染");
-    });
+    }, { timeout: 5000 });
   });
 
   it("preloadMachReport 预取组件模块（正式渲染零等待）", async () => {

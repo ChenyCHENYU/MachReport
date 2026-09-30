@@ -314,8 +314,12 @@ watchEffect(() => {
     const index = Number(holder.dataset.page ?? 0) - 1;
     const page = current.pages[index];
     if (!page || holder.childElementCount > 0) {
-      // 已挂载页：查询变化时同步高亮
-      if (holder.firstElementChild) search.apply(holder.firstElementChild as HTMLElement);
+      // 已挂载页：查询变化时先清旧高亮再套新查询（避免"钢"→"钢板"嵌套残留）
+      if (holder.firstElementChild) {
+        const el = holder.firstElementChild as HTMLElement;
+        search.clear(el);
+        search.apply(el);
+      }
       return;
     }
     holder.style.width = `${page.pageWidthMm * PX_PER_MM}px`;
@@ -387,6 +391,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener("resize", onResize);
   thumbs.destroy();
+  search.reset(); // 清防抖计时器（若挂载期间恰在防抖窗口内）
   releasePrintFrame();
 });
 
