@@ -1,5 +1,5 @@
 {
-  "name": "@mach-report/example-minimal",
+  "name": "@agile-team/example-minimal",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,10 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@mach-report/core": "workspace:*",
-    "@mach-report/sql-engine": "workspace:*",
-    "@mach-report/vue": "workspace:*",
-    "@mach-report/pdf": "workspace:*",
+    "@agile-team/core": "workspace:*",
+    "@agile-team/sql-engine": "workspace:*",
+    "@agile-team/vue": "workspace:*",
+    "@agile-team/pdf": "workspace:*",
     "vue": "^3.5.0"
   },
   "devDependencies": {

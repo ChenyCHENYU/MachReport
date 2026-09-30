@@ -1,5 +1,5 @@
 {
-  "name": "@mach-report/example-fed-host",
+  "name": "@agile-team/example-fed-host",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,8 +8,8 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@mach-report/core": "workspace:*",
-    "@mach-report/vue": "workspace:*",
+    "@agile-team/core": "workspace:*",
+    "@agile-team/vue": "workspace:*",
     "vue": "^3.5.0"
   },
   "devDependencies": {

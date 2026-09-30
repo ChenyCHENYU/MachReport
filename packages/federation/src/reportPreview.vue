@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { inject } from "vue";
 import type { PropType } from "vue";
-import { MACH_REPORT_FETCHER_KEY, ReportPreview as ReportPreviewBase } from "@mach-report/vue";
+import { MACH_REPORT_FETCHER_KEY, ReportPreview as ReportPreviewBase } from "@agile-team/vue";
 
 defineProps({
   tempId: {

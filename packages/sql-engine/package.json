@@ -1,5 +1,5 @@
 {
-  "name": "@mach-report/sql-engine",
+  "name": "@agile-team/sql-engine",
   "version": "0.1.1",
   "description": "动态 SQL 编译器：兼容 jh4j #{}/${}/{if} 语法，参数化渲染 + 单 SELECT 结构校验",
   "type": "module",
@@ -25,7 +25,7 @@
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
-    "@mach-report/core": "workspace:*",
+    "@agile-team/core": "workspace:*",
     "node-sql-parser": "^5.4.0"
   }
 }

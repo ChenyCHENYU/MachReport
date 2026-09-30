@@ -72,10 +72,13 @@ test.describe("Canvas 渲染后端", () => {
     await page.getByRole("button", { name: "Canvas 窗口化（大报表）" }).click();
     const viewport = page.locator("[data-pager-viewport]");
     await expect(viewport).toBeVisible({ timeout: 10000 });
-    // 分帧渲染：等待首帧完成
+    // 等布局稳定（窗口应用后槽位即按页高占位）且首帧画布就绪
     await page.waitForFunction(
-      () => !!document.querySelector("[data-pager-viewport] canvas")
-    , { timeout: 10000 });
+      () =>
+        !!document.querySelector("[data-pager-viewport] canvas") &&
+        (document.querySelector("[data-pager-viewport]") as HTMLElement).scrollHeight > 3000,
+      { timeout: 10000 }
+    );
 
     const stats = await page.evaluate(() => {
       const vp = document.querySelector("[data-pager-viewport]") as HTMLElement;

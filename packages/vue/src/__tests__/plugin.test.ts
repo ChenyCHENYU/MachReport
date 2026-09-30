@@ -5,7 +5,7 @@ import { createApp, h } from "vue";
 import { machReportPlugin } from "../plugin";
 import { MACH_REPORT_FETCHER_KEY, MACH_REPORT_PDF_EXPORTER_KEY } from "../injection-keys";
 import ReportPreview from "../ReportPreview.vue";
-import type { ReportTemplate } from "@mach-report/core";
+import type { ReportTemplate } from "@agile-team/core";
 
 const tpl: ReportTemplate = {
   pages: [

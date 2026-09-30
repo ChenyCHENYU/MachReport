@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 const dist = resolve(dirname(fileURLToPath(import.meta.url)), "../../dist/assets");
 
-describe("federation 构建产物守卫（需先 pnpm --filter @mach-report/federation build）", () => {
+describe("federation 构建产物守卫（需先 pnpm --filter @agile-team/federation build）", () => {
   it("remoteEntry.js 存在", () => {
     expect(existsSync(resolve(dist, "remoteEntry.js"))).toBe(true);
   });

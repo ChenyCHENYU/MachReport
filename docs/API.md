@@ -2,12 +2,12 @@
 
 > 面向接入方的一页纸。完整类型见各包 `src/`。
 
-## @mach-report/vue — 业务接入（最常用）
+## @agile-team/vue — 业务接入（最常用）
 
 ```vue
 <script setup lang="ts">
-import ReportPreview from "@mach-report/vue";
-import { createLocalFetcher, createJh4jGridPlanFetcher } from "@mach-report/vue";
+import ReportPreview from "@agile-team/vue";
+import { createLocalFetcher, createJh4jGridPlanFetcher } from "@agile-team/vue";
 
 // 方式 A：本地模板 + 数据（离线/单测/无后端）
 const fetcher = createLocalFetcher({
@@ -41,7 +41,7 @@ emits：`loaded(pageCount)` / `error(message)`；ref：`reload / print / exportA
 ### 插件（推荐：一次注册，业务页面一行使用）
 
 ```ts
-import { machReportPlugin } from "@mach-report/vue";
+import { machReportPlugin } from "@agile-team/vue";
 
 app.use(machReportPlugin, {
   request: axios,               // 或 fetcher: 自定义 PlanFetcher（优先级更高）
@@ -53,11 +53,11 @@ app.use(machReportPlugin, {
 
 主题：工具栏/外壳颜色走 CSS 变量 `--mrp-shell-bg / --mrp-toolbar-bg / --mrp-btn-*`，宿主覆写即可对齐设计系统。
 
-## @mach-report/core — 引擎
+## @agile-team/core — 引擎
 
 ```ts
 import { paginateTemplate, renderPlan, computePageWindow,
-         validateRenderPlan, importJh4jTemplateContent } from "@mach-report/core";
+         validateRenderPlan, importJh4jTemplateContent } from "@agile-team/core";
 
 const { plan, warnings } = paginateTemplate(template, datasets);   // 模板+数据 → RenderPlan
 // paginateTemplate(template, datasets, { measurer, mmPerRow })    // 可注入文本测量器
@@ -72,7 +72,7 @@ Template 模型：`pages[].components[]`，静态组件（text/rect/line/ellipse
 ### Canvas 窗口化分页器（大报表必用）
 
 ```ts
-import { createCanvasPager, renderPlanToCanvas } from "@mach-report/core";
+import { createCanvasPager, renderPlanToCanvas } from "@agile-team/core";
 
 // 小报表：一次性渲染（可传 start/end 区间）
 const { canvases } = renderPlanToCanvas(plan, { dpr: 2, start: 0, end: 3 });
@@ -87,7 +87,7 @@ pager.destroy();
 ### 文本测量器（三端折行一致性的开关）
 
 ```ts
-import { createCanvasMeasurer, heuristicMeasurer, paginateTemplate } from "@mach-report/core";
+import { createCanvasMeasurer, heuristicMeasurer, paginateTemplate } from "@agile-team/core";
 
 const measurer = createCanvasMeasurer(() => someCanvas.getContext("2d")); // 浏览器真字体
 const { plan } = paginateTemplate(template, data, { measurer });          // 分页与 PDF/Canvas 共用
@@ -96,7 +96,7 @@ const { plan } = paginateTemplate(template, data, { measurer });          // 分
 ### 模板构建器 DSL（推荐替代手写 JSON）
 
 ```ts
-import { createTemplate } from "@mach-report/core";
+import { createTemplate } from "@agile-team/core";
 
 const template = createTemplate()                    // 单页快路径：链式直接 build
   .page("a4", { landscape: true, margins: { marginTopMm: 12 } })   // 纸张预设（a3/a4/a5/b4/b5）
@@ -114,15 +114,15 @@ const template = createTemplate()                    // 单页快路径：链式
 ### jh4j 模板导入
 
 ```ts
-import { importJh4jTemplateContent } from "@mach-report/core";
+import { importJh4jTemplateContent } from "@agile-team/core";
 const { template, warnings } = importJh4jTemplateContent(jh4jContentJsonOrString);
 // 文本/表格/线条/形状完整转换；图片类降级为占位；富文本降级纯文本；未知类型告警跳过，永不抛错
 ```
 
-## @mach-report/manager — 管理端 API 客户端
+## @agile-team/manager — 管理端 API 客户端
 
 ```ts
-import { createReportAdminClient } from "@mach-report/manager";
+import { createReportAdminClient } from "@agile-team/manager";
 
 const admin = createReportAdminClient({ request: platformRequest });  // 注入平台 request
 await admin.listReports({ keyword: "出库" });        // 模板列表
@@ -136,20 +136,20 @@ await admin.listDatasets(id); await admin.listParams(id);
 await admin.holdLock(reportId, async () => { /* 编辑保存 */ });
 ```
 
-## @mach-report/pdf — 前端矢量 PDF 直出
+## @agile-team/pdf — 前端矢量 PDF 直出
 
 ```ts
-import { renderPlanToPdf } from "@mach-report/pdf";
+import { renderPlanToPdf } from "@agile-team/pdf";
 
 const fontBytes = new Uint8Array(await (await fetch("/simhei.ttf")).arrayBuffer());
 const { bytes } = await renderPlanToPdf(plan, { customFontBytes: fontBytes });  // 子集嵌入中文字体
 // bytes → Blob → 下载；未提供字体时降级 Helvetica（CJK 计入 unsupportedTextCount 不崩溃）
 ```
 
-## @mach-report/sql-engine — 动态 SQL
+## @agile-team/sql-engine — 动态 SQL
 
 ```ts
-import { compileDynamicSql, renderDynamicSql } from "@mach-report/sql-engine";
+import { compileDynamicSql, renderDynamicSql } from "@agile-team/sql-engine";
 
 const c = compileDynamicSql(
   "select * from t where 1=1 {if(isEmpty(#id), \"\", \"and id = #{id}\")}"
@@ -161,7 +161,7 @@ renderDynamicSql(sql, params);       // 渲染 + 单 SELECT 校验一体（非�
 
 语法：`#{p}` 绑定 / `${p}` 文本替换 / `{if(cond, whenTrue, whenFalse)}`（cond 支持 `isEmpty(#p)` `#p == ""` `+` 拼接；嵌套 if 用未引用分支回退）。公式内字符串仅双引号；`\{` 输出字面大括号。
 
-## @mach-report/federation — 模块联邦入口
+## @agile-team/federation — 模块联邦入口
 
 expose 路径与 jh4j 对齐：`./mach-report/reportPreview` / `./reportHtmlPreview` / `./filePreview`。宿主通过 `provide(MACH_REPORT_FETCHER_KEY, fetcher)` 注入数据面。
 

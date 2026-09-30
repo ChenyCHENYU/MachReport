@@ -1,6 +1,6 @@
 import type { Ref } from "vue";
-import type { PlanPage, RenderPlan } from "@mach-report/core";
-import { renderPage as renderPageToDom } from "@mach-report/core";
+import type { PlanPage, RenderPlan } from "@agile-team/core";
+import { renderPage as renderPageToDom } from "@agile-team/core";
 import type { PdfExporter } from "../pdf-exporter";
 
 /**
@@ -8,7 +8,7 @@ import type { PdfExporter } from "../pdf-exporter";
  *
  * - 打印 HTML 由 DOM 序列化（outerHTML），流式分块写入 iframe（避免大报表一次性长任务）
  * - 多尺寸页使用 CSS named pages（@page name + page 属性），混合纸张正确分页
- * - PDF 导出走注入的 exporter（默认实现懒加载 @mach-report/pdf，主包零增加）
+ * - PDF 导出走注入的 exporter（默认实现懒加载 @agile-team/pdf，主包零增加）
  */
 
 const YIELD_EVERY_PAGES = 8;

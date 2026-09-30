@@ -2,8 +2,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { renderPlanToPdf } from "../render-pdf";
-import { paginateTemplate, createTemplate } from "@mach-report/core";
-import type { RenderPlan } from "@mach-report/core";
+import { paginateTemplate, createTemplate } from "@agile-team/core";
+import type { RenderPlan } from "@agile-team/core";
 
 function planFixture(): RenderPlan {
   const template = createTemplate()

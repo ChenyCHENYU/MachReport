@@ -456,10 +456,17 @@ export function createCanvasPager(
     topSpacer!.style.height = `${win.start * gapPx + pageHeightsPx.slice(0, win.start).reduce((s, h) => s + h, 0)}px`;
     const below = plan.pages.length - 1 - win.end;
     bottomSpacer!.style.height = `${below * gapPx + pageHeightsPx.slice(win.end + 1).reduce((s, h) => s + h, 0)}px`;
-    // 窗口外槽位隐藏（避免空槽参与布局压矮滚动区），窗口内槽位逐一复用
+    // 窗口外槽位隐藏（避免空槽参与布局压矮滚动区），窗口内槽位先按页高占位
+    // （画布分帧绘完前布局即稳定，滚动高度不抖动）
     const used = win.end - win.start + 1;
     slots.forEach((slot, i) => {
-      slot.style.display = i < used ? "" : "none";
+      if (i < used) {
+        slot.style.display = "";
+        const pageIndex = win.start + i;
+        slot.style.height = `${pageHeightsPx[pageIndex] ?? 0}px`;
+      } else {
+        slot.style.display = "none";
+      }
     });
     // 收集待渲染页（跳过已就位的槽位），分帧消费
     queued = [];

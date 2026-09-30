@@ -23,10 +23,10 @@
 
 ```bash
 pnpm install && pnpm test          # 175 单测全绿
-pnpm --filter @mach-report/example-minimal dev   # 演示：localhost:8610
+pnpm --filter @agile-team/example-minimal dev   # 演示：localhost:8610
 ```
 
-npm 包（dist 产物 + 类型）：`@mach-report/core` `@mach-report/sql-engine` `@mach-report/manager` `@mach-report/pdf`（vue/federation 走源码 workspace 消费，待 vite lib 构建后开放发布）。
+npm 包（dist 产物 + 类型）：`@agile-team/core` `@agile-team/sql-engine` `@agile-team/manager` `@agile-team/pdf`（vue/federation 走源码 workspace 消费，待 vite lib 构建后开放发布）。
 
 详见：[docs/PROGRESS.md](docs/PROGRESS.md)（迭代日志/决策记录）· [docs/API.md](docs/API.md)（接入速查）· [docs/reverse-findings.md](docs/reverse-findings.md)（jh4j 逆向）。
 
@@ -38,7 +38,7 @@ npm 包（dist 产物 + 类型）：`@mach-report/core` `@mach-report/sql-engine
 
 ```ts
 import { createApp } from "vue";
-import { ReportPreview, machReportPlugin } from "@mach-report/vue";
+import { ReportPreview, machReportPlugin } from "@agile-team/vue";
 import axios from "axios";
 
 createApp(App)
@@ -56,8 +56,8 @@ createApp(App)
 ### 2) 本地模板（离线/单测）
 
 ```ts
-import { createTemplate } from "@mach-report/core";
-import { createLocalFetcher } from "@mach-report/vue";
+import { createTemplate } from "@agile-team/core";
+import { createLocalFetcher } from "@agile-team/vue";
 
 const template = createTemplate()
   .page("a4", { landscape: true, margins: { marginTopMm: 12 } })   // 纸张预设 + 横向
@@ -76,7 +76,7 @@ const fetcher = createLocalFetcher({
 ### 3) 大报表 Canvas 渲染（窗口化）
 
 ```ts
-import { createCanvasPager } from "@mach-report/core";
+import { createCanvasPager } from "@agile-team/core";
 const pager = createCanvasPager(plan, { dpr: window.devicePixelRatio, overscan: 1 });
 pager.attach(scrollContainer);   // 视口窗口 + 画布池复用 + 每帧限量绘制
 pager.destroy();                 // 卸载释放

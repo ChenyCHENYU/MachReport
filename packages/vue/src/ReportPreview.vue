@@ -19,8 +19,8 @@ import {
   watchEffect
 } from "vue";
 import type { PropType } from "vue";
-import type { RenderPlan } from "@mach-report/core";
-import { renderPage as renderPageToDom, validateRenderPlan } from "@mach-report/core";
+import type { RenderPlan } from "@agile-team/core";
+import { renderPage as renderPageToDom, validateRenderPlan } from "@agile-team/core";
 import { normalizeTempIds, type PlanFetcher } from "./adapters";
 import { usePageWindow } from "./composables/usePageWindow";
 import { useZoom } from "./composables/useZoom";

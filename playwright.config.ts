@@ -10,13 +10,13 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: "pnpm --filter @mach-report/example-minimal dev",
+      command: "pnpm --filter @agile-team/example-minimal dev",
       url: "http://localhost:8610",
       reuseExistingServer: true,
       timeout: 60000
     },
     {
-      command: "pnpm --filter @mach-report/example-fed-host dev",
+      command: "pnpm --filter @agile-team/example-fed-host dev",
       url: "http://localhost:8611",
       reuseExistingServer: true,
       timeout: 60000

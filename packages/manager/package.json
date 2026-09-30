@@ -1,5 +1,5 @@
 {
-  "name": "@mach-report/manager",
+  "name": "@agile-team/manager",
   "version": "0.1.1",
   "description": "MachReport 管理端 API 客户端：模板/数据集/参数/导入导出/模板锁（接口面对齐 jh4j 逆向结果）",
   "type": "module",
