@@ -156,6 +156,9 @@ importers:
       '@mach-report/core':
         specifier: workspace:*
         version: link:../core
+      '@mach-report/pdf':
+        specifier: workspace:*
+        version: link:../pdf
     devDependencies:
       '@vue/test-utils':
         specifier: ^2.4.0

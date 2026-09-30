@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 import { createReportAdminClient } from "../api";
 import type { RequestFn } from "../types";
@@ -92,5 +93,67 @@ describe("report admin client", () => {
     const call = request.mock.calls[0]![0] as Record<string, unknown>;
     expect(call.method).toBe("post");
     expect(call.data).toBeInstanceOf(FormData);
+  });
+
+  it("holdLock 心跳连续失败触发 onLockLost 并停止心跳", async () => {
+    vi.useFakeTimers();
+    try {
+      let heartbeats = 0;
+      const { client } = mockClient((url) => {
+        if (url.endsWith("heartbeat")) {
+          heartbeats++;
+          return Promise.reject(new Error("网关超时"));
+        }
+        return { code: 200 };
+      });
+      const onLockLost = vi.fn();
+      let releaseFn!: () => void;
+      const fnPromise = client.holdLock(
+        "r1",
+        () =>
+          new Promise<number>((resolve) => {
+            releaseFn = () => resolve(42);
+          }),
+        { onLockLost, heartbeatFailLimit: 2 }
+      );
+      await vi.advanceTimersByTimeAsync(40_000);
+      await vi.advanceTimersByTimeAsync(40_000);
+      expect(heartbeats).toBe(2);
+      expect(onLockLost).toHaveBeenCalledTimes(1);
+      expect(onLockLost.mock.calls[0]![0]).toContain("锁可能已被释放");
+      // 锁丢失后不再心跳
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(heartbeats).toBe(2);
+      releaseFn();
+      await expect(fnPromise).resolves.toBe(42);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("holdLock 心跳偶发失败（未达阈值）不触发 onLockLost", async () => {
+    vi.useFakeTimers();
+    try {
+      let heartbeats = 0;
+      const { client } = mockClient((url) => {
+        if (url.endsWith("heartbeat")) {
+          heartbeats++;
+          return heartbeats === 1 ? Promise.reject(new Error("抖动")) : Promise.resolve({ code: 200 });
+        }
+        return { code: 200 };
+      });
+      const onLockLost = vi.fn();
+      const fnPromise = client.holdLock(
+        "r1",
+        () => new Promise<number>((resolve) => setTimeout(() => resolve(7), 100_000)),
+        { onLockLost, heartbeatFailLimit: 2 }
+      );
+      await vi.advanceTimersByTimeAsync(80_000);
+      expect(onLockLost).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(30_000);
+      await expect(fnPromise).resolves.toBe(7);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

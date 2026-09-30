@@ -108,11 +108,33 @@ export function createReportAdminClient(options: { request: RequestFn; baseUrl?:
     /**
      * 持锁执行：acquire → fn（期间自动心跳）→ release（finally）。
      * 返回 fn 的结果；获取锁失败时抛 ReportAdminError。
+     * 心跳连续失败（默认 2 次）视为锁丢失：触发 onLockLost 回调并停止心跳，
+     * fn 继续执行（避免中途丢弃用户编辑），由调用方决定是否提示/中止。
      */
-    async holdLock<T>(reportId: string, fn: () => Promise<T>): Promise<T> {
+    async holdLock<T>(
+      reportId: string,
+      fn: () => Promise<T>,
+      options: { onLockLost?: (reason: string) => void; heartbeatFailLimit?: number } = {}
+    ): Promise<T> {
       await this.acquireLock(reportId);
+      const failLimit = Math.max(1, options.heartbeatFailLimit ?? 2);
+      let consecutiveFailures = 0;
+      let lockLost = false;
       const timer = setInterval(() => {
-        void this.lockHeartbeat(reportId).catch(() => undefined);
+        void this.lockHeartbeat(reportId)
+          .then(() => {
+            consecutiveFailures = 0;
+          })
+          .catch((e: unknown) => {
+            consecutiveFailures++;
+            if (!lockLost && consecutiveFailures >= failLimit) {
+              lockLost = true;
+              options.onLockLost?.(
+                `模板锁心跳连续 ${consecutiveFailures} 次失败（${e instanceof Error ? e.message : String(e)}），锁可能已被释放`
+              );
+              clearInterval(timer);
+            }
+          });
       }, 40_000);
       try {
         return await fn();

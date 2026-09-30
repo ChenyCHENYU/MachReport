@@ -4,27 +4,83 @@
 
 > Mach 家族命名对齐：MachTable（数据表格）→ **MachReport**（打印报表）。
 
-## 当前状态（2026-09-17 通宵迭代 v0.2）
+## 当前状态（2026-09-30 优化轮 v0.4 · 已发 npm）
 
 | 能力 | 状态 |
 |---|---|
-| core 渲染引擎（分页/虚拟化/校验/DOM+**Canvas 双后端**/builder DSL） | ✅ 可用（分页 5k 行 56ms） |
-| sql-engine 动态 SQL（三语法 + AST 级单 SELECT 校验） | ✅ 可用 |
-| vue 契约组件（props/事件/ref 1:1） | ✅ 可用 |
+| core 渲染引擎（分页/虚拟化/校验/DOM+Canvas 双后端/builder DSL/共享网格几何与样式解析/TextMeasurer 注入） | ✅ 可用（5k 行分页 ~57ms，热路径零逐行对象分配） |
+| **Canvas 窗口化分页器**（画布池 + 分帧，内存 O(窗口) 而非 O(总页数)） | ✅ 可用（E2E 实证：滚动复用不增长） |
+| sql-engine 动态 SQL（三语法 + AST 级单 SELECT 校验 + 字符串字面量防误伤） | ✅ 可用 |
+| vue 契约组件（props/事件/ref 1:1 + 竞态防护 + transform 缩放 + **插件一次注入** + CSS 变量主题） | ✅ 可用 |
 | federation 入口（expose 对齐 + remoteEntry 产物 + **宿主 harness 实证**） | ✅ 可用 |
 | jh4j 模板导入转换器 | ✅ 可用（逆向 schema 驱动） |
-| manager 管理端 API 客户端（含模板锁） | ✅ 可用 |
-| **PDF 前端直出（中文子集嵌入 + IndexedDB 字体缓存）** | ✅ 可用 |
-| E2E（真 Chromium：渲染/翻页/PDF 下载/联邦宿主/Canvas 像素） | ✅ 7 specs |
+| manager 管理端 API 客户端（含模板锁 holdLock 锁丢失感知） | ✅ 可用 |
+| **PDF 前端直出**（中文子集嵌入 + IndexedDB 字体缓存 + 单元格样式/富文本降级/图片嵌入） | ✅ 可用 |
+| 打印管线（流式分块写入 + named pages 混合纸张） | ✅ 可用 |
+| E2E（真 Chromium：渲染/翻页/缩放矩阵/PDF 下载/联邦宿主/Canvas 结构化像素/窗口化分页器） | ✅ 9 specs（0 重试稳定） |
 | 真实 gridPlan 契约联调 | 🟡 工具链就绪（`pnpm capture:gridplan` 登录一次即激活守卫） |
 | 设计器画布 UI | 🚧 后续里程碑 |
 
 ```bash
-pnpm install && pnpm test          # 106 单测全绿
+pnpm install && pnpm test          # 175 单测全绿
 pnpm --filter @mach-report/example-minimal dev   # 演示：localhost:8610
 ```
 
+npm 包（dist 产物 + 类型）：`@mach-report/core` `@mach-report/sql-engine` `@mach-report/manager` `@mach-report/pdf`（vue/federation 走源码 workspace 消费，待 vite lib 构建后开放发布）。
+
 详见：[docs/PROGRESS.md](docs/PROGRESS.md)（迭代日志/决策记录）· [docs/API.md](docs/API.md)（接入速查）· [docs/reverse-findings.md](docs/reverse-findings.md)（jh4j 逆向）。
+
+---
+
+## 快速上手
+
+### 1) 插件一次注册（推荐，业务侧一行使用）
+
+```ts
+import { createApp } from "vue";
+import { ReportPreview, machReportPlugin } from "@mach-report/vue";
+import axios from "axios";
+
+createApp(App)
+  .use(machReportPlugin, {
+    request: axios,                    // 宿主 http 客户端（axios 风格签名）
+    baseUrl: "/sub/mach-report",       // 可选网关前缀
+    pdfFontUrl: "/simhei.ttf"          // 可选：PDF 中文字体
+  })
+  .mount("#app");
+
+// 任意业务页面：不传 fetcher 自动用插件注入的数据面
+<ReportPreview temp-id="CK_TEMPLATE_001" :params="{ id: '9' }" />
+```
+
+### 2) 本地模板（离线/单测）
+
+```ts
+import { createTemplate } from "@mach-report/core";
+import { createLocalFetcher } from "@mach-report/vue";
+
+const template = createTemplate()
+  .page("a4", { landscape: true, margins: { marginTopMm: 12 } })   // 纸张预设 + 横向
+  .text("出库单", { leftMm: 70, topMm: 4, widthMm: 70 }, { fontSize: 16, bold: true })
+  .list("detail", { leftMm: 12, topMm: 20, widthMm: 186 }, [
+    { header: "序号", field: "no", widthMm: 20 },
+    { header: "物料", field: "name", widthMm: 100 }
+  ])
+  .build();
+
+const fetcher = createLocalFetcher({
+  T1: { tempId: "T1", template, datasets: { detail: rows } }
+});
+```
+
+### 3) 大报表 Canvas 渲染（窗口化）
+
+```ts
+import { createCanvasPager } from "@mach-report/core";
+const pager = createCanvasPager(plan, { dpr: window.devicePixelRatio, overscan: 1 });
+pager.attach(scrollContainer);   // 视口窗口 + 画布池复用 + 每帧限量绘制
+pager.destroy();                 // 卸载释放
+```
 
 ---
 
@@ -110,13 +166,14 @@ RenderPlan 与 jh4j `gridPlan` 接口返回结构保持兼容（pages[]、pageWi
 
 ## 四、性能目标（验收口径）
 
-| 指标 | jh4j 现状（实测感知） | MachReport 目标 |
+| 指标 | jh4j 现状（实测感知） | MachReport 实测/目标 |
 |---|---|---|
-| 100 页含千行明细首屏 | 秒级（全量 DOM） | < 300ms（虚拟化 + canvas） |
-| 缩放/翻页 | 触发重排 | < 16ms（矩阵变换，无重排） |
-| params 变更重渲染 | 整页重建 | < 50ms（增量，仅受影响数据集） |
-| 打印出 PDF | 后端往返 1-3s | < 500ms（前端矢量直出，含字体子集化） |
-| 引擎包体积 | 随 jh4j 整包 | core < 60KB gzip（零依赖），设计器按需异步 |
+| 分页 5,000 行（139 页） | 秒级（全量 DOM） | **~57ms**（热路径样式驻留 + 字宽查表，单测预算门锁定） |
+| 100 页含千行明细首屏 | 秒级 | < 300ms（虚拟化 + canvas 窗口化分页器） |
+| 缩放/翻页 | 触发重排 | < 16ms（transform 矩阵变换，无重排） |
+| Canvas 大报表内存 | — | **O(窗口)**：画布池复用 + 分帧（A4@dpr2 ≈14MB/页，全量渲染不可行） |
+| 打印/PDF 导出 | 后端往返 1-3s | < 500ms（前端矢量直出，字体子集化 + IndexedDB 缓存）；打印流式分块无长任务 |
+| 引擎包体积 | 随 jh4j 整包 | core < 60KB gzip（零依赖 + sideEffects:false 可摇树），设计器按需异步 |
 
 ## 五、健壮性设计
 

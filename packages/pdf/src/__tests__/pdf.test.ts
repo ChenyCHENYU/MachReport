@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { renderPlanToPdf } from "../render-pdf";
@@ -98,5 +99,83 @@ describe("renderPlanToPdf", () => {
     const { unsupportedTextCount, bytes } = await renderPlanToPdf(plan);
     expect(unsupportedTextCount).toBeGreaterThan(0);
     expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe("%PDF-");
+  });
+
+  it("富文本降级为纯文本并计入保真告警", async () => {
+    const plan: RenderPlan = {
+      schemaVersion: "t",
+      pages: [
+        {
+          pageWidthMm: 210,
+          pageHeightMm: 297,
+          components: [
+            {
+              kind: "text",
+              leftMm: 10,
+              topMm: 10,
+              widthMm: 120,
+              heightMm: 20,
+              richParagraphs: [
+                { segments: [{ kind: "text", text: "Rich " }, { kind: "field", field: "F1" }] }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+    const { fidelityWarnings, bytes } = await renderPlanToPdf(plan);
+    expect(fidelityWarnings.some((w) => w.includes("富文本"))).toBe(true);
+    expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe("%PDF-");
+  });
+
+  it("data URL PNG 图片可嵌入，普通 URL 图片跳过并告警", async () => {
+    const PNG_1PX =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const plan: RenderPlan = {
+      schemaVersion: "t",
+      pages: [
+        {
+          pageWidthMm: 210,
+          pageHeightMm: 297,
+          components: [
+            { kind: "image", leftMm: 10, topMm: 10, widthMm: 20, heightMm: 20, imageData: PNG_1PX },
+            { kind: "image", leftMm: 40, topMm: 10, widthMm: 20, heightMm: 20, imageData: "https://cdn/x.png" }
+          ]
+        }
+      ]
+    };
+    const { fidelityWarnings, pageErrors, pdfDoc } = await renderPlanToPdf(plan);
+    expect(pdfDoc.getPageCount()).toBe(1);
+    expect(pageErrors).toEqual([]);
+    expect(fidelityWarnings.some((w) => w.includes("已跳过"))).toBe(true);
+  });
+
+  it("网格按 colWidthsMm/rowHeightsMm/colSpan 解析且单元格底色生效", async () => {
+    const plan: RenderPlan = {
+      schemaVersion: "t",
+      pages: [
+        {
+          pageWidthMm: 210,
+          pageHeightMm: 297,
+          components: [
+            {
+              kind: "rect",
+              leftMm: 10,
+              topMm: 10,
+              widthMm: 100,
+              heightMm: 20,
+              grid: {
+                cells: [[{ text: "H1", colSpan: 2, style: { align: "center", backgroundColor: "#eeeeee" } }, { text: "H2" }]],
+                colWidthsMm: [50, 30, 20],
+                rowHeightsMm: [10, 10]
+              }
+            }
+          ]
+        }
+      ]
+    };
+    const { pageErrors, pdfDoc } = await renderPlanToPdf(plan);
+    expect(pageErrors).toEqual([]);
+    expect(pdfDoc.getPageCount()).toBe(1);
   });
 });

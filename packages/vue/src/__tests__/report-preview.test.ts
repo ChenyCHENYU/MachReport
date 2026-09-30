@@ -3,7 +3,10 @@ import { mount } from "@vue/test-utils";
 import ReportPreview from "../ReportPreview.vue";
 import { createLocalFetcher } from "../local-adapter";
 import { createJh4jGridPlanFetcher, normalizeTempIds, joinTempIds } from "../adapters";
+import type { PlanFetcher } from "../adapters";
 import type { ReportTemplate } from "@mach-report/core";
+
+type MockRequest = (config: { url: string; method: string; params?: Record<string, string> }) => Promise<unknown>;
 
 const demoTemplate: ReportTemplate = {
   pages: [
@@ -113,7 +116,7 @@ describe("ReportPreview 契约", () => {
     const failing = vi.fn().mockRejectedValue(new Error("后端超时"));
     const onError = vi.fn();
     const wrapper = mount(ReportPreview, {
-      props: { tempId: "X", fetcher: failing as any, onError }
+      props: { tempId: "X", fetcher: failing as unknown as PlanFetcher, onError }
     });
     await vi.waitFor(() => expect(onError).toHaveBeenCalled());
     expect(wrapper.text()).toContain("后端超时");
@@ -141,6 +144,55 @@ describe("ReportPreview 契约", () => {
     await next.trigger("click");
     await vi.waitFor(() => expect(wrapper.text()).toMatch(/2 \/ \d+/));
   });
+
+  it("快速切换 tempId 时旧请求后返回不覆盖新数据（竞态防护）", async () => {
+    type Resolvers = { resolve: (plan: unknown) => void };
+    const pending = new Map<string, Resolvers>();
+    const planOf = (label: string) => ({
+      schemaVersion: "t",
+      pages: [
+        {
+          pageWidthMm: 210,
+          pageHeightMm: 297,
+          components: [
+            {
+              kind: "text",
+              leftMm: 10,
+              topMm: 10,
+              widthMm: 100,
+              heightMm: 10,
+              text: label
+            }
+          ]
+        }
+      ]
+    });
+    const fetcher = vi.fn(({ tempIds }: { tempIds: string[] }) =>
+      tempIds[0] === "STALE"
+        ? new Promise((resolve) => {
+            pending.set("STALE", { resolve });
+          })
+        : new Promise((resolve) => {
+            pending.set("FRESH", { resolve });
+          })
+    );
+    const wrapper = mount(ReportPreview, {
+      props: { tempId: "STALE", fetcher: fetcher as unknown as PlanFetcher }
+    });
+    await vi.waitFor(() => expect(pending.has("STALE")).toBe(true));
+    await wrapper.setProps({ tempId: "FRESH" });
+    await vi.waitFor(() => expect(pending.has("FRESH")).toBe(true));
+
+    // 新请求先返回 → 显示 FRESH
+    pending.get("FRESH")!.resolve(planOf("FRESH-DATA"));
+    await vi.waitFor(() => expect(wrapper.text()).toContain("FRESH-DATA"));
+
+    // 旧请求后返回 → 不得覆盖
+    pending.get("STALE")!.resolve(planOf("STALE-DATA"));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(wrapper.text()).not.toContain("STALE-DATA");
+    expect(wrapper.text()).toContain("FRESH-DATA");
+  });
 });
 
 describe("tempId 规整", () => {
@@ -160,7 +212,7 @@ describe("jh4j gridPlan 适配器", () => {
       code: 200,
       data: { pages: [{ pageWidthMm: 210, pageHeightMm: 297, components: [] }] }
     });
-    const fetcher = createJh4jGridPlanFetcher({ request: request as any });
+    const fetcher = createJh4jGridPlanFetcher({ request: request as unknown as MockRequest });
     const plan = await fetcher({
       tempIds: ["A", "B"],
       furnitureTempId: "F1",
@@ -176,7 +228,7 @@ describe("jh4j gridPlan 适配器", () => {
 
   it("code!=200 抛错带 message", async () => {
     const request = vi.fn().mockResolvedValue({ code: 500, message: "模板不存在" });
-    const fetcher = createJh4jGridPlanFetcher({ request: request as any });
+    const fetcher = createJh4jGridPlanFetcher({ request: request as unknown as MockRequest });
     await expect(
       fetcher({ tempIds: ["X"], params: {} })
     ).rejects.toThrowError("模板不存在");

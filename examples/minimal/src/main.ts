@@ -1,9 +1,11 @@
 import { createApp, h, ref, computed } from "vue";
-import { ReportPreview, createLocalFetcher } from "@mach-report/vue";
+import { ReportPreview, createLocalFetcher, machReportPlugin } from "@mach-report/vue";
 import type { ReportTemplate } from "@mach-report/core";
 import { renderDynamicSql } from "@mach-report/sql-engine";
 
 let cachedTemplateRef: { template: ReportTemplate; datasets: Record<string, Record<string, unknown>[]> } | null = null;
+
+let pagerRef: { destroy(): void; window(): { start: number; end: number } } | null = null;
 
 async function exportPdf(): Promise<void> {
   const entry = cachedTemplateRef;
@@ -30,6 +32,79 @@ async function showCanvas(): Promise<void> {
   const { renderPlanToCanvas, paginateTemplate } = await import("@mach-report/core");
   const { plan } = paginateTemplate(entry.template, entry.datasets);
   const { canvases } = renderPlanToCanvas(plan, { dpr: 1 });
+  const overlay = ensureOverlay();
+  renderOverlayPages(overlay, canvases, "Canvas 位图渲染", "done");
+}
+
+/** 校准渲染：已知位置纯色块，供 E2E 做结构化像素断言（Y 轴方向/几何换算回归检测） */
+async function showCanvasCalibration(): Promise<void> {
+  const { renderPlanToCanvas } = await import("@mach-report/core");
+  const plan = {
+    schemaVersion: "calibration",
+    pages: [
+      {
+        pageWidthMm: 210,
+        pageHeightMm: 297,
+        components: [
+          {
+            kind: "rect" as const,
+            leftMm: 20,
+            topMm: 20,
+            widthMm: 30,
+            heightMm: 12,
+            style: { backgroundColor: "#ff0000", borderColor: "#ff0000" }
+          }
+        ]
+      }
+    ]
+  };
+  const { canvases } = renderPlanToCanvas(plan, { dpr: 1 });
+  const overlay = ensureOverlay();
+  renderOverlayPages(overlay, canvases, "Canvas 校准渲染（左上 20mm 处红色块）", "calibration");
+}
+
+/**
+ * 窗口化 Canvas 分页器演示：96 行多页报表只按视口渲染（画布池 + 分帧），
+ * 内存 O(窗口) 而非 O(总页数)——大报表（百页级）Canvas 渲染的正确姿势。
+ */
+async function showCanvasPager(): Promise<void> {
+  const entry = cachedTemplateRef;
+  if (!entry) return;
+  const { createCanvasPager, paginateTemplate } = await import("@mach-report/core");
+  const { plan } = paginateTemplate(entry.template, entry.datasets);
+  pagerRef?.destroy();
+  let overlay = document.getElementById("canvas-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "canvas-overlay";
+    overlay.style.cssText =
+      "position:fixed;inset:0;background:#323639;overflow:auto;z-index:999;padding:16px";
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = "";
+  const info = document.createElement("div");
+  info.style.cssText =
+    "position:sticky;top:0;z-index:2;background:#22252a;color:#eee;padding:6px 10px;font-size:12px";
+  info.dataset.pagerInfo = "total";
+  info.textContent = `Canvas 窗口化分页器：共 ${plan.pages.length} 页（滚动按需绘制，画布池复用）`;
+  overlay.appendChild(info);
+  const viewport = document.createElement("div");
+  viewport.dataset.pagerViewport = "1";
+  viewport.style.cssText = "height:calc(100vh - 60px);overflow:auto;";
+  overlay.appendChild(viewport);
+  const pager = createCanvasPager(plan, { dpr: 1, overscan: 1 });
+  pager.attach(viewport);
+  pagerRef = pager;
+  // 滚动时把窗口区间上报到信息条（E2E 可断言窗口化生效）
+  viewport.addEventListener("scroll", () => {
+    requestAnimationFrame(() => {
+      const w = pager.window();
+      info.textContent = `Canvas 窗口化分页器：共 ${plan.pages.length} 页，当前渲染窗口 [${w.start}, ${w.end}]`;
+    });
+  }, { passive: true });
+}
+
+function ensureOverlay(): HTMLElement {
   let overlay = document.getElementById("canvas-overlay");
   if (!overlay) {
     overlay = document.createElement("div");
@@ -40,12 +115,21 @@ async function showCanvas(): Promise<void> {
   }
   overlay.innerHTML = "";
   overlay.appendChild(document.createElement("div"));
+  return overlay;
+}
+
+function renderOverlayPages(
+  overlay: HTMLElement,
+  canvases: HTMLCanvasElement[],
+  title: string,
+  marker: string
+): void {
   const info = document.createElement("div");
   info.style.cssText = "position:sticky;top:0;background:#22252a;color:#eee;padding:6px 10px;font-size:12px";
-  info.textContent = `Canvas 位图渲染：${canvases.length} 页（data-canvas-render="done"）`;
+  info.textContent = `${title}：${canvases.length} 页`;
   overlay.appendChild(info);
   for (const c of canvases) {
-    c.dataset.canvasRender = "done";
+    c.dataset.canvasRender = marker;
     c.style.cssText = "display:block;margin:12px auto;box-shadow:0 2px 8px #0008";
     overlay.appendChild(c);
   }
@@ -185,21 +269,26 @@ const app = createApp({
           h("button", { onClick: () => pick("combined") }, "多模板拼接（出库单+工艺卡）"),
           h("button", { onClick: () => void exportPdf() }, "导出 PDF（前端直出）"),
           h("button", { onClick: () => void showCanvas() }, "Canvas 位图渲染"),
+          h("button", { onClick: () => void showCanvasCalibration() }, "Canvas 校准渲染"),
+          h("button", { onClick: () => void showCanvasPager() }, "Canvas 窗口化（大报表）"),
           h("div", { class: "info" }, [
             h("div", null, `sql-engine 演示渲染结果：`),
             h("div", { style: "word-break:break-all" }, sqlDemo.sql)
           ])
         ]),
         h("div", { class: "main" }, [
+          // 不加 :key：验证组件内部 watch tempId 的重载与竞态防护（契约要求零改动切换）
           h(ReportPreview, {
             tempId: tempIds.value,
             fetcher: fetcherWithCache,
-            height: "100vh",
-            key: String(tempIds.value)
+            height: "100vh"
           })
         ])
       ]);
   }
 });
+
+// 插件化注册演示：数据面一次注入，ReportPreview 不传 fetcher 也能取到（此处仍显式传以便对比）
+app.use(machReportPlugin, { fetcher: fetcherWithCache });
 
 app.mount("#app");

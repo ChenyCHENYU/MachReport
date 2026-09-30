@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { wrapText, measureTextMm } from "../layout/textwrap";
 
@@ -27,6 +28,27 @@ describe("textwrap", () => {
     const lines = wrapText("abcdefghij", 5, { fontSizePt: 10.5 });
     expect(lines.length).toBeGreaterThan(1);
     expect(lines.join("")).toBe("abcdefghij");
+  });
+
+  it("多个英文单词在词间断行（不拦腰截断）", () => {
+    const fontSizePt = 10.5;
+    const lines = wrapText("steel billet Q355B", 12, { fontSizePt });
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) {
+      const t = line.trim();
+      if (!t) continue;
+      // 每行只含完整词（允许因行尾空格丢弃导致的拆分）
+      expect(["steel", "billet", "Q355B", "steel billet", "billet Q355B"]).toContain(t);
+    }
+  });
+
+  it("中英混排按词与字断行", () => {
+    const fontSizePt = 10.5;
+    const lines = wrapText("合金结构钢Q355B轧制工艺", 18, { fontSizePt });
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) {
+      expect(measureTextMm(line, { fontSizePt })).toBeLessThanOrEqual(18 + 2);
+    }
   });
 
   it("换行符强制断行", () => {

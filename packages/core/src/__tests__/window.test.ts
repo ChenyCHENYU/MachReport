@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { computePageWindow } from "../render/window";
 
@@ -44,5 +45,33 @@ describe("computePageWindow", () => {
     const w = computePageWindow({ pageHeightsPx: H, viewportHeightPx: 800, scrollTopPx: 0, overscan: 0 });
     expect(w.start).toBe(0);
     expect(w.end).toBe(0);
+  });
+
+  it("gapPx 计入占位：padTop = Σ(页高+间距)", () => {
+    const w = computePageWindow({
+      pageHeightsPx: H,
+      viewportHeightPx: 800,
+      scrollTopPx: 2500,
+      overscan: 1,
+      gapPx: 18
+    });
+    const gap = 18;
+    expect(w.padTopPx).toBeCloseTo(w.start * gap + H.slice(0, w.start).reduce((s, h) => s + h, 0), 5);
+    const total = H.reduce((s, h) => s + h, 0) + H.length * gap;
+    const rendered = H.slice(w.start, w.end + 1).reduce((s, h) => s + h, 0) +
+      (w.end - w.start + 1) * gap;
+    expect(w.padTopPx + rendered + w.padBottomPx).toBeCloseTo(total, 5);
+  });
+
+  it("gapPx 下滚到底无下占位", () => {
+    const w = computePageWindow({
+      pageHeightsPx: H,
+      viewportHeightPx: 800,
+      scrollTopPx: 6000,
+      overscan: 1,
+      gapPx: 18
+    });
+    expect(w.end).toBe(4);
+    expect(w.padBottomPx).toBe(0);
   });
 });

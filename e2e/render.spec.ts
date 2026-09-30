@@ -35,11 +35,14 @@ test.describe("MachReport example 真浏览器渲染", () => {
     await expect(page.getByText("冶炼浇注工艺卡（LF 精炼）")).toBeVisible();
   });
 
-  test("缩放按钮切换", async ({ page }) => {
+  test("缩放按钮切换（transform: scale，零重排）", async ({ page }) => {
     await page.goto("http://localhost:8610");
     await expect(page.getByText("产品出库单")).toBeVisible({ timeout: 10000 });
     await page.getByRole("button", { name: "150%" }).click();
-    const scale = page.locator(".mrp-scale");
-    await expect(scale).toHaveCSS("zoom", "1.5");
+    const inner = page.locator(".mrp-scale-inner");
+    await expect(inner).toHaveCSS("transform", "matrix(1.5, 0, 0, 1.5, 0, 0)");
+    // 缩放后内容仍可交互：翻页定位不漂移
+    await page.getByRole("button", { name: "下一页 ›" }).click();
+    await expect(page.locator(".mrp-pageinfo")).toHaveText(/2 \/ \d+/);
   });
 });

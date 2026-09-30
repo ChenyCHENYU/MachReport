@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { paginateTemplate, wrapText } from "../index";
 import type { ReportTemplate } from "../index";

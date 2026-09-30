@@ -6,6 +6,11 @@ import type {
 } from "../schema/render-plan";
 import { isImageBackedComponent, isRichText } from "../schema/render-plan";
 import { mmToPx, round } from "../units";
+import {
+  resolveBoxBorders,
+  resolveFontSize,
+  resolveStroke
+} from "./style";
 
 export interface RenderOptions {
   dpi?: number;
@@ -51,22 +56,33 @@ export function classOf(key: ClassKey, options?: RenderOptions): string {
   return options?.classNames?.[key] ?? CLS[key];
 }
 
+type StyleValue = string | number | undefined | null | false;
+
+/**
+ * 样式收集器：收集结束一次性赋值写入元素。
+ * `cssText = `（整串赋值，非追加）既保持一次 DOM 桥接调用的性能，
+ * 又从根上避免旧实现"cssText += 追加语义"导致的重复写入 bug。
+ */
 class StyleBag {
-  private parts: string[] = [];
-  add(prop: string, value: string | number | undefined | null | false): this {
+  private props: [string, string][] = [];
+  add(prop: string, value: StyleValue): this {
     if (value === undefined || value === null || value === false || value === "") return this;
-    this.parts.push(`${prop}:${value}`);
+    this.props.push([prop, String(value)]);
     return this;
   }
   mm(prop: string, valueMm: number, dpi: number, digits = 2): this {
     return this.add(prop, `${round(mmToPx(valueMm, dpi), digits)}px`);
   }
   toString(): string {
-    return this.parts.join(";");
+    let css = "";
+    for (const [prop, value] of this.props) {
+      css += `${prop}:${value};`;
+    }
+    return css;
   }
   applyTo(el: HTMLElement): void {
     const css = this.toString();
-    if (css) el.style.cssText += `${el.style.cssText && !el.style.cssText.endsWith(";") ? ";" : ""}${css}`;
+    if (css) el.style.cssText = css;
   }
 }
 
@@ -82,12 +98,13 @@ function applyComponentStyle(bag: StyleBag, comp: PlanComponent, dpi: number): v
     .add("letter-spacing", s.letterSpacing != null ? `${s.letterSpacing}pt` : undefined)
     .add("opacity", s.opacity != null ? String(s.opacity) : undefined)
     .add("transform", s.rotateDeg ? `rotate(${s.rotateDeg}deg)` : undefined);
-  if (s.fontSizePx != null) bag.add("font-size", `${s.fontSizePx}px`);
-  else if (s.fontSize != null) bag.add("font-size", `${round((s.fontSize * dpi) / 72, 2)}px`);
+  const font = resolveFontSize(s, dpi);
+  bag.add("font-size", `${round(font.fontSizePx, 2)}px`);
 }
 
 function renderGrid(
   grid: PlanGrid,
+  comp: PlanComponent,
   dpi: number,
   options: RenderOptions,
   doc: Document
@@ -96,6 +113,7 @@ function renderGrid(
   table.className = classOf("grid", options);
   new StyleBag()
     .add("width", "100%")
+    .add("height", "100%")
     .add("border-collapse", "collapse")
     .add("table-layout", grid.colWidthsMm ? "fixed" : "auto")
     .applyTo(table);
@@ -108,28 +126,37 @@ function renderGrid(
     }
     table.appendChild(colGroup);
   }
-  for (const row of grid.cells) {
+  // 内部网格线由 td 边框承担（border-collapse 下 colSpan/rowSpan 自动正确）
+  const borders = resolveBoxBorders(comp.style);
+  const stroke = resolveStroke(comp.style);
+  const border = borders.inner
+    ? `${round((stroke.widthPt * dpi) / 72, 2)}px solid ${stroke.color}`
+    : "";
+
+  grid.cells.forEach((row, ri) => {
     const rowEl = doc.createElement("tr");
     rowEl.className = classOf("row", options);
+    if (grid.rowHeightsMm?.[ri] != null) {
+      new StyleBag().mm("height", grid.rowHeightsMm[ri]!, dpi).applyTo(rowEl);
+    }
     (row || []).forEach((cell) => {
       const cellEl = doc.createElement("td");
       cellEl.className = classOf("cell", options);
       if (cell?.colSpan) cellEl.colSpan = cell.colSpan;
       if (cell?.rowSpan) cellEl.rowSpan = cell.rowSpan;
+      const cellBag = new StyleBag();
+      if (border) cellBag.add("border", border);
       if (cell?.style) {
         const st = cell.style;
-        const cellBag = new StyleBag()
+        cellBag
           .add("text-align", st.align)
           .add("vertical-align", st.verticalAlign)
           .add("background-color", st.backgroundColor)
           .add("color", st.color)
           .add("font-weight", st.bold ? "700" : undefined);
-        if (st.fontSizePx != null) cellBag.add("font-size", `${st.fontSizePx}px`);
-        else if (st.fontSize != null) {
-          cellBag.add("font-size", `${round((st.fontSize * dpi) / 72, 2)}px`);
-        }
-        cellBag.applyTo(cellEl);
+        cellBag.add("font-size", `${round(resolveFontSize(st, dpi).fontSizePx, 2)}px`);
       }
+      cellBag.applyTo(cellEl);
       if (cell?.text != null) cellEl.textContent = cell.text;
       if (cell?.children?.length) {
         for (const child of cell.children) {
@@ -139,7 +166,7 @@ function renderGrid(
       rowEl.appendChild(cellEl);
     });
     table.appendChild(rowEl);
-  }
+  });
   return table;
 }
 
@@ -151,7 +178,6 @@ function renderText(
 ): HTMLElement {
   const el = doc.createElement("div");
   el.className = classOf("text", options);
-  applyComponentStyle(new StyleBag(), comp, dpi);
   const s = comp.style || {};
   const bag = new StyleBag()
     .add("text-align", s.align)
@@ -162,8 +188,8 @@ function renderText(
       s.verticalAlign === "middle" ? "center" : s.verticalAlign === "bottom" ? "flex-end" : "flex-start"
     )
     .add("overflow", "hidden");
-  bag.applyTo(el);
   applyComponentStyle(bag, comp, dpi);
+  bag.applyTo(el);
 
   if (isRichText(comp)) {
     const richBox = doc.createElement("div");
@@ -186,10 +212,7 @@ function renderText(
           const segBag = new StyleBag()
             .add("color", seg.style.color)
             .add("font-weight", seg.style.bold ? "700" : undefined);
-          if (seg.style.fontSizePx != null) segBag.add("font-size", `${seg.style.fontSizePx}px`);
-          else if (seg.style.fontSize != null) {
-            segBag.add("font-size", `${round((seg.style.fontSize * dpi) / 72, 2)}px`);
-          }
+          segBag.add("font-size", `${round(resolveFontSize(seg.style, dpi).fontSizePx, 2)}px`);
           segBag.applyTo(segEl);
         }
         p.appendChild(segEl);
@@ -239,12 +262,24 @@ function renderShape(
   const el = doc.createElement("div");
   el.className = classOf("shape", options);
   const s = comp.style || {};
-  const border = `${round(((s.lineWidthPt ?? 0.75) * dpi) / 72, 2)}px solid ${s.lineColor ?? s.borderColor ?? "#333"}`;
+  const stroke = resolveStroke(s);
+  const borders = resolveBoxBorders(s);
+  const border = `${round((stroke.widthPt * dpi) / 72, 2)}px solid ${stroke.color}`;
   const bag = new StyleBag();
-  if (comp.kind === "rect") {
-    bag.add("border", border);
+  // 含 grid 的 rect：内线由 td 承担，shape 只画外框四边（按开关）
+  if (comp.grid) {
+    if (borders.top) bag.add("border-top", border);
+    if (borders.right) bag.add("border-right", border);
+    if (borders.bottom) bag.add("border-bottom", border);
+    if (borders.left) bag.add("border-left", border);
+  } else if (comp.kind === "rect") {
+    if (borders.top) bag.add("border-top", border);
+    if (borders.right) bag.add("border-right", border);
+    if (borders.bottom) bag.add("border-bottom", border);
+    if (borders.left) bag.add("border-left", border);
   } else if (comp.kind === "ellipse") {
-    bag.add("border", border).add("border-radius", "50%");
+    if (borders.inner) bag.add("border", border).add("border-radius", "50%");
+    if (s.backgroundColor) bag.add("background-color", s.backgroundColor);
   } else if (comp.kind === "line") {
     bag.add("height", "0").add("border-top", border);
   }
@@ -268,7 +303,6 @@ export function renderComponent(
     .mm("width", comp.widthMm, dpi)
     .mm("height", comp.heightMm, dpi)
     .add("box-sizing", "border-box");
-  bag.applyTo(wrap);
   applyComponentStyle(bag, comp, dpi);
   bag.applyTo(wrap);
 
@@ -282,7 +316,7 @@ export function renderComponent(
   }
   if (comp.grid) {
     const shape = renderShape(comp, dpi, options, doc);
-    shape.appendChild(renderGrid(comp.grid, dpi, options, doc));
+    shape.appendChild(renderGrid(comp.grid, comp, dpi, options, doc));
     wrap.appendChild(shape);
     return wrap;
   }

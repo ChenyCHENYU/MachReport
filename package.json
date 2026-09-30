@@ -2,6 +2,7 @@
   "name": "mach-report",
   "version": "0.0.1",
   "private": true,
+  "type": "module",
   "description": "面向 B 端打印报表的高性能 TypeScript 报表引擎（兼容 jh4j-cloud-report 契约）",
   "packageManager": "pnpm@11.8.0",
   "engines": {

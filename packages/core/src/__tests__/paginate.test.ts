@@ -1,6 +1,7 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { paginateTemplate } from "../layout/paginate";
-import type { ReportTemplate } from "../layout/paginate";
+import type { ListComponent, ReportTemplate } from "../layout/paginate";
 
 const A4: ReportTemplate = {
   pages: [
@@ -82,7 +83,7 @@ describe("paginateTemplate", () => {
           ...A4.pages[0]!,
           components: [
             A4.pages[0]!.components[0]!,
-            { ...(A4.pages[0]!.components[1] as any), headerEveryPage: false }
+            { ...(A4.pages[0]!.components[1] as ListComponent), headerEveryPage: false }
           ]
         }
       ]
@@ -110,7 +111,7 @@ describe("paginateTemplate", () => {
           ...A4.pages[0]!,
           components: [
             {
-              ...(A4.pages[0]!.components[1] as any),
+              ...(A4.pages[0]!.components[1] as ListComponent),
               widthMm: 100,
               columns: [
                 { header: "A", field: "a", widthMm: 80 },
@@ -133,5 +134,45 @@ describe("paginateTemplate", () => {
     const { plan } = paginateTemplate(A4, { detail: rows });
     const rowComp = plan.pages[0]!.components.find((c) => c.nid?.startsWith("listr"))!;
     expect(rowComp.heightMm).toBeGreaterThan(8);
+  });
+
+  it("左右边距透传到 RenderPlan", () => {
+    const tpl: ReportTemplate = {
+      pages: [{ ...A4.pages[0]!, marginLeftMm: 8, marginRightMm: 9, components: [] }]
+    };
+    const { plan } = paginateTemplate(tpl, {});
+    expect(plan.pages[0]!.marginLeftMm).toBe(8);
+    expect(plan.pages[0]!.marginRightMm).toBe(9);
+  });
+
+  it("options 对象签名（mmPerRow/measurer）+ 旧数字签名兼容", () => {
+    const r1 = paginateTemplate(A4, { detail: makeRows(5) }, { mmPerRow: 0.5 });
+    const r2 = paginateTemplate(A4, { detail: makeRows(5) }, 0.5);
+    expect(r1.plan.pages).toEqual(r2.plan.pages);
+    expect(r1.plan.pages[0]!.components.filter((c) => c.nid?.startsWith("listr"))).toHaveLength(5);
+  });
+
+  it("border:false 时行/表头样式四边全关（下游 resolveBoxBorders 不画线）", () => {
+    const tpl: ReportTemplate = {
+      pages: [
+        {
+          ...A4.pages[0]!,
+          components: [
+            { ...(A4.pages[0]!.components[1] as ListComponent), border: false }
+          ]
+        }
+      ]
+    };
+    const { plan } = paginateTemplate(tpl, { detail: makeRows(2) });
+    const row = plan.pages[0]!.components.find((c) => c.nid?.startsWith("listr"))!;
+    expect(row.style?.borderTop).toBe(false);
+    expect(row.style?.borderBottom).toBe(false);
+  });
+
+  it("热路径样式驻留：同一列的行共享同一 style 对象引用", () => {
+    const { plan } = paginateTemplate(A4, { detail: makeRows(10) });
+    const rows = plan.pages.flatMap((p) => p.components.filter((c) => c.nid?.startsWith("listr")));
+    const styleOf = (r: (typeof rows)[number]) => r.grid?.cells[0]?.[0]?.style;
+    expect(styleOf(rows[0]!)).toBe(styleOf(rows[5]!));
   });
 });

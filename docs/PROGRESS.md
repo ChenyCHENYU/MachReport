@@ -3,6 +3,45 @@
 > 通宵自主执行模式 · 每个闭环 = 实现 → 测试 → 验证 → 检查点提交
 > 验证命令：`pnpm typecheck && pnpm lint && pnpm test && pnpm exec playwright test`
 
+## 优化轮 3（2026-09-30 下午 · 规模化与架构收敛，175 单测 + 9 E2E 全绿，发版 @mach-report 0.2.x）
+
+| # | 项 | 产出 | 验证 |
+|---|---|---|---|
+| 42 | **Canvas 内存模型修复（P0）** | `createCanvasPager`：视口窗口（与 DOM 共用 computePageWindow）+ 画布池复用 + 每帧限量分帧；A4@dpr2 ≈14MB/页，全量渲染百页级必炸，窗口化后内存 O(窗口) | 新 E2E：画布数 ≤ 池上限、滚动后不增长、滚动高度为全量 |
+| 43 | **分页热路径驻留（P0）** | 列样式/边框样式每列表构造一次（`interList`），行级零新对象；`charWidthEm` ASCII 查表 | 单测：同列共享样式引用；5k 行 57ms |
+| 44 | TextMeasurer 注入 | 启发式默认 + `createCanvasMeasurer`（无 2D 环境自动回退）；paginate/Canvas/PDF 可共用同一实例 | 单测：注入加倍测量器 → 行高增大 |
+| 45 | 样式解析单源 | `render/style.ts`（字号/描边/行高/边框开关）+ `defaults.ts` 常量集中，三后端消费 | lint/typecheck |
+| 46 | span 感知 edges | grid-geometry 导出内部线段（跳过合并单元格），Canvas/PDF 消费 | 单测：colSpan/rowSpan 边界断言 |
+| 47 | border=false 生效 | 三后端统一走 resolveBoxBorders；DOM 表格补 td 内网格线（border-collapse） | 单测 + 快照回归 |
+| 48 | builder 纸张预设 | `.page("a4", { landscape, margins })`，兼容旧数字签名 | 单测（resolvePaper） |
+| 49 | **Vue 插件** | `machReportPlugin`：request/fetcher/pdfExporter 一次注入；ReportPreview 无 prop fetcher 时自动落到注入值 | 单测：request 组装/优先级/本地注入渲染 |
+| 50 | 组件拆分 | usePageWindow/useZoom/usePrintExport + ReportToolbar；CSS 变量主题（--mrp-*）；gapPx 可配 | 既有组件测试全绿 |
+| 51 | 打印流式 + named pages | 打印 HTML 分块写 iframe（每 8 页让出主线程）；混合纸张按尺寸分组 @page 规则 | 单测（buildPrintDocument）+ E2E 复验 |
+| 52 | pdf 包 | 接入 style/edges/measurer；tsconfig.build + publishConfig（可发布） | build ✓ 单测 ✓ |
+| 53 | 工程效率 | 纯逻辑测试分流 node 环境（环境启动 141s→52s，套件 -44%）；sideEffects:false；vue/federation 标 private | 全门禁 |
+| 54 | 发版 | changesets version → core/pdf 0.2.0、sql-engine/manager 0.1.1；npm 发布四个 dist 就绪包 | npm publish |
+
+> 本轮遗留（roadmap）：绘制指令 IR（DisplayList）统一三后端、PDF save Worker 化、params 变更 keyed 局部补绘、vue/federation 的 vite lib 发布构建。
+
+## 优化轮 2（2026-09-30 · 三后端一致性 + 工程化，156 单测 + 8 E2E 全绿）
+
+| # | 项 | 产出 | 验证 |
+|---|---|---|---|
+| 30 | **Canvas Y 轴镜像修复** | `render/canvas.ts` 改顶点原点（与 DOM/PDF 一致），修订单真相源最大破绽 | 新 E2E：已知位置红色块 + 镜像位白（结构化像素断言） |
+| 31 | **Canvas 字号系数修复** | pt→px 走 `units.ptToPx` 同源换算（原实现大 2.13×），`planFontSizePx` 导出可单测 | typecheck + E2E |
+| 32 | **共享网格几何模块** | `render/grid-geometry.ts`：colWidthsMm/rowHeightsMm/colSpan/rowSpan/稀疏 null 单元格统一解析，Canvas/PDF 复用（DOM 保留 table 语义 + rowHeightsMm） | 7 个单测 |
+| 33 | **reload 竞态防护** | 代际令牌（reloadSeq）：快速切换 tempId 旧请求后返回不覆盖新数据 | 新单测（STALE 后返回不覆盖 FRESH） |
+| 34 | **缩放改 transform: scale** | 外层占位 + 内层 transform（零重排、跨浏览器）；虚拟化坐标系统一（scrollTop/zoom、gapPx 计入占位） | E2E：150% 缩放矩阵断言 + 缩放后翻页 |
+| 35 | **PDF 保真增强** | 单元格样式（对齐/底色/字号/折行）、富文本降级导出、data URL PNG/JPG 嵌入、`fidelityWarnings` 保真告警上报 | 3 个新单测 |
+| 36 | sql-engine 严谨化 | `#` 行注释剥离（排除 `#{`）；关键字校验剥离字符串字面量（`'put into box'` 不再误伤） | 3 个新单测 |
+| 37 | manager 锁丢失感知 | holdLock 心跳连续失败（默认 2 次）→ onLockLost 回调并停止心跳 | 2 个新单测（fake timers） |
+| 38 | print/PDF 窗口清理 | 打印 HTML 走 outerHTML 序列化（去 regex hack）；PDF 窗口 blob URL + 弹窗拦截提示 | E2E 复验 |
+| 39 | vue 导出双入口 | 「导出 HTML / 导出 PDF」按钮；PDF 走懒加载 @mach-report/pdf（不影响主包体积），新增 pdfFontUrl prop | E2E + typecheck |
+| 40 | 工程化 | root `type:module`；lint any 清零；CI ubuntu + HTML 报告 artifact；core/sql-engine/manager 真实 dist 构建（tsconfig.build.json + publishConfig + files，产物不含测试） | `pnpm -r build` ✓ |
+| 41 | 性能增量 | computePageWindow 前缀和+二分（gapPx 口径）；paginate cellText 双调用消除；font-loader 并发去重（in-flight 共享） | window 单测 + 既有预算门 |
+
+> 本轮遗留：vue/pdf/federation 的 npm 发布构建（vite lib mode + dts）；Canvas/PDF 的 rotateDeg/opacity 支持；gridPlan 真实契约 fixture 仍待登录激活。
+
 ## 最终交付状态（2026-09-17 03:05 · 值守至 06:00）
 
 - **28 个检查点提交 · 6 个包 · 131 单测 + 4 真浏览器 E2E 全绿**

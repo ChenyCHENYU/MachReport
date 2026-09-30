@@ -1,4 +1,10 @@
 export { default as ReportPreview } from "./ReportPreview.vue";
+export { default as ReportToolbar } from "./ReportToolbar.vue";
 export * from "./adapters";
 export * from "./local-adapter";
 export * from "./injection-keys";
+export * from "./plugin";
+export * from "./pdf-exporter";
+export * from "./composables/usePageWindow";
+export * from "./composables/useZoom";
+export * from "./composables/usePrintExport";

@@ -1,15 +1,17 @@
 {
   "name": "@mach-report/vue",
   "version": "0.1.0",
-  "description": "MachReport Vue 3 组件层：契约兼容 jh4j reportPreview 的预览组件 + 本地渲染适配器",
+  "description": "MachReport Vue 3 组件层：契约兼容 jh4j reportPreview 的预览组件 + 插件 + 本地渲染适配器",
   "type": "module",
+  "private": true,
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@mach-report/core": "workspace:*"
+    "@mach-report/core": "workspace:*",
+    "@mach-report/pdf": "workspace:*"
   },
   "peerDependencies": {
     "vue": "^3.2.0"

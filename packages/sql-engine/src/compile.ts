@@ -104,20 +104,29 @@ export function compileDynamicSql(source: string): CompiledSql {
   };
 }
 
-/** 去注释：-- 行注释、# 行注释（仅行首/空白后，避免误伤 jh4j 已渲染后的内容）、/* 块注释 */
+/**
+ * 去注释：-- 行注释、# 行注释（仅行首/空白后，且排除 #{ 绑定占位）、/* 块注释。
+ * 注意：此函数用于校验口径，输出会折叠空白。
+ */
 export function stripSqlComments(sql: string): string {
   return sql
     .replace(/\/\*[\s\S]*?\*\//g, " ")
     .replace(/(^|\s)--[^\n]*/g, "$1 ")
+    .replace(/(^|\s)#(?!\{)[^\n]*/g, "$1 ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
+/** 剥离单引号字符串字面量（内容不参与关键字检查，防 'xxx into yyy' 误伤） */
+function stripStringLiterals(sql: string): string {
+  return sql.replace(/'(?:[^']|'')*'/g, "''");
+}
+
 /**
- * 单 SELECT 结构校验（v0.1 为词法级；AST 级校验在 roadmap）：
+ * 单 SELECT 结构校验（词法层；AST 级校验见 ast-check.ts 双保险）：
  * - 去注释后必须以 select 或 with 开头
  * - 语句内除末尾外不允许出现分号
- * - 顶层禁止 DML/DDL/调用关键字
+ * - 顶层禁止 DML/DDL/调用关键字（字符串字面量内容不参与匹配）
  */
 export function assertSingleSelect(sql: string): void {
   const clean = stripSqlComments(sql);
@@ -129,11 +138,12 @@ export function assertSingleSelect(sql: string): void {
   if (body.includes(";")) {
     throw new SqlValidationError("检测到多语句（分号），仅允许单条 SELECT", sql);
   }
-  const m = FORBIDDEN_TOP_LEVEL.exec(body);
+  const codeOnly = stripStringLiterals(body);
+  const m = FORBIDDEN_TOP_LEVEL.exec(codeOnly);
   if (m) {
     throw new SqlValidationError(`禁止的关键字: ${m[1]}`, sql);
   }
-  if (/\binto\b/i.test(body)) {
+  if (/\binto\b/i.test(codeOnly)) {
     throw new SqlValidationError("禁止 SELECT INTO", sql);
   }
 }

@@ -6,7 +6,8 @@ import type {
   RenderPlan
 } from "../schema/render-plan";
 import { RENDER_PLAN_SCHEMA_VERSION } from "../schema/render-plan";
-import { measureTextMm, wrapText } from "./textwrap";
+import { DEFAULT_FONT_PT, LINE_HEIGHT } from "../defaults";
+import { heuristicMeasurer, measureTextMm, wrapText, type TextMeasurer } from "./textwrap";
 
 export interface ListColumn {
   header: string;
@@ -51,6 +52,13 @@ export interface ReportTemplate {
 
 export type DatasetRows = Record<string, Record<string, unknown>[]>;
 
+export interface PaginateOptions {
+  /** 每行额外占高（mm），压测专用钩子 */
+  mmPerRow?: number;
+  /** 文本测量器（默认启发式；浏览器端可注入 canvas 测量校准） */
+  measurer?: TextMeasurer;
+}
+
 export interface PaginateResult {
   plan: RenderPlan;
   warnings: string[];
@@ -61,6 +69,8 @@ interface WorkingPage {
   heightMm: number;
   marginTopMm: number;
   marginBottomMm: number;
+  marginLeftMm: number;
+  marginRightMm: number;
   components: PlanComponent[];
 }
 
@@ -70,6 +80,8 @@ function makeWorkingPage(page: TemplatePage): WorkingPage {
     heightMm: page.heightMm,
     marginTopMm: page.marginTopMm ?? 0,
     marginBottomMm: page.marginBottomMm ?? 0,
+    marginLeftMm: page.marginLeftMm ?? 0,
+    marginRightMm: page.marginRightMm ?? 0,
     components: []
   };
 }
@@ -79,8 +91,8 @@ function toContentBottom(page: TemplatePage, wp: WorkingPage): number {
 }
 
 function estRowHeightMm(list: ListComponent, lines: number): number {
-  const fontSizePt = list.fontSizePt ?? 10.5;
-  const lineMm = (fontSizePt * 1.35 * 25.4) / 72;
+  const fontSizePt = list.fontSizePt ?? DEFAULT_FONT_PT;
+  const lineMm = (fontSizePt * LINE_HEIGHT * 25.4) / 72;
   const padding = (list.paddingMm ?? 1) * 2;
   return Math.max(list.rowHeightMm ?? 0, lines * lineMm + padding);
 }
@@ -98,63 +110,132 @@ function cellText(value: unknown): string {
   }
 }
 
-function buildHeaderGrid(list: ListComponent): { grid: PlanGrid; heightMm: number } {
-  const fontSizePt = list.fontSizePt ?? 10.5;
-  const cells = list.columns.map((col) => ({
-    text: col.header,
-    style: {
+/** 列表级驻留产物：热路径（万行循环）中不再逐行/逐格新建样式对象 */
+interface ListInterning {
+  fontSizePt: number;
+  paddingMm: number;
+  /** 每列常驻单元格样式引用（同列所有行共享同一对象） */
+  cellStyles: (ComponentStyle | undefined)[];
+  /** 列表整体边框样式（所有行/表头共享） */
+  borderStyle: ComponentStyle;
+  headerHeightMm: number;
+  headerGrid: PlanGrid;
+  columns: ListColumn[];
+}
+
+type GridCellCompat = {
+  text?: string;
+  colSpan?: number;
+  rowSpan?: number;
+  style?: ComponentStyle;
+};
+
+function interList(list: ListComponent, measurer: TextMeasurer): ListInterning {
+  const fontSizePt = list.fontSizePt ?? DEFAULT_FONT_PT;
+  const paddingMm = list.paddingMm ?? 1;
+
+  // 每列单元格样式只构造一次：{ align, verticalAlign, ...col.style }
+  const cellStyles = list.columns.map((col) =>
+    col.style
+      ? ({ align: "left", verticalAlign: "middle", ...col.style } as ComponentStyle)
+      : ({ align: "left", verticalAlign: "middle" } as ComponentStyle)
+  );
+
+  // 表头单元格样式（含底色/加粗），同样驻留
+  const headerCellStyles = list.columns.map((col) =>
+    ({
       bold: list.headerBold ?? true,
-      align: "center" as const,
-      verticalAlign: "middle" as const,
+      align: "center",
+      verticalAlign: "middle",
       backgroundColor: list.headerBackgroundColor,
       ...(col.style || {})
-    }
-  }));
-  const lines = list.columns.map((col) =>
-    wrapText(col.header, col.widthMm - (list.paddingMm ?? 1) * 2, {
-      fontSizePt,
-      bold: list.headerBold ?? true
-    })
+    }) as ComponentStyle
   );
-  const maxLines = Math.max(...lines.map((l) => l.length), 1);
-  const height = estRowHeightMm(list, maxLines);
+
+  const headerTexts = list.columns.map((col) => col.header);
+  const headerLines = headerTexts.map((text, i) =>
+    wrapText(
+      text,
+      list.columns[i]!.widthMm - paddingMm * 2,
+      { fontSizePt, bold: list.headerBold ?? true },
+      measurer
+    )
+  );
+  const maxLines = Math.max(...headerLines.map((l) => l.length), 1);
+  const headerHeight = estRowHeightMm(list, maxLines);
+
+  const headerCells: GridCellCompat[] = headerTexts.map((text, i) => ({
+    text,
+    style: headerCellStyles[i]
+  }));
+
+  // border:false → 四边全关（下游 resolveBoxBorders 据此不画内外线）
+  const borderStyle: ComponentStyle =
+    list.border === false
+      ? { borderTop: false, borderRight: false, borderBottom: false, borderLeft: false }
+      : { borderBottom: true, borderLeft: true, borderRight: true, borderTop: true };
+
   return {
-    grid: { cells: [cells], rowHeightsMm: [height] },
-    heightMm: height
+    fontSizePt,
+    paddingMm,
+    cellStyles,
+    borderStyle,
+    headerHeightMm: headerHeight,
+    headerGrid: { cells: [headerCells as GridCellCompat[]], rowHeightsMm: [headerHeight] },
+    columns: list.columns
   };
 }
 
-function buildRowGrid(
-  list: ListComponent,
-  row: Record<string, unknown>
+interface ListInterningWithFloor extends ListInterning {
+  rowHeightFloorMm: number;
+}
+
+/** 单行 → 网格（复用驻留样式，无逐格对象分配） */
+function buildRowGridFast(
+  inter: ListInterningWithFloor,
+  row: Record<string, unknown>,
+  measurer: TextMeasurer
 ): { grid: PlanGrid; heightMm: number } {
-  const fontSizePt = list.fontSizePt ?? 10.5;
-  const cells = list.columns.map((col) => ({
-    text: cellText(row[col.field]),
-    style: { align: "left" as const, verticalAlign: "middle" as const, ...(col.style || {}) }
-  }));
-  const lines = list.columns.map((col) =>
-    wrapText(cellText(row[col.field]), col.widthMm - (list.paddingMm ?? 1) * 2, {
-      fontSizePt
-    })
+  const columns = inter.columns;
+  const texts: string[] = new Array(columns.length);
+  let maxLines = 1;
+  for (let i = 0; i < columns.length; i++) {
+    texts[i] = cellText(row[columns[i]!.field]);
+  }
+  // 折行只需算一次行数（宽度/字号同列恒定）
+  const lines: string[][] = new Array(columns.length);
+  for (let i = 0; i < columns.length; i++) {
+    const wrapped = wrapText(
+      texts[i]!,
+      columns[i]!.widthMm - inter.paddingMm * 2,
+      { fontSizePt: inter.fontSizePt },
+      measurer
+    );
+    lines[i] = wrapped;
+    if (wrapped.length > maxLines) maxLines = wrapped.length;
+  }
+  const lineMm = (inter.fontSizePt * LINE_HEIGHT * 25.4) / 72;
+  const height = Math.max(
+    inter.rowHeightFloorMm,
+    maxLines * lineMm + inter.paddingMm * 2
   );
-  const maxLines = Math.max(...lines.map((l) => l.length), 1);
-  const height = estRowHeightMm(list, maxLines);
-  return {
-    grid: { cells: [cells], rowHeightsMm: [height] },
-    heightMm: height
-  };
-}
-
-function gridStyleOverride(list: ListComponent): ComponentStyle {
-  return list.border === false ? {} : { borderBottom: true, borderLeft: true, borderRight: true, borderTop: true };
+  const cells: GridCellCompat[] = new Array(columns.length);
+  for (let i = 0; i < columns.length; i++) {
+    cells[i] = { text: texts[i]!, style: inter.cellStyles[i] };
+  }
+  return { grid: { cells: [cells], rowHeightsMm: [height] }, heightMm: height };
 }
 
 export function paginateTemplate(
   template: ReportTemplate,
   datasets: DatasetRows,
-  mmPerRow = 0
+  optionsOrMmPerRow: number | PaginateOptions = {}
 ): PaginateResult {
+  // 兼容旧签名 paginateTemplate(tpl, data, mmPerRow: number)
+  const options: PaginateOptions =
+    typeof optionsOrMmPerRow === "number" ? { mmPerRow: optionsOrMmPerRow } : optionsOrMmPerRow;
+  const mmPerRow = options.mmPerRow ?? 0;
+  const measurer = options.measurer ?? heuristicMeasurer;
   const warnings: string[] = [];
   const pages: PlanPage[] = [];
   let seq = 0;
@@ -170,6 +251,8 @@ export function paginateTemplate(
         pageHeightMm: current.heightMm,
         marginTopMm: current.marginTopMm,
         marginBottomMm: current.marginBottomMm,
+        marginLeftMm: current.marginLeftMm,
+        marginRightMm: current.marginRightMm,
         components: current.components
       });
     };
@@ -188,23 +271,23 @@ export function paginateTemplate(
 
       const columnsWidth = list.columns.reduce((s, c) => s + c.widthMm, 0);
       const scale = columnsWidth > list.widthMm ? list.widthMm / columnsWidth : 1;
-      const scaled: ListColumn[] =
-        scale === 1
-          ? list.columns
-          : list.columns.map((c) => ({ ...c, widthMm: c.widthMm * scale }));
+      const scaledList: ListComponent =
+        scale === 1 ? list : { ...list, columns: list.columns.map((c) => ({ ...c, widthMm: c.widthMm * scale })) };
 
-      const scaledList: ListComponent = { ...list, columns: scaled };
+      const inter: ListInterningWithFloor = {
+        ...interList(scaledList, measurer),
+        rowHeightFloorMm: scaledList.rowHeightMm ?? 0
+      };
 
-      const header = buildHeaderGrid(scaledList);
       const headerComp: PlanComponent = {
         kind: "rect",
         leftMm: list.leftMm,
         topMm: 0,
         widthMm: list.widthMm,
-        heightMm: header.heightMm,
-        grid: header.grid,
+        heightMm: inter.headerHeightMm,
+        grid: inter.headerGrid,
         nid: nextId("listh"),
-        style: gridStyleOverride(scaledList)
+        style: inter.borderStyle
       };
 
       let y = list.topMm;
@@ -213,11 +296,10 @@ export function paginateTemplate(
       };
 
       placeHeader(current, y);
-      y += header.heightMm + (mmPerRow || 0);
+      y += inter.headerHeightMm + mmPerRow;
 
       for (let i = 0; i < dataRows.length; i++) {
-        const row = dataRows[i]!;
-        const rowGrid = buildRowGrid(scaledList, row);
+        const rowGrid = buildRowGridFast(inter, dataRows[i]!, measurer);
         if (y + rowGrid.heightMm > contentBottom()) {
           pushCurrent();
           const next = makeWorkingPage(tplPage);
@@ -225,7 +307,7 @@ export function paginateTemplate(
           current.heightMm = next.heightMm;
           if (scaledList.headerEveryPage !== false) {
             placeHeader(current, list.topMm);
-            y = list.topMm + header.heightMm;
+            y = list.topMm + inter.headerHeightMm;
           } else {
             y = contentTop;
           }
@@ -238,7 +320,7 @@ export function paginateTemplate(
           heightMm: rowGrid.heightMm,
           grid: rowGrid.grid,
           nid: nextId("listr"),
-          style: gridStyleOverride(scaledList)
+          style: inter.borderStyle
         });
         y += rowGrid.heightMm;
       }

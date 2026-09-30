@@ -1,8 +1,9 @@
 {
   "name": "@mach-report/federation",
   "version": "0.1.0",
-  "description": "MachReport 模块联邦远程入口：expose 命名与 jh4j-cloud-report 对齐，供宿主零改动切换",
+  "description": "MachReport 模块联邦远程入口：expose 命名与 jh4j-cloud-report 对齐，供宿主零改动切换（部署产物为 remoteEntry，不发 npm）",
   "type": "module",
+  "private": true,
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {

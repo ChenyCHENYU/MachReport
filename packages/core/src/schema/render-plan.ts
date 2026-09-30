@@ -1,3 +1,5 @@
+import { SCHEMA_VERSION_MACH } from "../defaults";
+
 export type ComponentKind =
   | "text"
   | "image"
@@ -58,7 +60,8 @@ export interface GridCell {
 }
 
 export interface PlanGrid {
-  cells: GridCell[][];
+  /** 行内允许 null 空位（jh4j 契约数据存在稀疏行；渲染器按空单元格处理） */
+  cells: (GridCell | null)[][];
   colWidthsMm?: number[];
   rowHeightsMm?: number[];
   gapMm?: number;
@@ -105,7 +108,7 @@ export interface RenderPlan {
   pages: PlanPage[];
 }
 
-export const RENDER_PLAN_SCHEMA_VERSION = "1.0.0-mach";
+export const RENDER_PLAN_SCHEMA_VERSION = SCHEMA_VERSION_MACH;
 
 export function toRenderPlan(response: GridPlanResponse): RenderPlan {
   if (response && response.code != null && response.code !== 200) {

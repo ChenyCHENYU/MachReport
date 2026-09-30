@@ -1,5 +1,6 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { compileDynamicSql, renderDynamicSql } from "../compile";
+import { compileDynamicSql, renderDynamicSql, stripSqlComments } from "../compile";
 import { SqlSyntaxError } from "../tokenizer";
 
 describe("sql-engine 边界补强", () => {
@@ -82,5 +83,24 @@ describe("sql-engine 边界补强", () => {
       expect(e).toBeInstanceOf(SqlSyntaxError);
       expect((e as SqlSyntaxError).position).toBeGreaterThan(0);
     }
+  });
+
+  it("# 行注释被剥离且不影响 #{ 绑定", () => {
+    expect(stripSqlComments("select 1 # 整行注释")).toBe("select 1");
+    expect(stripSqlComments("select #{a} from t")).toBe("select #{a} from t");
+    const r = renderDynamicSql("select id from t where id=#{a} #注释", { a: 1 });
+    expect(r.sql).toContain("?");
+    expect(r.binds).toEqual([1]);
+  });
+
+  it("字符串字面量中的 into/关键字不误伤", () => {
+    const r = renderDynamicSql("select 'put into box', col_update from t", {});
+    expect(r.sql).toContain("'put into box'");
+  });
+
+  it("SELECT INTO 仍被拒绝", () => {
+    expect(() =>
+      renderDynamicSql("select * into new_t from t", {})
+    ).toThrowError(/SELECT INTO/);
   });
 });

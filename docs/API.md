@@ -33,9 +33,25 @@ const fetcher2 = createJh4jGridPlanFetcher({
 | params | Record | 报表参数（键名区分大小写） |
 | height | "100vh" | 弹窗内建议 calc(100vh - 280px) |
 | auto-load / show-export / show-print / show-pdf-window | true | 显隐控制 |
-| fetcher | PlanFetcher \| null | 数据面（不传则报错提示） |
+| gapPx | 18 | 页间距（px，静态 prop） |
+| fetcher | PlanFetcher \| null | 数据面；**不传时回落插件注入（见下）** |
 
 emits：`loaded(pageCount)` / `error(message)`；ref：`reload / print / exportAs(format) / openPdfWindow / gotoPage(n)`
+
+### 插件（推荐：一次注册，业务页面一行使用）
+
+```ts
+import { machReportPlugin } from "@mach-report/vue";
+
+app.use(machReportPlugin, {
+  request: axios,               // 或 fetcher: 自定义 PlanFetcher（优先级更高）
+  baseUrl: "/sub/mach-report",
+  pdfFontUrl: "/simhei.ttf",    // '' 跳过中文字体
+  pdfExporter: customExporter   // 可选：接管 PDF 导出（如 Worker 化）
+});
+```
+
+主题：工具栏/外壳颜色走 CSS 变量 `--mrp-shell-bg / --mrp-toolbar-bg / --mrp-btn-*`，宿主覆写即可对齐设计系统。
 
 ## @mach-report/core — 引擎
 
@@ -44,13 +60,38 @@ import { paginateTemplate, renderPlan, computePageWindow,
          validateRenderPlan, importJh4jTemplateContent } from "@mach-report/core";
 
 const { plan, warnings } = paginateTemplate(template, datasets);   // 模板+数据 → RenderPlan
+// paginateTemplate(template, datasets, { measurer, mmPerRow })    // 可注入文本测量器
 validateRenderPlan(plan);            // { ok, errors[], warnings[] } JSON path 定位
 const el = renderPlan(plan, document);  // RenderPlan → DOM（框架无关）
-computePageWindow({ pageHeightsPx, viewportHeightPx, scrollTopPx }); // 虚拟化窗口
+computePageWindow({ pageHeightsPx, viewportHeightPx, scrollTopPx, gapPx }); // 虚拟化窗口
 importJh4jTemplateContent(content);  // jh4j 模板 content → { template, warnings }
 ```
 
-Template 模型：`pages[].components[]`，静态组件（text/rect/line/ellipse/image...）+ 列表组件（`kind:"list"`，dataset 引用 + columns 列定义，自动跨页/表头重复）。
+Template 模型：`pages[].components[]`，静态组件（text/rect/line/ellipse/image...）+ 列表组件（`kind:"list"`，dataset 引用 + columns 列定义，自动跨页/表头重复；`border:false` 三后端一致去线）。
+
+### Canvas 窗口化分页器（大报表必用）
+
+```ts
+import { createCanvasPager, renderPlanToCanvas } from "@mach-report/core";
+
+// 小报表：一次性渲染（可传 start/end 区间）
+const { canvases } = renderPlanToCanvas(plan, { dpr: 2, start: 0, end: 3 });
+
+// 大报表：视口窗口 + 画布池复用 + 每帧限量分帧（内存 O(窗口)）
+const pager = createCanvasPager(plan, { dpr: devicePixelRatio, overscan: 1, gapPx: 18 });
+pager.attach(scrollContainer);      // 容器需 overflow:auto
+pager.window();                     // 当前渲染区间 { start, end }
+pager.destroy();
+```
+
+### 文本测量器（三端折行一致性的开关）
+
+```ts
+import { createCanvasMeasurer, heuristicMeasurer, paginateTemplate } from "@mach-report/core";
+
+const measurer = createCanvasMeasurer(() => someCanvas.getContext("2d")); // 浏览器真字体
+const { plan } = paginateTemplate(template, data, { measurer });          // 分页与 PDF/Canvas 共用
+```
 
 ### 模板构建器 DSL（推荐替代手写 JSON）
 
@@ -58,7 +99,7 @@ Template 模型：`pages[].components[]`，静态组件（text/rect/line/ellipse
 import { createTemplate } from "@mach-report/core";
 
 const template = createTemplate()                    // 单页快路径：链式直接 build
-  .page(210, 297, { marginTopMm: 12 })               // 纸张 mm + 页边距
+  .page("a4", { landscape: true, margins: { marginTopMm: 12 } })   // 纸张预设（a3/a4/a5/b4/b5）
   .text("出库单", { leftMm: 70, topMm: 2, widthMm: 70 }, { fontSize: 16, bold: true, align: "center" })
   .barcode("CK-001", { leftMm: 12, topMm: 14, widthMm: 40, heightMm: 12 })
   .line(12, 28, 186)
@@ -67,12 +108,7 @@ const template = createTemplate()                    // 单页快路径：链式
     { header: "物料名称", field: "name", widthMm: 156 }
   ], { fontSizePt: 10, headerEveryPage: true })
   .build();                                          // → ReportTemplate，直接进 paginateTemplate
-
-// 多页：done() 回到容器
-const t = createTemplate();
-t.page().text("第一页", { topMm: 5 });
-t.page().text("第二页", { topMm: 5 });
-t.build();
+// .page(210, 297, { marginTopMm: 12 })              // 数字纸张写法兼容
 ```
 
 ### jh4j 模板导入

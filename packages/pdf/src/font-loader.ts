@@ -42,6 +42,8 @@ async function writeCache(key: string, bytes: Uint8Array): Promise<void> {
 }
 
 const memory = new Map<string, Uint8Array>();
+/** 并发去重：同一 URL 的并行加载共享同一个 Promise，避免大字体重复拉取 */
+const inFlight = new Map<string, Promise<Uint8Array | null>>();
 
 /**
  * 字体加载（IndexedDB 持久缓存 + 内存缓存）：
@@ -50,19 +52,29 @@ const memory = new Map<string, Uint8Array>();
 export async function loadFontWithCache(url: string): Promise<Uint8Array | null> {
   const memo = memory.get(url);
   if (memo) return memo;
-  const cached = await readCache(url);
-  if (cached) {
-    memory.set(url, cached);
-    return cached;
-  }
+  const pending = inFlight.get(url);
+  if (pending) return pending;
+  const task = (async (): Promise<Uint8Array | null> => {
+    const cached = await readCache(url);
+    if (cached) {
+      memory.set(url, cached);
+      return cached;
+    }
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      memory.set(url, bytes);
+      void writeCache(url, bytes);
+      return bytes;
+    } catch {
+      return null;
+    }
+  })();
+  inFlight.set(url, task);
   try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    memory.set(url, bytes);
-    void writeCache(url, bytes);
-    return bytes;
-  } catch {
-    return null;
+    return await task;
+  } finally {
+    inFlight.delete(url);
   }
 }

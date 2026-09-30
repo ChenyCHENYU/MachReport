@@ -1,18 +1,81 @@
 import type { ListColumn, ListComponent, ReportTemplate, TemplatePage } from "../layout/paginate";
 import type { ComponentStyle, PlanComponent } from "../schema/render-plan";
+import { PAPER_SIZES } from "../units";
 
 type Geometry = Partial<Pick<PlanComponent, "leftMm" | "topMm" | "widthMm" | "heightMm">>;
+
+/** 纸张预设名（对齐 PAPER_SIZES 表） */
+export type PaperName = keyof typeof PAPER_SIZES;
+
+export interface PageOptions {
+  /** 横向（宽高互换） */
+  landscape?: boolean;
+  margins?: Partial<
+    Pick<TemplatePage, "marginTopMm" | "marginBottomMm" | "marginLeftMm" | "marginRightMm">
+  >;
+}
+
+type PageMargins = Partial<
+  Pick<TemplatePage, "marginTopMm" | "marginBottomMm" | "marginLeftMm" | "marginRightMm">
+>;
+
+/** 解析纸张参数：数字按宽高使用；字符串查 PAPER_SIZES 预设；缺省 A4 纵向 */
+export function resolvePaper(
+  paper: PaperName | { widthMm: number; heightMm: number } | number,
+  heightArg?: number,
+  landscape?: boolean
+): { widthMm: number; heightMm: number } {
+  let widthMm: number;
+  let heightMm: number;
+  if (typeof paper === "string") {
+    const preset = PAPER_SIZES[paper];
+    if (!preset) throw new Error(`未知纸张预设 "${paper}"（可用：${Object.keys(PAPER_SIZES).join("/")}）`);
+    widthMm = preset.widthMm;
+    heightMm = preset.heightMm;
+  } else if (typeof paper === "number") {
+    widthMm = paper;
+    heightMm = heightArg ?? 297;
+  } else {
+    widthMm = paper.widthMm;
+    heightMm = paper.heightMm;
+  }
+  return landscape ? { widthMm: heightMm, heightMm: widthMm } : { widthMm, heightMm };
+}
 
 export class TemplateBuilder {
   readonly pages: TemplatePage[] = [];
   private pending: PageBuilder | null = null;
 
+  /**
+   * 新建页。纸张支持三种写法：
+   * - 预设名：.page("a4", { landscape: true, margins: {...} })
+   * - 数字：.page(210, 297)（第三参数兼容旧 margins 对象或新 options）
+   * - 对象：.page({ widthMm: 210, heightMm: 297 })
+   */
   page(
-    widthMm = 210,
-    heightMm = 297,
-    margins: Partial<Pick<TemplatePage, "marginTopMm" | "marginBottomMm" | "marginLeftMm" | "marginRightMm">> = {}
+    paper: PaperName | { widthMm: number; heightMm: number } | number = "a4",
+    optionsOrHeight: number | PageOptions = {},
+    maybeOptions?: PageOptions | PageMargins
   ): PageBuilder {
     this.collect();
+    // 旧签名兼容：.page(w, h, { marginTopMm }) 的第三参数是 margins 本体
+    const legacyMargins =
+      maybeOptions != null &&
+      !("margins" in maybeOptions) &&
+      !("landscape" in maybeOptions) &&
+      ("marginTopMm" in maybeOptions ||
+        "marginBottomMm" in maybeOptions ||
+        "marginLeftMm" in maybeOptions ||
+        "marginRightMm" in maybeOptions);
+    const options: PageOptions = legacyMargins
+      ? { margins: maybeOptions as PageMargins }
+      : ((maybeOptions as PageOptions | undefined) ?? {});
+    const { widthMm, heightMm } = resolvePaper(
+      paper,
+      typeof optionsOrHeight === "number" ? optionsOrHeight : undefined,
+      options.landscape
+    );
+    const margins = options.margins ?? {};
     this.pending = new PageBuilder(this, {
       widthMm,
       heightMm,
