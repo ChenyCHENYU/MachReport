@@ -1,6 +1,6 @@
 {
   "name": "@agile-team/mach-report-vue",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MachReport Vue 3 适配单包：契约兼容 jh4j reportPreview 的预览组件 + 插件（安装这一个包即可，自动携带引擎）",
   "type": "module",
   "sideEffects": ["*.css", "*.vue"],
