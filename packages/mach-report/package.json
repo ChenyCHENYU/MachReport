@@ -1,6 +1,6 @@
 {
   "name": "@agile-team/mach-report",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "MachReport 报表引擎单包：RenderPlan 模型 + 分页 + DOM/Canvas/PDF 渲染 + 动态 SQL + 管理端 API（框架无关、零运行时依赖、子路径按需引入）",
   "type": "module",
   "sideEffects": false,
