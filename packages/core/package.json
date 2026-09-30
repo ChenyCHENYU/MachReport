@@ -1,6 +1,6 @@
 {
   "name": "@agile-team/mach-report-core",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "MachReport 渲染引擎核心：RenderPlan 模型 + 分页计算 + DOM/Canvas 渲染器（框架无关、零运行时依赖）",
   "type": "module",
   "sideEffects": false,
@@ -17,9 +17,12 @@
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
       }
-    }
+    },
+    "access": "public"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""

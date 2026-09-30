@@ -1,5 +1,13 @@
 # @agile-team/mach-report-pdf
 
+## 0.2.1
+
+### Patch Changes
+
+- 对齐 org 发布约定：publishConfig.access=public（与 @agile-team/mach-table 家族一致）。
+- Updated dependencies
+  - @agile-team/mach-report-core@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes

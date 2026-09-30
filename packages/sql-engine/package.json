@@ -1,6 +1,6 @@
 {
   "name": "@agile-team/mach-report-sql-engine",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "动态 SQL 编译器：兼容 jh4j #{}/${}/{if} 语法，参数化渲染 + 单 SELECT 结构校验",
   "type": "module",
   "sideEffects": false,
@@ -17,9 +17,12 @@
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
       }
-    }
+    },
+    "access": "public"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""

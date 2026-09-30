@@ -1,5 +1,11 @@
 # @agile-team/mach-report-manager
 
+## 0.1.2
+
+### Patch Changes
+
+- 对齐 org 发布约定：publishConfig.access=public（与 @agile-team/mach-table 家族一致）。
+
 ## 0.1.1
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@agile-team/mach-report-pdf",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "MachReport PDF 直出：RenderPlan → 矢量 PDF（前端生成，省后端渲染往返）",
   "type": "module",
   "sideEffects": false,
@@ -17,9 +17,12 @@
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
       }
-    }
+    },
+    "access": "public"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
