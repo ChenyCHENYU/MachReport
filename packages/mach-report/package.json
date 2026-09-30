@@ -1,6 +1,6 @@
 {
   "name": "@agile-team/mach-report",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "MachReport 报表引擎单包：RenderPlan 模型 + 分页 + DOM/Canvas/PDF 渲染 + 动态 SQL + 管理端 API + Vue 3 契约组件（零运行时依赖；./vue 为框架子路径，vue 为可选 peer）",
   "type": "module",
   "sideEffects": ["**/*.css", "**/*.vue"],
