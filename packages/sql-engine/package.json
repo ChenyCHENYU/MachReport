@@ -1,6 +1,6 @@
 {
   "name": "@mach-report/sql-engine",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "动态 SQL 编译器：兼容 jh4j #{}/${}/{if} 语法，参数化渲染 + 单 SELECT 结构校验",
   "type": "module",
   "sideEffects": false,
