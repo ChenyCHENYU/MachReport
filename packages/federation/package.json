@@ -1,5 +1,5 @@
 {
-  "name": "@agile-team/federation",
+  "name": "@agile-team/mach-report-federation",
   "version": "0.1.0",
   "description": "MachReport 模块联邦远程入口：expose 命名与 jh4j-cloud-report 对齐，供宿主零改动切换（部署产物为 remoteEntry，不发 npm）",
   "type": "module",
@@ -17,8 +17,8 @@
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
-    "@agile-team/core": "workspace:*",
-    "@agile-team/vue": "workspace:*"
+    "@agile-team/mach-report-core": "workspace:*",
+    "@agile-team/mach-report-vue": "workspace:*"
   },
   "peerDependencies": {
     "vue": "^3.2.0"

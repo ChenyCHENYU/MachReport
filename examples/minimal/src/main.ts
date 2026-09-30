@@ -1,7 +1,7 @@
 import { createApp, h, ref, computed } from "vue";
-import { ReportPreview, createLocalFetcher, machReportPlugin } from "@agile-team/vue";
-import type { ReportTemplate } from "@agile-team/core";
-import { renderDynamicSql } from "@agile-team/sql-engine";
+import { ReportPreview, createLocalFetcher, machReportPlugin } from "@agile-team/mach-report-vue";
+import type { ReportTemplate } from "@agile-team/mach-report-core";
+import { renderDynamicSql } from "@agile-team/mach-report-sql-engine";
 
 let cachedTemplateRef: { template: ReportTemplate; datasets: Record<string, Record<string, unknown>[]> } | null = null;
 
@@ -11,8 +11,8 @@ async function exportPdf(): Promise<void> {
   const entry = cachedTemplateRef;
   if (!entry) return;
   const [{ renderPlanToPdf, loadFontWithCache }, { paginateTemplate }] = await Promise.all([
-    import("@agile-team/pdf"),
-    import("@agile-team/core")
+    import("@agile-team/mach-report-pdf"),
+    import("@agile-team/mach-report-core")
   ]);
   const { plan } = paginateTemplate(entry.template, entry.datasets);
   const font = await loadFontWithCache("/simhei.ttf");
@@ -29,7 +29,7 @@ async function exportPdf(): Promise<void> {
 async function showCanvas(): Promise<void> {
   const entry = cachedTemplateRef;
   if (!entry) return;
-  const { renderPlanToCanvas, paginateTemplate } = await import("@agile-team/core");
+  const { renderPlanToCanvas, paginateTemplate } = await import("@agile-team/mach-report-core");
   const { plan } = paginateTemplate(entry.template, entry.datasets);
   const { canvases } = renderPlanToCanvas(plan, { dpr: 1 });
   const overlay = ensureOverlay();
@@ -38,7 +38,7 @@ async function showCanvas(): Promise<void> {
 
 /** 校准渲染：已知位置纯色块，供 E2E 做结构化像素断言（Y 轴方向/几何换算回归检测） */
 async function showCanvasCalibration(): Promise<void> {
-  const { renderPlanToCanvas } = await import("@agile-team/core");
+  const { renderPlanToCanvas } = await import("@agile-team/mach-report-core");
   const plan = {
     schemaVersion: "calibration",
     pages: [
@@ -70,7 +70,7 @@ async function showCanvasCalibration(): Promise<void> {
 async function showCanvasPager(): Promise<void> {
   const entry = cachedTemplateRef;
   if (!entry) return;
-  const { createCanvasPager, paginateTemplate } = await import("@agile-team/core");
+  const { createCanvasPager, paginateTemplate } = await import("@agile-team/mach-report-core");
   const { plan } = paginateTemplate(entry.template, entry.datasets);
   pagerRef?.destroy();
   let overlay = document.getElementById("canvas-overlay");

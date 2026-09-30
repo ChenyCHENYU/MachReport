@@ -59,10 +59,10 @@ importers:
 
   examples/fed-host:
     dependencies:
-      '@agile-team/core':
+      '@agile-team/mach-report-core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@agile-team/vue':
+      '@agile-team/mach-report-vue':
         specifier: workspace:*
         version: link:../../packages/vue
       vue:
@@ -81,16 +81,16 @@ importers:
 
   examples/minimal:
     dependencies:
-      '@agile-team/core':
+      '@agile-team/mach-report-core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@agile-team/pdf':
+      '@agile-team/mach-report-pdf':
         specifier: workspace:*
         version: link:../../packages/pdf
-      '@agile-team/sql-engine':
+      '@agile-team/mach-report-sql-engine':
         specifier: workspace:*
         version: link:../../packages/sql-engine
-      '@agile-team/vue':
+      '@agile-team/mach-report-vue':
         specifier: workspace:*
         version: link:../../packages/vue
       vue:
@@ -108,10 +108,10 @@ importers:
 
   packages/federation:
     dependencies:
-      '@agile-team/core':
+      '@agile-team/mach-report-core':
         specifier: workspace:*
         version: link:../core
-      '@agile-team/vue':
+      '@agile-team/mach-report-vue':
         specifier: workspace:*
         version: link:../vue
     devDependencies:
@@ -135,7 +135,7 @@ importers:
 
   packages/pdf:
     dependencies:
-      '@agile-team/core':
+      '@agile-team/mach-report-core':
         specifier: workspace:*
         version: link:../core
       '@pdf-lib/fontkit':
@@ -147,7 +147,7 @@ importers:
 
   packages/sql-engine:
     dependencies:
-      '@agile-team/core':
+      '@agile-team/mach-report-core':
         specifier: workspace:*
         version: link:../core
       node-sql-parser:
@@ -156,10 +156,10 @@ importers:
 
   packages/vue:
     dependencies:
-      '@agile-team/core':
+      '@agile-team/mach-report-core':
         specifier: workspace:*
         version: link:../core
-      '@agile-team/pdf':
+      '@agile-team/mach-report-pdf':
         specifier: workspace:*
         version: link:../pdf
     devDependencies:

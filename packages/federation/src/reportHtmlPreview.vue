@@ -2,11 +2,11 @@
 import { onMounted, ref, watch } from "vue";
 import type { PropType } from "vue";
 import { inject } from "vue";
-import { MACH_REPORT_FETCHER_KEY } from "@agile-team/vue";
-import type { PlanFetcher } from "@agile-team/vue";
-import { normalizeTempIds } from "@agile-team/vue";
-import { renderPlan as renderPlanToDom } from "@agile-team/core";
-import { validateRenderPlan } from "@agile-team/core";
+import { MACH_REPORT_FETCHER_KEY } from "@agile-team/mach-report-vue";
+import type { PlanFetcher } from "@agile-team/mach-report-vue";
+import { normalizeTempIds } from "@agile-team/mach-report-vue";
+import { renderPlan as renderPlanToDom } from "@agile-team/mach-report-core";
+import { validateRenderPlan } from "@agile-team/mach-report-core";
 
 const props = defineProps({
   tempId: {

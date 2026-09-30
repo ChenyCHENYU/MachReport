@@ -1,5 +1,5 @@
 {
-  "name": "@agile-team/core",
+  "name": "@agile-team/mach-report-core",
   "version": "0.2.0",
   "description": "MachReport 渲染引擎核心：RenderPlan 模型 + 分页计算 + DOM/Canvas 渲染器（框架无关、零运行时依赖）",
   "type": "module",

@@ -20,7 +20,7 @@ export interface MachReportPluginOptions {
   fetcher?: PlanFetcher;
   /** PDF 导出字体 URL（默认 /simhei.ttf；'' 跳过字体，走内置西文字体） */
   pdfFontUrl?: string;
-  /** 自定义 PDF 导出器（缺省用懒加载 @agile-team/pdf 的默认实现） */
+  /** 自定义 PDF 导出器（缺省用懒加载 @agile-team/mach-report-pdf 的默认实现） */
   pdfExporter?: PdfExporter;
 }
 

@@ -9,10 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@agile-team/core": "workspace:*",
-    "@agile-team/sql-engine": "workspace:*",
-    "@agile-team/vue": "workspace:*",
-    "@agile-team/pdf": "workspace:*",
+    "@agile-team/mach-report-core": "workspace:*",
+    "@agile-team/mach-report-sql-engine": "workspace:*",
+    "@agile-team/mach-report-vue": "workspace:*",
+    "@agile-team/mach-report-pdf": "workspace:*",
     "vue": "^3.5.0"
   },
   "devDependencies": {

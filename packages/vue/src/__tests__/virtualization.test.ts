@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import ReportPreview from "../ReportPreview.vue";
 import { createLocalFetcher } from "../local-adapter";
-import type { ReportTemplate } from "@agile-team/core";
+import type { ReportTemplate } from "@agile-team/mach-report-core";
 
 const tpl: ReportTemplate = {
   pages: [

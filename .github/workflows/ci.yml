@@ -22,7 +22,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - name: Build federation remote
-        run: pnpm --filter @agile-team/federation build
+        run: pnpm --filter @agile-team/mach-report-federation build
       - name: Install browsers for E2E
         run: pnpm exec playwright install chromium --with-deps
       - run: pnpm exec playwright test

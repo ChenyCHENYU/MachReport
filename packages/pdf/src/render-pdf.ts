@@ -1,6 +1,6 @@
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage } from "pdf-lib";
-import type { GridCell, PlanComponent, PlanGrid, RenderPlan } from "@agile-team/core";
+import type { GridCell, PlanComponent, PlanGrid, RenderPlan } from "@agile-team/mach-report-core";
 import {
   heuristicMeasurer,
   isImageBackedComponent,
@@ -12,7 +12,7 @@ import {
   resolveGridLayout,
   wrapText,
   type TextMeasurer
-} from "@agile-team/core";
+} from "@agile-team/mach-report-core";
 
 export interface PdfRenderOptions {
   /** 嵌入字体字节（TTF，如黑体）；缺省用 Helvetica（不支持 CJK） */

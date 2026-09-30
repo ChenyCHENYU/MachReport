@@ -36,7 +36,7 @@
 | 36 | sql-engine 严谨化 | `#` 行注释剥离（排除 `#{`）；关键字校验剥离字符串字面量（`'put into box'` 不再误伤） | 3 个新单测 |
 | 37 | manager 锁丢失感知 | holdLock 心跳连续失败（默认 2 次）→ onLockLost 回调并停止心跳 | 2 个新单测（fake timers） |
 | 38 | print/PDF 窗口清理 | 打印 HTML 走 outerHTML 序列化（去 regex hack）；PDF 窗口 blob URL + 弹窗拦截提示 | E2E 复验 |
-| 39 | vue 导出双入口 | 「导出 HTML / 导出 PDF」按钮；PDF 走懒加载 @agile-team/pdf（不影响主包体积），新增 pdfFontUrl prop | E2E + typecheck |
+| 39 | vue 导出双入口 | 「导出 HTML / 导出 PDF」按钮；PDF 走懒加载 @agile-team/mach-report-pdf（不影响主包体积），新增 pdfFontUrl prop | E2E + typecheck |
 | 40 | 工程化 | root `type:module`；lint any 清零；CI ubuntu + HTML 报告 artifact；core/sql-engine/manager 真实 dist 构建（tsconfig.build.json + publishConfig + files，产物不含测试） | `pnpm -r build` ✓ |
 | 41 | 性能增量 | computePageWindow 前缀和+二分（gapPx 口径）；paginate cellText 双调用消除；font-loader 并发去重（in-flight 共享） | window 单测 + 既有预算门 |
 
@@ -106,7 +106,7 @@
 
 ## 已完成能力清单
 
-### core (@agile-team/core)
+### core (@agile-team/mach-report-core)
 - [x] RenderPlan schema（对齐 jh4j gridPlan 逆向结构）
 - [x] mm↔px↔pt 单位系统 + 纸张尺寸表
 - [x] 近似文本测量（CJK/拉丁宽度模型）与折行
@@ -117,20 +117,20 @@
 - [x] **RenderPlan 校验器**：error/warning 分级、JSON path 行级定位、坏数据防御
 - [x] **jh4j 模板导入转换器**：逆向 schema（GlobalConfig/PageNode/ElementNode）→ ReportTemplate，未知降级+告警不抛错
 
-### sql-engine (@agile-team/sql-engine)
+### sql-engine (@agile-team/mach-report-sql-engine)
 - [x] `#{}`/`${}`/`{if(cond,a,b)}` 全语法（手册三范式 + 嵌套 if 回退再编译）
 - [x] 表达式求值器：isEmpty/==/!=/+、双引号字符串、`\{` 转义、括号嵌套
 - [x] 单 SELECT 结构校验：注释剥离/多语句/DML/DDL/SELECT INTO 拒绝
 - [x] 缺参容错（NULL 绑定+告警）；200 动态条件稳定性
 
-### vue (@agile-team/vue)
+### vue (@agile-team/mach-report-vue)
 - [x] ReportPreview 契约组件：props/emits/expose 与 jh4j 1:1
 - [x] 换单据先清空再渲染（根治闪旧内容）；错误态+重试
 - [x] jh4j gridPlan 适配器（request 注入）+ 本地适配器（core 直出）
 - [x] 工具栏：翻页/适宽/100%/150%/导出/打印/PDF 窗口；打印 iframe+@page
 - [x] 渲染前 schema 校验（行级错误直达 UI）
 
-### federation (@agile-team/federation)
+### federation (@agile-team/mach-report-federation)
 - [x] reportPreview/reportHtmlPreview/filePreview 三入口，expose 名对齐
 - [x] fetcher 通过 InjectionKey provide/inject 注入（宿主掌控数据面）
 
