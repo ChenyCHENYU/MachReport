@@ -4,6 +4,7 @@ export * from "./adapters";
 export * from "./local-adapter";
 export * from "./injection-keys";
 export * from "./plugin";
+export * from "./config";
 export * from "./pdf-exporter";
 export * from "./composables/usePageWindow";
 export * from "./composables/useZoom";

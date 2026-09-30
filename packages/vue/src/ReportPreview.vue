@@ -6,7 +6,8 @@
  * - usePageWindow：视口虚拟化（自然坐标系 + gap）
  * - useZoom：transform: scale 缩放（零重排）
  * - usePrintExport：打印/导出/PDF 窗口（流式打印 + named pages）
- * - 数据面优先级：props.fetcher > 插件注入（machReportPlugin）> 报错
+ * - 配置优先级：props > provideMachReportConfig 叠加 > preset > 插件 config.defaults > 内置缺省
+ * - 数据面优先级：props.fetcher > 插件注入（machReportPlugin，零配置同源可用）
  */
 import {
   computed,
@@ -30,6 +31,12 @@ import {
   MACH_REPORT_FETCHER_KEY,
   MACH_REPORT_PDF_EXPORTER_KEY
 } from "./injection-keys";
+import {
+  resolveConfig,
+  themeToCssVars,
+  useMachReportConfig,
+  type MachReportMessages
+} from "./config";
 import { createDefaultPdfExporter, type PdfExporter } from "./pdf-exporter";
 
 const props = defineProps({
@@ -44,11 +51,16 @@ const props = defineProps({
   },
   height: { type: String, default: "100vh" },
   autoLoad: { type: Boolean, default: true },
-  showExport: { type: Boolean, default: true },
-  showPrint: { type: Boolean, default: true },
-  showPdfWindow: { type: Boolean, default: true },
-  /** 页间距（px），默认 18 */
-  gapPx: { type: Number, default: 18 },
+  /** 以下显隐/间距不传时走配置中心（preset > defaults > 内置缺省） */
+  showExport: { type: Boolean, default: undefined },
+  showPrint: { type: Boolean, default: undefined },
+  showPdfWindow: { type: Boolean, default: undefined },
+  /** 页间距（px）；不传走配置中心 */
+  gapPx: { type: Number, default: undefined },
+  /** 工具栏/状态文案覆写（不传走配置中心 messages） */
+  messages: { type: Object as PropType<Partial<MachReportMessages>>, default: undefined },
+  /** 启用的 preset 名（不传用配置中心 defaultPreset） */
+  preset: { type: String, default: undefined },
   fetcher: {
     type: Function as unknown as PropType<PlanFetcher | null>,
     default: null
@@ -67,7 +79,7 @@ const currentPage = ref(1);
 const containerRef = ref<HTMLElement | null>(null);
 const viewportRef = ref<HTMLElement | null>(null);
 
-const PAGE_GAP_PX = computed(() => Math.max(0, props.gapPx));
+const PAGE_GAP_PX = computed(() => Math.max(0, effectiveGapPx.value));
 const PX_PER_MM = 96 / 25.4;
 
 const injectedFetcher = inject(MACH_REPORT_FETCHER_KEY, null);
@@ -78,6 +90,23 @@ const fallbackPdfExporter: PdfExporter =
 
 const tempIds = computed(() => normalizeTempIds(props.tempId));
 const pageCount = computed(() => plan.value?.pages.length ?? 0);
+
+/** 配置解析：preset > 应用级 defaults；未配置时全部落到内置缺省 */
+const configRef = useMachReportConfig();
+const resolved = computed(() => resolveConfig(configRef.value, props.preset));
+const resolvedMessages = computed<MachReportMessages>(() => ({
+  ...resolved.value.messages,
+  ...props.messages
+}));
+/** 组件 props 拥有最高优先级（对齐 mach-table 配置中心的优先级约定） */
+const effectiveShowExport = computed(() => props.showExport ?? resolved.value.showExport);
+const effectiveShowPrint = computed(() => props.showPrint ?? resolved.value.showPrint);
+const effectiveShowPdfWindow = computed(() => props.showPdfWindow ?? resolved.value.showPdfWindow);
+const effectiveGapPx = computed(() => props.gapPx ?? resolved.value.gapPx);
+const shellStyle = computed(() => ({
+  height: props.height,
+  ...themeToCssVars(resolved.value.theme)
+}));
 
 const { zoom, zoomMode, applyFitZoom, setZoom } = useZoom(() => ({
   viewport: viewportRef.value,
@@ -217,15 +246,16 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage });
 </script>
 
 <template>
-  <div class="mach-report-preview" :style="{ height }">
+  <div class="mach-report-preview" :style="shellStyle">
     <ReportToolbar
       :page-count="pageCount"
       :current-page="currentPage"
       :zoom-mode="zoomMode"
       :zoom="zoom"
-      :show-export="showExport"
-      :show-print="showPrint"
-      :show-pdf-window="showPdfWindow"
+      :show-export="effectiveShowExport"
+      :show-print="effectiveShowPrint"
+      :show-pdf-window="effectiveShowPdfWindow"
+      :messages="resolvedMessages"
       @goto="gotoPage"
       @zoom="setZoom"
       @export="(f) => exportAs(f)"
@@ -233,12 +263,12 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage });
       @pdf-window="openPdfWindow"
     />
     <div ref="viewportRef" class="mrp-body" @scroll.passive="onViewportScroll($event.target as HTMLElement)">
-      <div v-if="loading" class="mrp-state">报表渲染中…</div>
+      <div v-if="loading" class="mrp-state">{{ resolvedMessages.loading }}</div>
       <div v-else-if="errorMessage" class="mrp-state mrp-error">
         {{ errorMessage }}
-        <button class="mrp-retry" type="button" @click="reload">重试</button>
+        <button class="mrp-retry" type="button" @click="reload">{{ resolvedMessages.retry }}</button>
       </div>
-      <div v-else-if="!plan || pageCount === 0" class="mrp-state">暂无预览数据</div>
+      <div v-else-if="!plan || pageCount === 0" class="mrp-state">{{ resolvedMessages.empty }}</div>
       <div
         v-else
         class="mrp-scale"
@@ -275,9 +305,17 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage });
 
 <style scoped>
 .mach-report-preview {
-  /* 主题变量：宿主可在更外层覆写 --mrp-shell-bg 等实现风格对齐 */
+  /* 主题变量默认值：配置中心 theme / 宿主 CSS 覆写均可接管 */
   --mrp-shell-bg: #525659;
   --mrp-shell-fg: #e8e8e8;
+  --mrp-toolbar-bg: #323639;
+  --mrp-toolbar-border: #22252a;
+  --mrp-toolbar-fg: #e8e8e8;
+  --mrp-btn-fg: #cfcfcf;
+  --mrp-btn-border: #4a4d52;
+  --mrp-btn-hover-bg: #414549;
+  --mrp-btn-hover-fg: #ffffff;
+  --mrp-btn-active-bg: #2d5fb8;
 
   display: flex;
   flex-direction: column;

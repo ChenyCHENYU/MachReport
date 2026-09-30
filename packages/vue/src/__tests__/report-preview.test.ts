@@ -53,15 +53,20 @@ function datasets(n: number) {
 }
 
 describe("ReportPreview 契约", () => {
-  it("props 默认值与 jh4j 对齐", () => {
+  it("props 默认值与 jh4j 对齐（显隐不传走配置中心，缺省全开）", () => {
     const wrapper = mount(ReportPreview, {
       props: { fetcher: null, tempId: null }
     });
     expect(wrapper.props("height")).toBe("100vh");
     expect(wrapper.props("autoLoad")).toBe(true);
-    expect(wrapper.props("showExport")).toBe(true);
-    expect(wrapper.props("showPrint")).toBe(true);
-    expect(wrapper.props("showPdfWindow")).toBe(true);
+    // 显隐 props 缺省 undefined → 解析链落到配置中心内置缺省（true）
+    expect(wrapper.props("showExport")).toBeUndefined();
+    expect(wrapper.props("showPrint")).toBeUndefined();
+    expect(wrapper.props("showPdfWindow")).toBeUndefined();
+    const toolbarText = wrapper.text();
+    expect(toolbarText).toContain("导出 PDF");
+    expect(toolbarText).toContain("打印");
+    expect(toolbarText).toContain("PDF 窗口");
     expect(wrapper.props("params")).toEqual({});
   });
 

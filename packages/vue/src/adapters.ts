@@ -26,8 +26,50 @@ export class PlanLoadError extends Error {
   }
 }
 
+/** 宿主请求函数签名（axios 风格；createJh4jGridPlanFetcher 消费） */
+export type HostRequest = (config: {
+  url: string;
+  method: string;
+  params?: Record<string, string>;
+}) => Promise<unknown>;
+
+export interface FetchRequestOptions {
+  /** 网关前缀（默认空 = 同源） */
+  baseUrl?: string;
+  /** 附加请求头（如鉴权 token） */
+  headers?: Record<string, string>;
+  credentials?: RequestCredentials;
+}
+
+/**
+ * 零依赖请求适配器：用全局 fetch 实现 HostRequest 签名，
+ * 让宿主无需引入 axios 或手写胶水代码即可接上 jh4j 数据面。
+ */
+export function createFetchRequest(options: FetchRequestOptions = {}): HostRequest {
+  const { baseUrl = "", headers, credentials } = options;
+  return async ({ url, method, params }) => {
+    const qs = params && Object.keys(params).length > 0 ? `?${new URLSearchParams(params)}` : "";
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}${url}${qs}`, {
+        method: method.toUpperCase(),
+        headers: { Accept: "application/json", ...headers },
+        credentials
+      });
+    } catch (e) {
+      throw new PlanLoadError(
+        `请求失败(${url}): ${e instanceof Error ? e.message : String(e)}`
+      );
+    }
+    if (!res.ok) {
+      throw new PlanLoadError(`HTTP ${res.status} ${url}`);
+    }
+    return res.json();
+  };
+}
+
 export function createJh4jGridPlanFetcher(options: {
-  request: (config: { url: string; method: string; params?: Record<string, string> }) => Promise<unknown>;
+  request: HostRequest;
   /** 网关前缀，默认空（同域） */
   baseUrl?: string;
 }): PlanFetcher {

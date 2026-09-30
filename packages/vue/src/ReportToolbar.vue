@@ -1,8 +1,11 @@
 <script setup lang="ts">
 /**
  * 工具栏（纯展示）：所有按钮事件上抛，无自身状态。
- * 主题走 CSS 变量（--mrp-*），宿主可在 :root 或组件外壳覆写配色。
+ * 主题走 CSS 变量（--mrp-*，组件外壳注入默认值），文案走 messages 参数
+ * （配置中心可全局覆写，见 config.ts DEFAULT_MESSAGES）。
  */
+import type { MachReportMessages } from "./config";
+
 defineProps<{
   pageCount: number;
   currentPage: number;
@@ -11,6 +14,7 @@ defineProps<{
   showExport: boolean;
   showPrint: boolean;
   showPdfWindow: boolean;
+  messages: MachReportMessages;
 }>();
 
 defineEmits<{
@@ -20,15 +24,19 @@ defineEmits<{
   (e: "print"): void;
   (e: "pdf-window"): void;
 }>();
+
+function pageInfo(text: string, cur: number, total: number): string {
+  return text.replace("{cur}", String(cur)).replace("{total}", String(total));
+}
 </script>
 
 <template>
   <div class="mrp-toolbar">
-    <span class="mrp-title">报表预览</span>
+    <span class="mrp-title">{{ messages.title }}</span>
     <template v-if="pageCount > 0">
-      <button class="mrp-nav" type="button" :disabled="currentPage <= 1" @click="$emit('goto', currentPage - 1)">‹ 上一页</button>
-      <span class="mrp-pageinfo">{{ currentPage }} / {{ pageCount }}</span>
-      <button class="mrp-nav" type="button" :disabled="currentPage >= pageCount" @click="$emit('goto', currentPage + 1)">下一页 ›</button>
+      <button class="mrp-nav" type="button" :disabled="currentPage <= 1" @click="$emit('goto', currentPage - 1)">{{ messages.prevPage }}</button>
+      <span class="mrp-pageinfo">{{ pageInfo(messages.pageInfo, currentPage, pageCount) }}</span>
+      <button class="mrp-nav" type="button" :disabled="currentPage >= pageCount" @click="$emit('goto', currentPage + 1)">{{ messages.nextPage }}</button>
     </template>
     <span class="mrp-spacer" />
     <button
@@ -37,7 +45,7 @@ defineEmits<{
       type="button"
       @click="$emit('zoom', 'fit')"
     >
-适宽
+{{ messages.fitWidth }}
 </button>
     <button
       class="mrp-nav"
@@ -55,10 +63,10 @@ defineEmits<{
     >
 150%
 </button>
-    <button v-if="showExport" class="mrp-nav" type="button" @click="$emit('export', 'html')">导出 HTML</button>
-    <button v-if="showExport" class="mrp-nav" type="button" @click="$emit('export', 'pdf')">导出 PDF</button>
-    <button v-if="showPrint" class="mrp-nav" type="button" @click="$emit('print')">打印</button>
-    <button v-if="showPdfWindow" class="mrp-nav" type="button" @click="$emit('pdf-window')">PDF 窗口</button>
+    <button v-if="showExport" class="mrp-nav" type="button" @click="$emit('export', 'html')">{{ messages.exportHtml }}</button>
+    <button v-if="showExport" class="mrp-nav" type="button" @click="$emit('export', 'pdf')">{{ messages.exportPdf }}</button>
+    <button v-if="showPrint" class="mrp-nav" type="button" @click="$emit('print')">{{ messages.print }}</button>
+    <button v-if="showPdfWindow" class="mrp-nav" type="button" @click="$emit('pdf-window')">{{ messages.pdfWindow }}</button>
   </div>
 </template>
 

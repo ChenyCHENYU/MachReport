@@ -22,8 +22,16 @@ export interface PdfRenderOptions {
   measurer?: TextMeasurer;
 }
 
+/**
+ * PDF 文档句柄（不透明最小面）：结构化仅暴露 save()，
+ * 避免在公共类型面泄漏 pdf-lib 类型（引擎保持零运行时依赖声明）。
+ */
+export type PdfDocumentHandle = {
+  save(): Promise<Uint8Array>;
+};
+
 export interface PdfRenderResult {
-  pdfDoc: PDFDocument;
+  pdfDoc: PdfDocumentHandle;
   bytes: Uint8Array;
   pageErrors: string[];
   unsupportedTextCount: number;

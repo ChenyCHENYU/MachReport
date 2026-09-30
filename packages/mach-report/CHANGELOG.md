@@ -1,4 +1,4 @@
-# @agile-team/mach-report-core
+# @agile-team/mach-report
 
 ## 0.4.0
 

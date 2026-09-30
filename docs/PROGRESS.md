@@ -3,6 +3,21 @@
 > 通宵自主执行模式 · 每个闭环 = 实现 → 测试 → 验证 → 检查点提交
 > 验证命令：`pnpm typecheck && pnpm lint && pnpm test && pnpm exec playwright test`
 
+## 优化轮 5（2026-09-30 · 安装收敛到 2 包 + 配置化对齐 mach-table，201 单测 + 9 E2E 全绿）
+
+**动因**：对标审查发现安装为 5 个实体包（table 为 2 个），且插件配置面不及 mach-table-vue 的 defineConfig/presets/async 体验。
+
+| # | 项 | 产出 |
+|---|---|---|
+| 60 | **引擎零运行时依赖** | 构建从 tsc 切换 tsup 四入口独立打包：pdf-lib/fontkit 内联进 `./pdf` 产物（2.1MB）、node-sql-parser 内联进 `./sql`（4.0MB）、主入口 56KB 纯引擎；ESM+CJS 双格式 + .d.ts/.d.cts 双声明 + engines node>=18。**安装从 5 包 → 恰好 2 包** |
+| 61 | PdfDocumentHandle | PdfRenderResult.pdfDoc 改为不透明句柄（save()），公共类型面不再泄漏 pdf-lib 类型 |
+| 62 | **零配置插件** | 内置 createFetchRequest（全局 fetch 适配，含 query/头/credentials/错误语义）；`app.use(machReportPlugin)` 无任何 options 即同源直连 jh4j 端点 |
+| 63 | **配置中心** | defineMachReportConfig/defineMachReportPreset（defaults/presets/defaultPreset）+ provideMachReportConfig 路由级响应式叠加 + useMachReportConfig；优先级 props > 叠加 > preset > defaults > 内置缺省（对齐 mach-table 约定）；组件显隐/gapPx/文案 props 缺省改走配置解析 |
+| 64 | 文案与主题配置化 | MachReportMessages 全量文案（title/翻页/导出/打印/loading/空态/重试，{cur}/{total} 模板）+ MachReportTheme 十项 --mrp-* 变量注入组件外壳 |
+| 65 | **./async 异步入口** | machReportAsyncPlugin 注册全局组件 MachReportPreview（defineAsyncComponent 独立分片）+ preloadMachReport() 预载；构建出双入口 index/async × ESM/CJS |
+| 66 | 工程治理 | eslint 边界规则（引擎核心禁 import pdf/sql/manager 域）；发布守卫测试（引擎零 dependencies + 四入口×双格式×双声明 + 主入口不含 pdf-lib；vue 分片外部化断言）；sideEffects 对齐 table 风格；CHANGELOG 头对齐 |
+| 67 | 发布 | mach-report 0.5.0 / mach-report-vue 0.3.0：registry 验证零 dependencies |
+
 ## 优化轮 4（2026-09-30 · 发布架构收敛为 mach-table 式单包，183 单测 + 9 E2E 全绿）
 
 **动因**：此前 core/pdf/sql-engine/manager 各发一个 npm 包，使用方要自己拼 4 个依赖，维护与心智成本高；对标 mach-table 家族"装一个包就行"的集中设计。

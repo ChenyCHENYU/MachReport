@@ -12,13 +12,22 @@ const dist = resolve(__dirname, "../../dist");
 const built = existsSync(dist);
 
 describe("mach-report-vue 发布产物（单包安装契约）", () => {
-  it.skipIf(!built)("dist/index.js 存在且外部化引擎与 vue", () => {
-    const js = readFileSync(resolve(dist, "index.js"), "utf8");
-    expect(js).toContain('from "vue"');
-    expect(js).toContain('from "@agile-team/mach-report"');
+  it.skipIf(!built)("dist 产物存在且外部化引擎与 vue（跨入口分片）", async () => {
+    const fs = await import("node:fs");
+    for (const f of ["index.js", "index.cjs", "async.js", "async.cjs", "style.css"]) {
+      expect(fs.existsSync(resolve(dist, f)), `缺 dist/${f}`).toBe(true);
+    }
+    // 入口 + 共享分片整体扫描：vue 与引擎必须外部化、pdf-lib 不得内联
+    const chunks = fs
+      .readdirSync(dist)
+      .filter((f) => f.endsWith(".js") || f.endsWith(".cjs"))
+      .map((f) => fs.readFileSync(resolve(dist, f), "utf8"))
+      .join("\n");
+    expect(chunks).toMatch(/from\s?"vue"|require\("vue"\)/);
+    expect(chunks).toContain("@agile-team/mach-report");
     // PDF 懒加载保留为运行时子路径导入（不内联 pdf-lib）
-    expect(js).toContain('import("@agile-team/mach-report/pdf")');
-    expect(js).not.toContain("pdf-lib");
+    expect(chunks).toContain('import("@agile-team/mach-report/pdf")');
+    expect(chunks).not.toContain("pdf-lib");
   });
 
   it.skipIf(!built)("dist/index.d.ts 含组件类型与样式出口", () => {

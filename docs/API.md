@@ -32,26 +32,70 @@ const fetcher2 = createJh4jGridPlanFetcher({
 | furniture-temp-id | string | 公共页眉页脚模板 |
 | params | Record | 报表参数（键名区分大小写） |
 | height | "100vh" | 弹窗内建议 calc(100vh - 280px) |
-| auto-load / show-export / show-print / show-pdf-window | true | 显隐控制 |
-| gapPx | 18 | 页间距（px，静态 prop） |
+| auto-load | true | 挂载即加载 |
+| show-export / show-print / show-pdf-window | undefined | **不传走配置中心**（preset > defaults > 内置缺省 true）；显式传值优先级最高 |
+| gapPx | undefined | 页间距 px；不传走配置中心（缺省 18） |
+| messages | Partial\<MachReportMessages\> | 工具栏/状态文案覆写（i18n） |
+| preset | string | 启用配置中心的指定 preset |
 | fetcher | PlanFetcher \| null | 数据面；**不传时回落插件注入（见下）** |
 
 emits：`loaded(pageCount)` / `error(message)`；ref：`reload / print / exportAs(format) / openPdfWindow / gotoPage(n)`
 
-### 插件（推荐：一次注册，业务页面一行使用）
+### 插件（零配置可用：一次注册，业务页面一行使用）
 
 ```ts
 import { machReportPlugin } from "@agile-team/mach-report-vue";
 
+app.use(machReportPlugin);       // 零配置：全局 fetch 同源直连 jh4j 端点
 app.use(machReportPlugin, {
-  request: axios,               // 或 fetcher: 自定义 PlanFetcher（优先级更高）
-  baseUrl: "/sub/mach-report",
-  pdfFontUrl: "/simhei.ttf",    // '' 跳过中文字体
-  pdfExporter: customExporter   // 可选：接管 PDF 导出（如 Worker 化）
+  baseUrl: "/sub/mach-report",   // 或 request: axios（axios 风格签名），
+  config: machReportConfig,      // 或 fetcher: 自定义 PlanFetcher（优先级最高）
+  pdfFontUrl: "/simhei.ttf",     // '' 跳过中文字体
+  pdfExporter: customExporter    // 可选：接管 PDF 导出（如 Worker 化）
 });
 ```
 
-主题：工具栏/外壳颜色走 CSS 变量 `--mrp-shell-bg / --mrp-toolbar-bg / --mrp-btn-*`，宿主覆写即可对齐设计系统。
+### 配置中心（独立 config 文件 + presets + 路由级叠加）
+
+```ts
+// src/config/mach-report.config.ts
+import {
+  defineMachReportConfig,
+  defineMachReportPreset
+} from "@agile-team/mach-report-vue";
+
+export default defineMachReportConfig({
+  defaults: {
+    gapPx: 18,
+    pdfFontUrl: "/simhei.ttf",
+    messages: { title: "Report Preview" },           // 工具栏/状态/错误文案（i18n）
+    theme: { shellBg: "#2b2b2b", btnActiveBg: "#1677ff" }
+  },
+  presets: { lean: defineMachReportPreset({ showExport: false }) },
+  defaultPreset: "lean"
+});
+```
+
+优先级：**props > `provideMachReportConfig(overlay)`（路由级响应式叠加）> preset > defaults > 内置缺省**。
+
+```vue
+<script setup>
+// 某路由关闭打印按钮（不影响全局）
+import { provideMachReportConfig } from "@agile-team/mach-report-vue";
+provideMachReportConfig({ showPrint: false, messages: { title: "工艺卡" } });
+</script>
+```
+
+### 异步入口（首屏敏感页面）
+
+```ts
+import AsyncMachReportPlugin, { preloadMachReport } from "@agile-team/mach-report-vue/async";
+app.use(AsyncMachReportPlugin, { baseUrl: "/sub/mach-report" });
+void preloadMachReport();   // 路由 hover 预取组件分片
+// 模板：<MachReportPreview temp-id="X" />
+```
+
+主题：工具栏/外壳颜色走 CSS 变量 `--mrp-shell-bg / --mrp-toolbar-bg / --mrp-btn-*`（配置中心 `theme` 或宿主 CSS 覆写均可）。
 
 ## @agile-team/mach-report — 引擎
 
