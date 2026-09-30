@@ -6,9 +6,7 @@
  * - usePageWindow：视口虚拟化（自然坐标系 + gap）
  * - useZoom：transform: scale 缩放（零重排；Ctrl+滚轮/键盘 ±/持久化记忆）
  * - usePrintExport：打印/导出/PDF 窗口（流式打印 + named pages）
- * - 搜索：计划全文索引 → 跳页导航 → 命中页高亮（mark）
- * - 缩略图侧栏：懒渲染小画布，点击导航
- * - 调试面板：?mrp-debug=1 或 debug prop 显示页窗/耗时/体积
+ * - useReportSearch/useThumbs/useDebugPanel：搜索（防抖+高亮）/缩略图/调试面板
  * - 配置优先级：props > provideMachReportConfig 叠加 > preset > 插件 config.defaults > 内置缺省
  */
 import {
@@ -34,8 +32,15 @@ import { usePageWindow } from "./composables/usePageWindow";
 import { useZoom } from "./composables/useZoom";
 import { usePrintExport } from "./composables/usePrintExport";
 import { clearHighlights, highlightTextNodes } from "./composables/useHighlight";
+import {
+  useDebugPanel,
+  useLoadTiming,
+  useReportSearch,
+  useThumbs
+} from "./composables/useReportSearch";
 import ReportToolbar from "./ReportToolbar.vue";
 import {
+  MACH_REPORT_CONTROLLER_KEY,
   MACH_REPORT_FETCHER_KEY,
   MACH_REPORT_PDF_EXPORTER_KEY
 } from "./injection-keys";
@@ -47,7 +52,6 @@ import {
 } from "./config";
 import { createDefaultPdfExporter, type PdfExporter } from "./pdf-exporter";
 import { MachReportError, toErrorDetail } from "./errors";
-import { MACH_REPORT_CONTROLLER_KEY } from "./injection-keys";
 import type { MachReportController } from "./controller";
 
 const props = defineProps({
@@ -92,7 +96,8 @@ const currentPage = ref(1);
 const containerRef = ref<HTMLElement | null>(null);
 const viewportRef = ref<HTMLElement | null>(null);
 const thumbsRef = ref<HTMLElement | null>(null);
-const loadMs = ref(0);
+const showThumbs = ref(false);
+const timing = useLoadTiming();
 
 const PAGE_GAP_PX = computed(() => Math.max(0, effectiveGapPx.value));
 const PX_PER_MM = 96 / 25.4;
@@ -145,8 +150,7 @@ function setZoomRaw(next: number): void {
 function invalidate(): void {
   plan.value = null;
   currentPage.value = 1;
-  searchQuery.value = "";
-  matchIndex.value = 0;
+  search.reset();
 }
 
 /** 代际令牌：tempId 快速切换时，旧请求即使后返回也不得覆盖新数据 */
@@ -170,7 +174,7 @@ async function reload(): Promise<void> {
   loading.value = true;
   errorMessage.value = "";
   invalidate();
-  const t0 = typeof performance !== "undefined" ? performance.now() : 0;
+  const t0 = timing.start();
   try {
     const next = await fetcher({
       tempIds: tempIds.value,
@@ -190,11 +194,11 @@ async function reload(): Promise<void> {
       );
     }
     if (check.warnings.length > 0) {
-      console.warn("[mach-report] 渲染计划告警:", check.warnings);
+      resolved.value.logger.warn("[mach-report] 渲染计划告警:", check.warnings);
     }
     plan.value = next;
     currentPage.value = 1;
-    loadMs.value = t0 ? Math.round(performance.now() - t0) : 0;
+    timing.end(t0);
     if (viewportRef.value) viewportRef.value.scrollTop = 0;
     if (zoomMode.value === "fit") applyFitZoom();
     emit("loaded", next.pages.length);
@@ -238,6 +242,13 @@ const controller: MachReportController = { reload, print, exportAs, openPdfWindo
 provide(MACH_REPORT_CONTROLLER_KEY, controller);
 
 // ── 交互：Ctrl+滚轮缩放 / 键盘翻页与缩放 / Ctrl+F 搜索 ──
+const search = useReportSearch({
+  plan,
+  gotoPage,
+  highlight: highlightTextNodes,
+  clearHighlights
+});
+
 function onWheel(e: WheelEvent): void {
   if (!e.ctrlKey) return;
   e.preventDefault();
@@ -247,7 +258,7 @@ function onWheel(e: WheelEvent): void {
 function onKeydown(e: KeyboardEvent): void {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
     e.preventDefault();
-    searchVisible.value = true;
+    if (!search.visible.value) search.toggle();
     return;
   }
   switch (e.key) {
@@ -292,146 +303,61 @@ function persistZoom(): void {
 }
 watch([zoomMode, zoom], persistZoom);
 
-// ── 搜索：计划全文索引 → 跳页 → 命中页高亮 ──
-const searchVisible = ref(false);
-const searchQuery = ref("");
-const matchIndex = ref(0);
-
-function countOccurrences(text: string, q: string): number {
-  let count = 0;
-  let i = text.toLowerCase().indexOf(q);
-  while (i >= 0) {
-    count++;
-    i = text.toLowerCase().indexOf(q, i + q.length);
-  }
-  return count;
-}
-
-/** 扁平命中表：每项为一次命中所在页索引 */
-const searchMatches = computed<number[]>(() => {
-  const q = searchQuery.value.trim().toLowerCase();
-  const p = plan.value;
-  if (!q || !p) return [];
-  const out: number[] = [];
-  p.pages.forEach((page, pageIndex) => {
-    for (const comp of page.components) {
-      if (comp.grid) {
-        for (const row of comp.grid.cells ?? []) {
-          for (const cell of row ?? []) {
-            if (typeof cell?.text === "string") {
-              for (let k = 0; k < countOccurrences(cell.text, q); k++) out.push(pageIndex);
-            }
-          }
-        }
-      } else if (comp.kind === "text" && typeof comp.text === "string") {
-        for (let k = 0; k < countOccurrences(comp.text, q); k++) out.push(pageIndex);
-      }
-    }
-  });
-  return out;
-});
-
-function onSearchInput(query: string): void {
-  searchQuery.value = query;
-  matchIndex.value = 0;
-  // 输入即定位到首个命中页（无命中不动）
-  const first = searchMatches.value[0];
-  if (first != null && first + 1 !== currentPage.value) {
-    gotoPage(first + 1);
-  }
-}
-
-function onSearchNav(dir: 1 | -1): void {
-  const total = searchMatches.value.length;
-  if (total === 0) return;
-  matchIndex.value = (matchIndex.value + dir + total) % total;
-  gotoPage(searchMatches.value[matchIndex.value]! + 1);
-}
-
 /** 窗口内页 → DOM（holder 首次出现时挂载，页面级懒渲染）+ 搜索高亮 */
 watchEffect(() => {
   const current = plan.value;
   if (!current) return;
   const scaleEl = containerRef.value;
   if (!scaleEl) return;
-  const q = searchQuery.value.trim();
   const holders = scaleEl.querySelectorAll<HTMLElement>(".mrp-page-holder");
   holders.forEach((holder) => {
     const index = Number(holder.dataset.page ?? 0) - 1;
     const page = current.pages[index];
     if (!page || holder.childElementCount > 0) {
       // 已挂载页：查询变化时同步高亮
-      if (q && holder.firstElementChild) highlightTextNodes(holder.firstElementChild as HTMLElement, q);
+      if (holder.firstElementChild) search.apply(holder.firstElementChild as HTMLElement);
       return;
     }
     holder.style.width = `${page.pageWidthMm * PX_PER_MM}px`;
     const pageEl = renderPageToDom(page, 96, {}, document);
-    if (q) highlightTextNodes(pageEl, q);
+    search.apply(pageEl);
     holder.appendChild(pageEl);
   });
 }, { flush: "post" });
 
 /** 查询清空时移除全部高亮标记 */
-watch(searchQuery, (q) => {
+watch(() => search.query.value, (q) => {
   if (q) return;
   containerRef.value?.querySelectorAll(".mrp-page-holder").forEach((holder) => {
-    clearHighlights(holder as HTMLElement);
+    search.clear(holder as HTMLElement);
   });
 });
 
 // ── 缩略图侧栏：懒渲染小画布 + 点击导航 ──
-const showThumbs = ref(false);
-const THUMB_W_PX = 116;
-let thumbObserver: IntersectionObserver | null = null;
-
-function renderThumb(box: HTMLElement, pageIndex: number): void {
-  const p = plan.value;
-  if (!p || box.childElementCount > 0) return;
-  try {
-    const { canvases } = renderPlanToCanvas(p, { start: pageIndex, end: pageIndex, dpr: 0.2 });
-    const canvas = canvases[0]!;
-    canvas.style.width = "100%";
-    canvas.style.height = "100%";
-    canvas.style.display = "block";
-    box.appendChild(canvas);
-  } catch {
-    // 无 2D 环境（SSR/测试）：保留占位样式
-  }
-}
-
-watchEffect(() => {
-  if (!showThumbs.value || !plan.value || !thumbsRef.value) return;
-  if (typeof IntersectionObserver === "undefined") return;
-  thumbObserver?.disconnect();
-  thumbObserver = new IntersectionObserver((entries) => {
-    for (const entry of entries) {
-      if (!entry.isIntersecting) continue;
-      const box = entry.target as HTMLElement;
-      renderThumb(box, Number(box.dataset.thumb ?? 1) - 1);
-      thumbObserver?.unobserve(box);
+const thumbs = useThumbs(plan, {
+  thumbsRoot: thumbsRef,
+  visible: showThumbs,
+  renderThumbCanvas: (pageIndex) => {
+    try {
+      const { canvases } = renderPlanToCanvas(plan.value!, { start: pageIndex, end: pageIndex, dpr: 0.2 });
+      return canvases[0] ?? null;
+    } catch {
+      return null; // 无 2D 环境（SSR/测试）：保留占位框
     }
-  }, { root: thumbsRef.value, rootMargin: "200px" });
-  thumbsRef.value.querySelectorAll<HTMLElement>("[data-thumb]").forEach((el) => {
-    thumbObserver!.observe(el);
-  });
+  }
+});
+watchEffect(() => {
+  thumbs.schedule();
 }, { flush: "post" });
 
-// ── 调试面板：?mrp-debug=1 或 debug prop ──
-const debugOn = computed(
-  () =>
-    props.debug ||
-    (typeof location !== "undefined" &&
-      new URLSearchParams(location.search).get("mrp-debug") === "1")
-);
-const debugStats = computed(() => {
-  if (!debugOn.value || !plan.value) return null;
-  return {
-    pages: pageCount.value,
-    window: `${windowRange.value.start}-${windowRange.value.end}`,
-    zoom: `${Math.round(zoom.value * 100)}%`,
-    loadMs: `${loadMs.value}ms`,
-    planKB: Math.round(JSON.stringify(plan.value).length / 1024)
-  };
+// ── 调试面板 ──
+const debugRef = computed(() => props.debug);
+const { debugStats } = useDebugPanel(debugRef, {
+  plan,
+  pageCount,
+  windowRange,
+  zoom,
+  loadMs: timing.loadMs
 });
 
 function onResize(): void {
@@ -460,8 +386,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener("resize", onResize);
-  thumbObserver?.disconnect();
-  thumbObserver = null;
+  thumbs.destroy();
   releasePrintFrame();
 });
 
@@ -493,16 +418,16 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage });
       :show-print="effectiveShowPrint"
       :show-pdf-window="effectiveShowPdfWindow"
       :messages="resolvedMessages"
-      :search="{ visible: searchVisible, query: searchQuery, matchIndex, matchCount: searchMatches.length }"
+      :search="{ visible: search.visible.value, query: search.query.value, matchIndex: search.matchIndex.value, matchCount: search.matchCount.value }"
       :thumbs-visible="showThumbs"
       @goto="gotoPage"
       @zoom="setZoom"
       @export="(f) => exportAs(f)"
       @print="print"
       @pdf-window="openPdfWindow"
-      @search-input="onSearchInput"
-      @search-nav="onSearchNav"
-      @search-toggle="searchVisible = !searchVisible"
+      @search-input="search.onInput"
+      @search-nav="search.onNav"
+      @search-toggle="search.toggle"
       @thumbs-toggle="showThumbs = !showThumbs"
     />
     <div class="mrp-main">
@@ -562,7 +487,7 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage });
           <div
             class="mrp-thumb-box"
             :data-thumb="i + 1"
-            :style="{ height: `${Math.round((page.pageHeightMm / page.pageWidthMm) * THUMB_W_PX)}px` }"
+            :style="{ height: `${Math.round((page.pageHeightMm / page.pageWidthMm) * 116)}px` }"
           />
           <span class="mrp-thumb-no">{{ i + 1 }}</span>
         </div>

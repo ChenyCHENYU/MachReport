@@ -3,6 +3,32 @@
 > 通宵自主执行模式 · 每个闭环 = 实现 → 测试 → 验证 → 检查点提交
 > 验证命令：`pnpm typecheck && pnpm lint && pnpm test && pnpm exec playwright test`
 
+## 优化轮 9（2026-09-30 · 存量体检与根源修复，237 单测 + 11 E2E 全绿）
+
+**动因**：不扩展功能，专项清理 8 轮快速迭代累积的正确性/治理/整洁债（对照体检清单逐项根治）。
+
+| # | 项 | 根源修复 |
+|---|---|---|
+| 94 | **日期时区 bug** | `new Date("YYYY-MM-DD")` 按 UTC 零点（负时区少一天）→ `parseDateLocal` 手工按本地日历日解析 |
+| 95 | **精度剥离 bug** | thousands:false 分支 `replace(/\.?0+$/)` 误裁显式 digits → 语义固化：digits 显式即精确保留；thousands 缺省 false（文档+测试锚定） |
+| 96 | **分组顺序依赖** | 顺序扫描切组（乱序数据重复组头）→ Map 归组保首现顺序，排序不再前提（乱序回归测试） |
+| 97 | **printPlans 无错误边界** | 与 print() 对齐：onError 回调 + finally 立即回收失败 iframe（成功路径 60s 后回收） |
+| 98 | **空值规则陷阱** | `Number("")===0` 使空值命中数值规则 → evalStyleRule 空值永不命中（测试锚定） |
+| 99 | 搜索抖动 | 逐键 O(全计划) 扫描+跳页 → 200ms 防抖（清空立即生效）+ 工具栏打开自动聚焦 |
+| 100 | 日志可观测性 | console.warn 硬编码 → config.defaults.logger（默认 console，SILENT_LOGGER 可静默） |
+| 101 | debug 面板性能 | JSON.stringify 随窗变化重算 → planKB 仅依赖 plan 引用缓存 |
+| 102 | **LICENSE 补齐** | 对齐家族（mach-table Source-Available License 1.0，书面授权制）+ package.json license/author 字段 |
+| 103 | **依赖漏洞清零** | happy-dom ^20.8.9 / vitest ^4.1.11 升级；uuid 经 exceljs（内联进发布物）以 workspace overrides 钉 ^11.1.1——`pnpm audit` 全绿（prod+dev） |
+| 104 | workspace 修复 | pnpm-workspace.yaml 的 allowBuilds 残留占位清除；overrides 迁至 pnpm 11 新家 |
+| 105 | 测试去抖 | perf-budget 两处阈值补并行负载余量（80→120ms/页、30→50ms/窗，单机实测远低于此） |
+| 106 | 覆盖率配置 | vitest coverage（v8 provider，聚焦 layout/render/format）+ test:coverage 脚本 |
+| 107 | 结构整洁 | ReportPreview 640→~430 行（useReportSearch/useThumbs/useDebugPanel/useLoadTiming 抽取）；render-xlsx gridOf 死助手+重复合并条件清除；usePageWindow 返回面收敛；paginate 尾部重复再导出删除 |
+| 108 | errorPrefix | 标记 @deprecated（类型兼容保留，下个大版本移除） |
+| 109 | 协作治理 | AGENTS.md（命令/架构地图/发布流程/红线）；根 `pnpm release` 一键发版脚本；README 去魔法数字 |
+| 110 | 发版 | mach-report 0.9.0 |
+
+> 未了项：npm token 轮换（用户操作）；repository/homepage 待 git remote；契约 fixture 待采集。
+
 ## 优化轮 8（2026-09-30 · 报表语义 + 交互完整面，232 单测 + 11 E2E 全绿）
 
 **动因**：对标 mach-table 与社区报表插件（hiprint/Stimulsoft/print-js）扫描——差距集中在报表语义层与交互细节。

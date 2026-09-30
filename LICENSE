@@ -1,0 +1,107 @@
+MachReport Source-Available License 1.0
+
+Copyright (c) 2026 ChenyCHENYU (Agile Team). All rights reserved.
+
+IMPORTANT: The source code is publicly visible for review, but it is not
+open-source software as defined by the Open Source Initiative. Except for the
+limited inspection permission below, no permission is granted unless the
+copyright holder gives you prior written authorization.
+
+1. Definitions
+
+"Software" means MachReport and all source code, object code, packages,
+documentation, examples, designs, assets, and other materials distributed with
+this license.
+
+"Licensor" means ChenyCHENYU (Agile Team), the copyright holder of the
+Software.
+
+"Written Authorization" means a durable written permission issued directly by
+the Licensor that identifies the licensee and the permitted scope, purpose,
+environment, term, and any other applicable conditions.
+
+2. Limited Inspection Permission
+
+You may view the Software on the repository hosting service solely to inspect
+and evaluate it, to link to its public repository, to discuss it, and to submit
+good-faith issue reports. This limited permission does not include permission
+to use, run, build, compile, copy, download for reuse, install, integrate,
+modify, create derivative works from, deploy, distribute, sublicense, sell,
+lease, provide as a service, or otherwise exploit the Software.
+
+3. Authorization Required
+
+Any use beyond Section 2 requires the Licensor's prior Written Authorization.
+This requirement applies to personal, educational, research, governmental,
+non-profit, internal, evaluation, testing, development, staging, production,
+and commercial use. Possession of a copy, cloning the repository, downloading
+an npm package, receiving the Software from another person, or submitting a
+contribution does not grant any additional rights.
+
+The Licensor may grant separate commercial or non-commercial terms in a
+written agreement. If such an agreement conflicts with this license, that
+agreement controls only for the licensee and scope identified in it.
+
+4. Restrictions
+
+Without prior Written Authorization, you must not, directly or indirectly:
+
+a. use, execute, build, compile, install, test, or integrate the Software;
+b. copy, reproduce, modify, adapt, translate, or create derivative works;
+c. publish, distribute, sublicense, sell, rent, lease, transfer, host, or make
+   the Software available to any third party;
+d. use the Software to provide a hosted, managed, consulting, outsourcing,
+   software-as-a-service, or other service;
+e. remove or alter copyright, authorization, trademark, attribution, or other
+   proprietary notices; or
+f. represent the Software as open source or represent that you have received
+   authorization when you have not.
+
+5. Contributions
+
+Submitting a patch, pull request, code, documentation, design, or other
+material to the project does not authorize you to use the Software. Unless a
+separate written contributor agreement applies, by intentionally submitting a
+contribution you represent that you have the right to submit it and grant the
+Licensor a perpetual, worldwide, irrevocable, transferable, sublicensable,
+royalty-free license to use, reproduce, modify, create derivative works from,
+distribute, license, and relicense that contribution as part of the Software.
+
+6. Ownership and Trademarks
+
+The Software is licensed, not sold. The Licensor and applicable contributors
+retain all right, title, and interest in the Software. No trademark, service
+mark, trade name, logo, or branding rights are granted by this license.
+
+7. Termination
+
+Any permission granted under this license terminates automatically upon breach.
+On termination, you must immediately stop all use and destroy all copies in
+your possession or control, except where retention is required by law. Sections
+4 through 9 survive termination.
+
+8. Disclaimer
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE SOFTWARE IS PROVIDED "AS IS" AND
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND
+NON-INFRINGEMENT.
+
+9. Limitation of Liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE LICENSOR AND CONTRIBUTORS WILL NOT
+BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+CONSEQUENTIAL, OR OTHER DAMAGES, OR FOR LOSS OF DATA, PROFITS, REVENUE,
+GOODWILL, OR BUSINESS INTERRUPTION, ARISING FROM OR RELATED TO THE SOFTWARE OR
+THIS LICENSE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+10. Contact and Authorization
+
+See LICENSING.md in the repository for the authorization request process. No
+request, discussion, issue, payment, or contribution constitutes authorization
+unless and until the Licensor issues explicit Written Authorization.
+
+涓枃璇存槑锛堜粎涓洪槄璇讳究鍒╋紱濡傛湁鍐茬獊锛屼互鑻辨枃鏉℃涓哄噯锛?
+鏈」鐩簮浠ｇ爜鍏紑鍙煡鐪嬶紝浣嗕笉鏄?OSI 瀹氫箟涓嬬殑寮€婧愯蒋浠躲€傞櫎鏌ョ湅銆侀摼鎺ャ€?璁ㄨ鍜屽杽鎰忔彁浜ら棶棰樺锛屼换浣曚釜浜恒€佹暀鑲层€佺爺绌躲€佸叕鐩娿€佹斂搴溿€佸唴閮ㄣ€佹祴璇曘€?寮€鍙戙€佺敓浜ф垨鍟嗕笟鐢ㄩ€旓紝鍧囬』浜嬪厛鍙栧緱浣滆€呮槑纭殑涔﹂潰鎺堟潈銆傛湭缁忔巿鏉冿紝涓嶅緱
+杩愯銆佹瀯寤恒€佸鍒躲€佷慨鏀广€侀泦鎴愩€侀儴缃层€佸垎鍙戙€佽浆鎺堟潈銆侀攢鍞€佸嚭绉熴€佹墭绠℃垨
+浠ユ湇鍔″舰寮忔彁渚涙湰杞欢銆傚叕寮€浠撳簱銆佸厠闅嗕唬鐮佹垨涓嬭浇 npm 鍖呬笉浠ｈ〃鑾峰緱鎺堟潈銆?

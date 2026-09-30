@@ -128,5 +128,7 @@
     "vite-plugin-dts": "^4.5.0",
     "vue": "^3.5.0",
     "vue-tsc": "^3.0.0"
-  }
+  },
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "ChenyCHENYU (Agile Team)"
 }

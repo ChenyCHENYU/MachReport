@@ -34,6 +34,21 @@ describe("列格式化", () => {
     expect(formatValue("1234567.8", { kind: "number", thousands: true, digits: 2 })).toBe("1,234,567.80");
   });
 
+  it("显式精度精确保留（不剥离尾零）；thousands 缺省为 false", () => {
+    expect(formatValue(12.5, { kind: "number", digits: 2 })).toBe("12.50");
+    expect(formatValue(12, { kind: "number", digits: 2 })).toBe("12.00");
+    expect(formatValue(1234567.891, { kind: "number", digits: 2 })).toBe("1234567.89");
+    expect(formatValue(1234567.891, { kind: "number" })).toBe("1234567.891");
+  });
+
+  it("日期字符串按本地日历日解析（不受 UTC 时区偏移影响）", () => {
+    // 旧实现 new Date("2026-09-30") 按 UTC 零点：负时区环境会得到 09-29。
+    // 修复后手工解析年月日，任何时区结果一致。
+    expect(formatValue("2026-09-30", { kind: "date" })).toBe("2026-09-30");
+    expect(formatValue("2026/09/30", { kind: "date" })).toBe("2026-09-30");
+    expect(formatValue("2026-09-30", { kind: "date", pattern: "MM-DD" })).toBe("09-30");
+  });
+
   it("百分比与日期", () => {
     expect(formatValue(0.1234, { kind: "percent" })).toBe("12.34%");
     expect(formatValue(new Date("2026-09-30T08:09:05"), { kind: "date" })).toBe("2026-09-30");
@@ -130,6 +145,26 @@ describe("分组小计与总合计", () => {
     expect(texts).toContain("230");  // 总 amount
   });
 
+  it("乱序数据集归组不重复（Map 归组，与到达顺序无关）", () => {
+    const shuffled = [rows[0]!, rows[2]!, rows[1]!]; // 1号库 → 2号库 → 1号库
+    const { plan } = paginateTemplate(
+      page([listWith({ groupBy: { field: "wh", headerTemplate: "仓库：{value}", subtotal: ["qty"] } })]),
+      { detail: shuffled }
+    );
+    const texts: string[] = [];
+    for (const c of plan.pages[0]!.components) {
+      if (c.grid) {
+        for (const row of c.grid.cells ?? []) {
+          for (const cell of row ?? []) texts.push(String(cell?.text ?? ""));
+        }
+      }
+    }
+    // 每组只出现一次组头/小计（顺序归组实现会各出现两次）
+    expect(texts.filter((t) => t === "仓库：1号库")).toHaveLength(1);
+    expect(texts.filter((t) => t === "小计")).toHaveLength(2);
+    expect(texts).toContain("15"); // 1号库两行合一小计
+  });
+
   it("组头防孤行：组头+首行放不下时整体换页", () => {
     // 行高 ~8mm：塞 33 行贴近页底，使第 2 组组头落在页尾
     const many = Array.from({ length: 33 }, (_, i) => ({ name: `m${i}`, wh: "A", qty: 1, amount: 1 }));
@@ -173,5 +208,13 @@ describe("条件格式规则", () => {
     expect(hitStyle?.color).toBe("#cc0000");
     expect(hitStyle?.bold).toBe(true);
     expect(normalStyle?.color).toBeUndefined();
+  });
+
+  it("空值永不命中数值规则（杜绝 Number('')===0 陷阱）", async () => {
+    const { evalStyleRule } = await import("../format");
+    expect(evalStyleRule({ qty: null }, { field: "qty", op: "<", value: 0 })).toBe(false);
+    expect(evalStyleRule({ qty: "" }, { field: "qty", op: ">", value: -1 })).toBe(false);
+    expect(evalStyleRule({ qty: undefined }, { field: "qty", op: "==", value: 0 })).toBe(false);
+    expect(evalStyleRule({ qty: 0 }, { field: "qty", op: "==", value: 0 })).toBe(true);
   });
 });

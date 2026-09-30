@@ -63,7 +63,7 @@ export async function renderPlanToXlsx(
     let cursorRow = 1;
     for (const comp of page.components) {
       if (comp.grid) {
-        const layout = resolveGridLayout(gridOf(comp), comp.widthMm, comp.heightMm);
+        const layout = resolveGridLayout(comp.grid, comp.widthMm, comp.heightMm);
         // 列宽：优先 colWidthsMm，否则按解析结果
         const colCount = Math.max(layout.columns.length, 1);
         const widths: number[] = [];
@@ -94,13 +94,16 @@ export async function renderPlanToXlsx(
             bottom: { style: "thin" }, right: { style: "thin" }
           };
           cellFont(cell, comp, box.cell.style?.bold === true, box.cell.style?.fontSize, box.cell.style?.color);
-          // 合并（跨度 >1 时）
-          if (box.widthMm > (layout.columns[box.ci]?.size ?? 0) + 0.01 || box.heightMm > (layout.rows[box.ri]?.size ?? 0) + 0.01) {
-            const colEnd = box.ci + Math.max(1, box.cell.colSpan ?? 1);
-            const rowEnd = box.ri + Math.max(1, box.cell.rowSpan ?? 1);
-            if (colEnd > box.ci + 1 || rowEnd > box.ri + 1) {
-              sheet.mergeCells(cursorRow + box.ri, box.ci + 1, cursorRow + rowEnd - 1, colEnd);
-            }
+          // 跨度合并（colSpan/rowSpan > 1 时）
+          const colSpan = Math.max(1, box.cell.colSpan ?? 1);
+          const rowSpan = Math.max(1, box.cell.rowSpan ?? 1);
+          if (colSpan > 1 || rowSpan > 1) {
+            sheet.mergeCells(
+              cursorRow + box.ri,
+              box.ci + 1,
+              cursorRow + box.ri + rowSpan - 1,
+              box.ci + colSpan
+            );
           }
         }
         cursorRow += layout.rows.length;
@@ -132,9 +135,4 @@ export async function renderPlanToXlsx(
 
   const buffer = await workbook.xlsx.writeBuffer();
   return { workbook, buffer, warnings };
-}
-
-/** 提取网格（rect+grid 或纯 grid 结构） */
-function gridOf(comp: PlanComponent) {
-  return comp.grid!;
 }

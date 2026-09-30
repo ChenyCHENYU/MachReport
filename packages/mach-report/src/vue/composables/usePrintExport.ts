@@ -58,7 +58,10 @@ body{margin:0;background:#fff;}`;
  */
 export async function printPlans(
   plans: RenderPlan[],
-  options: { onProgress?: (done: number, total: number) => void } = {}
+  options: {
+    onProgress?: (done: number, total: number) => void;
+    onError?: (message: string) => void;
+  } = {}
 ): Promise<void> {
   const merged: RenderPlan = {
     schemaVersion: "mach-report-batch-print",
@@ -70,6 +73,7 @@ export async function printPlans(
   frame.style.cssText =
     "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
   document.body.appendChild(frame);
+  let finished = false;
   try {
     const doc = frame.contentDocument!;
     doc.open();
@@ -85,10 +89,15 @@ export async function printPlans(
     doc.close();
     await yieldToBrowser();
     options.onProgress?.(pageChunks.length, pageChunks.length);
+    finished = true;
     frame.contentWindow?.focus();
     frame.contentWindow?.print();
+  } catch (error) {
+    options.onError?.(error instanceof Error ? `批量打印失败: ${error.message}` : "批量打印失败");
   } finally {
-    setTimeout(() => frame.remove(), 60_000); // 打印对话框关闭后回收
+    // 成功路径等打印框关闭后回收；失败立即回收，杜绝 iframe 泄漏
+    if (finished) setTimeout(() => frame.remove(), 60_000);
+    else frame.remove();
   }
 }
 

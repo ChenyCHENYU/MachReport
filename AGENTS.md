@@ -1,0 +1,45 @@
+# AGENTS.md — MachReport 仓库协作指南
+
+供后续接手的 agent 与工程师使用：命令、架构地图、发布流程、红线。
+
+## 常用命令
+
+```bash
+pnpm install                  # 安装（pnpm ≥ 11，Node ≥ 18）
+pnpm typecheck                # tsc 项目图 + vue-tsc（mach-report/federation）
+pnpm lint / lint:fix          # ESLint（0 错 0 警是门禁）
+pnpm test                     # Vitest 单测（全绿门禁；纯逻辑文件用 // @vitest-environment node 头分流）
+pnpm test:coverage            # 覆盖率（关注 layout/ render/ format.ts）
+pnpm build                    # 全工作区构建（mach-report 七入口 ESM+CJS + federation + examples）
+pnpm exec playwright test     # E2E（真 Chromium，先起 examples dev server；0 重试应稳定）
+pnpm release                  # 一键发版：changeset version → install → build → test → publish
+```
+
+## 架构地图
+
+- 单 npm 包 `packages/mach-report`（唯一发布物；workspace 另有 federation 部署件与 examples）
+- `src/`：`layout/`（分页+折行）`render/`（DOM/Canvas/几何/样式/虚拟化）`schema/` `builder/` `compat/`（jh4j 导入）`format.ts`（值格式化/条件规则）
+- 子路径域：`src/pdf` `src/sql` `src/manager` `src/xlsx` `src/vue`——重依赖（pdf-lib/node-sql-parser/exceljs）与框架代码只存在于子路径产物
+- **ESLint 边界规则**：引擎核心不得 import 任何子路径域（主入口零重依赖零框架，有产物守卫测试双保险）
+- 自引用（self-reference）：vue 子路径静态依赖引擎、PDF 懒加载走 `./pdf`，构建时外部化
+
+## 约定
+
+- 版本：changesets（`.changeset/*.md` → `pnpm changeset version`）
+- 测试先行：新能力必须带单测；渲染几何/坐标回归走 E2E 结构化断言（见 `e2e/canvas.spec.ts`）
+- 性能预算：`perf-budget.test.ts` 的阈值改动需在 PR 说明理由
+- 文案/主题：走 `config.ts` 的 messages/theme（不要硬编码）
+- 仓库无 git remote（待补）；推送前先 `git remote add origin <url>`
+
+## 发布流程（pnpm release 的展开）
+
+1. 写 `.changeset/xxx.md`（bump 类型 + 变更说明）
+2. `pnpm release`（版本合并 → 构建 → 全测 → npm publish）
+3. 验证：`npm dist-tag ls @agile-team/mach-report`（新版本 CDN 传播可能延迟几分钟，tarball 端点先行可用）
+4. npm token 只放 `~/.npmrc`，绝不入仓库；轮换走 npmjs.com
+
+## 已知未了项
+
+- 真实 gridPlan 契约 fixture 待采集（`pnpm capture:gridplan`，需 SIT 登录）
+- package.json 的 repository/homepage 待 git remote 确定后补
+- P3 功能（交叉表/公式列/参数面板）按真实需求排期

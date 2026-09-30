@@ -73,13 +73,11 @@ export function usePageWindow(
     };
   }
 
+  // 对外仅暴露消费面（scrollTop/pageHeightsPx 为内部状态，避免公共 API 面无谓膨胀）
   return {
-    pageHeightsPx,
     contentSize,
     windowRange,
     visiblePages,
-    scrollTop,
-    viewportHeight,
     makeScrollHandler,
     refreshViewport(vp: HTMLElement | null): void {
       if (vp) viewportHeight.value = vp.clientHeight || 800;

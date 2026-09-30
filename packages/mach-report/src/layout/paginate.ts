@@ -7,7 +7,7 @@ import type {
 } from "../schema/render-plan";
 import { RENDER_PLAN_SCHEMA_VERSION } from "../schema/render-plan";
 import { DEFAULT_FONT_PT, LINE_HEIGHT } from "../defaults";
-import { heuristicMeasurer, measureTextMm, wrapText, type TextMeasurer } from "./textwrap";
+import { heuristicMeasurer, wrapText, type TextMeasurer } from "./textwrap";
 import { evalStyleRule, formatValue, type ColumnFormat, type StyleRule } from "../format";
 
 export interface ListColumn {
@@ -454,14 +454,19 @@ export function paginateTemplate(
       }
       const units: RowUnit[] = [];
       if (groupBy) {
-        let currentKey: string | null = null;
-        let bucket: Record<string, unknown>[] = [];
-        const flushGroup = () => {
-          if (bucket.length === 0) return;
-          const gv = cellText(bucket[0]![groupBy.field]);
+        // Map 归组：与数据到达顺序无关（乱序数据集不产生重复组头/分段小计），
+        // 组间顺序保持"首现顺序"
+        const groups = new Map<string, Record<string, unknown>[]>();
+        for (const r of dataRows) {
+          const key = cellText(r[groupBy.field]);
+          const bucket = groups.get(key);
+          if (bucket) bucket.push(r);
+          else groups.set(key, [r]);
+        }
+        for (const [key, bucket] of groups) {
           units.push({
             kind: "groupHeader",
-            label: (groupBy.headerTemplate ?? "{value}").replace(/\{value\}/g, gv)
+            label: (groupBy.headerTemplate ?? "{value}").replace(/\{value\}/g, key)
           });
           for (const r of bucket) units.push({ kind: "row", row: r });
           if (groupBy.subtotal && groupBy.subtotal.length > 0) {
@@ -471,18 +476,7 @@ export function paginateTemplate(
               rows: bucket
             });
           }
-        };
-        for (const r of dataRows) {
-          const key = cellText(r[groupBy.field]);
-          if (currentKey === null) currentKey = key;
-          if (key !== currentKey) {
-            flushGroup();
-            bucket = [];
-            currentKey = key;
-          }
-          bucket.push(r);
         }
-        flushGroup();
       } else {
         for (const r of dataRows) units.push({ kind: "row", row: r });
       }
@@ -553,5 +547,3 @@ export function paginateTemplate(
     warnings
   };
 }
-
-export { measureTextMm, wrapText };

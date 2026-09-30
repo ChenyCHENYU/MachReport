@@ -22,6 +22,7 @@ export interface MachReportMessages {
   pdfWindow: string;
   loading: string;
   empty: string;
+  /** @deprecated 未被组件消费，将在下个大版本移除（保留仅为类型兼容） */
   errorPrefix: string;
   retry: string;
   /** 搜索框占位文案 */
@@ -83,6 +84,9 @@ export const DEFAULT_THEME: MachReportTheme = {
   btnActiveBg: "#2d5fb8"
 };
 
+/** 日志通道（默认 console；可注入 noop 静默或上报 collector） */
+export type MachReportLogger = Pick<Console, "warn" | "info">;
+
 /** defaults 层可配置项（全部可选，均有内置缺省） */
 export interface MachReportDefaults {
   showExport?: boolean;
@@ -94,6 +98,8 @@ export interface MachReportDefaults {
   pdfFontUrl?: string;
   theme?: Partial<MachReportTheme>;
   messages?: Partial<MachReportMessages>;
+  /** 校验告警等内部日志通道（默认 console；静默传 { warn: () => {}, info: () => {} }） */
+  logger?: MachReportLogger;
 }
 
 export type MachReportPreset = MachReportDefaults;
@@ -117,7 +123,12 @@ export function defineMachReportPreset(preset: MachReportPreset): MachReportPres
 
 export type ResolvedConfig = Required<
   Pick<MachReportDefaults, "showExport" | "showPrint" | "showPdfWindow" | "gapPx">
-> & { pdfFontUrl: string; theme: MachReportTheme; messages: MachReportMessages };
+> & {
+  pdfFontUrl: string;
+  theme: MachReportTheme;
+  messages: MachReportMessages;
+  logger: MachReportLogger;
+};
 
 const FALLBACK_CONFIG: ResolvedConfig = {
   showExport: true,
@@ -126,8 +137,12 @@ const FALLBACK_CONFIG: ResolvedConfig = {
   gapPx: 18,
   pdfFontUrl: "/simhei.ttf",
   theme: DEFAULT_THEME,
-  messages: DEFAULT_MESSAGES
+  messages: DEFAULT_MESSAGES,
+  logger: console
 };
+
+const SILENT_LOGGER: MachReportLogger = { warn: () => {}, info: () => {} };
+export { SILENT_LOGGER };
 
 export function resolveConfig(
   config: MachReportConfig | null | undefined,
@@ -144,7 +159,8 @@ export function resolveConfig(
     gapPx: merged.gapPx ?? FALLBACK_CONFIG.gapPx,
     pdfFontUrl: merged.pdfFontUrl ?? FALLBACK_CONFIG.pdfFontUrl,
     theme: { ...DEFAULT_THEME, ...merged.theme },
-    messages: { ...DEFAULT_MESSAGES, ...merged.messages }
+    messages: { ...DEFAULT_MESSAGES, ...merged.messages },
+    logger: merged.logger ?? FALLBACK_CONFIG.logger
   };
 }
 

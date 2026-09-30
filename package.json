@@ -18,7 +18,9 @@
     "changeset": "changeset",
     "version": "changeset version",
     "capture:gridplan": "node scripts/fetch-gridplan.mjs",
-    "clean": "pnpm -r --if-present run clean"
+    "clean": "pnpm -r --if-present run clean",
+    "release": "pnpm changeset version && pnpm install && pnpm build && pnpm test && pnpm changeset publish",
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.3",
@@ -26,14 +28,15 @@
     "@playwright/test": "^1.63.0",
     "@types/node": "^26.6.0",
     "@vitejs/plugin-vue": "^6.0.9",
+    "@vitest/coverage-v8": "4.1.11",
     "eslint": "^10.10.0",
     "eslint-plugin-vue": "^10.11.0",
     "globals": "^17.12.0",
-    "happy-dom": "^17.0.0",
+    "happy-dom": "^20.8.9",
     "playwright": "^1.63.0",
     "typescript": "^5.6.0",
     "typescript-eslint": "^8.70.0",
-    "vitest": "^3.0.0",
+    "vitest": "^4.1.11",
     "vue": "^3.5.42",
     "vue-eslint-parser": "^10.4.1",
     "vue-tsc": "^3.3.11"

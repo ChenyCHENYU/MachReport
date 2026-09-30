@@ -2,11 +2,13 @@
 /**
  * 工具栏（纯展示）：所有按钮事件上抛，无自身状态。
  * 主题走 CSS 变量（--mrp-*），文案走 messages 参数（配置中心可全局覆写）。
- * 搜索区（search.visible 时渲染）：输入即时上抛，命中计数与上下翻转为纯展示。
+ * 搜索区（search.visible 时渲染）：输入即时上抛（防抖在 composable 层），
+ * 打开时自动聚焦输入框。
  */
+import { nextTick, ref, watch } from "vue";
 import type { MachReportMessages } from "./config";
 
-defineProps<{
+const props = defineProps<{
   pageCount: number;
   currentPage: number;
   zoomMode: "fit" | "raw";
@@ -30,6 +32,16 @@ defineEmits<{
   (e: "search-toggle"): void;
   (e: "thumbs-toggle"): void;
 }>();
+
+const searchInputRef = ref<HTMLInputElement | null>(null);
+watch(
+  () => props.search.visible,
+  (visible) => {
+    if (visible) {
+      void nextTick(() => searchInputRef.value?.focus());
+    }
+  }
+);
 
 function pageInfo(text: string, cur: number, total: number): string {
   return text.replace("{cur}", String(cur)).replace("{total}", String(total));
@@ -61,6 +73,7 @@ function pageInfo(text: string, cur: number, total: number): string {
     <span class="mrp-spacer" />
     <div v-if="search.visible" class="mrp-search">
       <input
+        ref="searchInputRef"
         class="mrp-search-input"
         type="text"
         :placeholder="messages.searchPlaceholder"
