@@ -53,15 +53,89 @@ app.use(machReportPlugin);              // 零配置：同源直连 jh4j 端点
 | 能力 | 状态 | 说明 |
 |---|---|---|
 | 分页引擎 | ✅ | 模板 + 数据 → RenderPlan；5,000 行 ~57ms；列表自动跨页/表头重复/列宽等比缩放 |
+| **报表语义** | ✅ | 分组小计/总合计（组头防孤行）、页码占位符 `{page}/{totalPages}`、列格式化（千分位/日期/百分比）、条件格式规则 |
 | 屏幕预览（DOM 后端） | ✅ | 页级虚拟化、transform 缩放、named pages 混合纸张打印、流式分块写入 |
 | Canvas 后端 | ✅ | 窗口化分页器（画布池 + 分帧渲染），内存 O(窗口) 而非 O(总页数) |
-| PDF 前端直出 | ✅ | pdf-lib 矢量输出、中文字体子集化 + IndexedDB 缓存、图片嵌入、保真告警 |
+| PDF / Excel 前端直出 | ✅ | PDF 矢量（字体子集化 + IndexedDB 缓存）；`./xlsx` 子路径导出对账表（合并/列宽/样式直译） |
+| **预览交互** | ✅ | 搜索（索引→跳页→高亮）、Ctrl+滚轮缩放、PgUp/PgDn/Home/End 翻页、缩略图侧栏、缩放记忆 |
 | 动态 SQL | ✅ | `#{}` `${}` `{if}` 三语法兼容存量；AST 级单 SELECT 校验 |
 | 管理端 API | ✅ | 模板/数据集/参数/导入导出/模板锁（心跳丢失感知） |
-| Vue 契约组件 | ✅ | props/事件/ref 与 jh4j 1:1；竞态防护；配置中心（presets/文案/主题） |
+| Vue 契约组件 | ✅ | props/事件/ref 与 jh4j 1:1；竞态防护；配置中心（presets/文案/主题）；批量打印 `printPlans` |
+| 调试面板 | ✅ | `?mrp-debug=1`：页窗/加载耗时/计划体积悬浮窗 |
 | jh4j 模板导入 | ✅ | 逆向 schema 驱动，存量模板 content 直接转换 |
 | 模块联邦入口 | ✅ | expose 名对齐，宿主 harness 实证零改动切换 |
 | 设计器画布 UI | 🚧 | 后续里程碑 |
+
+---
+
+## 报表语义（B 端刚需四件套）
+
+```ts
+const template = createTemplate()
+  .page("a4", { margins: { marginTopMm: 12, marginBottomMm: 15 } })
+  .text("出库单明细", { leftMm: 65, topMm: 4, widthMm: 80 }, { fontSize: 16, bold: true, align: "center" })
+  // 页脚：每个输出页自动克隆注入
+  .text("第 {page} 页 / 共 {totalPages} 页", { leftMm: 65, topMm: 285, widthMm: 80 }, { align: "center" })
+  .list("detail", { leftMm: 12, topMm: 18, widthMm: 186 }, [
+    { header: "物料", field: "name", widthMm: 96 },
+    { header: "数量", field: "qty", widthMm: 45, format: { kind: "number", thousands: true } },
+    { header: "金额", field: "amount", widthMm: 45, format: { kind: "number", thousands: true, digits: 2 },
+      rules: [{ when: { field: "amount", op: "<", value: 0 }, style: { color: "#cc0000" } }] },
+    { header: "日期", field: "date", widthMm: 45, format: { kind: "date", pattern: "YYYY-MM-DD" } }
+  ], {
+    groupBy: { field: "wh", headerTemplate: "仓库：{value}", subtotal: ["qty", "amount"] },
+    grandTotal: true
+  })
+  .build();
+```
+
+- **格式化**在进 RenderPlan 之前完成（`formatValue`，JSON 声明式不破坏 gridPlan 契约），三后端零感知
+- **分组小计**：组头跨全列、组尾数值列求和（沿用列格式化）、`keepWithNext` 防组头孤行、末页总合计
+- **页码占位符**：含 `{page}/{totalPages}` 的文本组件转为"页锚"，每个输出页克隆注入，收尾回填总页数
+- **条件格式**：声明式规则命中才克隆样式（未命中行保持驻留引用，热路径零分配）
+
+---
+
+## 预览交互
+
+| 操作 | 行为 |
+|---|---|
+| `Ctrl` + 滚轮 | 以光标为中心缩放（30%~300%） |
+| `PgUp` / `PgDn` / `Home` / `End` | 翻页导航（预览区聚焦时） |
+| `+` / `-` | 步进缩放 |
+| `Ctrl` + `F` | 打开预览内搜索：全文索引 → 跳页 → 命中高亮（`mark.mrp-hit`） |
+| 工具栏 ▦ 缩略图 | 侧栏懒渲染小画布，点击导航 |
+| 缩放记忆 | 上次的缩放模式存 localStorage，重进恢复 |
+| 调试 | URL 加 `?mrp-debug=1`：页窗区间/加载耗时/计划体积悬浮窗 |
+
+**批量打印（多单连打）**：把多份计划合并为一个打印文档，混合纸张经 named pages 正确分页，只弹一次打印框：
+
+```ts
+import { printPlans } from "@agile-team/mach-report/vue";
+await printPlans([plan1, plan2, plan3], { onProgress: (done, total) => setLoading(`${done}/${total}`) });
+```
+
+---
+
+## Excel 导出（./xlsx 子路径）
+
+```ts
+import { renderPlanToXlsx } from "@agile-team/mach-report/xlsx";
+const { buffer, warnings } = await renderPlanToXlsx(plan);
+// buffer → Blob 下载（.xlsx）；网格→真表格（列宽 mm 直译、colSpan 合并、底色/加粗/对齐），
+// 文本→合并标题行；图片/条码计入 warnings 保真告警（与 PDF 同口径）
+```
+
+---
+
+## 打印兼容性指引（实战排障）
+
+| 现象 | 原因与处理 |
+|---|---|
+| 表格底色打印丢失 | 浏览器默认关闭"背景图形"——打印对话框勾选*背景图形*（Chrome/Edge：更多设置） |
+| 混合纸张按 A4 输出 | named pages 需要较新内核（Chrome 85+/Safari 16+/Firefox 133+）；旧内核退化为统一纸张，可在调试面板确认 |
+| iOS App 内打印无效 | WKWebView 限制系统打印面板——引导用户走"分享 → 打印"或导出 PDF |
+| 字体首载后失效 | PDF 字体走 IndexedDB 缓存（15s 超时回退内置西文字体），清理站点数据后重新拉取 |
 
 ---
 
@@ -223,6 +297,7 @@ type PlanFetcher = (input: {
 ```ts
 import { /* 引擎核心 */ } from "@agile-team/mach-report";
 import { renderPlanToPdf, loadFontWithCache } from "@agile-team/mach-report/pdf";
+import { renderPlanToXlsx } from "@agile-team/mach-report/xlsx";
 import { compileDynamicSql, renderDynamicSql } from "@agile-team/mach-report/sql";
 import { createReportAdminClient } from "@agile-team/mach-report/manager";
 ```

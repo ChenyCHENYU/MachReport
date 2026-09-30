@@ -52,6 +52,46 @@ body{margin:0;background:#fff;}`;
   return { head, pageChunks };
 }
 
+/**
+ * 批量打印（多单连打）：把多份计划合并为一个打印文档——
+ * named pages 保证混合纸张正确分页，浏览器只弹一次打印对话框。
+ */
+export async function printPlans(
+  plans: RenderPlan[],
+  options: { onProgress?: (done: number, total: number) => void } = {}
+): Promise<void> {
+  const merged: RenderPlan = {
+    schemaVersion: "mach-report-batch-print",
+    pages: plans.flatMap((p) => p.pages)
+  };
+  if (merged.pages.length === 0) return;
+  const { head, pageChunks } = buildPrintDocument(merged);
+  const frame = document.createElement("iframe");
+  frame.style.cssText =
+    "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+  document.body.appendChild(frame);
+  try {
+    const doc = frame.contentDocument!;
+    doc.open();
+    doc.write(head);
+    for (let i = 0; i < pageChunks.length; i++) {
+      doc.write(pageChunks[i]!);
+      if (i % YIELD_EVERY_PAGES === YIELD_EVERY_PAGES - 1) {
+        options.onProgress?.(i + 1, pageChunks.length);
+        await yieldToBrowser();
+      }
+    }
+    doc.write("</body></html>");
+    doc.close();
+    await yieldToBrowser();
+    options.onProgress?.(pageChunks.length, pageChunks.length);
+    frame.contentWindow?.focus();
+    frame.contentWindow?.print();
+  } finally {
+    setTimeout(() => frame.remove(), 60_000); // 打印对话框关闭后回收
+  }
+}
+
 export function usePrintExport(
   plan: Ref<RenderPlan | null>,
   hooks: {

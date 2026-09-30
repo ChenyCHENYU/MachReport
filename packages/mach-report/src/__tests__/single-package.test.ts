@@ -6,6 +6,7 @@ import * as machReport from "../index";
 import * as machReportPdf from "../pdf";
 import * as machReportSql from "../sql";
 import * as machReportManager from "../manager";
+import * as machReportXlsx from "../xlsx";
 import * as machReportVue from "../vue/index";
 
 describe("单包架构：@agile-team/mach-report 一个包覆盖全部能力", () => {
@@ -43,6 +44,10 @@ describe("单包架构：@agile-team/mach-report 一个包覆盖全部能力", (
 
   it("./manager 子路径导出管理端 API 客户端", () => {
     expect(typeof machReportManager.createReportAdminClient).toBe("function");
+  });
+
+  it("./xlsx 子路径导出 Excel 导出 API", () => {
+    expect(typeof machReportXlsx.renderPlanToXlsx).toBe("function");
   });
 
   it("./vue 子路径导出组件层（node 环境仅类型/插件符号可加载）", () => {

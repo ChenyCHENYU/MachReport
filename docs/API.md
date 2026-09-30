@@ -164,11 +164,9 @@ const measurer = createCanvasMeasurer(() => someCanvas.getContext("2d")); // 浏
 const { plan } = paginateTemplate(template, data, { measurer });          // 分页与 PDF/Canvas 共用
 ```
 
-### 模板构建器 DSL（推荐替代手写 JSON）
+### 模板构建器 DSL
 
 ```ts
-import { createTemplate } from "@agile-team/mach-report";
-
 const template = createTemplate()                    // 单页快路径：链式直接 build
   .page("a4", { landscape: true, margins: { marginTopMm: 12 } })   // 纸张预设（a3/a4/a5/b4/b5）
   .text("出库单", { leftMm: 70, topMm: 2, widthMm: 70 }, { fontSize: 16, bold: true, align: "center" })
@@ -180,6 +178,35 @@ const template = createTemplate()                    // 单页快路径：链式
   ], { fontSizePt: 10, headerEveryPage: true })
   .build();                                          // → ReportTemplate，直接进 paginateTemplate
 // .page(210, 297, { marginTopMm: 12 })              // 数字纸张写法兼容
+```
+
+### 报表语义（分组/格式化/页码/条件格式）
+
+```ts
+// 列定义增强
+{ header: "金额", field: "amount", widthMm: 45,
+  format: { kind: "number", thousands: true, digits: 2 },      // 千分位+2位小数
+  rules: [{ when: { field: "amount", op: "<", value: 0 }, style: { color: "#cc0000" } }] }  // 负数红字
+{ header: "日期", field: "date", widthMm: 45, format: { kind: "date", pattern: "YYYY-MM-DD" } }
+
+// 列表选项
+.list("detail", geom, columns, {
+  groupBy: { field: "wh", headerTemplate: "仓库：{value}", subtotal: ["qty", "amount"], keepWithNext: true },
+  grandTotal: true            // 末尾总合计（沿用 subtotal 字段，或 grandTotal: { fields: [...] }）
+})
+
+// 页码占位符（页锚：每个输出页克隆注入）
+.text("第 {page} 页 / 共 {totalPages} 页", { leftMm: 65, topMm: 285, widthMm: 80 }, { align: "center" })
+```
+
+### Excel 导出 / 批量打印
+
+```ts
+import { renderPlanToXlsx } from "@agile-team/mach-report/xlsx";
+const { workbook, buffer, warnings } = await renderPlanToXlsx(plan);
+
+import { printPlans } from "@agile-team/mach-report/vue";
+await printPlans([plan1, plan2], { onProgress: (d, t) => console.log(`${d}/${t}`) });
 ```
 
 ### jh4j 模板导入

@@ -1,4 +1,5 @@
 export * from "./defaults";
+export * from "./format";
 export * from "./units";
 export * from "./schema/render-plan";
 export * from "./schema/validate";

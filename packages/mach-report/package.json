@@ -3,7 +3,10 @@
   "version": "0.7.0",
   "description": "MachReport 报表引擎单包：RenderPlan 模型 + 分页 + DOM/Canvas/PDF 渲染 + 动态 SQL + 管理端 API + Vue 3 契约组件（零运行时依赖；./vue 为框架子路径，vue 为可选 peer）",
   "type": "module",
-  "sideEffects": ["**/*.css", "**/*.vue"],
+  "sideEffects": [
+    "**/*.css",
+    "**/*.vue"
+  ],
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
@@ -13,7 +16,8 @@
     "./manager": "./src/manager.ts",
     "./vue": "./src/vue/index.ts",
     "./vue/async": "./src/vue/async.ts",
-    "./vue/style.css": "./src/vue/style.css"
+    "./vue/style.css": "./src/vue/style.css",
+    "./xlsx": "./src/xlsx.ts"
   },
   "publishConfig": {
     "access": "public",
@@ -22,34 +26,84 @@
     "types": "./dist/index.d.ts",
     "exports": {
       ".": {
-        "import": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
-        "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
+        "import": {
+          "types": "./dist/index.d.ts",
+          "default": "./dist/index.js"
+        },
+        "require": {
+          "types": "./dist/index.d.cts",
+          "default": "./dist/index.cjs"
+        }
       },
       "./pdf": {
-        "import": { "types": "./dist/pdf.d.ts", "default": "./dist/pdf.js" },
-        "require": { "types": "./dist/pdf.d.cts", "default": "./dist/pdf.cjs" }
+        "import": {
+          "types": "./dist/pdf.d.ts",
+          "default": "./dist/pdf.js"
+        },
+        "require": {
+          "types": "./dist/pdf.d.cts",
+          "default": "./dist/pdf.cjs"
+        }
       },
       "./sql": {
-        "import": { "types": "./dist/sql.d.ts", "default": "./dist/sql.js" },
-        "require": { "types": "./dist/sql.d.cts", "default": "./dist/sql.cjs" }
+        "import": {
+          "types": "./dist/sql.d.ts",
+          "default": "./dist/sql.js"
+        },
+        "require": {
+          "types": "./dist/sql.d.cts",
+          "default": "./dist/sql.cjs"
+        }
       },
       "./manager": {
-        "import": { "types": "./dist/manager.d.ts", "default": "./dist/manager.js" },
-        "require": { "types": "./dist/manager.d.cts", "default": "./dist/manager.cjs" }
+        "import": {
+          "types": "./dist/manager.d.ts",
+          "default": "./dist/manager.js"
+        },
+        "require": {
+          "types": "./dist/manager.d.cts",
+          "default": "./dist/manager.cjs"
+        }
       },
       "./vue": {
-        "import": { "types": "./dist/vue/index.d.ts", "default": "./dist/vue.js" },
-        "require": { "types": "./dist/vue/index.d.cts", "default": "./dist/vue.cjs" }
+        "import": {
+          "types": "./dist/vue/index.d.ts",
+          "default": "./dist/vue.js"
+        },
+        "require": {
+          "types": "./dist/vue/index.d.cts",
+          "default": "./dist/vue.cjs"
+        }
       },
       "./vue/async": {
-        "import": { "types": "./dist/vue/async.d.ts", "default": "./dist/vue-async.js" },
-        "require": { "types": "./dist/vue/async.d.cts", "default": "./dist/vue-async.cjs" }
+        "import": {
+          "types": "./dist/vue/async.d.ts",
+          "default": "./dist/vue-async.js"
+        },
+        "require": {
+          "types": "./dist/vue/async.d.cts",
+          "default": "./dist/vue-async.cjs"
+        }
       },
-      "./vue/style.css": "./dist/style.css"
+      "./vue/style.css": "./dist/style.css",
+      "./xlsx": {
+        "import": {
+          "types": "./dist/xlsx.d.ts",
+          "default": "./dist/xlsx.js"
+        },
+        "require": {
+          "types": "./dist/xlsx.d.cts",
+          "default": "./dist/xlsx.cjs"
+        }
+      }
     }
   },
-  "engines": { "node": ">=18.0.0" },
-  "files": ["dist"],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "vite build && node scripts/copy-dcts.mjs",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
@@ -58,12 +112,15 @@
     "vue": "^3.2.0"
   },
   "peerDependenciesMeta": {
-    "vue": { "optional": true }
+    "vue": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@pdf-lib/fontkit": "^1.1.1",
     "@vitejs/plugin-vue": "^6.0.9",
     "@vue/test-utils": "^2.4.0",
+    "exceljs": "^4.4.0",
     "node-sql-parser": "^5.4.0",
     "pdf-lib": "^1.17.1",
     "typescript": "^5.9.0",

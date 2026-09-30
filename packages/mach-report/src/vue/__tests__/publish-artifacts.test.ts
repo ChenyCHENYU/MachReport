@@ -14,13 +14,14 @@ const built = existsSync(dist);
 const nodeFs = createRequire(import.meta.url)("node:fs") as typeof import("node:fs");
 
 describe("单包发布产物（框架子路径 ./vue 契约）", () => {
-  it.skipIf(!built)("六入口 × 双格式齐备", async () => {
+  it.skipIf(!built)("七入口 × 双格式齐备", async () => {
     const fs = await import("node:fs");
     for (const f of [
       "index.js", "index.cjs",
       "pdf.js", "pdf.cjs",
       "sql.js", "sql.cjs",
       "manager.js", "manager.cjs",
+      "xlsx.js", "xlsx.cjs",
       "vue.js", "vue.cjs",
       "vue-async.js", "vue-async.cjs",
       "style.css"

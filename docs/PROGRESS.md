@@ -3,6 +3,25 @@
 > 通宵自主执行模式 · 每个闭环 = 实现 → 测试 → 验证 → 检查点提交
 > 验证命令：`pnpm typecheck && pnpm lint && pnpm test && pnpm exec playwright test`
 
+## 优化轮 8（2026-09-30 · 报表语义 + 交互完整面，232 单测 + 11 E2E 全绿）
+
+**动因**：对标 mach-table 与社区报表插件（hiprint/Stimulsoft/print-js）扫描——差距集中在报表语义层与交互细节。
+
+| # | 项 | 产出 |
+|---|---|---|
+| 82 | **列格式化** | `formatValue`（千分位/小数位/百分比/日期 pattern，JSON 声明式不破坏契约）；paginate 出口统一消费，三后端零感知 |
+| 83 | **页码占位符** | `{page}/{totalPages}` → 页锚组件：每输出页克隆注入、收尾回填总页数、模板对象零污染 |
+| 84 | **分组小计/总合计** | groupBy（组头跨全列 + headerTemplate、组尾数值求和沿用列格式化、keepWithNext 防孤行）+ grandTotal；纯 plan 层增强 |
+| 85 | **条件格式** | 列级声明式 rules（field/op/value → style 合并）；命中才克隆样式，未命中行保持驻留引用（热路径零分配） |
+| 86 | **Excel 导出** | `./xlsx` 子路径（exceljs 内联）：网格→真表格（resolveGridLayout 复用单真相源几何：列宽 mm 直译/colSpan 合并/底色加粗对齐）、文本→合并标题行、保真告警同 PDF 口径 |
+| 87 | **交互手势** | Ctrl+滚轮缩放（30%~300%）、PgUp/PgDn/Home/End/± 键盘、缩放模式 localStorage 记忆恢复 |
+| 88 | **预览搜索** | 计划全文索引（文本+网格）→ 输入即定位 → 命中页 mark 高亮（TreeWalker 包裹/清除） |
+| 89 | **缩略图侧栏** | 懒渲染小画布（IntersectionObserver + dpr 0.2）、当前页指示、点击导航；无 2D 环境保留占位 |
+| 90 | 调试面板 | `?mrp-debug=1`/debug prop：页窗区间/加载耗时/计划体积悬浮窗 |
+| 91 | **批量打印** | `printPlans(plans)`：多计划合并单文档（named pages 混合纸张），一次打印对话框，onProgress 进度 |
+| 92 | 打印兼容指引 | README 收录背景图形/named pages 内核/iOS WebView/字体缓存四类实战排障 |
+| 93 | 发版 | mach-report 0.8.0 |
+
 ## 优化轮 7（2026-09-30 · README 重写 + 细粒度健壮性/集成体验，212 单测 + 9 E2E 全绿）
 
 **动因**：README 结构化（看的人懂定位、用的人能抄代码）；代码层细粒度打磨——对齐 mach-table 的插件式快速集成。

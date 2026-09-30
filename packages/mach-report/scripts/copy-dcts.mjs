@@ -9,6 +9,7 @@ const entries = [
   "dist/pdf.d.ts",
   "dist/sql.d.ts",
   "dist/manager.d.ts",
+  "dist/xlsx.d.ts",
   "dist/vue/index.d.ts",
   "dist/vue/async.d.ts"
 ];

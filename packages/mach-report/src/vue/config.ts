@@ -24,6 +24,15 @@ export interface MachReportMessages {
   empty: string;
   errorPrefix: string;
   retry: string;
+  /** 搜索框占位文案 */
+  searchPlaceholder: string;
+  /** 搜索命中计数，{cur}/{total} 占位 */
+  matchInfo: string;
+  /** 上/下一个命中 */
+  prevMatch: string;
+  nextMatch: string;
+  /** 缩略图侧栏开关 */
+  thumbnails: string;
 }
 
 export const DEFAULT_MESSAGES: MachReportMessages = {
@@ -39,7 +48,12 @@ export const DEFAULT_MESSAGES: MachReportMessages = {
   loading: "报表渲染中…",
   empty: "暂无预览数据",
   errorPrefix: "",
-  retry: "重试"
+  retry: "重试",
+  searchPlaceholder: "搜索报表内容",
+  matchInfo: "{cur}/{total}",
+  prevMatch: "‹",
+  nextMatch: "›",
+  thumbnails: "缩略图"
 };
 
 /** 主题变量（组件外壳注入的 --mrp-* CSS 自定义属性） */

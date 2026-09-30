@@ -31,6 +31,7 @@ export default defineConfig({
         pdf: "src/pdf.ts",
         sql: "src/sql.ts",
         manager: "src/manager.ts",
+        xlsx: "src/xlsx.ts",
         vue: "src/vue/index.ts",
         "vue-async": "src/vue/async.ts"
       },
