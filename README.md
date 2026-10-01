@@ -13,13 +13,13 @@
 [![node](https://img.shields.io/badge/node-%3E%3D18-2d5fb8)](https://www.npmjs.com/package/@agile-team/mach-report)
 [![license](https://img.shields.io/badge/license-Source--Available-4a4d52)](#-license)
 
-[快速开始](#-快速开始) · [核心能力](#-核心能力) · [配置中心](#-配置中心) · [引擎 API](#-引擎-api) · [从 jh4j 迁移](#-从-jh4j-迁移)
+[快速开始](#快速开始) · [核心能力](#核心能力) · [配置中心](#配置中心) · [引擎 API](#引擎-api) · [从 jh4j 迁移](#从-jh4j-迁移)
 
 </div>
 
 ---
 
-## 🚀 快速开始
+## 快速开始
 
 ```bash
 pnpm add @agile-team/mach-report        # 唯一依赖：vue 为可选 peer，重能力全部子路径按需
@@ -39,7 +39,7 @@ app.use(machReportPlugin);              // 零配置：同源直连 jh4j 端点
 <MachReportPreview temp-id="CK_TEMPLATE_001" :params="{ id: '9' }" height="calc(100vh - 206px)" />
 ```
 
-## ✨ 核心能力
+## 核心能力
 
 | 域 | 能力 |
 |---|---|
@@ -51,7 +51,7 @@ app.use(machReportPlugin);              // 零配置：同源直连 jh4j 端点
 | **工程健壮性** | 加载竞态代际令牌、结构化错误码、请求超时、批量打印合并文档、渲染计划规模告警 |
 
 <details>
-<summary><b>📦 单包架构说明（为什么只有一个包）</b></summary>
+<summary><b>单包架构说明（为什么只有一个包）</b></summary>
 
 框架组件在 `./vue` 子路径（vue 声明为 **optional peer**——React / Node 宿主不会被装上 vue）；
 pdf-lib / node-sql-parser / exceljs 分别内联进 `./pdf` `./sql` `./xlsx` 子路径产物——**不导入不进依赖图**，
@@ -62,7 +62,7 @@ ESM + CJS 双格式 + `.d.ts/.d.cts` 双声明，Node ≥ 18。
 </details>
 
 <details>
-<summary><b>🧩 三种集成姿势（全局插件 / 局部导入 / 异步入口）</b></summary>
+<summary><b>三种集成姿势（全局插件 / 局部导入 / 异步入口）</b></summary>
 
 **① 全局插件（推荐）**：上文快速开始即是。插件注册全局组件 `<MachReportPreview>`（懒加载分片零首屏成本）、注入数据面 / PDF 导出器 / 配置中心。
 
@@ -91,7 +91,7 @@ void preloadMachReport();   // 路由 hover 时预取，正式渲染零等待
 </details>
 
 <details>
-<summary><b>🎛️ 配置中心（presets / 文案 / 主题 / 日志通道）</b></summary>
+<summary><b>配置中心（presets / 文案 / 主题 / 日志通道）</b></summary>
 
 ```ts
 // src/config/mach-report.config.ts —— 集中到独立配置文件
@@ -123,7 +123,7 @@ export default defineMachReportConfig({
 </details>
 
 <details>
-<summary><b>🛠️ 模板 DSL 与报表语义</b></summary>
+<summary><b>模板 DSL 与报表语义</b></summary>
 
 ```ts
 const template = createTemplate()
@@ -156,7 +156,7 @@ const template = createTemplate()
 </details>
 
 <details>
-<summary><b>🔌 数据面（fetcher 生态：零配置 / jh4j / 本地 / 自定义）</b></summary>
+<summary><b>数据面（fetcher 生态：零配置 / jh4j / 本地 / 自定义）</b></summary>
 
 | 工具 | 场景 |
 |---|---|
@@ -171,7 +171,7 @@ const template = createTemplate()
 </details>
 
 <details>
-<summary><b>⚙️ 引擎 API（框架无关，子路径按需）</b></summary>
+<summary><b>引擎 API（框架无关，子路径按需）</b></summary>
 
 ```ts
 import {
@@ -205,7 +205,7 @@ jh4j gridPlan ──（契约兼容消费）                                 ├
 </details>
 
 <details>
-<summary><b>📊 性能实测</b></summary>
+<summary><b>性能实测</b></summary>
 
 | 指标 | jh4j 现状（实测感知） | MachReport 实测 |
 |---|---|---|
@@ -219,7 +219,7 @@ jh4j gridPlan ──（契约兼容消费）                                 ├
 </details>
 
 <details>
-<summary><b>🖥️ Node 无头导出通道（同一引擎两端执行）</b></summary>
+<summary><b>Node 无头导出通道（同一引擎两端执行）</b></summary>
 
 引擎框架无关——`renderPlanToPdf` / `renderPlanToXlsx` 及 `loadFontWithCache` 均可在 **Node 18+** 直接运行
 （无 IndexedDB 环境自动降级内存缓存），解锁服务端场景而**不需要另写一套渲染**：
@@ -240,7 +240,7 @@ await fs.writeFile("archive.pdf", bytes);
 </details>
 
 <details>
-<summary><b>🔄 从 jh4j 迁移（契约对照）</b></summary>
+<summary><b>从 jh4j 迁移（契约对照）</b></summary>
 
 | 契约项 | 对齐方式 |
 |---|---|
@@ -253,7 +253,7 @@ await fs.writeFile("archive.pdf", bytes);
 </details>
 
 <details>
-<summary><b>🖨️ 打印兼容性指引（实战排障）</b></summary>
+<summary><b>打印兼容性指引（实战排障）</b></summary>
 
 | 现象 | 原因与处理 |
 |---|---|
@@ -265,7 +265,7 @@ await fs.writeFile("archive.pdf", bytes);
 </details>
 
 <details>
-<summary><b>🏗️ 架构与质量门禁</b></summary>
+<summary><b>架构与质量门禁</b></summary>
 
 ```
 MachReport（pnpm monorepo · TS strict · 单 npm 包）
@@ -288,19 +288,19 @@ pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright t
 
 </details>
 
-## 📚 文档
+## 文档
 
 - [docs/PROGRESS.md](docs/PROGRESS.md) —— 十一轮迭代日志与决策记录
 - [docs/API.md](docs/API.md) —— 接入速查（props / 配置中心 / 数据面 / DSL）
 - [docs/reverse-findings.md](docs/reverse-findings.md) —— jh4j 逆向结论
 - [AGENTS.md](AGENTS.md) —— 仓库协作指南（命令 / 架构 / 发布流程）
 
-## 🧭 路线图
+## 路线图
 
-- ✅ v1.0：单包架构 · 报表语义四件套 · 参数面板 · 交互完整面 · 双远端 + npm 定版
-- 🚧 设计器画布（拖拽 / 属性面板 / 撤销栈）——独立立项
-- 🚧 管理端控制台 UI（`./manager` API 已就绪）——独立立项
-- 🔭 交叉表 / 公式列 ——按真实需求排期
+- v1.0（已完成）：单包架构 · 报表语义四件套 · 参数面板 · 交互完整面 · 双远端 + npm 定版
+- 设计器画布（拖拽 / 属性面板 / 撤销栈）——独立立项，规划中
+- 管理端控制台 UI（`./manager` API 已就绪）——独立立项，规划中
+- 交叉表 / 公式列——按真实需求排期
 
 ---
 
@@ -311,3 +311,6 @@ pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright t
 Source-available © ChenyCHENYU (Agile Team). 使用需事先取得书面授权，详见 [LICENSE](LICENSE)。
 
 </div>
+
+
+**v1.1.0** · 单包零依赖 · 质量门禁全绿 · 语义化版本演进

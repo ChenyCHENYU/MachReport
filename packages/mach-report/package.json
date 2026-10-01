@@ -106,7 +106,8 @@
   ],
   "scripts": {
     "build": "vite build && node scripts/copy-dcts.mjs",
-    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prepublishOnly": "node scripts/sync-readme.mjs"
   },
   "peerDependencies": {
     "vue": "^3.2.0"

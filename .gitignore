@@ -8,3 +8,4 @@ Thumbs.db
 test-results/
 playwright-report/
 examples/minimal/public/simhei.ttf
+packages/mach-report/README.md
