@@ -297,7 +297,13 @@ const { print, exportAs, openPdfWindow, releasePrintFrame } = usePrintExport(pla
 });
 
 /** 控制器注入：后代组件 useReportPreview() 免模板 ref 编程式访问（与 expose 同面） */
-const controller: MachReportController = { reload, print, exportAs, openPdfWindow, gotoPage };
+/** 编程式设参查询：合并进面板值（面板本地字典经 v-model 同步），可选立即重载 */
+function setParams(values: Record<string, string>, opts: { reload?: boolean } = {}): void {
+  paramValues.value = { ...paramValues.value, ...values };
+  if (opts.reload !== false) void reload();
+}
+
+const controller: MachReportController = { reload, print, exportAs, openPdfWindow, gotoPage, setParams };
 provide(MACH_REPORT_CONTROLLER_KEY, controller);
 
 // ── 交互：Ctrl+滚轮缩放 / 键盘翻页与缩放 / Ctrl+F 搜索 ──
@@ -468,7 +474,7 @@ watch(
   }
 );
 
-defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage });
+defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams });
 </script>
 
 <template>

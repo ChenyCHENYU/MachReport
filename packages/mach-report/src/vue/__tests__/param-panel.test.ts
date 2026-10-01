@@ -114,8 +114,7 @@ describe("参数面板（使用侧零表单代码）", () => {
     b.unmount();
   }, 15000);
 
-  it("面板值覆盖宿主 props.params（用户意图优先）", async () => {
-    const { seen, fetcher } = paramsSpy();
+  it("面板值覆盖宿主 props.params（用户意图优先）", async () => {    const { seen, fetcher } = paramsSpy();
     const wrapper = mount(ReportPreview, {
       props: { tempId: "T1", autoLoad: true, fetcher, paramDefs: defs, params: { keyword: "宿主词" } }
     });
@@ -132,6 +131,28 @@ describe("参数面板（使用侧零表单代码）", () => {
     await wrapper.findAll("button").find((x) => x.text().includes("查"))!.trigger("click");
     await vi.waitFor(() => expect(seen.length).toBe(2), { timeout: 5000 });
     expect(seen[1]!.keyword).toBe("用户词");
+    wrapper.unmount();
+  }, 15000);
+
+  it("setParams 编程式设参查询（面板同步显示新值）", async () => {
+    const { wrapper, seen } = await mountPanel();
+    (wrapper.vm as unknown as { setParams: (v: Record<string, string>) => void }).setParams({
+      whCode: "W1",
+      keyword: "程序注入"
+    });
+    await vi.waitFor(() => expect(seen.length).toBe(2), { timeout: 5000 });
+    expect(seen[1]!.whCode).toBe("W1");
+    expect(seen[1]!.keyword).toBe("程序注入");
+    // 面板下拉同步显示
+    const select = wrapper.element.querySelector("select") as HTMLSelectElement;
+    await vi.waitFor(() => expect(select.value).toBe("W1"), { timeout: 3000 });
+    // reload=false 仅设值不查询
+    (wrapper.vm as unknown as { setParams: (v: Record<string, string>, o?: { reload?: boolean }) => void }).setParams(
+      { keyword: "静默" },
+      { reload: false }
+    );
+    await new Promise((r) => setTimeout(r, 100));
+    expect(seen.length).toBe(2);
     wrapper.unmount();
   }, 15000);
 });

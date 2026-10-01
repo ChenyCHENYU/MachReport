@@ -2,11 +2,12 @@ import { computed, ref, shallowRef, type Ref } from "vue";
 import type { RenderPlan } from "@agile-team/mach-report";
 
 /**
- * 预览搜索：计划全文索引 → 跳页导航 → 命中页高亮。
+ * 预览交互 composables 集合（本文件包含四件）：
  *
- * - 输入防抖（默认 200ms）：避免逐键触发 O(全计划) 扫描与页面跳转抖动
- * - matchIndex 循环导航（‹/›），每次导航 gotoPage 到命中所在页
- * - 高亮由页面挂载方调用 apply/clear（虚拟化窗口外的页随窗口重建自然清理）
+ * - useReportSearch：搜索（防抖索引 → 跳页导航 → 命中页高亮）
+ * - useDebugPanel：调试面板（?mrp-debug=1；planKB 按 plan 引用缓存）
+ * - useThumbs：缩略图侧栏（IntersectionObserver 懒渲染小画布）
+ * - useLoadTiming：加载耗时计时（performance 不可用时降级为 0）
  */
 
 export interface ReportSearchState {
@@ -45,6 +46,9 @@ function countOccurrences(text: string, q: string): number {
 export function useReportSearch(options: ReportSearchOptions): ReportSearchState {
   const { plan, gotoPage, highlight, clearHighlights } = options;
   const debounceMs = options.debounceMs ?? 200;
+  // 输入防抖：避免逐键触发 O(全计划) 扫描与页面跳转抖动；
+  // matchIndex 循环导航（‹/›）；高亮由页面挂载方调用 apply/clear
+  // （虚拟化窗口外的页随窗口重建自然清理）
 
   const visible = ref(false);
   const query = ref("");          // 生效查询（防抖后）

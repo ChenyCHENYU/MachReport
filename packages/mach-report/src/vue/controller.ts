@@ -3,7 +3,7 @@ import { MACH_REPORT_CONTROLLER_KEY } from "./injection-keys";
 
 /**
  * ReportPreview 的编程式控制器（与组件 ref 方法同面）：
- * reload / print / exportAs / openPdfWindow / gotoPage。
+ * reload / print / exportAs / openPdfWindow / gotoPage / setParams。
  */
 export interface MachReportController {
   reload(): Promise<void>;
@@ -11,6 +11,8 @@ export interface MachReportController {
   exportAs(format: "html" | "pdf" | string): void;
   openPdfWindow(): void;
   gotoPage(page: number): void;
+  /** 编程式设置参数并查询（合并进面板值；opts.reload=false 仅设值不重载） */
+  setParams(values: Record<string, string>, opts?: { reload?: boolean }): void;
 }
 
 /**

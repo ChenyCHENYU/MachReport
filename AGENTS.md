@@ -41,4 +41,5 @@ pnpm release                  # 一键发版：changeset version → install →
 ## 已知未了项
 
 - 真实 gridPlan 契约 fixture 待采集（`pnpm capture:gridplan`，需 SIT 登录）
-- P3 功能（交叉表/公式列/参数面板）按真实需求排期
+- 设计器（拖拽画布）与管理控制台 UI 为独立立项的多轮工程（见 README 里程碑）
+- npm token 轮换为人工事项（会话中出现过的凭证视为已泄露处理）

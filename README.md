@@ -6,6 +6,8 @@
 
 一个包 · 一个插件 · 一行组件 —— 契约级兼容 jh4j-cloud-report，渲染性能与工程健壮性全面升级
 
+**v1.0.0 定版**（2026-10-01）：单包零依赖 · 全部单测/E2E 门禁绿 · 十一轮迭代收敛
+
 [快速开始](#快速开始) · [配置中心](#配置中心) · [引擎 API](#引擎-api框架无关) · [架构](#架构) · [性能](#性能) · [从-jh4j-迁移](#从-jh4j-迁移)
 
 </div>
@@ -60,7 +62,7 @@ app.use(machReportPlugin);              // 零配置：同源直连 jh4j 端点
 | **预览交互** | ✅ | 搜索（索引→跳页→高亮）、Ctrl+滚轮缩放、PgUp/PgDn/Home/End 翻页、缩略图侧栏、缩放记忆 |
 | 动态 SQL | ✅ | `#{}` `${}` `{if}` 三语法兼容存量；AST 级单 SELECT 校验 |
 | 管理端 API | ✅ | 模板/数据集/参数/导入导出/模板锁（心跳丢失感知） |
-| Vue 契约组件 | ✅ | props/事件/ref 与 jh4j 1:1；竞态防护；配置中心（presets/文案/主题）；批量打印 `printPlans` |
+| Vue 契约组件 | ✅ | props/事件/ref 与 jh4j 1:1；竞态防护；配置中心（presets/文案/主题）；**参数面板**（声明式查询条件）；批量打印 `printPlans`；编程式 `setParams` |
 | 调试面板 | ✅ | `?mrp-debug=1`：页窗/加载耗时/计划体积悬浮窗 |
 | jh4j 模板导入 | ✅ | 逆向 schema 驱动，存量模板 content 直接转换 |
 | 模块联邦入口 | ✅ | expose 名对齐，宿主 harness 实证零改动切换 |
@@ -246,6 +248,7 @@ import { useReportPreview } from "@agile-team/mach-report/vue";
 // 在任意后代组件中（无需模板 ref）
 const preview = useReportPreview();
 preview.value?.print();
+preview.value?.setParams({ whCode: "W1" });   // 编程式设参并查询（面板同步显示）
 ```
 
 ---
@@ -302,7 +305,7 @@ provideMachReportConfig({ showPrint: false, messages: { title: "工艺卡" } });
 | 内置（零配置） | 插件不传 request/fetcher 时，自动用全局 fetch 同源请求 `/report/codePrintReport/gridPlan` |
 | `createFetchRequest({ baseUrl, headers, credentials, timeoutMs })` | 零依赖 fetch 适配（含超时与错误语义） |
 | `createJh4jGridPlanFetcher({ request, baseUrl })` | 接宿主 axios 风格客户端，消费 jh4j gridPlan |
-| `createLocalFetcher({ [tempId]: { template, datasets } })` | 本地模板（离线 / 单测 / 无后端） |
+| `createLocalFetcher({ [tempId]: { template, datasets } })` | 本地模板（离线 / 单测 / 无后端）；面板参数用 `:param-defs="template.params"` 从模板直取 |
 
 自定义数据面只需实现一个函数签名：
 
@@ -397,7 +400,7 @@ MachReport（pnpm monorepo · TS strict · 单 npm 包）
 │   │       └── vue/                  # ./vue 子路径域（契约组件/插件/配置中心/composables）
 │   └── federation/                   # 模块联邦远程入口（部署产物，不发 npm）
 ├── examples/                         # minimal 演示 + fed-host 联邦宿主实证
-├── e2e/                              # Playwright（真 Chromium 9 specs）
+├── e2e/                              # Playwright E2E（真 Chromium，全绿门禁）
 └── docs/                             # PROGRESS / API / 逆向结论
 ```
 

@@ -3,6 +3,14 @@
 > 通宵自主执行模式 · 每个闭环 = 实现 → 测试 → 验证 → 检查点提交
 > 验证命令：`pnpm typecheck && pnpm lint && pnpm test && pnpm exec playwright test`
 
+## 优化轮 11（2026-10-01 · 定版终审，246 单测 + 12 E2E 全绿，发版 **1.0.0**）
+
+| # | 项 | 内容 |
+|---|---|---|
+| 120 | setParams 编程式设参 | controller/expose 新增 `setParams(values, { reload? })`：宿主按钮"查本仓库"类场景免面板操作，面板同步显示新值 |
+| 121 | 冗余与文档失真清扫 | README"9 specs"过期数字移除；本地模式参数面板用法补 `:param-defs="template.params"` 指引；useReportSearch 文件头注释对齐四 composable 实况；AGENTS 未了项刷新（P3 清空、token 提醒） |
+| 122 | 定版 | 0.x 十版收敛 → **1.0.0**：API 面冻结基线，后续按语义化版本演进 |
+
 ## 优化轮 10（2026-10-01 · 参数面板：P3 最后一块补齐，245 单测 + 12 E2E 全绿，发版 0.10.0）
 
 **动因**：用户要求把"还没有的"做实——参数面板是其中最适合本轮做扎实的（设计器/管理控制台为多轮工程，见下）。

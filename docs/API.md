@@ -39,7 +39,7 @@ const fetcher2 = createJh4jGridPlanFetcher({
 | preset | string | 启用配置中心的指定 preset |
 | fetcher | PlanFetcher \| null | 数据面；**不传时回落插件注入（见下）** |
 
-emits：`loaded(pageCount)` / `error(message)`；ref：`reload / print / exportAs(format) / openPdfWindow / gotoPage(n)`
+emits：`loaded(pageCount)` / `error(message, detail?)`；ref：`reload / print / exportAs(format) / openPdfWindow / gotoPage(n) / setParams(values, { reload? })`（编程式设参查询，面板同步显示）
 
 ### 插件（零配置可用：一次注册，业务页面一行使用）
 
