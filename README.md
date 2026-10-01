@@ -288,13 +288,6 @@ pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright t
 
 </details>
 
-## 文档
-
-- [docs/PROGRESS.md](docs/PROGRESS.md) —— 十一轮迭代日志与决策记录
-- [docs/API.md](docs/API.md) —— 接入速查（props / 配置中心 / 数据面 / DSL）
-- [docs/reverse-findings.md](docs/reverse-findings.md) —— jh4j 逆向结论
-- [AGENTS.md](AGENTS.md) —— 仓库协作指南（命令 / 架构 / 发布流程）
-
 ## 路线图
 
 - v1.0（已完成）：单包架构 · 报表语义四件套 · 参数面板 · 交互完整面 · 双远端 + npm 定版

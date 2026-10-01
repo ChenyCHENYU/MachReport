@@ -5,13 +5,17 @@ import { chromium } from "playwright";
 /**
  * 真实 gridPlan 抓取工具（需人工登录一次）
  *
- * 用法：
- *   node scripts/fetch-gridplan.mjs [tempId] [furnitureTempId]
+ * 用法（环境地址从环境变量读取，勿硬编码内网地址）：
+ *   MR_SIT_BASE=https://<sit-host> node scripts/fetch-gridplan.mjs [tempId] [furnitureTempId]
  *
  * 流程：打开 SIT 平台 → 人工完成登录 → 脚本检测到登录态后自动用页面身份
  *       调 /report/codePrintReport/gridPlan → 存 tests/fixtures/gridplan-real.json
  */
-const BASE = process.env.MR_SIT_BASE ?? "https://ytiop-sit.walsin.com.cn:8443";
+const BASE = process.env.MR_SIT_BASE;
+if (!BASE) {
+  console.error("[gridplan] 缺少 MR_SIT_BASE 环境变量（SIT 平台地址）");
+  process.exit(1);
+}
 const TEMP_ID = process.argv[2] ?? "2086688990979661826";
 const FURNITURE = process.argv[3] ?? "";
 const OUT = path.resolve(process.cwd(), "packages/core/tests/fixtures/gridplan-real.json");

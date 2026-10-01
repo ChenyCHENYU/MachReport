@@ -1,6 +1,6 @@
 # jh4j-cloud-report 逆向发现（持续更新）
 
-> 来源：SIT `https://ytiop-sit.walsin.com.cn:8443/sub/jh4j-cloud-report/assets/` 未压缩产物。
+> 来源：公司 SIT 环境 jh4j-cloud-report 前端未压缩产物（内部资料，勿外发具体环境地址）。
 > 已分析 chunk：remoteEntry、reportPreview、api-download、src-api-response、tags-view（含平台 bootstrap）、src-report-grid-renderer（106KB 渲染器核心）、designer（1.96MB 设计器全量）。
 
 ## 1. 组件模型（gridPlan → pages[].components[]）
