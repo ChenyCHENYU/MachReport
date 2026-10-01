@@ -1,5 +1,15 @@
 # @agile-team/mach-report
 
+## 1.1.2
+
+### Patch Changes
+
+- e43c502: 对外 README 净化与信息安全修复：
+  
+  - 移除“文档”章节（内部迭代日志/逆向结论/协作指南不对外暴露）
+  - 逆向文档中的内网 SIT 地址脱敏（改为文字描述）
+  - 抓取脚本内网地址改为 MR_SIT_BASE 环境变量注入并加缺失守卫
+
 ## 1.1.1
 
 ### Patch Changes
