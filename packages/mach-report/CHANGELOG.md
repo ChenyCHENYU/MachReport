@@ -1,5 +1,15 @@
 # @agile-team/mach-report
 
+## 1.0.1
+
+### Patch Changes
+
+- README 质感重制（对齐 mach-table 家族版式）：
+  
+  - 新增 assets/mach-report-logo.svg 徽标（文档表格图形 + 家族字标 + 管线三出口）
+  - README 重构：居中 logo + npm/CI/零依赖/node/license 五徽章 + 浓缩定位；快速开始三段式；核心能力六域矩阵；九大深度区折叠展开（首屏一目了然）
+  - 新增路线图区块（v1.0 交付清单 / 设计器与控制台独立立项 / 远期项）
+
 ## 1.0.0
 
 ### Minor Changes
