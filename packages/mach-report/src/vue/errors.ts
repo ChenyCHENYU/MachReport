@@ -9,6 +9,7 @@ export type MachReportErrorCode =
   | "render" // 渲染期异常
   | "pdf" // PDF 导出
   | "print" // 打印
+  | "export" // 图片 / Word / Excel 等导出
   | "config"; // 配置缺失
 
 export class MachReportError extends Error {

@@ -1,6 +1,9 @@
 import type { Ref } from "vue";
 import type { PlanPage, RenderPlan } from "@agile-team/mach-report";
-import { renderPage as renderPageToDom } from "@agile-team/mach-report";
+import {
+  renderPage as renderPageToDom,
+  renderPlanToImages
+} from "@agile-team/mach-report";
 import type { PdfExporter } from "../pdf-exporter";
 
 /**
@@ -101,11 +104,26 @@ export async function printPlans(
   }
 }
 
+/**
+ * Word 导出（Word 兼容 HTML，.doc MIME）：
+ * 复用打印文档构建（同一样式与 named pages 分页规则），套 Word 命名空间头。
+ * Word 2003+ 可直接打开编辑——覆盖"导出可编辑单据"场景，零后端。
+ */
+export function buildWordHtml(p: RenderPlan): { html: string; filename: string } {
+  const { head, pageChunks } = buildPrintDocument(p);
+  // Word 头：office 命名空间 + Print 视图（所见即所得，保留 @page 尺寸）
+  const wordHead = `<!doctype html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->${head.replace(/^<!doctype html><html><head>/, "")}`;
+  return {
+    html: `${wordHead}${pageChunks.join("")}</body></html>`,
+    filename: "mach-report.doc"
+  };
+}
+
 export function usePrintExport(
   plan: Ref<RenderPlan | null>,
   hooks: {
     getPdfExporter: () => PdfExporter;
-    onError: (message: string) => void;
+    onError: (message: string, code?: string) => void;
   }
 ) {
   let printFrame: HTMLIFrameElement | null = null;
@@ -113,6 +131,8 @@ export function usePrintExport(
   let printing = false;
   /** PDF 导出 in-flight 共享：并发点击复用同一次导出（9MB 字节流不重复生成） */
   let pdfInFlight: Promise<void> | null = null;
+  /** 图片导出 in-flight 共享（多页 toBlob 编码不重复触发） */
+  let imageInFlight: Promise<void> | null = null;
 
   function releasePrintFrame(): void {
     printFrame?.remove();
@@ -183,11 +203,59 @@ export function usePrintExport(
     return pdfInFlight;
   }
 
+  /** 导出图片（每页一张，page_N.png；复用位图管线，含并发去重） */
+  async function exportImages(): Promise<void> {
+    if (imageInFlight) return imageInFlight;
+    const p = plan.value;
+    if (!p || p.pages.length === 0) return;
+    imageInFlight = (async () => {
+      try {
+        const { blobs } = await renderPlanToImages(p, {
+          dpr: Math.min(2, typeof devicePixelRatio === "number" ? devicePixelRatio : 1)
+        });
+        blobs.forEach((blob, i) => {
+          downloadBlob(blob, blobs.length > 1 ? `mach-report-page-${i + 1}.png` : "mach-report.png");
+        });
+      } catch (error) {
+        hooks.onError(
+          error instanceof Error ? `图片导出失败: ${error.message}` : "图片导出失败",
+          "export"
+        );
+      } finally {
+        imageInFlight = null;
+      }
+    })();
+    return imageInFlight;
+  }
+
+  /** 导出 Word（可编辑 .doc，零后端） */
+  function exportWord(): void {
+    const p = plan.value;
+    if (!p || p.pages.length === 0) return;
+    try {
+      const { html, filename } = buildWordHtml(p);
+      downloadBlob(new Blob([html], { type: "application/msword;charset=utf-8" }), filename);
+    } catch (error) {
+      hooks.onError(
+        error instanceof Error ? `Word 导出失败: ${error.message}` : "Word 导出失败",
+        "export"
+      );
+    }
+  }
+
   function exportAs(format: string): void {
     const p = plan.value;
     if (!p || p.pages.length === 0) return;
     if (format === "pdf") {
       void exportPdf();
+      return;
+    }
+    if (format === "png" || format === "image") {
+      void exportImages();
+      return;
+    }
+    if (format === "word" || format === "doc") {
+      exportWord();
       return;
     }
     const { head, pageChunks } = buildPrintDocument(p);
@@ -215,6 +283,8 @@ export function usePrintExport(
   return {
     print,
     exportAs,
+    exportImages,
+    exportWord,
     openPdfWindow,
     releasePrintFrame
   };

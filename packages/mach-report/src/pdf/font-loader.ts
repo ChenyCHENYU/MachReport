@@ -1,6 +1,9 @@
 const DB_NAME = "mach-report-fonts";
 const STORE = "fonts";
 
+/** Node 无头导出通道：无 IndexedDB 的宿主（Node/SSR）自动降级为仅内存缓存 */
+const hasIdb = (): boolean => typeof indexedDB !== "undefined";
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
@@ -14,6 +17,7 @@ function openDb(): Promise<IDBDatabase> {
 }
 
 async function readCache(key: string): Promise<Uint8Array | null> {
+  if (!hasIdb()) return null;
   try {
     const db = await openDb();
     return await new Promise((resolve, reject) => {
@@ -28,6 +32,7 @@ async function readCache(key: string): Promise<Uint8Array | null> {
 }
 
 async function writeCache(key: string, bytes: Uint8Array): Promise<void> {
+  if (!hasIdb()) return;
   try {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
@@ -46,8 +51,9 @@ const memory = new Map<string, Uint8Array>();
 const inFlight = new Map<string, Promise<Uint8Array | null>>();
 
 /**
- * 字体加载（IndexedDB 持久缓存 + 内存缓存）：
+ * 字体加载（浏览器：IndexedDB 持久缓存 + 内存缓存；Node/SSR：内存缓存 + fetch）：
  * 中文字体体积大（simhei ~9MB），首次 fetch 后缓存，后续导出零网络等待。
+ * 双环境兼容——同一引擎可在 Node 做无头导出（定时任务/归档）。
  */
 export async function loadFontWithCache(url: string): Promise<Uint8Array | null> {
   const memo = memory.get(url);

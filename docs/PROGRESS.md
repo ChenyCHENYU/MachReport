@@ -3,6 +3,21 @@
 > 通宵自主执行模式 · 每个闭环 = 实现 → 测试 → 验证 → 检查点提交
 > 验证命令：`pnpm typecheck && pnpm lint && pnpm test && pnpm exec playwright test`
 
+## 优化轮 13（2026-10-01 · 出口矩阵补齐 + Node 无头通道，252 单测 + 13 E2E 双轮全绿，发版 1.1.0）
+
+**动因**：对齐并反超 jh4j 出口能力（Word/图片此前缺失）；解锁服务端场景（同引擎两端执行，非另写渲染）。
+
+| # | 项 | 产出 |
+|---|---|---|
+| 127 | **图片导出** | 引擎 `renderPlanToImages`（png/jpeg、区间/dpr/质量、SSR 守卫）；组件"导出图片"按钮（多页 page-N.png 连续下载，in-flight 去重） |
+| 128 | **Word 导出** | `buildWordHtml`（Word 兼容 HTML + office 命名空间 + Print 视图，named pages 尺寸随行）；"导出 Word"按钮产出可编辑 .doc，零后端 |
+| 129 | **Node 无头通道** | font-loader 双环境（无 IndexedDB 自动降级内存缓存 + fetch）；Node 实测 PDF 产出合法——定时任务/归档用同一引擎 |
+| 130 | 错误码扩展 | 新增 `export` 错误码（图片/Word/Excel 导出失败分类） |
+| 131 | 测试 | 单测 +6（图片守卫/字体双环境/无头 PDF/Word 头与分页规则/出口矩阵接线）；E2E +1（真实下载事件 png/doc，谓词消解多页竞态）；连续两轮零重试全绿 |
+| 132 | 发版 | 1.1.0 |
+
+> 管理端控制台 UI 与设计器按建议独立立项（下轮专项）。
+
 ## 优化轮 12（2026-10-01 · README 质感重制，发版 1.0.1）
 
 | # | 项 | 内容 |

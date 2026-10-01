@@ -219,6 +219,21 @@ createTemplate().params([
 - 显隐与文案走配置中心：`defaults.showParams`（缺省 true）、`messages.paramsTitle/query/reset/paramRequired`
 - 自己做表单：`show-params="false"` 关面板，`params` 照常传
 
+### 图片 / Word 导出与 Node 无头通道
+
+```ts
+// 引擎层：每页一张图片 Blob（png/jpeg，区间/dpr/质量可配）
+import { renderPlanToImages } from "@agile-team/mach-report";
+const { blobs } = await renderPlanToImages(plan, { format: "png", dpr: 2 });
+
+// 组件层：工具栏"导出图片 / 导出 Word"，或编程式
+preview.value?.exportAs("png");   // 等价 image
+preview.value?.exportAs("word");  // 等价 doc，产出可编辑 .doc（Word 兼容 HTML）
+```
+
+**Node 无头导出**：`renderPlanToPdf` / `renderPlanToXlsx` / `loadFontWithCache` 均可在 Node 18+ 运行
+（无 IndexedDB 环境自动降级内存缓存）——定时任务、邮件推送、归档留档用同一引擎，服务端零渲染代码。
+
 ### Excel 导出 / 批量打印
 
 ```ts

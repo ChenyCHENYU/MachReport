@@ -24,7 +24,7 @@ const props = defineProps<{
 defineEmits<{
   (e: "goto", page: number): void;
   (e: "zoom", mode: "fit" | number): void;
-  (e: "export", format: "html" | "pdf"): void;
+  (e: "export", format: "html" | "pdf" | "png" | "word"): void;
   (e: "print"): void;
   (e: "pdf-window"): void;
   (e: "search-input", query: string): void;
@@ -156,6 +156,22 @@ function pageInfo(text: string, cur: number, total: number): string {
       @click="$emit('export', 'pdf')"
     >
 {{ messages.exportPdf }}
+</button>
+    <button
+      v-if="showExport"
+      class="mrp-nav"
+      type="button"
+      @click="$emit('export', 'png')"
+    >
+{{ messages.exportImage }}
+</button>
+    <button
+      v-if="showExport"
+      class="mrp-nav"
+      type="button"
+      @click="$emit('export', 'word')"
+    >
+{{ messages.exportWord }}
 </button>
     <button v-if="showPrint" class="mrp-nav" type="button" @click="$emit('print')">{{ messages.print }}</button>
     <button v-if="showPdfWindow" class="mrp-nav" type="button" @click="$emit('pdf-window')">{{ messages.pdfWindow }}</button>

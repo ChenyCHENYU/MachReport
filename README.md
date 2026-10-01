@@ -46,7 +46,7 @@ app.use(machReportPlugin);              // 零配置：同源直连 jh4j 端点
 | **报表语义** | 分组小计 / 总合计（防孤行）、页码占位符 `{page}/{totalPages}`、列格式化（千分位 / 日期 / 百分比）、条件格式规则 |
 | **模板体系** | DSL / JSON / jh4j 存量导入三来源；多模板拼接；公共页眉页脚；参数面板（声明式查询条件） |
 | **渲染性能** | 5k 行分页 ~57ms；页级虚拟化；transform 缩放零重排；Canvas 窗口化分页器（内存 O(窗口)） |
-| **导出出口** | PDF 前端矢量直出（字体子集化 + 缓存）、Excel 真表格（合并 / 列宽 / 样式直译）、打印（named pages 混合纸张 / 流式分块） |
+| **导出出口** | PDF 前端矢量直出（字体子集化 + 缓存）、Excel 真表格、**Word 可编辑 .doc**、**图片 PNG/JPEG**（每页一张）、打印（named pages / 流式分块）——全部零后端 |
 | **预览交互** | 搜索（跳页 + 高亮）、Ctrl+滚轮 / 键盘缩放翻页、缩略图侧栏、缩放记忆、调试面板 `?mrp-debug=1` |
 | **工程健壮性** | 加载竞态代际令牌、结构化错误码、请求超时、批量打印合并文档、渲染计划规模告警 |
 
@@ -215,6 +215,27 @@ jh4j gridPlan ──（契约兼容消费）                                 ├
 | Canvas 大报表内存 | — | **O(窗口)**（A4@dpr2 ≈14MB/页，全量渲染不可行） |
 | 打印 / PDF 导出 | 后端往返 1-3s | < 500ms（前端矢量直出 + 字体子集化缓存） |
 | 引擎主入口体积 | 随 jh4j 整包 | ~27KB min（零依赖可摇树） |
+
+</details>
+
+<details>
+<summary><b>🖥️ Node 无头导出通道（同一引擎两端执行）</b></summary>
+
+引擎框架无关——`renderPlanToPdf` / `renderPlanToXlsx` 及 `loadFontWithCache` 均可在 **Node 18+** 直接运行
+（无 IndexedDB 环境自动降级内存缓存），解锁服务端场景而**不需要另写一套渲染**：
+
+```ts
+// server.ts —— 定时任务 / 邮件推送 / 归档，无浏览器环境
+import { renderPlanToPdf } from "@agile-team/mach-report/pdf";
+import { loadFontWithCache } from "@agile-team/mach-report/pdf";
+import { renderPlanToXlsx } from "@agile-team/mach-report/xlsx";
+
+const font = await loadFontWithCache("/path/to/simhei.ttf");   // 读文件系统可自行替换
+const { bytes } = await renderPlanToPdf(plan, font ? { customFontBytes: font } : {});
+await fs.writeFile("archive.pdf", bytes);
+```
+
+与 jh4j"服务端另写一套渲染"本质不同：**一份渲染代码两端执行**，服务端只做无头宿主（定时生成、批量归档、合规留档回传）。
 
 </details>
 

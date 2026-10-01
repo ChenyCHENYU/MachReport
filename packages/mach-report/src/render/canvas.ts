@@ -321,6 +321,43 @@ export interface CanvasRenderResult {
   canvases: HTMLCanvasElement[];
 }
 
+export interface ImageRenderOptions extends CanvasRenderOptions {
+  /** 图片格式（默认 png；jpeg 体积更小但无透明） */
+  format?: "png" | "jpeg";
+  /** jpeg 质量 0-1（默认 0.92，仅 jpeg 生效） */
+  quality?: number;
+}
+
+export interface ImageRenderResult {
+  blobs: Blob[];
+}
+
+/**
+ * RenderPlan → 每页一张图片 Blob（浏览器环境）：
+ * 复用位图渲染管线（区间/dpr/字体/测量器均可配），再 toBlob 编码。
+ * 大报表建议配合 start/end 分批导出，避免一次性占用过多内存。
+ */
+export async function renderPlanToImages(
+  plan: RenderPlan,
+  options: ImageRenderOptions = {}
+): Promise<ImageRenderResult> {
+  if (typeof document === "undefined") {
+    throw new Error("renderPlanToImages 需要浏览器环境（SSR/Node 请在客户端钩子中调用）");
+  }
+  const { format = "png", quality = 0.92, ...canvasOptions } = options;
+  const { canvases } = renderPlanToCanvas(plan, canvasOptions);
+  const mime = format === "jpeg" ? "image/jpeg" : "image/png";
+  const blobs: Blob[] = [];
+  for (const canvas of canvases) {
+    blobs.push(
+      await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob((b) => resolve(b), mime, quality)
+      ) ?? new Blob([], { type: mime })
+    );
+  }
+  return { blobs };
+}
+
 /**
  * RenderPlan → Canvas 位图页（顶点原点坐标系，与 DOM/PDF 一致）。
  *

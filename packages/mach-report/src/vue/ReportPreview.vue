@@ -293,7 +293,7 @@ function gotoPage(n: number): void {
 
 const { print, exportAs, openPdfWindow, releasePrintFrame } = usePrintExport(plan, {
   getPdfExporter: () => fallbackPdfExporter,
-  onError: (message) => emit("error", message, { code: "print" })
+  onError: (message, code) => emit("error", message, { code: code ?? "print" })
 });
 
 /** 控制器注入：后代组件 useReportPreview() 免模板 ref 编程式访问（与 expose 同面） */

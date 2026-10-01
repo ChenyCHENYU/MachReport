@@ -87,4 +87,25 @@ test.describe("MachReport example 真浏览器渲染", () => {
     await page.getByRole("button", { name: "重 置" }).click();
     await expect(page.locator(".mrp-params select")).toHaveValue("ALL");
   });
+
+  test("导出图片与 Word：真实下载事件（出口矩阵）", async ({ page }) => {
+    await page.goto("http://localhost:8610");
+    await expect(page.getByText("产品出库单")).toBeVisible({ timeout: 10000 });
+    // PNG：每页一张（多页连续到达，用谓词精确等待）
+    const pngPromise = page.waitForEvent("download", {
+      predicate: (d) => d.suggestedFilename().endsWith(".png"),
+      timeout: 15000
+    });
+    await page.getByRole("button", { name: "导出图片" }).click();
+    const png = await pngPromise;
+    expect(png.suggestedFilename()).toMatch(/^mach-report(-page-\d+)?\.png$/);
+    // Word：单个 .doc（谓词过滤，避开仍在到达的 PNG）
+    const docPromise = page.waitForEvent("download", {
+      predicate: (d) => d.suggestedFilename().endsWith(".doc"),
+      timeout: 15000
+    });
+    await page.getByRole("button", { name: "导出 Word" }).click();
+    const doc = await docPromise;
+    expect(doc.suggestedFilename()).toBe("mach-report.doc");
+  });
 });
