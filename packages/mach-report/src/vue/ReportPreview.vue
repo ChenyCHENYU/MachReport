@@ -39,6 +39,8 @@ import {
   useThumbs
 } from "./composables/useReportSearch";
 import ReportToolbar from "./ReportToolbar.vue";
+import ReportParamPanel from "./ReportParamPanel.vue";
+import type { ReportParamDef } from "@agile-team/mach-report";
 import {
   MACH_REPORT_CONTROLLER_KEY,
   MACH_REPORT_FETCHER_KEY,
@@ -78,6 +80,13 @@ const props = defineProps({
   preset: { type: String, default: undefined },
   /** 调试面板（也可用 URL ?mrp-debug=1 开启） */
   debug: { type: Boolean, default: false },
+  /** 参数定义（优先级：prop > 模板 params；有定义且未关闭时显示查询面板） */
+  paramDefs: {
+    type: Array as PropType<ReportParamDef[] | undefined>,
+    default: undefined
+  },
+  /** 参数面板显隐（不传走配置中心，缺省 true；有参数定义才渲染） */
+  showParams: { type: Boolean, default: undefined },
   fetcher: {
     type: Function as unknown as PropType<PlanFetcher | null>,
     default: null
@@ -124,6 +133,56 @@ const effectiveShowExport = computed(() => props.showExport ?? resolved.value.sh
 const effectiveShowPrint = computed(() => props.showPrint ?? resolved.value.showPrint);
 const effectiveShowPdfWindow = computed(() => props.showPdfWindow ?? resolved.value.showPdfWindow);
 const effectiveGapPx = computed(() => props.gapPx ?? resolved.value.gapPx);
+const effectiveShowParams = computed(() => props.showParams ?? resolved.value.showParams);
+
+// ── 参数面板：定义优先级 prop > 模板 params；值合并优先级 面板值 > props.params ──
+/** 本地模式：createLocalFetcher 无法把模板递给组件，宿主可用 template.params 直读；此处兜底从模板无门获取，走 prop */
+const effectiveParamDefs = computed<ReportParamDef[]>(() => props.paramDefs ?? []);
+const paramValues = ref<Record<string, string>>({});
+const paramAttempted = ref(false);
+
+function initParamValues(defs: ReportParamDef[]): void {
+  const next: Record<string, string> = {};
+  for (const def of defs) {
+    next[def.field] = props.params[def.field] ?? def.defaultValue ?? "";
+  }
+  paramValues.value = next;
+  paramAttempted.value = false;
+}
+initParamValues(effectiveParamDefs.value);
+watch(effectiveParamDefs, (defs) => initParamValues(defs));
+
+/** 生效参数：面板值覆盖宿主传入值（面板是"用户当前意图"） */
+const effectiveParams = computed<Record<string, string>>(() => ({
+  ...props.params,
+  ...Object.fromEntries(
+    Object.entries(paramValues.value).filter(([, v]) => v !== "")
+  )
+}));
+
+function missingRequired(): ReportParamDef[] {
+  return effectiveParamDefs.value.filter(
+    (d) => d.required === true && !(paramValues.value[d.field] ?? "").trim()
+  );
+}
+
+function onParamQuery(): void {
+  paramAttempted.value = true;
+  const missing = missingRequired();
+  if (missing.length > 0) {
+    const label = missing[0]!.label ?? missing[0]!.field;
+    const message = resolvedMessages.value.paramRequired.replace("{label}", label);
+    errorMessage.value = message;
+    emit("error", message, { code: "param" });
+    return;
+  }
+  void reload();
+}
+
+function onParamReset(): void {
+  initParamValues(effectiveParamDefs.value);
+}
+
 const shellStyle = computed(() => ({
   height: props.height,
   ...themeToCssVars(resolved.value.theme)
@@ -179,7 +238,7 @@ async function reload(): Promise<void> {
     const next = await fetcher({
       tempIds: tempIds.value,
       furnitureTempId: props.furnitureTempId || undefined,
-      params: { ...props.params }
+      params: { ...effectiveParams.value }
     });
     if (seq !== reloadSeq) return;
     const check = validateRenderPlan(next);
@@ -414,6 +473,15 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage });
 
 <template>
   <div class="mach-report-preview" :style="shellStyle">
+    <ReportParamPanel
+      v-if="effectiveShowParams && effectiveParamDefs.length > 0"
+      :defs="effectiveParamDefs"
+      v-model="paramValues"
+      :messages="resolvedMessages"
+      :attempted="paramAttempted"
+      @query="onParamQuery"
+      @reset="onParamReset"
+    />
     <ReportToolbar
       :page-count="pageCount"
       :current-page="currentPage"

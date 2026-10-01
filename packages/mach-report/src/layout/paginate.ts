@@ -78,8 +78,24 @@ export interface TemplatePage {
   components: TemplateComponent[];
 }
 
+/** 报表参数定义（声明式，模板自描述参数面：渲染组件据此生成查询面板） */
+export interface ReportParamDef {
+  /** 参数名（传入 params，与数据集 SQL #{field} 绑定对应） */
+  field: string;
+  /** 显示名（缺省用 field） */
+  label?: string;
+  type?: "text" | "number" | "date" | "select";
+  /** select 选项 */
+  options?: Array<{ label: string; value: string }>;
+  defaultValue?: string;
+  required?: boolean;
+  placeholder?: string;
+}
+
 export interface ReportTemplate {
   schemaVersion?: string;
+  /** 参数定义（可选；宿主也可经 ReportPreview 的 paramDefs prop 提供，prop 优先） */
+  params?: ReportParamDef[];
   pages: TemplatePage[];
 }
 

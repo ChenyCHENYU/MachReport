@@ -34,6 +34,12 @@ export interface MachReportMessages {
   nextMatch: string;
   /** 缩略图侧栏开关 */
   thumbnails: string;
+  /** 参数面板 */
+  paramsTitle: string;
+  query: string;
+  reset: string;
+  /** 必填缺失提示（{label} 占位） */
+  paramRequired: string;
 }
 
 export const DEFAULT_MESSAGES: MachReportMessages = {
@@ -54,7 +60,11 @@ export const DEFAULT_MESSAGES: MachReportMessages = {
   matchInfo: "{cur}/{total}",
   prevMatch: "‹",
   nextMatch: "›",
-  thumbnails: "缩略图"
+  thumbnails: "缩略图",
+  paramsTitle: "查询条件",
+  query: "查 询",
+  reset: "重 置",
+  paramRequired: "请填写{label}"
 };
 
 /** 主题变量（组件外壳注入的 --mrp-* CSS 自定义属性） */
@@ -92,6 +102,8 @@ export interface MachReportDefaults {
   showExport?: boolean;
   showPrint?: boolean;
   showPdfWindow?: boolean;
+  /** 参数面板显隐（有参数定义且未显式关闭时显示；缺省 true） */
+  showParams?: boolean;
   /** 页间距 px */
   gapPx?: number;
   /** PDF 导出中文字体 URL */
@@ -122,7 +134,10 @@ export function defineMachReportPreset(preset: MachReportPreset): MachReportPres
 }
 
 export type ResolvedConfig = Required<
-  Pick<MachReportDefaults, "showExport" | "showPrint" | "showPdfWindow" | "gapPx">
+  Pick<
+    MachReportDefaults,
+    "showExport" | "showPrint" | "showPdfWindow" | "showParams" | "gapPx"
+  >
 > & {
   pdfFontUrl: string;
   theme: MachReportTheme;
@@ -134,6 +149,7 @@ const FALLBACK_CONFIG: ResolvedConfig = {
   showExport: true,
   showPrint: true,
   showPdfWindow: true,
+  showParams: true,
   gapPx: 18,
   pdfFontUrl: "/simhei.ttf",
   theme: DEFAULT_THEME,
@@ -156,6 +172,7 @@ export function resolveConfig(
     showExport: merged.showExport ?? FALLBACK_CONFIG.showExport,
     showPrint: merged.showPrint ?? FALLBACK_CONFIG.showPrint,
     showPdfWindow: merged.showPdfWindow ?? FALLBACK_CONFIG.showPdfWindow,
+    showParams: merged.showParams ?? FALLBACK_CONFIG.showParams,
     gapPx: merged.gapPx ?? FALLBACK_CONFIG.gapPx,
     pdfFontUrl: merged.pdfFontUrl ?? FALLBACK_CONFIG.pdfFontUrl,
     theme: { ...DEFAULT_THEME, ...merged.theme },

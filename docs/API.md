@@ -199,6 +199,26 @@ const template = createTemplate()                    // 单页快路径：链式
 .text("第 {page} 页 / 共 {totalPages} 页", { leftMm: 65, topMm: 285, widthMm: 80 }, { align: "center" })
 ```
 
+### 参数面板（声明式查询条件，使用侧零表单代码）
+
+```ts
+// 模板内声明（builder）——或组件 prop paramDefs（优先级更高）
+createTemplate().params([
+  { field: "whCode", label: "仓库", type: "select", required: true, options: [{ label: "1号库", value: "W1" }] },
+  { field: "date", label: "日期", type: "date", defaultValue: "2026-09-30" }
+]).page("a4").text("出库单", { topMm: 4 }).list(...).build();
+```
+
+```vue
+<ReportPreview temp-id="CK_001" :param-defs="defs" />   <!-- 或直接 prop -->
+```
+
+- 控件四类：text / number / date / select；支持 defaultValue / required / placeholder / options
+- 查询时**面板值 > props.params** 合并后重新加载；回车即查询；重置恢复默认
+- 必填缺失：拦截查询并红框提示 + `error(message, { code: "param" })`
+- 显隐与文案走配置中心：`defaults.showParams`（缺省 true）、`messages.paramsTitle/query/reset/paramRequired`
+- 自己做表单：`show-params="false"` 关面板，`params` 照常传
+
 ### Excel 导出 / 批量打印
 
 ```ts

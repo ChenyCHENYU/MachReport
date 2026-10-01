@@ -281,7 +281,15 @@ const app = createApp({
           h(ReportPreview, {
             tempId: tempIds.value,
             fetcher: fetcherWithCache,
-            height: "100vh"
+            height: "100vh",
+            // 参数面板演示：声明式定义 → 组件自动生成查询条件（使用侧零表单代码）
+            paramDefs: [
+              { field: "wh", label: "仓库", type: "select", required: true, options: [
+                { label: "全部仓库", value: "ALL" },
+                { label: "1号库", value: "W1" }
+              ], defaultValue: "ALL" },
+              { field: "date", label: "日期", type: "date", defaultValue: "2026-09-30" }
+            ]
           })
         ])
       ]);

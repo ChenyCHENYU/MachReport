@@ -72,6 +72,13 @@ app.use(machReportPlugin);              // 零配置：同源直连 jh4j 端点
 
 ```ts
 const template = createTemplate()
+  // 参数面板：声明式定义 → 组件自动生成查询条件（使用侧零表单代码）
+  .params([
+    { field: "whCode", label: "仓库", type: "select", required: true, options: [
+      { label: "全部仓库", value: "ALL" }, { label: "1号库", value: "W1" }
+    ], defaultValue: "ALL" },
+    { field: "date", label: "日期", type: "date", defaultValue: "2026-09-30" }
+  ])
   .page("a4", { margins: { marginTopMm: 12, marginBottomMm: 15 } })
   .text("出库单明细", { leftMm: 65, topMm: 4, widthMm: 80 }, { fontSize: 16, bold: true, align: "center" })
   // 页脚：每个输出页自动克隆注入
@@ -93,6 +100,23 @@ const template = createTemplate()
 - **分组小计**：组头跨全列、组尾数值列求和（沿用列格式化）、`keepWithNext` 防组头孤行、末页总合计
 - **页码占位符**：含 `{page}/{totalPages}` 的文本组件转为"页锚"，每个输出页克隆注入，收尾回填总页数
 - **条件格式**：声明式规则命中才克隆样式（未命中行保持驻留引用，热路径零分配）
+
+### 参数面板（P3 项已落地：声明式查询条件，宿主零表单代码）
+
+参数定义放模板（`.params([...])`）或直接给组件 prop（`paramDefs`，优先级更高）——组件自动渲染查询面板（文本/数字/日期/下拉、必填校验、默认值、查询/重置、回车查询），查询时面板值与 `props.params` 合并后重新加载：
+
+```vue
+<ReportPreview
+  temp-id="CK_001"
+  :param-defs="[
+    { field: 'whCode', label: '仓库', type: 'select', required: true, options },
+    { field: 'date', label: '日期', type: 'date', defaultValue: '2026-09-30' }
+  ]"
+/>
+<!-- 自己做表单？show-params=false 关面板，params 照常传 -->
+```
+
+面板显隐走配置中心（`defaults.showParams`，缺省 true）；文案（paramsTitle/query/reset/paramRequired）与主题同渠道可配。连续填写多参数不丢值（本地字典为唯一真相的根源设计）。
 
 ---
 

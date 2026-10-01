@@ -1,5 +1,6 @@
 export { default as ReportPreview } from "./ReportPreview.vue";
 export { default as ReportToolbar } from "./ReportToolbar.vue";
+export { default as ReportParamPanel } from "./ReportParamPanel.vue";
 export * from "./adapters";
 export * from "./local-adapter";
 export * from "./injection-keys";

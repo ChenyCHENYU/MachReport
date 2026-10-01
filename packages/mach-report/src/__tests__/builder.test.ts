@@ -52,6 +52,20 @@ describe("template builder DSL", () => {
     expect(() => createTemplate().build()).toThrowError(/至少需要一页/);
   });
 
+  it(".params() 声明进入模板（渲染面板据此生成查询条件）", () => {
+    const t = createTemplate()
+      .params([
+        { field: "whCode", label: "仓库", type: "select", required: true, options: [{ label: "1号库", value: "W1" }] },
+        { field: "date", label: "日期", type: "date", defaultValue: "2026-09-30" }
+      ])
+      .page("a4")
+      .text("x", { topMm: 1 })
+      .build();
+    expect(t.params).toHaveLength(2);
+    expect(t.params![0]!.required).toBe(true);
+    expect(t.params![1]!.defaultValue).toBe("2026-09-30");
+  });
+
   it("形状与条码快捷方法", () => {
     const template = createTemplate()
       .page()

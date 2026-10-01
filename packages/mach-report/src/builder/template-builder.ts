@@ -45,6 +45,26 @@ export function resolvePaper(
 export class TemplateBuilder {
   readonly pages: TemplatePage[] = [];
   private pending: PageBuilder | null = null;
+  private templateParams: ReportTemplate["params"] = undefined;
+
+  /**
+   * 声明报表参数（链式，可放在 .page() 前后任意位置）：
+   * 渲染组件据此自动生成查询面板（也可由 paramDefs prop 提供，prop 优先）。
+   *
+   * ```ts
+   * createTemplate()
+   *   .params([
+   *     { field: "whCode", label: "仓库", type: "select", options: [...], required: true },
+   *     { field: "date", label: "日期", type: "date", defaultValue: "2026-09-30" }
+   *   ])
+   *   .page("a4").text(...).list(...)
+   *   .build();
+   * ```
+   */
+  params(defs: NonNullable<ReportTemplate["params"]>): this {
+    this.templateParams = defs;
+    return this;
+  }
 
   /**
    * 新建页。纸张支持三种写法：
@@ -99,7 +119,7 @@ export class TemplateBuilder {
     if (this.pages.length === 0) {
       throw new Error("模板至少需要一页：先调用 .page() 添加内容");
     }
-    return { pages: this.pages };
+    return this.templateParams ? { params: this.templateParams, pages: this.pages } : { pages: this.pages };
   }
 }
 

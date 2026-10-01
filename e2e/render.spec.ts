@@ -71,4 +71,20 @@ test.describe("MachReport example 真浏览器渲染", () => {
     await expect(page.locator(".mrp-search-count")).toHaveText(/\d+\/\d+/, { timeout: 5000 });
     await expect(page.locator("mark.mrp-hit").first()).toBeVisible({ timeout: 5000 });
   });
+
+  test("参数面板：声明式查询条件 + 查询刷新", async ({ page }) => {
+    await page.goto("http://localhost:8610");
+    await expect(page.getByText("产品出库单")).toBeVisible({ timeout: 10000 });
+    // 面板按 paramDefs 自动渲染（select + date）
+    const panel = page.locator(".mrp-params");
+    await expect(panel).toBeVisible();
+    await expect(page.locator(".mrp-param")).toHaveCount(2);
+    // 切换仓库 → 查询 → 内容仍在（reload 成功，页面不报错）
+    await page.locator(".mrp-params select").selectOption("W1");
+    await page.getByRole("button", { name: "查 询" }).click();
+    await expect(page.getByText("产品出库单")).toBeVisible({ timeout: 10000 });
+    // 重置恢复默认
+    await page.getByRole("button", { name: "重 置" }).click();
+    await expect(page.locator(".mrp-params select")).toHaveValue("ALL");
+  });
 });

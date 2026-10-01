@@ -3,6 +3,19 @@
 > 通宵自主执行模式 · 每个闭环 = 实现 → 测试 → 验证 → 检查点提交
 > 验证命令：`pnpm typecheck && pnpm lint && pnpm test && pnpm exec playwright test`
 
+## 优化轮 10（2026-10-01 · 参数面板：P3 最后一块补齐，245 单测 + 12 E2E 全绿，发版 0.10.0）
+
+**动因**：用户要求把"还没有的"做实——参数面板是其中最适合本轮做扎实的（设计器/管理控制台为多轮工程，见下）。
+
+| # | 项 | 产出 |
+|---|---|---|
+| 114 | **ReportParamDef 声明** | 模板自描述参数（field/label/type=text·number·date·select/options/defaultValue/required/placeholder）；builder `.params([...])` 链式 |
+| 115 | **ReportParamPanel 组件** | 自动渲染查询面板：四类控件、必填红框（查询触发后才提示）、查询/重置、回车查询；主题与文案全走 --mrp-*/messages |
+| 116 | ReportPreview 集成 | `paramDefs` prop > 模板 params；面板值 > props.params 合并；必填拦截报 param 错误码；show-params 走配置中心 |
+| 117 | **根源修复** | 面板以本地字典为唯一真相整体上抛——连续填写多参数不丢值（props 快照合成会被并发事件覆盖，"先选仓库再填关键字丢仓库"） |
+| 118 | 测试与演示 | 6 单测（渲染/合并/必填/重置/关闭/覆盖）+ builder params 用例 + E2E 查询流；示例页带面板演示 |
+| 119 | 范围决策 | 设计器（拖拽画布/撤销/属性树）与管理控制台 UI 属多轮工程，不塞本轮仓促交付——分期方案见 README 里程碑 |
+
 ## 优化轮 9b（2026-09-30 · 终扫修复，238 单测 + 11 E2E 双轮全绿，发版 0.9.1）
 
 | # | 项 | 修复 |
