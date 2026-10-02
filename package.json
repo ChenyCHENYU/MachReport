@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "面向 B 端打印报表的高性能 TypeScript 报表引擎（兼容 jh4j-cloud-report 契约）",
+  "description": "独立的 TypeScript 报表引擎与 Vue 3 预览组件",
   "packageManager": "pnpm@11.8.0",
   "engines": {
     "node": ">=18"
@@ -17,7 +17,6 @@
     "lint:fix": "eslint . --fix",
     "changeset": "changeset",
     "version": "changeset version",
-    "capture:gridplan": "node scripts/fetch-gridplan.mjs",
     "clean": "pnpm -r --if-present run clean",
     "release": "pnpm changeset version && pnpm install && pnpm build && pnpm test && pnpm changeset publish",
     "test:coverage": "vitest run --coverage"

@@ -33,20 +33,20 @@ export default tseslint.config(
     }
   },
   {
-    // 单包架构边界守护：引擎核心（主入口能力）不得反向依赖 pdf/sql/manager/vue
+    // 单包架构边界守护：引擎核心（主入口能力）不得反向依赖 pdf/sql/vue
     // 子路径域——保证主入口产物永远不携带重依赖与框架代码（框架零耦合）。
     files: [
       "packages/mach-report/src/index.ts",
-      "packages/mach-report/src/{defaults,units,pdf,sql,manager}.ts",
-      "packages/mach-report/src/{layout,render,schema,builder,compat}/**/*.ts"
+      "packages/mach-report/src/{defaults,units,pdf,sql}.ts",
+      "packages/mach-report/src/{layout,render,schema,builder}/**/*.ts"
     ],
     rules: {
       "no-restricted-imports": [
         "error",
         {
           patterns: [
-            { group: ["../pdf/*", "../pdf", "../sql/*", "../sql", "../manager/*", "../manager", "../vue/*", "../vue"], message: "Engine core must not depend on subpath domains (pdf/sql/manager/vue)." },
-            { group: ["@agile-team/mach-report/pdf", "@agile-team/mach-report/sql", "@agile-team/mach-report/manager", "@agile-team/mach-report/vue"], message: "Engine core must not depend on subpath domains (pdf/sql/manager/vue)." }
+            { group: ["../pdf/*", "../pdf", "../sql/*", "../sql", "../vue/*", "../vue"], message: "Engine core must not depend on subpath domains (pdf/sql/vue)." },
+            { group: ["@agile-team/mach-report/pdf", "@agile-team/mach-report/sql", "@agile-team/mach-report/vue"], message: "Engine core must not depend on subpath domains (pdf/sql/vue)." }
           ]
         }
       ]

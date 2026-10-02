@@ -8,7 +8,7 @@ import { createLocalFetcher, MACH_REPORT_FETCHER_KEY } from "@agile-team/mach-re
 import { createTemplate } from "@agile-team/mach-report";
 
 /**
- * 宿主动态加载远程组件 —— 与 wl-ui-produce util/system.ts 相同机制：
+ * 宿主动态加载远程组件：
  * virtual:__federation__ 的 setRemote(运行时注册) → getRemote(拉 expose)。
  * remoteEntry 来自 mock-gateway /sub/mach-report/assets/remoteEntry.js（构建产物）。
  */
@@ -43,7 +43,7 @@ const datasets = {
 };
 
 const fetcher = createLocalFetcher({
-  FED1: { tempId: "FED1", template, datasets }
+  FED1: { template, datasets }
 });
 
 async function bootstrap(): Promise<void> {
@@ -65,7 +65,7 @@ async function bootstrap(): Promise<void> {
         return () =>
           h("div", { style: "height:100vh" }, [
             h(RemoteReportPreview as never, {
-              tempId: "FED1",
+              reportId: "FED1",
               height: "100vh",
               onLoaded: () => {
                 status.value = "远程渲染完成";

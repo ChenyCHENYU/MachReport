@@ -10,7 +10,7 @@ pnpm typecheck                # tsc 项目图 + vue-tsc（mach-report/federation
 pnpm lint / lint:fix          # ESLint（0 错 0 警是门禁）
 pnpm test                     # Vitest 单测（全绿门禁；纯逻辑文件用 // @vitest-environment node 头分流）
 pnpm test:coverage            # 覆盖率（关注 layout/ render/ format.ts）
-pnpm build                    # 全工作区构建（mach-report 七入口 ESM+CJS + federation + examples）
+pnpm build                    # 全工作区构建（mach-report 六入口 ESM+CJS + federation + examples）
 pnpm exec playwright test     # E2E（真 Chromium，先起 examples dev server；0 重试应稳定）
 pnpm release                  # 一键发版：changeset version → install → build → test → publish
 ```
@@ -18,8 +18,9 @@ pnpm release                  # 一键发版：changeset version → install →
 ## 架构地图
 
 - 单 npm 包 `packages/mach-report`（唯一发布物；workspace 另有 federation 部署件与 examples）
-- `src/`：`layout/`（分页+折行）`render/`（DOM/Canvas/几何/样式/虚拟化）`schema/` `builder/` `compat/`（jh4j 导入）`format.ts`（值格式化/条件规则）
-- 子路径域：`src/pdf` `src/sql` `src/manager` `src/xlsx` `src/vue`——重依赖（pdf-lib/node-sql-parser/exceljs）与框架代码只存在于子路径产物
+- `src/`：`layout/`（分页+折行）`render/`（DOM/Canvas/几何/样式/虚拟化）`schema/` `builder/` `format.ts`（值格式化/条件规则）
+- 子路径域：`src/pdf` `src/sql` `src/xlsx` `src/vue`——重依赖（pdf-lib/node-sql-parser/exceljs）与框架代码只存在于子路径产物
+- 数据来源通过 `PlanFetcher({ reportIds, params })` 注入；不得在插件中内置某个项目的接口路径、鉴权或响应格式
 - **ESLint 边界规则**：引擎核心不得 import 任何子路径域（主入口零重依赖零框架，有产物守卫测试双保险）
 - 自引用（self-reference）：vue 子路径静态依赖引擎、PDF 懒加载走 `./pdf`，构建时外部化
 
@@ -40,6 +41,5 @@ pnpm release                  # 一键发版：changeset version → install →
 
 ## 已知未了项
 
-- 真实 gridPlan 契约 fixture 待采集（`pnpm capture:gridplan`，需 SIT 登录）
-- 设计器（拖拽画布）与管理控制台 UI 为独立立项的多轮工程（见 README 里程碑）
+- 设计器（拖拽画布）与管理控制台 UI 为独立立项的多轮工程
 - npm token 轮换为人工事项（会话中出现过的凭证视为已泄露处理）

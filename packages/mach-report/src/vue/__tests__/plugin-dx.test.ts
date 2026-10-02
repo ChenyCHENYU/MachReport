@@ -24,10 +24,10 @@ const tpl: ReportTemplate = {
 describe("插件全局组件注册（mach-table 式快速集成）", () => {
   it("默认注册 <MachReportPreview>，模板直接使用（懒加载组件）", async () => {
     const app = createApp({
-      render: () => h("div", [h(MachReportPreview, { tempId: "T1" })])
+      render: () => h("div", [h(MachReportPreview, { reportId: "T1" })])
     });
     app.use(machReportPlugin, {
-      fetcher: createLocalFetcher({ T1: { tempId: "T1", template: tpl, datasets: {} } })
+      fetcher: createLocalFetcher({ T1: { template: tpl, datasets: {} } })
     });
     expect(app.component("MachReportPreview")).toBeDefined();
     const root = document.createElement("div");
@@ -54,14 +54,13 @@ describe("useReportPreview()（后代组件免模板 ref）", () => {
     const Host = defineComponent({
       setup() {
         return () =>
-          h(ReportPreview, { tempId: "T1", autoLoad: true }, { default: () => h(Child) });
+          h(ReportPreview, { reportId: "T1", autoLoad: true }, { default: () => h(Child) });
       }
     });
     const app = createApp(Host);
     app.use(machReportPlugin, {
       fetcher: createLocalFetcher({
         T1: {
-          tempId: "T1",
           template: {
             pages: [
               tpl.pages[0]!,
@@ -111,7 +110,7 @@ describe("MachReportError 结构化错误", () => {
     const onError = vi.fn();
     const badFetcher = vi.fn().mockResolvedValue({ schemaVersion: "t", pages: [{}] });
     const app = createApp({
-      render: () => h(ReportPreview, { tempId: "T1", autoLoad: true, onError })
+      render: () => h(ReportPreview, { reportId: "T1", autoLoad: true, onError })
     });
     app.use(machReportPlugin, { fetcher: badFetcher });
     app.mount(document.createElement("div"));

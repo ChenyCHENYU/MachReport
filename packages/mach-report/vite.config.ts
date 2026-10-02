@@ -5,7 +5,7 @@ import dts from "vite-plugin-dts";
 /**
  * 单包发布构建（六入口 × ESM/CJS 双格式）：
  *
- * - index/pdf/sql/manager：框架无关引擎与重依赖子路径（pdf-lib/fontkit 内联进
+ * - index/pdf/sql/xlsx：框架无关引擎与重依赖子路径（pdf-lib/fontkit 内联进
  *   pdf 入口、node-sql-parser 内联进 sql 入口——不导入即不进依赖图）
  * - vue / vue-async：框架子路径（SFC 组件 + 插件/配置中心），样式抽离 dist/style.css
  * - 外部化：vue（optional peer）与包自身子路径（自引用 self-reference：
@@ -30,7 +30,6 @@ export default defineConfig({
         index: "src/index.ts",
         pdf: "src/pdf.ts",
         sql: "src/sql.ts",
-        manager: "src/manager.ts",
         xlsx: "src/xlsx.ts",
         vue: "src/vue/index.ts",
         "vue-async": "src/vue/async.ts"

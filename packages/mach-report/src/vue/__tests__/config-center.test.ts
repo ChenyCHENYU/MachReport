@@ -27,32 +27,6 @@ const tpl: ReportTemplate = {
   ]
 };
 
-describe("machReportPlugin 零配置（同源 fetch 直连）", () => {
-  it("无任何 options 时用全局 fetch 组装数据面", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      json: async () => ({
-        code: 200,
-        data: { pages: [{ pageWidthMm: 210, pageHeightMm: 297, components: [] }] }
-      }),
-      ok: true
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    try {
-      const app = createApp({ render: () => h(ReportPreview, { tempId: "T1", autoLoad: true }) });
-      app.use(machReportPlugin);
-      app.mount(document.createElement("div"));
-      await vi.waitFor(() => {
-        expect(fetchMock).toHaveBeenCalledWith(
-          "/report/codePrintReport/gridPlan?tempId=T1",
-          expect.objectContaining({ method: "GET" })
-        );
-      });
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-});
-
 describe("defineMachReportConfig 配置中心", () => {
   it("preset 覆盖 defaults，未配置项落内置缺省", () => {
     const config = defineMachReportConfig({
@@ -100,12 +74,12 @@ describe("defineMachReportConfig 配置中心", () => {
     const Host = defineComponent({
       setup() {
         provideMachReportConfig({ showPrint: false, messages: { title: "Route Title" } });
-        return () => h(ReportPreview, { tempId: "T1", autoLoad: false });
+        return () => h(ReportPreview, { reportId: "T1", autoLoad: false });
       }
     });
     const app = createApp({ render: () => h(Host) });
     app.use(machReportPlugin, {
-      fetcher: createLocalFetcher({ T1: { tempId: "T1", template: tpl, datasets: {} } }),
+      fetcher: createLocalFetcher({ T1: { template: tpl, datasets: {} } }),
       config: defineMachReportConfig({
         defaults: { showPrint: true, messages: { title: "App Title" } },
         presets: {}
@@ -124,10 +98,10 @@ describe("defineMachReportConfig 配置中心", () => {
   it("props 优先级最高：显式 show-print 覆盖配置中心", async () => {
     const app = createApp({
       render: () =>
-        h(ReportPreview, { tempId: "T1", autoLoad: true, showPrint: true })
+        h(ReportPreview, { reportId: "T1", autoLoad: true, showPrint: true })
     });
     app.use(machReportPlugin, {
-      fetcher: createLocalFetcher({ T1: { tempId: "T1", template: tpl, datasets: {} } }),
+      fetcher: createLocalFetcher({ T1: { template: tpl, datasets: {} } }),
       config: defineMachReportConfig({
         defaults: { showPrint: false },
         presets: {}

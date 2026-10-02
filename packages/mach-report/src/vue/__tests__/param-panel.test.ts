@@ -30,7 +30,7 @@ function paramsSpy() {
 async function mountPanel(extra: Record<string, unknown> = {}) {
   const { seen, fetcher } = paramsSpy();
   const wrapper = mount(ReportPreview, {
-    props: { tempId: "T1", autoLoad: true, fetcher, paramDefs: defs, ...extra },
+    props: { reportId: "T1", autoLoad: true, fetcher, paramDefs: defs, ...extra },
     attachTo: document.body
   });
   await vi.waitFor(() => {
@@ -124,7 +124,7 @@ describe("参数面板（使用侧零表单代码）", () => {
 
     const { seen, fetcher } = paramsSpy();
     const b = mount(ReportPreview, {
-      props: { tempId: "T1", autoLoad: true, fetcher } // 无 paramDefs
+      props: { reportId: "T1", autoLoad: true, fetcher } // 无 paramDefs
     });
     await vi.waitFor(() => expect(seen.length).toBe(1), { timeout: 5000 });
     expect(b.findComponent(ReportParamPanel).exists()).toBe(false);
@@ -133,7 +133,7 @@ describe("参数面板（使用侧零表单代码）", () => {
 
   it("面板值覆盖宿主 props.params（用户意图优先）", async () => {    const { seen, fetcher } = paramsSpy();
     const wrapper = mount(ReportPreview, {
-      props: { tempId: "T1", autoLoad: true, fetcher, paramDefs: defs, params: { keyword: "宿主词" } }
+      props: { reportId: "T1", autoLoad: true, fetcher, paramDefs: defs, params: { keyword: "宿主词" } }
     });
     await vi.waitFor(() => expect(seen.length).toBe(1), { timeout: 5000 });
     expect(seen[0]!.keyword).toBe("宿主词"); // 面板空值不覆盖

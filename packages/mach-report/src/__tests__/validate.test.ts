@@ -29,7 +29,7 @@ describe("validateRenderPlan", () => {
     expect(r.errors[0]!.path).toBe("$.pages");
   });
 
-  it("非法 kind 降级为 warning（兼容 jh4j 扩展组件）", () => {
+  it("非法 kind 降级为 warning，避免单个扩展组件阻断整张报表", () => {
     const r = validateRenderPlan({
       pages: [
         {

@@ -1,7 +1,6 @@
 import type { App } from "vue";
 import { computed, defineAsyncComponent } from "vue";
 import type { PlanFetcher } from "./adapters";
-import { createFetchRequest, createJh4jGridPlanFetcher, type HostRequest } from "./adapters";
 import type { PdfExporter } from "./pdf-exporter";
 import {
   MACH_REPORT_CONFIG_KEY,
@@ -17,13 +16,7 @@ import type { MachReportConfig } from "./config";
 export const MachReportPreview = defineAsyncComponent(() => import("./ReportPreview.vue"));
 
 export interface MachReportPluginOptions {
-  /**
-   * 数据面（全部可选——零配置时用全局 fetch 同源直连）：
-   * - request：宿主 http 客户端（axios 风格签名）
-   * - fetcher：完整 PlanFetcher（自定义数据面/本地模板，优先级最高）
-   */
-  request?: HostRequest;
-  baseUrl?: string;
+  /** 报表数据源；也可直接传给 ReportPreview 的 fetcher prop */
   fetcher?: PlanFetcher;
   /** 应用级配置中心（defaults/presets/文案/主题），见 defineMachReportConfig */
   config?: MachReportConfig;
@@ -36,27 +29,18 @@ export interface MachReportPluginOptions {
 }
 
 /**
- * Vue 插件（零配置可用，对齐 mach-table 的快速集成体验）：
+ * Vue 插件：注册组件、配置和可选的数据源，不绑定任何后端接口。
  *
  * ```ts
- * app.use(machReportPlugin)                              // 同源 jh4j 部署，零胶水
- * app.use(machReportPlugin, { baseUrl: "/sub/mach-report" })
- * app.use(machReportPlugin, { request: axios, config: defineMachReportConfig({...}) })
+ * app.use(machReportPlugin, { fetcher })
+ * app.use(machReportPlugin, { config: defineMachReportConfig({...}) })
  * ```
  *
- * 之后业务模板直接写 `<MachReportPreview temp-id="X" />`。
+ * 之后业务模板直接写 `<MachReportPreview report-id="X" />`。
  */
 export const machReportPlugin = {
   install(app: App, options: MachReportPluginOptions = {}): void {
-    // 数据面：fetcher > request > 内置 fetch 同源适配（零配置路径）
-    const fetcher =
-      options.fetcher ??
-      createJh4jGridPlanFetcher({
-        // 网关前缀由 jh4j adapter 统一添加；内置 fetch 不再重复拼接。
-        request: options.request ?? createFetchRequest(),
-        baseUrl: options.baseUrl
-      });
-    app.provide(MACH_REPORT_FETCHER_KEY, fetcher);
+    if (options.fetcher) app.provide(MACH_REPORT_FETCHER_KEY, options.fetcher);
 
     if (options.pdfExporter) app.provide(MACH_REPORT_PDF_EXPORTER_KEY, options.pdfExporter);
 

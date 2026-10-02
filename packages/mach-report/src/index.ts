@@ -10,5 +10,4 @@ export * from "./render/style";
 export * from "./render/dom";
 export * from "./render/canvas";
 export * from "./render/window";
-export * from "./compat/jh4j-template";
 export * from "./builder/template-builder";

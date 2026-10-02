@@ -10,16 +10,16 @@
  * 是三后端漂移的温床，收敛于此。
  */
 
-/** 默认行高倍数（基线距 = 字号 × 该系数，与 jh4j 打印口径一致） */
+/** 默认行高倍数（基线距 = 字号 × 该系数） */
 export const LINE_HEIGHT = 1.35;
 
-/** 默认字号（pt），对齐 jh4j 模板缺省值 */
+/** 默认字号（pt） */
 export const DEFAULT_FONT_PT = 10.5;
 
 /** 默认边框线宽（pt） */
 export const DEFAULT_BORDER_PT = 0.75;
 
-/** 默认描边色（#333 与 jh4j 网格线一致） */
+/** 默认描边色 */
 export const DEFAULT_STROKE_COLOR = "#333333";
 
 /** 默认文本色 */
@@ -27,9 +27,3 @@ export const DEFAULT_TEXT_COLOR = "#000000";
 
 /** RenderPlan 正式 schema 版本（core 分页引擎产出） */
 export const SCHEMA_VERSION_MACH = "1.0.0-mach";
-
-/** 本地渲染适配器产出版本标识（vue/createLocalFetcher） */
-export const SCHEMA_VERSION_LOCAL = "mach-local";
-
-/** jh4j gridPlan 兼容数据标识（vue/createJh4jGridPlanFetcher） */
-export const SCHEMA_VERSION_JH4J = "jh4j-compatible";

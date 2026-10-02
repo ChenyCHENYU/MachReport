@@ -1,22 +1,22 @@
 import type { RenderPlan } from "@agile-team/mach-report";
 
-export type TempIdInput = string | string[] | null | undefined;
+export type ReportIdInput = string | string[] | null | undefined;
 
 export interface PlanFetcher {
-  (input: { tempIds: string[]; furnitureTempId?: string; params: Record<string, string> }): Promise<RenderPlan>;
+  (input: { reportIds: string[]; params: Record<string, string> }): Promise<RenderPlan>;
 }
 
-export function normalizeTempIds(tempId: TempIdInput): string[] {
-  if (tempId == null) return [];
-  if (Array.isArray(tempId)) return tempId.map(String).filter((s) => s !== "");
-  return String(tempId)
+export function normalizeReportIds(reportId: ReportIdInput): string[] {
+  if (reportId == null) return [];
+  if (Array.isArray(reportId)) return reportId.map(String).filter((s) => s !== "");
+  return String(reportId)
     .split(",")
     .map((s) => s.trim())
     .filter((s) => s !== "");
 }
 
-export function joinTempIds(tempId: TempIdInput): string {
-  return normalizeTempIds(tempId).join(",");
+export function joinReportIds(reportId: ReportIdInput): string {
+  return normalizeReportIds(reportId).join(",");
 }
 
 export class PlanLoadError extends Error {
@@ -26,7 +26,7 @@ export class PlanLoadError extends Error {
   }
 }
 
-/** 宿主请求函数签名（axios 风格；createJh4jGridPlanFetcher 消费） */
+/** 通用请求函数签名（可适配 Axios 风格客户端） */
 export type HostRequest = (config: {
   url: string;
   method: string;
@@ -45,7 +45,7 @@ export interface FetchRequestOptions {
 
 /**
  * 零依赖请求适配器：用全局 fetch 实现 HostRequest 签名，
- * 让宿主无需引入 axios 或手写胶水代码即可接上 jh4j 数据面。
+ * 供自定义 PlanFetcher 按需调用，不预设任何报表接口路径或响应包装。
  * 内置超时（AbortController）与网络/HTTP 错误语义。
  */
 export function createFetchRequest(options: FetchRequestOptions = {}): HostRequest {
@@ -75,41 +75,5 @@ export function createFetchRequest(options: FetchRequestOptions = {}): HostReque
       throw new PlanLoadError(`HTTP ${res.status} ${url}`);
     }
     return res.json();
-  };
-}
-
-export function createJh4jGridPlanFetcher(options: {
-  request: HostRequest;
-  /** 网关前缀，默认空（同域） */
-  baseUrl?: string;
-}): PlanFetcher {
-  const { request, baseUrl = "" } = options;
-  const prefix = baseUrl.replace(/\/+$/, "");
-  return async ({ tempIds, furnitureTempId, params }) => {
-    if (tempIds.length === 0) throw new PlanLoadError("缺少报表模板 ID");
-    const query: Record<string, string> = {};
-    for (const [k, v] of Object.entries(params || {})) {
-      if (k && k !== "tempId" && k !== "furnitureTempId" && v != null && v !== "") {
-        query[k] = String(v);
-      }
-    }
-    query.tempId = tempIds.join(",");
-    if (furnitureTempId) query.furnitureTempId = furnitureTempId;
-    const body = (await request({
-      url: `${prefix}/report/codePrintReport/gridPlan`,
-      method: "get",
-      params: query
-    })) as { code?: number; message?: string; data?: { pages?: unknown } | null };
-    if (body && body.code != null && body.code !== 200) {
-      throw new PlanLoadError(String(body.message || "预览加载失败"));
-    }
-    const pages = body?.data?.pages;
-    if (!Array.isArray(pages)) {
-      throw new PlanLoadError("预览响应缺少 pages 数组，请检查 gridPlan 接口契约");
-    }
-    return {
-      schemaVersion: "jh4j-compatible",
-      pages: pages as RenderPlan["pages"]
-    };
   };
 }

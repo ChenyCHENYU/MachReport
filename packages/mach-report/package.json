@@ -1,7 +1,7 @@
 {
   "name": "@agile-team/mach-report",
-  "version": "1.2.2",
-  "description": "MachReport 报表引擎单包：RenderPlan 模型 + 分页 + DOM/Canvas/PDF 渲染 + 动态 SQL + 管理端 API + Vue 3 契约组件（零运行时依赖；./vue 为框架子路径，vue 为可选 peer）",
+  "version": "2.0.0",
+  "description": "独立的 TypeScript 报表引擎：模板分页、DOM/Canvas/PDF/Excel 输出与 Vue 3 预览组件",
   "type": "module",
   "sideEffects": [
     "**/*.css",
@@ -13,7 +13,6 @@
     ".": "./src/index.ts",
     "./pdf": "./src/pdf.ts",
     "./sql": "./src/sql.ts",
-    "./manager": "./src/manager.ts",
     "./vue": "./src/vue/index.ts",
     "./vue/async": "./src/vue/async.ts",
     "./vue/style.css": "./src/vue/style.css",
@@ -53,16 +52,6 @@
         "require": {
           "types": "./dist/sql.d.cts",
           "default": "./dist/sql.cjs"
-        }
-      },
-      "./manager": {
-        "import": {
-          "types": "./dist/manager.d.ts",
-          "default": "./dist/manager.js"
-        },
-        "require": {
-          "types": "./dist/manager.d.cts",
-          "default": "./dist/manager.cjs"
         }
       },
       "./vue": {

@@ -4,12 +4,12 @@ import type { PropType } from "vue";
 import { inject } from "vue";
 import { MACH_REPORT_FETCHER_KEY } from "@agile-team/mach-report/vue";
 import type { PlanFetcher } from "@agile-team/mach-report/vue";
-import { normalizeTempIds } from "@agile-team/mach-report/vue";
+import { normalizeReportIds } from "@agile-team/mach-report/vue";
 import { renderPlan as renderPlanToDom } from "@agile-team/mach-report";
 import { validateRenderPlan } from "@agile-team/mach-report";
 
 const props = defineProps({
-  tempId: {
+  reportId: {
     type: [String, Array] as PropType<string | string[] | null>,
     default: null
   },
@@ -30,9 +30,9 @@ async function render(): Promise<void> {
   const el = containerRef.value;
   if (!el) return;
   el.innerHTML = "";
-  const ids = normalizeTempIds(props.tempId);
+  const ids = normalizeReportIds(props.reportId);
   if (ids.length === 0) {
-    errorMessage.value = "缺少报表模板 ID";
+    errorMessage.value = "缺少报表 ID";
     emit("error", errorMessage.value);
     return;
   }
@@ -44,7 +44,7 @@ async function render(): Promise<void> {
   errorMessage.value = "";
   try {
     const plan = await (fetcher as PlanFetcher)({
-      tempIds: ids,
+      reportIds: ids,
       params: { ...props.params }
     });
     const check = validateRenderPlan(plan);
@@ -58,7 +58,7 @@ async function render(): Promise<void> {
 }
 
 onMounted(render);
-watch(() => [props.tempId, JSON.stringify(props.params)], render);
+watch(() => [props.reportId, JSON.stringify(props.params)], render);
 </script>
 
 <template>

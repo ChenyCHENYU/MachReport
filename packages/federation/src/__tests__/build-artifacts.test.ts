@@ -10,7 +10,7 @@ describe("federation 构建产物守卫（需先 pnpm --filter @agile-team/mach-
     expect(existsSync(resolve(dist, "remoteEntry.js"))).toBe(true);
   });
 
-  it("expose 路径与 jh4j 契约对齐", () => {
+  it("公开 expose 路径稳定", () => {
     const entry = readFileSync(resolve(dist, "remoteEntry.js"), "utf-8");
     for (const expose of [
       "./mach-report/reportPreview",

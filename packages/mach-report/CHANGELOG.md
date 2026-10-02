@@ -1,5 +1,11 @@
 # @agile-team/mach-report
 
+## 2.0.0
+
+### Major Changes
+
+- MachReport now uses a project-neutral report contract. `ReportPreview` accepts `reportId`, and `PlanFetcher` receives `{ reportIds, params }`. Applications must provide a fetcher or use `createLocalFetcher`; the plugin no longer calls a built-in report service. Removed the old service adapter, response wrapper, template importer, and manager API. Updated the federation wrappers, examples, README, and API guide to use the independent integration model.
+
 ## 1.2.2
 
 ### Patch Changes

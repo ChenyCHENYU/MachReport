@@ -1,5 +1,5 @@
 /**
- * 列值格式化（声明式、JSON 可序列化——不破坏 gridPlan 契约）。
+ * 列值格式化（声明式、JSON 可序列化）。
  * 在 paginate 的 cellText 出口统一消费：格式化发生在进 RenderPlan 之前，
  * 三后端（DOM/Canvas/PDF）零改动。
  *

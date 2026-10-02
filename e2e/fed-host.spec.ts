@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test.describe("federation 宿主动态加载（wl-ui-produce 同款机制）", () => {
+test.describe("federation 宿主动态加载", () => {
   test("setRemote 动态注册 → 远程 reportPreview 渲染成功", async ({ page }) => {
     await page.goto("http://localhost:8611");
     await expect(page.locator("#status")).toHaveText("远程渲染完成", { timeout: 20000 });

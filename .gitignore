@@ -9,4 +9,3 @@ test-results/
 playwright-report/
 examples/minimal/public/simhei.ttf
 packages/mach-report/README.md
-packages/mach-report/tests/fixtures/gridplan-real*.json

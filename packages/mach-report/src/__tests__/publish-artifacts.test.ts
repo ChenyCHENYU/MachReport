@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 /**
  * 发布产物零依赖守卫（mach-table 家族发布口径）：
  * - 依赖图必须为零：pdf-lib/fontkit/node-sql-parser 打进子路径产物而非 dependencies
- * - 双格式（.js/.cjs + .d.ts/.d.cts）与四入口齐备
+ * - 双格式（.js/.cjs + .d.ts/.d.cts）与公开入口齐备
  */
 const pkgDir = resolve(__dirname, "../..");
 const dist = resolve(pkgDir, "dist");
@@ -24,8 +24,8 @@ describe("mach-report 引擎发布产物（零运行时依赖单包）", () => {
     expect(pkg.engines?.node).toBe(">=18.0.0");
   });
 
-  it.skipIf(!built)("四入口 × 双格式 × 双声明齐备", () => {
-    for (const name of ["index", "pdf", "sql", "manager"]) {
+  it.skipIf(!built)("公开入口 × 双格式 × 双声明齐备", () => {
+    for (const name of ["index", "pdf", "sql", "xlsx"]) {
       for (const suffix of [".js", ".cjs", ".d.ts", ".d.cts"]) {
         expect(existsSync(resolve(dist, `${name}${suffix}`)), `缺 dist/${name}${suffix}`).toBe(true);
       }

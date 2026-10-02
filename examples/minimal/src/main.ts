@@ -232,22 +232,22 @@ function makeSteps() {
 }
 
 const entries = {
-  delivery: { tempId: "delivery", template: deliveryNote, datasets: { detail: makeDetail(96) } },
-  card: { tempId: "card", template: processCard, datasets: { steps: makeSteps() } },
-  combined: { tempId: "combined", template: deliveryNote, datasets: { detail: makeDetail(20) } }
+  delivery: { template: deliveryNote, datasets: { detail: makeDetail(96) } },
+  card: { template: processCard, datasets: { steps: makeSteps() } },
+  combined: { template: deliveryNote, datasets: { detail: makeDetail(20) } }
 };
 
 const fetcher = createLocalFetcher(entries);
 const fetcherWithCache = async (input: Parameters<typeof fetcher>[0]) => {
-  const id = input.tempIds[0] ?? "";
+  const id = input.reportIds[0] ?? "";
   cachedTemplateRef = entries[id]
     ? { template: entries[id]!.template, datasets: entries[id]!.datasets ?? {} }
     : { template: entries["combined"]!.template, datasets: entries["combined"]!.datasets ?? {} };
   return fetcher(input);
 };
-const currentTemp = ref<string | string[]>("delivery");
-const tempIds = computed(() =>
-  currentTemp.value === "combined" ? ["combined", "card"] : currentTemp.value
+const currentReport = ref<string | string[]>("delivery");
+const reportIds = computed(() =>
+  currentReport.value === "combined" ? ["combined", "card"] : currentReport.value
 );
 
 const sqlDemo = renderDynamicSql(
@@ -258,7 +258,7 @@ const sqlDemo = renderDynamicSql(
 const app = createApp({
   setup() {
     const pick = (id: string) => {
-      currentTemp.value = id;
+      currentReport.value = id;
     };
     return () =>
       h("div", { class: "wrap", style: "display:flex;height:100%" }, [
@@ -277,9 +277,9 @@ const app = createApp({
           ])
         ]),
         h("div", { class: "main" }, [
-          // 不加 :key：验证组件内部 watch tempId 的重载与竞态防护（契约要求零改动切换）
+          // 不加 :key：验证组件内部 watch reportId 的重载与竞态防护（契约要求零改动切换）
           h(ReportPreview, {
-            tempId: tempIds.value,
+            reportId: reportIds.value,
             fetcher: fetcherWithCache,
             height: "100vh",
             // 参数面板演示：声明式定义 → 组件自动生成查询条件（使用侧零表单代码）

@@ -20,7 +20,6 @@ describe("单包发布产物（框架子路径 ./vue 契约）", () => {
       "index.js", "index.cjs",
       "pdf.js", "pdf.cjs",
       "sql.js", "sql.cjs",
-      "manager.js", "manager.cjs",
       "xlsx.js", "xlsx.cjs",
       "vue.js", "vue.cjs",
       "vue-async.js", "vue-async.cjs",

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createFetchRequest, PlanLoadError } from "../adapters";
 
 /** 全局 fetch 桩：记录入参并返回受控响应 */
-function stubFetch(status = 200, body: unknown = { code: 200, data: {} }) {
+function stubFetch(status = 200, body: unknown = { pages: [] }) {
   const fn = vi.fn().mockResolvedValue({
     ok: status >= 200 && status < 300,
     status,
@@ -17,10 +17,10 @@ describe("createFetchRequest（零依赖请求适配器）", () => {
   it("拼装 query 与请求头，返回 JSON", async () => {
     const fn = stubFetch();
     const request = createFetchRequest({ baseUrl: "/sub", headers: { "X-Trace": "1" } });
-    const out = await request({ url: "/report/codePrintReport/gridPlan", method: "get", params: { tempId: "A", id: "9" } });
-    expect(out).toEqual({ code: 200, data: {} });
+    const out = await request({ url: "/api/reports/render", method: "get", params: { reportId: "A", id: "9" } });
+    expect(out).toEqual({ pages: [] });
     expect(fn).toHaveBeenCalledWith(
-      "/sub/report/codePrintReport/gridPlan?tempId=A&id=9",
+      "/sub/api/reports/render?reportId=A&id=9",
       expect.objectContaining({
         method: "GET",
         headers: expect.objectContaining({ Accept: "application/json", "X-Trace": "1" })

@@ -4,11 +4,10 @@ import type { PropType } from "vue";
 import { MACH_REPORT_FETCHER_KEY, ReportPreview as ReportPreviewBase } from "@agile-team/mach-report/vue";
 
 defineProps({
-  tempId: {
+  reportId: {
     type: [String, Array] as PropType<string | string[] | null>,
     default: null
   },
-  furnitureTempId: { type: String, default: "" },
   params: {
     type: Object as PropType<Record<string, string>>,
     default: () => ({})
@@ -27,8 +26,7 @@ const fetcher = inject(MACH_REPORT_FETCHER_KEY, null);
 
 <template>
   <ReportPreviewBase
-    :temp-id="tempId"
-    :furniture-temp-id="furnitureTempId"
+    :report-id="reportId"
     :params="params"
     :height="height"
     :auto-load="autoLoad"

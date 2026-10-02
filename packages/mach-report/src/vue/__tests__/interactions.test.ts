@@ -31,11 +31,11 @@ function twoPageTemplate(): ReportTemplate {
 }
 
 const localFetcher = () =>
-  createLocalFetcher({ T1: { tempId: "T1", template: twoPageTemplate(), datasets: {} } });
+  createLocalFetcher({ T1: { template: twoPageTemplate(), datasets: {} } });
 
 async function mounted() {
   const wrapper = mount(ReportPreview, {
-    props: { tempId: "T1", autoLoad: true, fetcher: localFetcher(), height: "400px" },
+    props: { reportId: "T1", autoLoad: true, fetcher: localFetcher(), height: "400px" },
     attachTo: document.body
   });
   await vi.waitFor(() => {

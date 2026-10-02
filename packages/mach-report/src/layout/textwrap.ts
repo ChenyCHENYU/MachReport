@@ -44,7 +44,7 @@ export function charWidthEm(ch: string): number {
   return 0.54;
 }
 
-/** 启发式测量器：宽度模型与 jh4j 近似口径一致（默认实现） */
+/** 启发式测量器：无 Canvas 时的默认宽度估算 */
 export const heuristicMeasurer: TextMeasurer = {
   measureMm(text: string, options: TextMeasureOptions): number {
     const { fontSizePt, bold = false, letterSpacingPt = 0 } = options;

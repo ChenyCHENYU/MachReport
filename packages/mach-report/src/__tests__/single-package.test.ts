@@ -5,7 +5,6 @@ import * as machReport from "../index";
 // 子路径：按需能力（发布 exports map 与之一一对应）
 import * as machReportPdf from "../pdf";
 import * as machReportSql from "../sql";
-import * as machReportManager from "../manager";
 import * as machReportXlsx from "../xlsx";
 import * as machReportVue from "../vue/index";
 
@@ -20,7 +19,6 @@ describe("单包架构：@agile-team/mach-report 一个包覆盖全部能力", (
       "computePageWindow",
       "validateRenderPlan",
       "createTemplate",
-      "importJh4jTemplateContent",
       "wrapText",
       "resolveGridLayout",
       "resolveBoxBorders"
@@ -40,10 +38,6 @@ describe("单包架构：@agile-team/mach-report 一个包覆盖全部能力", (
   it("./sql 子路径导出动态 SQL API", () => {
     expect(typeof machReportSql.compileDynamicSql).toBe("function");
     expect(typeof machReportSql.renderDynamicSql).toBe("function");
-  });
-
-  it("./manager 子路径导出管理端 API 客户端", () => {
-    expect(typeof machReportManager.createReportAdminClient).toBe("function");
   });
 
   it("./xlsx 子路径导出 Excel 导出 API", () => {
@@ -68,6 +62,5 @@ describe("单包架构：@agile-team/mach-report 一个包覆盖全部能力", (
     await expect(import("../index")).resolves.toBeTruthy();
     await expect(import("../pdf")).resolves.toBeTruthy();
     await expect(import("../sql")).resolves.toBeTruthy();
-    await expect(import("../manager")).resolves.toBeTruthy();
   });
 });

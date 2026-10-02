@@ -5,96 +5,67 @@ import { createApp, h } from "vue";
 import { machReportPlugin } from "../plugin";
 import { MACH_REPORT_FETCHER_KEY, MACH_REPORT_PDF_EXPORTER_KEY } from "../injection-keys";
 import ReportPreview from "../ReportPreview.vue";
+import { createLocalFetcher } from "../local-adapter";
 import type { ReportTemplate } from "@agile-team/mach-report";
 
-const tpl: ReportTemplate = {
-  pages: [
-    {
-      widthMm: 210,
-      heightMm: 297,
-      components: [
-        { kind: "text", leftMm: 10, topMm: 10, widthMm: 100, heightMm: 10, text: "插件注入渲染" }
-      ]
-    }
-  ]
+const template: ReportTemplate = {
+  pages: [{
+    widthMm: 210, heightMm: 297,
+    components: [{
+      kind: "text", leftMm: 10, topMm: 10, widthMm: 100, heightMm: 10,
+      text: "插件注入渲染"
+    }]
+  }]
 };
 
-describe("machReportPlugin（一次注册，业务侧一行使用）", () => {
-  it("内置 fetch 使用 baseUrl 时只拼接一次网关前缀", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        code: 200,
-        data: { pages: [{ pageWidthMm: 210, pageHeightMm: 297, components: [] }] }
-      })
-    });
+describe("machReportPlugin（项目自带数据源）", () => {
+  it("只注册组件时不发隐式请求，提示提供 fetcher", async () => {
+    const fetchMock = vi.fn();
+    const onError = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const app = createApp({ render: () => h(ReportPreview, { tempId: "T1", autoLoad: true }) });
+    const app = createApp({ render: () => h(ReportPreview, { reportId: "T1", onError }) });
     try {
-      app.use(machReportPlugin, { baseUrl: "/sub/mach-report/" });
+      app.use(machReportPlugin);
       app.mount(document.createElement("div"));
-      await vi.waitFor(() => {
-        expect(fetchMock).toHaveBeenCalledWith(
-          "/sub/mach-report/report/codePrintReport/gridPlan?tempId=T1",
-          expect.objectContaining({ method: "GET" })
-        );
-      });
+      await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(
+        "未提供渲染数据源 fetcher", expect.objectContaining({ code: "config" })
+      ));
+      expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       app.unmount();
       vi.unstubAllGlobals();
     }
   });
 
-  it("request 选项自动组装 jh4j fetcher 并注入", async () => {
-    const request = vi.fn().mockResolvedValue({
-      code: 200,
-      data: { pages: [{ pageWidthMm: 210, pageHeightMm: 297, components: [] }] }
-    });
-    const app = createApp({ render: () => h(ReportPreview, { tempId: "T1", autoLoad: true }) });
-    app.use(machReportPlugin, { request });
-    app.mount(document.createElement("div"));
-    await vi.waitFor(() => {
-      expect(request).toHaveBeenCalledWith(
-        expect.objectContaining({ url: "/report/codePrintReport/gridPlan", method: "get" })
-      );
-    });
-  });
-
-  it("fetcher 选项优先于 request；pdfExporter 注入生效", async () => {
+  it("注入项目 fetcher 和自定义 PDF 导出器", async () => {
     const fetcher = vi.fn().mockResolvedValue({
-      schemaVersion: "t",
-      pages: tpl.pages.map((p) => ({ ...p, components: [] as never[] }))
+      schemaVersion: "1.0.0-mach",
+      pages: [{ pageWidthMm: 210, pageHeightMm: 297, components: [] }]
     });
     const pdfExporter = vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]));
-    const app = createApp({ render: () => h(ReportPreview, { tempId: "T1", autoLoad: true }) });
-    app.use(machReportPlugin, { request: vi.fn(), fetcher, pdfExporter });
+    const app = createApp({ render: () => h(ReportPreview, { reportId: "T1" }) });
+    app.use(machReportPlugin, { fetcher, pdfExporter });
     const provides = app._context.provides as Record<string | symbol, unknown>;
-    const injectedFetcher = provides[MACH_REPORT_FETCHER_KEY as unknown as string] as
-      | (() => void)
-      | undefined;
+    const injectedFetcher = provides[MACH_REPORT_FETCHER_KEY as unknown as string];
     const injectedExporter = provides[MACH_REPORT_PDF_EXPORTER_KEY as unknown as string] as
-      | ((plan: unknown) => Promise<Uint8Array>)
-      | undefined;
+      ((plan: unknown) => Promise<Uint8Array>) | undefined;
     expect(typeof injectedFetcher).toBe("function");
     expect(typeof injectedExporter).toBe("function");
     await expect(injectedExporter!({ schemaVersion: "t", pages: [] })).resolves.toEqual(
       new Uint8Array([1, 2, 3])
     );
     app.mount(document.createElement("div"));
-    await vi.waitFor(() => expect(fetcher).toHaveBeenCalled());
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledWith({ reportIds: ["T1"], params: {} }));
+    app.unmount();
   });
 
-  it("本地 fetcher 直接可注入（离线/单测场景）", async () => {
-    const { createLocalFetcher } = await import("../local-adapter");
-    const fetcher = createLocalFetcher({
-      T1: { tempId: "T1", template: tpl, datasets: {} }
-    });
-    const app = createApp({ render: () => h(ReportPreview, { tempId: "T1", autoLoad: true }) });
+  it("本地模板也通过同一 fetcher 接口接入", async () => {
+    const fetcher = createLocalFetcher({ T1: { template } });
+    const app = createApp({ render: () => h(ReportPreview, { reportId: "T1" }) });
     app.use(machReportPlugin, { fetcher });
     const root = document.createElement("div");
     app.mount(root);
-    await vi.waitFor(() => {
-      expect(root.textContent).toContain("插件注入渲染");
-    });
+    await vi.waitFor(() => expect(root.textContent).toContain("插件注入渲染"));
+    app.unmount();
   });
 });

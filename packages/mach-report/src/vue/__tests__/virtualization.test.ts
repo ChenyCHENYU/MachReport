@@ -35,9 +35,9 @@ function rows(n: number) {
 describe("视口虚拟化", () => {
   it("运行时调整页间距同步更新占位与窗口几何", async () => {
     const fetcher = createLocalFetcher({
-      P: { tempId: "P", template: tpl, datasets: { rows: rows(300) } }
+      P: { template: tpl, datasets: { rows: rows(300) } }
     });
-    const wrapper = mount(ReportPreview, { props: { tempId: "P", fetcher, gapPx: 10 } });
+    const wrapper = mount(ReportPreview, { props: { reportId: "P", fetcher, gapPx: 10 } });
     await vi.waitFor(() => expect(wrapper.find(".mrp-scale").exists()).toBe(true));
     const before = parseFloat((wrapper.find(".mrp-scale").element as HTMLElement).style.height);
     const pages = Number((wrapper.text().match(/\/ (\d+)/) ?? [])[1]);
@@ -51,9 +51,9 @@ describe("视口虚拟化", () => {
 
   it("200 页计划只挂载窗口内页 + 上下占位", async () => {
     const fetcher = createLocalFetcher({
-      BIG: { tempId: "BIG", template: tpl, datasets: { rows: rows(6000) } }
+      BIG: { template: tpl, datasets: { rows: rows(6000) } }
     });
-    const wrapper = mount(ReportPreview, { props: { tempId: "BIG", fetcher } });
+    const wrapper = mount(ReportPreview, { props: { reportId: "BIG", fetcher } });
     await vi.waitFor(() => {
       expect(wrapper.element.querySelectorAll(".mrp-page-holder").length).toBeGreaterThan(0);
     });
@@ -69,9 +69,9 @@ describe("视口虚拟化", () => {
 
   it("占位高度与页高一致（1122.5px/页 A4@96dpi）", async () => {
     const fetcher = createLocalFetcher({
-      P: { tempId: "P", template: tpl, datasets: { rows: rows(300) } }
+      P: { template: tpl, datasets: { rows: rows(300) } }
     });
-    const wrapper = mount(ReportPreview, { props: { tempId: "P", fetcher } });
+    const wrapper = mount(ReportPreview, { props: { reportId: "P", fetcher } });
     await vi.waitFor(() =>
       expect(wrapper.element.querySelectorAll(".mrp-page-holder").length).toBeGreaterThan(0)
     );

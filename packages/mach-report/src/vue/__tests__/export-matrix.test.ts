@@ -104,7 +104,7 @@ describe("exportAs 出口矩阵接线", () => {
       pages: [{ pageWidthMm: 210, pageHeightMm: 100, components: [] as never[] }]
     });
     const wrapper = mount(ReportPreview, {
-      props: { tempId: "T1", autoLoad: true, fetcher, onError },
+      props: { reportId: "T1", autoLoad: true, fetcher, onError },
       attachTo: document.body
     });
     await vi.waitFor(() => {

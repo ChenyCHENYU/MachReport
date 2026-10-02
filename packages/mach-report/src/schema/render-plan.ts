@@ -60,7 +60,7 @@ export interface GridCell {
 }
 
 export interface PlanGrid {
-  /** 行内允许 null 空位（jh4j 契约数据存在稀疏行；渲染器按空单元格处理） */
+  /** 行内允许 null 空位；渲染器按空单元格处理 */
   cells: (GridCell | null)[][];
   colWidthsMm?: number[];
   rowHeightsMm?: number[];
@@ -97,29 +97,12 @@ export interface PlanPage {
   components: PlanComponent[];
 }
 
-export interface GridPlanResponse {
-  code?: number;
-  message?: string;
-  data?: { pages?: PlanPage[] } | null;
-}
-
 export interface RenderPlan {
   schemaVersion: string;
   pages: PlanPage[];
 }
 
 export const RENDER_PLAN_SCHEMA_VERSION = SCHEMA_VERSION_MACH;
-
-export function toRenderPlan(response: GridPlanResponse): RenderPlan {
-  if (response && response.code != null && response.code !== 200) {
-    throw new Error(String(response.message || "渲染计划加载失败"));
-  }
-  const pages = response?.data?.pages;
-  return {
-    schemaVersion: RENDER_PLAN_SCHEMA_VERSION,
-    pages: Array.isArray(pages) ? pages : []
-  };
-}
 
 export function isImageBackedComponent(comp: PlanComponent): boolean {
   return (

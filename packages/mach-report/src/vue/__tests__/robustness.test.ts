@@ -11,7 +11,7 @@ describe("坏数据防御", () => {
     })) as unknown as PlanFetcher;
     const onError = vi.fn();
     const wrapper = mount(ReportPreview, {
-      props: { tempId: "X", fetcher: badFetcher, onError }
+      props: { reportId: "X", fetcher: badFetcher, onError }
     });
     await vi.waitFor(() => expect(onError).toHaveBeenCalled());
     const msg = String(onError.mock.calls[0]![0]);
@@ -36,7 +36,7 @@ describe("坏数据防御", () => {
     })) as unknown as PlanFetcher;
     const onLoaded = vi.fn();
     const wrapper = mount(ReportPreview, {
-      props: { tempId: "X", fetcher, onLoaded }
+      props: { reportId: "X", fetcher, onLoaded }
     });
     await vi.waitFor(() => expect(onLoaded).toHaveBeenCalled());
     expect(wrapper.text()).toContain("兜底");

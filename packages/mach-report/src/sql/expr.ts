@@ -12,9 +12,9 @@ export class ExprError extends Error {
 }
 
 /**
- * 求值 jh4j 公式表达式（用于 {if(cond, a, b)} 的 cond 与操作数）：
+ * 求值动态 SQL 条件表达式（用于 {if(cond, a, b)} 的 cond 与操作数）：
  * - #param 引用（渲染时被替换为参数值；此实现按值求值）
- * - "..." 字符串字面量（仅双引号，与 jh4j 一致）
+ * - "..." 字符串字面量（仅双引号）
  * - isEmpty(x)、isNotEmpty(x)
  * - == / != 比较
  * - + 拼接
@@ -107,7 +107,7 @@ function findTopLevelPlus(input: string): number {
   return -1;
 }
 
-/** {if(cond, whenTrue, whenFalse)} 的参数拆分（2 或 3 段，兼容 jh4j 三段式） */
+/** {if(cond, whenTrue, whenFalse)} 的参数拆分（2 或 3 段） */
 export function parseIfArgs(inner: string): { cond: string; whenTrue: string; whenFalse: string } {
   const parts = splitTopLevel(inner);
   if (parts.length === 2) {

@@ -11,7 +11,7 @@ import { machReportPlugin, type MachReportPluginOptions } from "./plugin";
  * import AsyncMachReportPlugin, { preloadMachReport } from "@agile-team/mach-report/vue/async";
  * app.use(AsyncMachReportPlugin, { baseUrl: "/sub/mach-report" });
  * void preloadMachReport(); // 可选：路由 hover 时预取
- * // 模板：<MachReportPreview temp-id="X" />
+ * // 模板：<MachReportPreview report-id="X" />
  * ```
  */
 

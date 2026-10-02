@@ -27,11 +27,11 @@ describe("./async 异步入口（首屏按需加载）", () => {
     const app = createApp({
       render: () => {
         const comp = resolveComponent("MachReportPreview");
-        return h("div", [h(comp, { tempId: "T1" })]);
+        return h("div", [h(comp, { reportId: "T1" })]);
       }
     });
     app.use(machReportAsyncPlugin, {
-      fetcher: createLocalFetcher({ T1: { tempId: "T1", template: tpl, datasets: {} } })
+      fetcher: createLocalFetcher({ T1: { template: tpl, datasets: {} } })
     });
     expect(app.component("MachReportPreview")).toBeDefined();
     const root = document.createElement("div");

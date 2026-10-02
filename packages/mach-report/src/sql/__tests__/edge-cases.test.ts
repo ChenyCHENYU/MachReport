@@ -53,7 +53,7 @@ describe("sql-engine 边界补强", () => {
     ).toThrow();
   });
 
-  it("空 if 分支字符串含双引号转义语义（jh4j 单引号不认）", () => {
+  it("空 if 分支字符串遵循双引号转义语义", () => {
     const sql = `{if(isEmpty(#a), "", "and name = 'x'")}`;
     const r = compileDynamicSql(sql).render({ a: "1" });
     expect(r.sql).toContain("and name = 'x'");

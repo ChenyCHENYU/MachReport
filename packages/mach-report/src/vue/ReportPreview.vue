@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * ReportPreview 契约组件（props/emits/expose 与 jh4j reportPreview 1:1）。
+ * ReportPreview：接收报表 ID 和 PlanFetcher，预览与导出 RenderPlan。
  *
  * 职责编排（实现在 composables，本文件保持薄壳）：
  * - usePageWindow：视口虚拟化（自然坐标系 + gap）
@@ -27,7 +27,7 @@ import {
   renderPlanToCanvas,
   validateRenderPlan
 } from "@agile-team/mach-report";
-import { normalizeTempIds, type PlanFetcher } from "./adapters";
+import { normalizeReportIds, type PlanFetcher } from "./adapters";
 import { usePageWindow } from "./composables/usePageWindow";
 import { useZoom } from "./composables/useZoom";
 import { usePrintExport } from "./composables/usePrintExport";
@@ -57,11 +57,10 @@ import { MachReportError, toErrorDetail } from "./errors";
 import type { MachReportController } from "./controller";
 
 const props = defineProps({
-  tempId: {
+  reportId: {
     type: [String, Array] as PropType<string | string[] | null>,
     default: null
   },
-  furnitureTempId: { type: String, default: "" },
   params: {
     type: Object as PropType<Record<string, string>>,
     default: () => ({})
@@ -117,7 +116,7 @@ const UI_MEMORY_KEY = "mach-report:ui";
 const injectedFetcher = inject(MACH_REPORT_FETCHER_KEY, null);
 const injectedPdfExporter = inject(MACH_REPORT_PDF_EXPORTER_KEY, null);
 
-const tempIds = computed(() => normalizeTempIds(props.tempId));
+const reportIds = computed(() => normalizeReportIds(props.reportId));
 const pageCount = computed(() => plan.value?.pages.length ?? 0);
 
 /** 配置解析：preset > 应用级 defaults；未配置时全部落到内置缺省 */
@@ -226,14 +225,14 @@ function invalidate(): void {
   search.reset();
 }
 
-/** 代际令牌：tempId 快速切换时，旧请求即使后返回也不得覆盖新数据 */
+/** 代际令牌：报表 ID 快速切换时，旧请求即使后返回也不得覆盖新数据 */
 let reloadSeq = 0;
 
 async function reload(): Promise<void> {
   const seq = ++reloadSeq;
   const fetcher = props.fetcher ?? injectedFetcher;
-  if (tempIds.value.length === 0) {
-    errorMessage.value = "缺少报表模板 ID";
+  if (reportIds.value.length === 0) {
+    errorMessage.value = "缺少报表 ID";
     invalidate();
     emit("error", errorMessage.value, { code: "param" });
     return;
@@ -251,8 +250,7 @@ async function reload(): Promise<void> {
   const t0 = timing.start();
   try {
     const next = await fetcher({
-      tempIds: tempIds.value,
-      furnitureTempId: props.furnitureTempId || undefined,
+      reportIds: reportIds.value,
       params: { ...effectiveParams.value }
     });
     if (seq !== reloadSeq) return;
@@ -493,7 +491,7 @@ onUnmounted(() => {
 });
 
 watch(
-  () => [props.tempId, props.furnitureTempId, JSON.stringify(props.params)] as const,
+  () => [props.reportId, JSON.stringify(props.params)] as const,
   () => {
     if (props.autoLoad) void reload();
   }
