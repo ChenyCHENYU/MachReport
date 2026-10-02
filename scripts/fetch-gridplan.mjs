@@ -6,19 +6,23 @@ import { chromium } from "playwright";
  * 真实 gridPlan 抓取工具（需人工登录一次）
  *
  * 用法（环境地址从环境变量读取，勿硬编码内网地址）：
- *   MR_SIT_BASE=https://<sit-host> node scripts/fetch-gridplan.mjs [tempId] [furnitureTempId]
+ *   MR_SIT_BASE=https://<sit-host> node scripts/fetch-gridplan.mjs <tempId> [furnitureTempId]
  *
- * 流程：打开 SIT 平台 → 人工完成登录 → 脚本检测到登录态后自动用页面身份
- *       调 /report/codePrintReport/gridPlan → 存 tests/fixtures/gridplan-real.json
+ * 流程：打开报表平台 → 人工完成登录 → 脚本检测到登录态后自动用页面身份
+ *       调 /report/codePrintReport/gridPlan → 存 packages/mach-report/tests/fixtures/gridplan-real-<tempId>.json
  */
-const BASE = process.env.MR_SIT_BASE;
+const BASE = process.env.MR_SIT_BASE?.replace(/\/+$/, "");
 if (!BASE) {
-  console.error("[gridplan] 缺少 MR_SIT_BASE 环境变量（SIT 平台地址）");
+  console.error("[gridplan] 缺少 MR_SIT_BASE 环境变量（报表平台地址）");
   process.exit(1);
 }
-const TEMP_ID = process.argv[2] ?? "2086688990979661826";
+const TEMP_ID = process.argv[2];
+if (!TEMP_ID || !/^[a-zA-Z0-9_-]+$/.test(TEMP_ID)) {
+  console.error("[gridplan] 请传入已发布的 tempId（仅字母、数字、下划线或连字符）");
+  process.exit(1);
+}
 const FURNITURE = process.argv[3] ?? "";
-const OUT = path.resolve(process.cwd(), "packages/mach-report/tests/fixtures/gridplan-real.json");
+const OUT = path.resolve(process.cwd(), `packages/mach-report/tests/fixtures/gridplan-real-${TEMP_ID}.json`);
 
 const browser = await chromium.launch({ headless: false });
 const page = await browser.newPage();

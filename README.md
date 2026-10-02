@@ -5,7 +5,7 @@
 # @agile-team/mach-report
 
 **面向 B 端打印报表的高性能 TypeScript 引擎**：模板 → RenderPlan 单真相源 → 屏幕 / PDF / Excel / 打印四出口，
-契约级兼容 jh4j-cloud-report——换前端渲染层，后端零改动。
+提供 jh4j-cloud-report 的 `gridPlan` 接入与迁移工具；具体模板是否可替换，以真实环境验收为准。
 
 [![npm](https://img.shields.io/npm/v/@agile-team/mach-report.svg?color=2d5fb8)](https://www.npmjs.com/package/@agile-team/mach-report)
 [![CI](https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg)](https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml)
@@ -301,4 +301,4 @@ Source-available © ChenyCHENYU (Agile Team). 使用需事先取得书面授权�
 </div>
 
 
-**v1.2.0** · 单包多入口 · 类型、单测与浏览器验证 · 语义化版本演进
+**v1.2.1** · 单包多入口 · 类型、单测与浏览器验证 · 语义化版本演进

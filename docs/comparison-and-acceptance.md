@@ -23,15 +23,16 @@ FineReport 依据：[决策报表设计](https://help.fanruan.com/finereport/edi
 
 ## 尚需真实环境验收
 
-当前工作区没有 `MR_SIT_BASE`，也没有真实 `gridPlan` 样本。`real-contract.test.ts` 的 5 项真实契约测试仍会跳过。这是环境验证边界，不应表述为“已完整替换 jh4j”。获得 SIT 登录后执行：
+当前工作区没有 `MR_SIT_BASE`，也没有真实 `gridPlan` 样本。文档中的内网报表平台地址从当前执行环境连接超时。`real-contract.test.ts` 的真实契约测试仍会跳过。这是环境验证边界，不应表述为“已完整替换 jh4j”。获得可访问的报表环境和登录后执行：
 
 ```powershell
-$env:MR_SIT_BASE = "https://sit.example.com"
-pnpm.cmd capture:gridplan "已发布的tempId"
-pnpm.cmd test
+$env:MR_SIT_BASE = "https://report.example.com"
+pnpm.cmd capture:gridplan "第一张报表的tempId"
+pnpm.cmd capture:gridplan "第二张报表的tempId"
+pnpm.cmd exec vitest run packages/mach-report/src/__tests__/real-contract.test.ts --retry=0
 ```
 
-样本保存到 `packages/mach-report/tests/fixtures/gridplan-real.json`。请用经授权、已脱敏的单据采集。再选 3～5 张典型报表，逐张对照 jh4j PDF：长明细跨页、合并单元格、条码/图片、中文字体、混合纸张；检查预览、PDF、Excel 和打印。只有这一步通过后，才能对具体模板宣布可替换。
+每张样本保存为 `packages/mach-report/tests/fixtures/gridplan-real-<tempId>.json`，旧的 `gridplan-real.json` 也继续识别；样本默认忽略 Git 提交。请用经授权、已脱敏的单据采集。再选 3～5 张典型报表，逐张对照 jh4j PDF：长明细跨页、合并单元格、条码/图片、中文字体、混合纸张；检查预览、PDF、Excel 和打印。只有这一步通过后，才能对具体模板宣布可替换。
 
 性能比较也应基于同一模板、同一数据、同一机器和同一网络分别测取数、分页、首屏、导出及峰值内存。现有 `perf-budget.test.ts` 是 MachReport 内部回归门槛，不能证明相对 jh4j 或 FineReport 的速度优势。
 
