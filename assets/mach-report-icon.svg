@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80" role="img" aria-labelledby="title">
+  <title id="title">MachReport</title>
+  <rect x="2" y="2" width="76" height="76" rx="19" fill="#2455a6"/>
+  <path d="M22 14h27l10 10v39a5 5 0 0 1-5 5H22a5 5 0 0 1-5-5V19a5 5 0 0 1 5-5Z" fill="#fff"/>
+  <path d="M49 14v10h10" fill="#c9ddff"/>
+  <path d="M49 14v10h10" fill="none" stroke="#2455a6" stroke-width="2" stroke-linejoin="round"/>
+  <rect x="24" y="29" width="28" height="5" rx="2.5" fill="#4285e6"/>
+  <rect x="24" y="40" width="28" height="17" rx="2" fill="none" stroke="#2455a6" stroke-width="2"/>
+  <path d="M24 48.5h28M38 40v17" stroke="#2455a6" stroke-width="2"/>
+  <rect x="26" y="42" width="10" height="4.5" rx="1" fill="#9bc4ff"/>
+</svg>

@@ -1,304 +1,143 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/ChenyCHENYU/MachReport/main/assets/mach-report-logo.svg" alt="MachReport" width="760" />
+<img src="https://raw.githubusercontent.com/ChenyCHENYU/MachReport/main/assets/mach-report-icon.svg" alt="MachReport 图标" width="72" height="72" />
 
-# @agile-team/mach-report
+# MachReport
 
-**面向 B 端打印报表的高性能 TypeScript 引擎**：模板 → RenderPlan 单真相源 → 屏幕 / PDF / Excel / 打印四出口，
-提供 jh4j-cloud-report 的 `gridPlan` 接入与迁移工具；具体模板是否可替换，以真实环境验收为准。
+**面向打印报表的 TypeScript 引擎与 Vue 3 预览组件**
 
-[![npm](https://img.shields.io/npm/v/@agile-team/mach-report.svg?color=2d5fb8)](https://www.npmjs.com/package/@agile-team/mach-report)
+接入现有 jh4j `gridPlan`，或用本地模板生成报表；共用一份 RenderPlan 输出预览、PDF、Excel 和打印。
+
+[![npm](https://img.shields.io/npm/v/@agile-team/mach-report.svg)](https://www.npmjs.com/package/@agile-team/mach-report)
 [![CI](https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg)](https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml)
-[![dependencies](https://img.shields.io/badge/dependencies-0-2ea44f)](https://www.npmjs.com/package/@agile-team/mach-report)
-[![node](https://img.shields.io/badge/node-%3E%3D18-2d5fb8)](https://www.npmjs.com/package/@agile-team/mach-report)
-[![license](https://img.shields.io/badge/license-Source--Available-4a4d52)](#-license)
+[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A518-2455a6)](https://www.npmjs.com/package/@agile-team/mach-report)
 
-[快速开始](#快速开始) · [核心能力](#核心能力) · [配置中心](#配置中心) · [引擎 API](#引擎-api) · [从 jh4j 迁移](#从-jh4j-迁移)
+[快速开始](#快速开始) · [接入方式](#接入方式) · [能力一览](#能力一览) · [使用边界](#使用边界) · [文档导航](#文档导航)
 
 </div>
 
----
+## 适合用在哪里
+
+| 场景 | 用法 |
+| --- | --- |
+| 已有 jh4j 报表服务，需要在 Vue 页面预览和打印 | 传入已发布的 `tempId`，复用现有 `gridPlan` 接口 |
+| 报表数据在前端或自有服务中 | 用模板 DSL / JSON 分页，或传入自定义 `PlanFetcher` |
+| 定时归档、邮件附件等服务端任务 | 在 Node.js 中按需导入 PDF / XLSX 子路径 |
+
+MachReport 提供渲染引擎和接入组件；目录、数据源、可视设计、权限与发布流程仍由现有报表平台负责。具体 jh4j 模板的版式需要逐张验收，见[对标与验收记录](https://github.com/ChenyCHENYU/MachReport/blob/main/docs/comparison-and-acceptance.md)。
 
 ## 快速开始
 
+**1. 安装**
+
 ```bash
-pnpm add @agile-team/mach-report        # 唯一依赖：vue 为可选 peer，重能力全部子路径按需
+pnpm add @agile-team/mach-report
 ```
 
+使用 Vue 组件时，宿主项目需要 Vue 3；只用引擎或 Node.js 导出时无需引入 Vue 子路径。
+
+**2. 注册插件**（同源部署，浏览器请求已带鉴权）
+
 ```ts
-// main.ts —— 入口一次注册，业务页面从此零胶水代码
+// main.ts
+import { createApp } from "vue";
+import App from "./App.vue";
 import { machReportPlugin } from "@agile-team/mach-report/vue";
 import "@agile-team/mach-report/vue/style.css";
 
-app.use(machReportPlugin);              // 零配置：同源直连 jh4j 端点
-// 或 app.use(machReportPlugin, { baseUrl: "/sub/mach-report", request: axios });
+const app = createApp(App);
+app.use(machReportPlugin);
+app.mount("#app");
 ```
 
-```vue
-<!-- 任意业务页面：一行组件。打印 / PDF / Excel / 搜索 / 缩略图 / 参数面板全部内置 -->
-<MachReportPreview temp-id="CK_TEMPLATE_001" :params="{ id: '9' }" height="calc(100vh - 206px)" />
-```
-
-零配置适用于同源且浏览器请求已带鉴权的部署；宿主通过请求拦截器加 token 时，请传入宿主 `request`。中文 PDF 需部署支持中文的字体并配置 `pdfFontUrl`，缺字时导出会报错，避免下载不完整文件。完整验收边界见[对标与实用化验收](https://github.com/ChenyCHENYU/MachReport/blob/main/docs/comparison-and-acceptance.md)。
-
-## 核心能力
-
-| 域 | 能力 |
-|---|---|
-| **报表语义** | 分组小计 / 总合计（防孤行）、页码占位符 `{page}/{totalPages}`、列格式化（千分位 / 日期 / 百分比）、条件格式规则 |
-| **模板体系** | DSL / JSON / jh4j 存量导入三来源；多模板拼接；公共页眉页脚；参数面板（声明式查询条件）。存量导入的富文本、图片类和子报表可能降级，需按模板验收 |
-| **渲染性能** | 页级虚拟化；transform 缩放；Canvas 窗口化分页器；内部性能预算见下文 |
-| **导出出口** | PDF 前端矢量直出、Excel 真表格、Word 兼容 HTML `.doc`、图片 PNG/JPEG（每页一张）、逐页打印；复杂版式以 PDF 验收 |
-| **预览交互** | 搜索（跳页 + 高亮）、Ctrl+滚轮 / 键盘缩放翻页、缩略图侧栏、缩放记忆、调试面板 `?mrp-debug=1` |
-| **工程健壮性** | 加载竞态代际令牌、结构化错误码、请求超时、批量打印合并文档、渲染计划规模告警、导出保真提示 |
-
-<details>
-<summary><b>单包架构说明（为什么只有一个包）</b></summary>
-
-框架组件在 `./vue` 子路径（vue 声明为 **optional peer**——React / Node 宿主不会被装上 vue）；
-pdf-lib / node-sql-parser / exceljs 分别内联进 `./pdf` `./sql` `./xlsx` 子路径产物——**不导入不进依赖图**，
-主入口零框架耦合零重依赖（ESLint 边界规则 + 产物守卫测试双保险）。
-自引用（self-reference）让 `./vue` 静态复用引擎、PDF 懒加载走 `./pdf`，运行时引擎代码全局单份。
-ESM + CJS 双格式 + `.d.ts/.d.cts` 双声明，Node ≥ 18。
-
-</details>
-
-<details>
-<summary><b>三种集成姿势（全局插件 / 局部导入 / 异步入口）</b></summary>
-
-**① 全局插件（推荐）**：上文快速开始即是。插件注册全局组件 `<MachReportPreview>`（懒加载分片零首屏成本）、注入数据面 / PDF 导出器 / 配置中心。
-
-**② 局部导入**——单页面使用：
+**3. 在业务页使用已发布的报表 ID**
 
 ```vue
-<script setup lang="ts">
-import { ReportPreview, createLocalFetcher } from "@agile-team/mach-report/vue";
-const fetcher = createLocalFetcher({
-  T1: { tempId: "T1", template, datasets: { detail: rows } }
-});
-</script>
 <template>
-  <ReportPreview temp-id="T1" :fetcher="fetcher" @loaded="onLoaded" @error="onError" />
+  <MachReportPreview
+    temp-id="CK_TEMPLATE_001"
+    :params="{ id: '9' }"
+    height="70vh"
+  />
 </template>
 ```
 
-**③ 异步入口**——首屏敏感页面（组件拆独立分片 + 预取）：
+插件默认请求同源 `/report/codePrintReport/gridPlan`。如果宿主通过请求拦截器加 token，或有网关前缀，把第 2 步的 `app.use(machReportPlugin)` 替换为：
 
 ```ts
-import AsyncMachReportPlugin, { preloadMachReport } from "@agile-team/mach-report/vue/async";
-app.use(AsyncMachReportPlugin, { baseUrl: "/sub/mach-report" });
-void preloadMachReport();   // 路由 hover 时预取，正式渲染零等待
-```
+import request from "@/utils/request"; // 宿主项目现有请求客户端
 
-</details>
-
-<details>
-<summary><b>配置中心（presets / 文案 / 主题 / 日志通道）</b></summary>
-
-```ts
-// src/config/mach-report.config.ts —— 集中到独立配置文件
-import { defineMachReportConfig, defineMachReportPreset } from "@agile-team/mach-report/vue";
-
-export default defineMachReportConfig({
-  defaults: {
-    gapPx: 18,
-    pdfFontUrl: "/simhei.ttf",
-    showParams: true,                                    // 参数面板
-    messages: { title: "Report Preview" },               // 全量文案可覆写（i18n）
-    theme: { shellBg: "#2b2b2b", btnActiveBg: "#1677ff" }, // --mrp-* 主题变量
-    logger: console                                      // 校验告警通道（静默传 SILENT_LOGGER）
-  },
-  presets: {
-    lean:  defineMachReportPreset({ showExport: false, showPrint: false }),  // 纯预览
-    print: defineMachReportPreset({ showPdfWindow: false })
-  },
-  defaultPreset: "lean"
+app.use(machReportPlugin, {
+  request,
+  baseUrl: "/sub/mach-report",
+  pdfFontUrl: "/fonts/NotoSansSC-Regular.ttf"
 });
 ```
 
-**优先级**：`组件 props` > `provideMachReportConfig(overlay)`（路由级响应式叠加）> `preset` > `defaults` > `内置缺省`。
+其中 `request` 是宿主已有的 Axios 风格客户端。中文 PDF 需部署包含所用汉字的字体；缺字时导出会报错，避免下载残缺文件。
 
-**参数面板**：模板声明 `.params([...])` 或 prop `:param-defs`，组件自动生成查询条件（text / number / date / select、必填、默认值、查询 / 重置 / 回车），查询时面板值与 `props.params` 合并；编程式 `setParams(values)` 同步面板并查询。
+## 接入方式
 
-**主题**也可不经配置中心，直接在宿主 CSS 覆写 `--mrp-shell-bg / --mrp-toolbar-bg / --mrp-btn-*`。
+| 需要的数据来源 | 选择 | 入口 |
+| --- | --- | --- |
+| 同源 jh4j 服务 | 插件默认 fetch | `@agile-team/mach-report/vue` |
+| 宿主网关、鉴权拦截器 | 插件传 `request` / `baseUrl` | `machReportPlugin` |
+| 本地模板与数据 | `createLocalFetcher` | `@agile-team/mach-report/vue` |
+| 自有服务已生成 RenderPlan | 实现 `PlanFetcher` | `@agile-team/mach-report/vue` |
+| 不使用 Vue | 模板、渲染与导出函数 | 主入口及 `/pdf`、`/xlsx` 子路径 |
 
-</details>
+完整的参数、事件、插槽、局部导入和异步入口示例见 [API 文档](https://github.com/ChenyCHENYU/MachReport/blob/main/docs/API.md)。
 
-<details>
-<summary><b>模板 DSL 与报表语义</b></summary>
+## 能力一览
 
-```ts
-const template = createTemplate()
-  .params([                                             // 参数面板：声明式查询条件
-    { field: "whCode", label: "仓库", type: "select", required: true,
-      options: [{ label: "全部仓库", value: "ALL" }], defaultValue: "ALL" },
-    { field: "date", label: "日期", type: "date", defaultValue: "2026-09-30" }
-  ])
-  .page("a4", { landscape: true, margins: { marginTopMm: 12 } })   // 纸张预设 + 横向
-  .text("出库单", { leftMm: 70, topMm: 2, widthMm: 70 }, { fontSize: 16, bold: true, align: "center" })
-  .text("第 {page} 页 / 共 {totalPages} 页", { leftMm: 65, topMm: 285, widthMm: 80 }, { align: "center" })
-  .barcode("CK-001", { leftMm: 12, topMm: 14, widthMm: 40, heightMm: 12 })
-  .list("detail", { leftMm: 12, topMm: 32, widthMm: 186 }, [
-    { header: "物料", field: "name", widthMm: 96 },
-    { header: "数量", field: "qty", widthMm: 45, format: { kind: "number", thousands: true } },
-    { header: "金额", field: "amount", widthMm: 45,
-      format: { kind: "number", thousands: true, digits: 2 },
-      rules: [{ when: { field: "amount", op: "<", value: 0 }, style: { color: "#cc0000" } }] },
-    { header: "日期", field: "date", widthMm: 45, format: { kind: "date", pattern: "YYYY-MM-DD" } }
-  ], {
-    groupBy: { field: "wh", headerTemplate: "仓库：{value}", subtotal: ["qty", "amount"] },
-    grandTotal: true
-  })
-  .build();
+| 环节 | 已提供的能力 |
+| --- | --- |
+| 输入与分页 | jh4j `gridPlan`；本地 DSL / JSON；明细分页、分组小计、总计、页码、条件格式 |
+| 预览 | DOM / Canvas、页级虚拟化、缩放、搜索、缩略图、参数面板 |
+| 输出 | 浏览器打印、前端 PDF、真正的 `.xlsx`、逐页 PNG / JPEG、Word 兼容 HTML `.doc` |
+| 接入与诊断 | Vue 插件、自定义数据获取器、结构化错误、导出进度与保真告警 |
+| 扩展入口 | Node.js PDF / XLSX 导出、动态 SQL 工具、报表管理 API 客户端 |
+
+```text
+本地模板 + 数据 ── 分页 ──┐
+                         ├─ RenderPlan ─┬─ 预览 / 打印
+jh4j gridPlan ────────────┘              ├─ PDF / Excel
+                                        └─ 图片 / Word 兼容文档
 ```
 
-语义要点：格式化在进 RenderPlan 前完成（三后端零感知，`digits` 显式精确保留、日期按本地日历日解析）；
-分组 Map 归组与数据顺序无关；条件规则命中才克隆样式（热路径驻留不破坏）；含占位符的文本转为页锚，每个输出页克隆注入。
+包按子路径拆分：`/vue`、`/pdf`、`/xlsx`、`/sql`、`/manager` 按需导入。主入口只包含框架无关的引擎能力。
 
-</details>
+## 使用边界
 
-<details>
-<summary><b>数据面（fetcher 生态：零配置 / jh4j / 本地 / 自定义）</b></summary>
+- **真实模板保真**：富文本、图片类组件和子报表的存量模板导入可能降级；应以同一业务单据的 jh4j PDF 为基准，逐张检查跨页、合并单元格、字体和打印。
+- **导出格式**：XLSX 保留表格数据与结构，不承诺 PDF 式像素排版；`.doc` 是 Word 可打开的 HTML 文档，并非 `.docx`。
+- **性能结论**：仓库里的性能测试是内部回归门槛。与其他报表产品比较，应使用同一模板、数据和环境进行端到端测量。
+- **真实环境验证**：当前仓库缺少已脱敏的真实 `gridPlan` 样本，相关契约测试会跳过；采集和验收步骤见[验收记录](https://github.com/ChenyCHENYU/MachReport/blob/main/docs/comparison-and-acceptance.md)。
 
-| 工具 | 场景 |
-|---|---|
-| 内置（零配置） | 插件不传 request / fetcher 时自动用全局 fetch 同源请求 `/report/codePrintReport/gridPlan` |
-| `createFetchRequest({ baseUrl, headers, credentials, timeoutMs })` | 零依赖 fetch 适配（AbortController 超时 + 错误语义） |
-| `createJh4jGridPlanFetcher({ request, baseUrl })` | 接宿主 axios 风格客户端，消费 jh4j gridPlan（路径 / 出入参契约兼容） |
-| `createLocalFetcher({ [tempId]: { template, datasets } })` | 本地模板（离线 / 单测 / 无后端）；面板参数用 `:param-defs="template.params"` 直取 |
+## 文档导航
 
-自定义数据面只需实现：`type PlanFetcher = (input: { tempIds, furnitureTempId?, params }) => Promise<RenderPlan>`——
-任何后端能吐 RenderPlan JSON 就能接（schema 有校验器与文档）。
+| 文档 | 内容 |
+| --- | --- |
+| [API 速查](https://github.com/ChenyCHENYU/MachReport/blob/main/docs/API.md) | Vue 属性 / 事件、配置中心、模板 DSL、导出与管理 API |
+| [对标与验收记录](https://github.com/ChenyCHENYU/MachReport/blob/main/docs/comparison-and-acceptance.md) | 与 jh4j / FineReport 的范围对比、真实模板验收方法 |
+| [最小示例](https://github.com/ChenyCHENYU/MachReport/tree/main/examples/minimal) | Vue 接入与预览交互 |
+| [进展记录](https://github.com/ChenyCHENYU/MachReport/blob/main/docs/PROGRESS.md) | 已实现变更与验证记录 |
 
-</details>
+## 本地开发
 
-<details>
-<summary><b>引擎 API（框架无关，子路径按需）</b></summary>
-
-```ts
-import {
-  createTemplate, paginateTemplate,           // 模板 DSL / 分页计算
-  renderPlan, renderPage,                     // RenderPlan → DOM
-  renderPlanToCanvas, createCanvasPager,      // 位图渲染 / 窗口化分页器（大报表）
-  computePageWindow, validateRenderPlan,      // 虚拟化窗口 / 计划校验（JSON path 定位）
-  importJh4jTemplateContent,                  // jh4j 模板 content → 本地模板
-  wrapText, createCanvasMeasurer              // 文本测量（可注入，三端折行一致）
-} from "@agile-team/mach-report";
-import { renderPlanToPdf } from "@agile-team/mach-report/pdf";      // PDF 直出（pdf-lib 已内联）
-import { renderPlanToXlsx } from "@agile-team/mach-report/xlsx";    // Excel 导出
-import { renderDynamicSql } from "@agile-team/mach-report/sql";     // 动态 SQL（AST 校验）
-import { createReportAdminClient } from "@agile-team/mach-report/manager"; // 管理端 API
-```
-
-**渲染管线（单真相源）**：
-
-```
-模板 JSON ──+──> paginateTemplate(template, datasets) ──> RenderPlan
-             │                                                   ├──> DOM 虚拟化预览
-jh4j gridPlan ──（契约兼容消费）                                 ├──> Canvas 窗口化分页器
-                                                                  ├──> PDF 矢量直出
-                                                                  └──> print（named pages）
-```
-
-**大报表 Canvas**：`createCanvasPager(plan, { dpr, overscan }).attach(scrollContainer)` —— 视口窗口 + 画布池复用 + 每帧限量绘制 + resize 自适应。
-
-**批量打印**：`printPlans([plan1, plan2], { onProgress })` 多单合并单文档（混合纸张 named pages），只弹一次打印框。
-
-</details>
-
-<details>
-<summary><b>性能预算与比较边界</b></summary>
-
-`perf-budget.test.ts` 是内部回归门槛：5,000 行分页 < 600ms、DOM 渲染 < 120ms/页、1,000 页窗口计算 100 次 < 50ms（测试环境口径）。它不含网关取数、真实字体加载、打印机或浏览器下载耗时。与 jh4j / FineReport 的性能比较需使用相同模板、数据、机器和网络做端到端测量；方法见[验收文档](https://github.com/ChenyCHENYU/MachReport/blob/main/docs/comparison-and-acceptance.md)。
-
-</details>
-
-<details>
-<summary><b>Node 无头导出通道（同一引擎两端执行）</b></summary>
-
-引擎框架无关——`renderPlanToPdf` / `renderPlanToXlsx` 及 `loadFontWithCache` 均可在 **Node 18+** 直接运行
-（无 IndexedDB 环境自动降级内存缓存），解锁服务端场景而**不需要另写一套渲染**：
-
-```ts
-// server.ts —— 定时任务 / 邮件推送 / 归档，无浏览器环境
-import { renderPlanToPdf } from "@agile-team/mach-report/pdf";
-import { loadFontWithCache } from "@agile-team/mach-report/pdf";
-import { renderPlanToXlsx } from "@agile-team/mach-report/xlsx";
-
-const font = await loadFontWithCache("/path/to/simhei.ttf");   // 读文件系统可自行替换
-const { bytes } = await renderPlanToPdf(plan, font ? { customFontBytes: font } : {});
-await fs.writeFile("archive.pdf", bytes);
-```
-
-与 jh4j"服务端另写一套渲染"本质不同：**一份渲染代码两端执行**，服务端只做无头宿主（定时生成、批量归档、合规留档回传）。
-
-</details>
-
-<details>
-<summary><b>从 jh4j 迁移（契约对照）</b></summary>
-
-| 契约项 | 对齐方式 |
-|---|---|
-| 组件 props / 事件 / ref | `temp-id / furniture-temp-id / params / height / auto-load / show-*`；`loaded / error`；`reload / print / exportAs / openPdfWindow / gotoPage / setParams` |
-| 数据接口 | `/report/codePrintReport/gridPlan` 路径与出入参兼容 |
-| 存量模板 | `importJh4jTemplateContent` 逆向 schema 直接转换（含告警清单） |
-| 存量 SQL | `#{}` `${}` `{if}` 三语法零改写；AST 级单 SELECT 校验加严 |
-| 模块联邦 | expose 名对齐，宿主配 `/sub/mach-report/` 网关即可灰度共存 |
-
-</details>
-
-<details>
-<summary><b>打印兼容性指引（实战排障）</b></summary>
-
-| 现象 | 原因与处理 |
-|---|---|
-| 表格底色打印丢失 | 浏览器默认关闭"背景图形"——打印对话框勾选*背景图形* |
-| 混合纸张按 A4 输出 | named pages 需较新内核（Chrome 85+ / Safari 16+ / Firefox 133+），旧内核退化统一纸张 |
-| iOS App 内打印无效 | WKWebView 限制——引导用户走"分享 → 打印"或导出 PDF |
-| 字体首载后失效 | PDF 字体走 IndexedDB 缓存（15s 超时回退内置西文字体），清理站点数据后重新拉取 |
-
-</details>
-
-<details>
-<summary><b>架构与质量门禁</b></summary>
-
-```
-MachReport（pnpm monorepo · TS strict · 单 npm 包）
-├── packages/
-│   ├── mach-report/                  # 唯一发布包（零运行时依赖，ESM+CJS）
-│   │   └── src/
-│   │       ├── layout/  render/  schema/  builder/  compat/  format.ts   # 引擎核心
-│   │       └── pdf/  sql/  manager/  xlsx/  vue/    # 子路径域（重依赖/框架按需隔离）
-│   └── federation/                   # 模块联邦远程入口（部署产物，不发 npm）
-├── examples/                         # minimal 演示 + fed-host 联邦宿主实证
-├── e2e/  docs/  assets/
-```
+需要 Node.js ≥ 18 和 pnpm ≥ 11。
 
 ```bash
-pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test
-# TS strict(含 vue-tsc) · ESLint 0 错 0 警 · 全量单测(纯逻辑 node 环境分流) · 真 Chromium E2E(0 重试) · 七入口构建
+pnpm install
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
+pnpm exec playwright test
 ```
 
-关键设计决策：单真相源渲染 / 单包子路径架构 / 自引用复用 / 三后端共享几何与样式解析 / 性能预算门禁 / 变更日志（changesets）。
+工作区包含唯一发布包 `packages/mach-report`、模块联邦部署件和示例应用。发布流程与协作约定见 [AGENTS.md](https://github.com/ChenyCHENYU/MachReport/blob/main/AGENTS.md)。
 
-</details>
+## 许可
 
-## 路线图
-
-- v1.0（已完成）：单包架构 · 报表语义四件套 · 参数面板 · 交互完整面 · 双远端 + npm 定版
-- 设计器画布（拖拽 / 属性面板 / 撤销栈）——独立立项，规划中
-- 管理端控制台 UI（`./manager` API 已就绪）——独立立项，规划中
-- 交叉表 / 公式列——按真实需求排期
-
----
-
-<div align="center">
-
-**Mach 家族**：[MachTable](https://www.npmjs.com/package/@agile-team/mach-table)（数据表格）→ **MachReport**（打印报表）
-
-Source-available © ChenyCHENYU (Agile Team). 使用需事先取得书面授权，详见 [LICENSE](LICENSE)。
-
-</div>
-
-
-**v1.2.1** · 单包多入口 · 类型、单测与浏览器验证 · 语义化版本演进
+Source-available © ChenyCHENYU (Agile Team)。使用需事先取得书面授权，详见 [LICENSE](https://github.com/ChenyCHENYU/MachReport/blob/main/LICENSE)。
