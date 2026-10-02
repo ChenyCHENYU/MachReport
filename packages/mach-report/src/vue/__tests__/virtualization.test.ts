@@ -33,6 +33,22 @@ function rows(n: number) {
 }
 
 describe("视口虚拟化", () => {
+  it("运行时调整页间距同步更新占位与窗口几何", async () => {
+    const fetcher = createLocalFetcher({
+      P: { tempId: "P", template: tpl, datasets: { rows: rows(300) } }
+    });
+    const wrapper = mount(ReportPreview, { props: { tempId: "P", fetcher, gapPx: 10 } });
+    await vi.waitFor(() => expect(wrapper.find(".mrp-scale").exists()).toBe(true));
+    const before = parseFloat((wrapper.find(".mrp-scale").element as HTMLElement).style.height);
+    const pages = Number((wrapper.text().match(/\/ (\d+)/) ?? [])[1]);
+    const transform = (wrapper.find(".mrp-scale-inner").element as HTMLElement).style.transform;
+    const zoom = Number((transform.match(/scale\(([^)]+)\)/) ?? [])[1]);
+    await wrapper.setProps({ gapPx: 30 });
+    const after = parseFloat((wrapper.find(".mrp-scale").element as HTMLElement).style.height);
+    expect(after - before).toBeCloseTo(pages * 20 * zoom, 1);
+    wrapper.unmount();
+  });
+
   it("200 页计划只挂载窗口内页 + 上下占位", async () => {
     const fetcher = createLocalFetcher({
       BIG: { tempId: "BIG", template: tpl, datasets: { rows: rows(6000) } }

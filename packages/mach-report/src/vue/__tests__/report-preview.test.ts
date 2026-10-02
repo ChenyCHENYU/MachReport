@@ -238,4 +238,16 @@ describe("jh4j gridPlan 适配器", () => {
       fetcher({ tempIds: ["X"], params: {} })
     ).rejects.toThrowError("模板不存在");
   });
+
+  it("业务参数不能覆盖模板 ID；缺少 pages 的成功响应按契约错误处理", async () => {
+    const request = vi.fn().mockResolvedValueOnce({ code: 200, data: { pages: [] } })
+      .mockResolvedValueOnce({ code: 200, data: {} });
+    const fetcher = createJh4jGridPlanFetcher({ request: request as unknown as MockRequest });
+    await fetcher({
+      tempIds: ["REAL"], furnitureTempId: "F1",
+      params: { tempId: "FAKE", furnitureTempId: "FAKE", id: "9" }
+    });
+    expect(request.mock.calls[0]![0].params).toEqual({ id: "9", tempId: "REAL", furnitureTempId: "F1" });
+    await expect(fetcher({ tempIds: ["REAL"], params: {} })).rejects.toThrow(/pages 数组/);
+  });
 });

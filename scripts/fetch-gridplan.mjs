@@ -18,7 +18,7 @@ if (!BASE) {
 }
 const TEMP_ID = process.argv[2] ?? "2086688990979661826";
 const FURNITURE = process.argv[3] ?? "";
-const OUT = path.resolve(process.cwd(), "packages/core/tests/fixtures/gridplan-real.json");
+const OUT = path.resolve(process.cwd(), "packages/mach-report/tests/fixtures/gridplan-real.json");
 
 const browser = await chromium.launch({ headless: false });
 const page = await browser.newPage();
@@ -49,15 +49,20 @@ const payload = await page.evaluate(async (target) => {
   }
 }, url);
 
-if (payload.body == null) {
-  console.error("[gridplan] 返回非 JSON：", payload.status, payload.raw);
+const pages = payload.body?.data?.pages;
+if (payload.status !== 200 || payload.body?.code !== 200 || !Array.isArray(pages)) {
+  console.error("[gridplan] 响应不符合 gridPlan 契约：", {
+    status: payload.status,
+    code: payload.body?.code,
+    message: payload.body?.message,
+    pages: Array.isArray(pages) ? pages.length : "N/A"
+  });
   await browser.close();
   process.exit(1);
 }
 
 fs.mkdirSync(path.dirname(OUT), { recursive: true });
 fs.writeFileSync(OUT, JSON.stringify(payload.body, null, 1), "utf-8");
-const pages = payload.body?.data?.pages;
 console.log(
   `[gridplan] 已保存 ${OUT}\n  HTTP ${payload.status} code=${payload.body?.code} pages=${Array.isArray(pages) ? pages.length : "N/A"}`
 );

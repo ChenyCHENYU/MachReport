@@ -20,6 +20,31 @@ const tpl: ReportTemplate = {
 };
 
 describe("machReportPlugin（一次注册，业务侧一行使用）", () => {
+  it("内置 fetch 使用 baseUrl 时只拼接一次网关前缀", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        code: 200,
+        data: { pages: [{ pageWidthMm: 210, pageHeightMm: 297, components: [] }] }
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const app = createApp({ render: () => h(ReportPreview, { tempId: "T1", autoLoad: true }) });
+    try {
+      app.use(machReportPlugin, { baseUrl: "/sub/mach-report/" });
+      app.mount(document.createElement("div"));
+      await vi.waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          "/sub/mach-report/report/codePrintReport/gridPlan?tempId=T1",
+          expect.objectContaining({ method: "GET" })
+        );
+      });
+    } finally {
+      app.unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("request 选项自动组装 jh4j fetcher 并注入", async () => {
     const request = vi.fn().mockResolvedValue({
       code: 200,

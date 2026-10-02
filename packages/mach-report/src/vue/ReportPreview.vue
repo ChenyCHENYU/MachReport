@@ -96,11 +96,13 @@ const props = defineProps({
 const emit = defineEmits<{
   (e: "loaded", pageCount: number): void;
   (e: "error", message: string, detail?: { code: string; cause?: unknown }): void;
+  (e: "warning", message: string): void;
 }>();
 
 const plan = shallowRef<RenderPlan | null>(null);
 const loading = ref(false);
 const errorMessage = ref("");
+const exportNotice = ref<{ kind: "error" | "warning" | "progress"; message: string } | null>(null);
 const currentPage = ref(1);
 const containerRef = ref<HTMLElement | null>(null);
 const viewportRef = ref<HTMLElement | null>(null);
@@ -114,9 +116,6 @@ const UI_MEMORY_KEY = "mach-report:ui";
 
 const injectedFetcher = inject(MACH_REPORT_FETCHER_KEY, null);
 const injectedPdfExporter = inject(MACH_REPORT_PDF_EXPORTER_KEY, null);
-/** 未装插件时兜底：懒加载默认导出器（bundle 延迟到首次导出） */
-const fallbackPdfExporter: PdfExporter =
-  injectedPdfExporter ?? createDefaultPdfExporter({ fontUrl: "/simhei.ttf" });
 
 const tempIds = computed(() => normalizeTempIds(props.tempId));
 const pageCount = computed(() => plan.value?.pages.length ?? 0);
@@ -134,6 +133,17 @@ const effectiveShowPrint = computed(() => props.showPrint ?? resolved.value.show
 const effectiveShowPdfWindow = computed(() => props.showPdfWindow ?? resolved.value.showPdfWindow);
 const effectiveGapPx = computed(() => props.gapPx ?? resolved.value.gapPx);
 const effectiveShowParams = computed(() => props.showParams ?? resolved.value.showParams);
+let cachedPdfFontUrl: string | null = null;
+let cachedPdfExporter: PdfExporter | null = null;
+function getPdfExporter(): PdfExporter {
+  if (injectedPdfExporter) return injectedPdfExporter;
+  const fontUrl = resolved.value.pdfFontUrl;
+  if (!cachedPdfExporter || cachedPdfFontUrl !== fontUrl) {
+    cachedPdfFontUrl = fontUrl;
+    cachedPdfExporter = createDefaultPdfExporter({ fontUrl });
+  }
+  return cachedPdfExporter;
+}
 
 // ── 参数面板：定义优先级 prop > 模板 params；值合并优先级 面板值 > props.params ──
 /** 本地模式：createLocalFetcher 无法把模板递给组件，宿主可用 template.params 直读；此处兜底从模板无门获取，走 prop */
@@ -151,14 +161,17 @@ function initParamValues(defs: ReportParamDef[]): void {
 }
 initParamValues(effectiveParamDefs.value);
 watch(effectiveParamDefs, (defs) => initParamValues(defs));
+watch(() => JSON.stringify(props.params), () => initParamValues(effectiveParamDefs.value));
 
 /** 生效参数：面板值覆盖宿主传入值（面板是"用户当前意图"） */
-const effectiveParams = computed<Record<string, string>>(() => ({
-  ...props.params,
-  ...Object.fromEntries(
-    Object.entries(paramValues.value).filter(([, v]) => v !== "")
-  )
-}));
+const effectiveParams = computed<Record<string, string>>(() => {
+  const next = { ...props.params };
+  for (const [field, value] of Object.entries(paramValues.value)) {
+    if (value === "") delete next[field];
+    else next[field] = value;
+  }
+  return next;
+});
 
 function missingRequired(): ReportParamDef[] {
   return effectiveParamDefs.value.filter(
@@ -195,7 +208,7 @@ const { zoom, zoomMode, applyFitZoom, setZoom } = useZoom(() => ({
 
 const pageWindow = usePageWindow(plan, zoom, {
   pxPerMm: PX_PER_MM,
-  gapPx: effectiveGapPx.value
+  gapPx: effectiveGapPx
 });
 const { contentSize, windowRange, visiblePages, makeScrollHandler, refreshViewport } = pageWindow;
 const onViewportScroll = makeScrollHandler(currentPage, pageCount);
@@ -207,6 +220,7 @@ function setZoomRaw(next: number): void {
 }
 
 function invalidate(): void {
+  releasePrintFrame();
   plan.value = null;
   currentPage.value = 1;
   search.reset();
@@ -232,6 +246,7 @@ async function reload(): Promise<void> {
   }
   loading.value = true;
   errorMessage.value = "";
+  exportNotice.value = null;
   invalidate();
   const t0 = timing.start();
   try {
@@ -292,8 +307,25 @@ function gotoPage(n: number): void {
 }
 
 const { print, exportAs, openPdfWindow, releasePrintFrame } = usePrintExport(plan, {
-  getPdfExporter: () => fallbackPdfExporter,
-  onError: (message, code) => emit("error", message, { code: code ?? "print" })
+  getPdfExporter,
+  onError: (message, code) => {
+    exportNotice.value = { kind: "error", message };
+    emit("error", message, { code: code ?? "print" });
+  },
+  onWarning: (message) => {
+    exportNotice.value = { kind: "warning", message };
+    emit("warning", message);
+  },
+  onBusy: (format) => {
+    if (format) {
+      exportNotice.value = {
+        kind: "progress",
+        message: resolvedMessages.value.exporting.replace("{format}", format)
+      };
+    } else if (exportNotice.value?.kind === "progress") {
+      exportNotice.value = null;
+    }
+  }
 });
 
 /** 控制器注入：后代组件 useReportPreview() 免模板 ref 编程式访问（与 expose 同面） */
@@ -509,6 +541,9 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams });
       @search-toggle="search.toggle"
       @thumbs-toggle="showThumbs = !showThumbs"
     />
+    <div v-if="exportNotice" class="mrp-export-notice" :class="`mrp-export-${exportNotice.kind}`" role="alert">
+      {{ exportNotice.message }}
+    </div>
     <div class="mrp-main">
       <div
         ref="viewportRef"
@@ -629,6 +664,9 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams });
   font-size: 13px;
 }
 .mrp-error { color: #ff9d9d; }
+.mrp-export-notice { padding: 7px 12px; font-size: 12px; background: #fff0c2; color: #613c00; }
+.mrp-export-error { background: #ffe0df; color: #8e1f1f; }
+.mrp-export-progress { background: #e7f0ff; color: #1a4d86; }
 .mrp-retry {
   margin-left: 12px;
   background: transparent;

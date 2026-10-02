@@ -40,6 +40,23 @@ async function mountPanel(extra: Record<string, unknown> = {}) {
 }
 
 describe("参数面板（使用侧零表单代码）", () => {
+  it("宿主切换单据时同步新参数；清空可选条件时不沿用宿主旧值", async () => {
+    const { wrapper, seen } = await mountPanel({ params: { keyword: "旧单据" } });
+    await wrapper.setProps({ params: { keyword: "新单据" } });
+    await vi.waitFor(() => expect(seen[seen.length - 1]?.keyword).toBe("新单据"));
+    const input = wrapper.element.querySelector('input[placeholder="物料模糊查询"]') as HTMLInputElement;
+    expect(input.value).toBe("新单据");
+    input.value = "";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const select = wrapper.element.querySelector("select") as HTMLSelectElement;
+    select.value = "W1";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    await wrapper.vm.$nextTick();
+    await wrapper.findAll("button").find((b) => b.text().includes("查"))!.trigger("click");
+    await vi.waitFor(() => expect(seen[seen.length - 1]?.keyword).toBeUndefined());
+    wrapper.unmount();
+  });
+
   it("按 defs 渲染四类控件，默认值就位", async () => {
     const { wrapper } = await mountPanel();
     const panel = wrapper.findComponent(ReportParamPanel);

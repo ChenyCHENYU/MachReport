@@ -39,16 +39,18 @@ app.use(machReportPlugin);              // 零配置：同源直连 jh4j 端点
 <MachReportPreview temp-id="CK_TEMPLATE_001" :params="{ id: '9' }" height="calc(100vh - 206px)" />
 ```
 
+零配置适用于同源且浏览器请求已带鉴权的部署；宿主通过请求拦截器加 token 时，请传入宿主 `request`。中文 PDF 需部署支持中文的字体并配置 `pdfFontUrl`，缺字时导出会报错，避免下载不完整文件。完整验收边界见[对标与实用化验收](https://github.com/ChenyCHENYU/MachReport/blob/main/docs/comparison-and-acceptance.md)。
+
 ## 核心能力
 
 | 域 | 能力 |
 |---|---|
 | **报表语义** | 分组小计 / 总合计（防孤行）、页码占位符 `{page}/{totalPages}`、列格式化（千分位 / 日期 / 百分比）、条件格式规则 |
-| **模板体系** | DSL / JSON / jh4j 存量导入三来源；多模板拼接；公共页眉页脚；参数面板（声明式查询条件） |
-| **渲染性能** | 5k 行分页 ~57ms；页级虚拟化；transform 缩放零重排；Canvas 窗口化分页器（内存 O(窗口)） |
-| **导出出口** | PDF 前端矢量直出（字体子集化 + 缓存）、Excel 真表格、**Word 可编辑 .doc**、**图片 PNG/JPEG**（每页一张）、打印（named pages / 流式分块）——全部零后端 |
+| **模板体系** | DSL / JSON / jh4j 存量导入三来源；多模板拼接；公共页眉页脚；参数面板（声明式查询条件）。存量导入的富文本、图片类和子报表可能降级，需按模板验收 |
+| **渲染性能** | 页级虚拟化；transform 缩放；Canvas 窗口化分页器；内部性能预算见下文 |
+| **导出出口** | PDF 前端矢量直出、Excel 真表格、Word 兼容 HTML `.doc`、图片 PNG/JPEG（每页一张）、逐页打印；复杂版式以 PDF 验收 |
 | **预览交互** | 搜索（跳页 + 高亮）、Ctrl+滚轮 / 键盘缩放翻页、缩略图侧栏、缩放记忆、调试面板 `?mrp-debug=1` |
-| **工程健壮性** | 加载竞态代际令牌、结构化错误码、请求超时、批量打印合并文档、渲染计划规模告警 |
+| **工程健壮性** | 加载竞态代际令牌、结构化错误码、请求超时、批量打印合并文档、渲染计划规模告警、导出保真提示 |
 
 <details>
 <summary><b>单包架构说明（为什么只有一个包）</b></summary>
@@ -205,16 +207,9 @@ jh4j gridPlan ──（契约兼容消费）                                 ├
 </details>
 
 <details>
-<summary><b>性能实测</b></summary>
+<summary><b>性能预算与比较边界</b></summary>
 
-| 指标 | jh4j 现状（实测感知） | MachReport 实测 |
-|---|---|---|
-| 分页 5,000 行（139 页） | 秒级（全量 DOM） | **~57ms**（单测预算门锁定） |
-| 100 页含千行明细首屏 | 秒级 | < 300ms（虚拟化 + Canvas 窗口化） |
-| 缩放 / 翻页 | 触发重排 | < 16ms（transform 矩阵变换） |
-| Canvas 大报表内存 | — | **O(窗口)**（A4@dpr2 ≈14MB/页，全量渲染不可行） |
-| 打印 / PDF 导出 | 后端往返 1-3s | < 500ms（前端矢量直出 + 字体子集化缓存） |
-| 引擎主入口体积 | 随 jh4j 整包 | ~27KB min（零依赖可摇树） |
+`perf-budget.test.ts` 是内部回归门槛：5,000 行分页 < 600ms、DOM 渲染 < 120ms/页、1,000 页窗口计算 100 次 < 50ms（测试环境口径）。它不含网关取数、真实字体加载、打印机或浏览器下载耗时。与 jh4j / FineReport 的性能比较需使用相同模板、数据、机器和网络做端到端测量；方法见[验收文档](https://github.com/ChenyCHENYU/MachReport/blob/main/docs/comparison-and-acceptance.md)。
 
 </details>
 
@@ -306,4 +301,4 @@ Source-available © ChenyCHENYU (Agile Team). 使用需事先取得书面授权�
 </div>
 
 
-**v1.1.0** · 单包零依赖 · 质量门禁全绿 · 语义化版本演进
+**v1.2.0** · 单包多入口 · 类型、单测与浏览器验证 · 语义化版本演进

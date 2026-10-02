@@ -8,7 +8,8 @@ import { MACH_REPORT_CONTROLLER_KEY } from "./injection-keys";
 export interface MachReportController {
   reload(): Promise<void>;
   print(): Promise<void>;
-  exportAs(format: "html" | "pdf" | string): void;
+  /** 支持 html/pdf/xlsx/png/word（excel/image/doc 为兼容别名）；未知格式报 export 错误。 */
+  exportAs(format: string): void;
   openPdfWindow(): void;
   gotoPage(page: number): void;
   /** 编程式设置参数并查询（合并进面板值；opts.reload=false 仅设值不重载） */

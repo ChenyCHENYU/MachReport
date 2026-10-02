@@ -50,13 +50,14 @@ export interface FetchRequestOptions {
  */
 export function createFetchRequest(options: FetchRequestOptions = {}): HostRequest {
   const { baseUrl = "", headers, credentials, timeoutMs = 30_000 } = options;
+  const prefix = baseUrl.replace(/\/+$/, "");
   return async ({ url, method, params }) => {
     const qs = params && Object.keys(params).length > 0 ? `?${new URLSearchParams(params)}` : "";
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let res: Response;
     try {
-      res = await fetch(`${baseUrl}${url}${qs}`, {
+      res = await fetch(`${prefix}${url}${qs}`, {
         method: method.toUpperCase(),
         headers: { Accept: "application/json", ...headers },
         credentials,
@@ -83,15 +84,19 @@ export function createJh4jGridPlanFetcher(options: {
   baseUrl?: string;
 }): PlanFetcher {
   const { request, baseUrl = "" } = options;
+  const prefix = baseUrl.replace(/\/+$/, "");
   return async ({ tempIds, furnitureTempId, params }) => {
     if (tempIds.length === 0) throw new PlanLoadError("缺少报表模板 ID");
-    const query: Record<string, string> = { tempId: tempIds.join(",") };
-    if (furnitureTempId) query.furnitureTempId = furnitureTempId;
+    const query: Record<string, string> = {};
     for (const [k, v] of Object.entries(params || {})) {
-      if (k && v != null && v !== "") query[k] = String(v);
+      if (k && k !== "tempId" && k !== "furnitureTempId" && v != null && v !== "") {
+        query[k] = String(v);
+      }
     }
+    query.tempId = tempIds.join(",");
+    if (furnitureTempId) query.furnitureTempId = furnitureTempId;
     const body = (await request({
-      url: `${baseUrl}/report/codePrintReport/gridPlan`,
+      url: `${prefix}/report/codePrintReport/gridPlan`,
       method: "get",
       params: query
     })) as { code?: number; message?: string; data?: { pages?: unknown } | null };
@@ -99,9 +104,12 @@ export function createJh4jGridPlanFetcher(options: {
       throw new PlanLoadError(String(body.message || "预览加载失败"));
     }
     const pages = body?.data?.pages;
+    if (!Array.isArray(pages)) {
+      throw new PlanLoadError("预览响应缺少 pages 数组，请检查 gridPlan 接口契约");
+    }
     return {
       schemaVersion: "jh4j-compatible",
-      pages: Array.isArray(pages) ? (pages as RenderPlan["pages"]) : []
+      pages: pages as RenderPlan["pages"]
     };
   };
 }

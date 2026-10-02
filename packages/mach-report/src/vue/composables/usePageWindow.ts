@@ -1,4 +1,4 @@
-import { computed, ref, type Ref } from "vue";
+import { computed, ref, unref, type Ref } from "vue";
 import type { PlanPage, RenderPlan } from "@agile-team/mach-report";
 import { computePageWindow } from "@agile-team/mach-report";
 
@@ -12,10 +12,10 @@ import { computePageWindow } from "@agile-team/mach-report";
 export function usePageWindow(
   plan: Ref<RenderPlan | null>,
   zoom: Ref<number>,
-  options: { pxPerMm?: number; gapPx?: number } = {}
+  options: { pxPerMm?: number; gapPx?: number | Ref<number> } = {}
 ) {
   const pxPerMm = options.pxPerMm ?? 96 / 25.4;
-  const gapPx = options.gapPx ?? 18;
+  const gapPx = computed(() => Math.max(0, unref(options.gapPx) ?? 18));
   const scrollTop = ref(0);
   const viewportHeight = ref(800);
 
@@ -28,7 +28,7 @@ export function usePageWindow(
     let h = 0;
     let w = 0;
     for (const p of pages) {
-      h += p.pageHeightMm * pxPerMm + gapPx;
+      h += p.pageHeightMm * pxPerMm + gapPx.value;
       w = Math.max(w, p.pageWidthMm * pxPerMm);
     }
     return { w, h };
@@ -39,7 +39,7 @@ export function usePageWindow(
       viewportHeightPx: viewportHeight.value / zoom.value,
       scrollTopPx: scrollTop.value / zoom.value,
       overscan: 1,
-      gapPx
+      gapPx: gapPx.value
     })
   );
   const visiblePages = computed(() => {

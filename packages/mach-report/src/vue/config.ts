@@ -18,8 +18,11 @@ export interface MachReportMessages {
   fitWidth: string;
   exportHtml: string;
   exportPdf: string;
+  exportExcel: string;
   exportImage: string;
   exportWord: string;
+  /** 导出进行中提示，{format} 占位 */
+  exporting: string;
   print: string;
   pdfWindow: string;
   loading: string;
@@ -52,8 +55,10 @@ export const DEFAULT_MESSAGES: MachReportMessages = {
   fitWidth: "适宽",
   exportHtml: "导出 HTML",
   exportPdf: "导出 PDF",
+  exportExcel: "导出 Excel",
   exportImage: "导出图片",
   exportWord: "导出 Word",
+  exporting: "正在生成 {format}…",
   print: "打印",
   pdfWindow: "PDF 窗口",
   loading: "报表渲染中…",

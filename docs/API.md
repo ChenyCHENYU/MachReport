@@ -39,14 +39,14 @@ const fetcher2 = createJh4jGridPlanFetcher({
 | preset | string | 启用配置中心的指定 preset |
 | fetcher | PlanFetcher \| null | 数据面；**不传时回落插件注入（见下）** |
 
-emits：`loaded(pageCount)` / `error(message, detail?)`；ref：`reload / print / exportAs(format) / openPdfWindow / gotoPage(n) / setParams(values, { reload? })`（编程式设参查询，面板同步显示）
+emits：`loaded(pageCount)` / `error(message, detail?)` / `warning(message)`（导出保真告警）；ref：`reload / print / exportAs(format) / openPdfWindow / gotoPage(n) / setParams(values, { reload? })`（编程式设参查询，面板同步显示）
 
 ### 插件（零配置可用：一次注册，业务页面一行使用）
 
 ```ts
 import { machReportPlugin } from "@agile-team/mach-report/vue";
 
-app.use(machReportPlugin);       // 零配置：全局 fetch 同源直连 jh4j 端点
+app.use(machReportPlugin);       // 零配置：全局 fetch 同源直连 jh4j 端点；token 拦截器场景传宿主 request
 app.use(machReportPlugin, {
   baseUrl: "/sub/mach-report",   // 或 request: axios（axios 风格签名），
   config: machReportConfig,      // 或 fetcher: 自定义 PlanFetcher（优先级最高）
@@ -75,8 +75,9 @@ const preview = useReportPreview();   // 不在预览组件内时为 null（不�
 ### 结构化错误（向后兼容）
 
 `error` 事件保持 `(message: string)` 契约，新增第二参数 `{ code, cause? }`：
-`code ∈ param | fetch | validate | render | pdf | print | config`（`MachReportError` 类同形导出），
+`code ∈ param | fetch | validate | render | pdf | print | export | config`（`MachReportError` 类同形导出），
 宿主可按码决定 UX（网络类给重试、配置类给提示）。
+耗时较长的导出会显示“正在生成”；PDF 或 Excel 版式降级时展示提示条并触发 `warning(message)`。
 
 ```ts
 <ReportPreview @error="(msg, detail) => detail?.code === 'fetch' && showToast(msg)" />
@@ -214,7 +215,7 @@ createTemplate().params([
 ```
 
 - 控件四类：text / number / date / select；支持 defaultValue / required / placeholder / options
-- 查询时**面板值 > props.params** 合并后重新加载；回车即查询；重置恢复默认
+- 查询时**面板值 > props.params** 合并后重新加载；宿主更新 `params` 会同步面板，清空可选条件会移除旧值；回车即查询；重置恢复默认
 - 必填缺失：拦截查询并红框提示 + `error(message, { code: "param" })`
 - 显隐与文案走配置中心：`defaults.showParams`（缺省 true）、`messages.paramsTitle/query/reset/paramRequired`
 - 自己做表单：`show-params="false"` 关面板，`params` 照常传
@@ -226,10 +227,13 @@ createTemplate().params([
 import { renderPlanToImages } from "@agile-team/mach-report";
 const { blobs } = await renderPlanToImages(plan, { format: "png", dpr: 2 });
 
-// 组件层：工具栏"导出图片 / 导出 Word"，或编程式
+// 组件层：工具栏"导出 Excel / 导出图片 / 导出 Word"，或编程式
+preview.value?.exportAs("xlsx");  // 等价 excel，下载真正的 .xlsx
 preview.value?.exportAs("png");   // 等价 image
 preview.value?.exportAs("word");  // 等价 doc，产出可编辑 .doc（Word 兼容 HTML）
 ```
+
+`exportAs` 还支持 `html`、`pdf`；未知格式报 `export` 错误，不会把 HTML 冒充其他扩展名。`openPdfWindow()` 打开真正的 PDF；中文缺字或 PDF 页渲染错误会阻止下载。Excel 不做像素级排版复制，图片/条码/图表跳过时通过 `warning` 事件和组件提示条告知。中文 PDF 使用前请部署字体并设置 `pdfFontUrl`。
 
 **Node 无头导出**：`renderPlanToPdf` / `renderPlanToXlsx` / `loadFontWithCache` 均可在 Node 18+ 运行
 （无 IndexedDB 环境自动降级内存缓存）——定时任务、邮件推送、归档留档用同一引擎，服务端零渲染代码。

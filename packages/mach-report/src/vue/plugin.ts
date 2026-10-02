@@ -3,7 +3,6 @@ import { computed, defineAsyncComponent } from "vue";
 import type { PlanFetcher } from "./adapters";
 import { createFetchRequest, createJh4jGridPlanFetcher, type HostRequest } from "./adapters";
 import type { PdfExporter } from "./pdf-exporter";
-import { createDefaultPdfExporter } from "./pdf-exporter";
 import {
   MACH_REPORT_CONFIG_KEY,
   MACH_REPORT_FETCHER_KEY,
@@ -53,19 +52,20 @@ export const machReportPlugin = {
     const fetcher =
       options.fetcher ??
       createJh4jGridPlanFetcher({
-        request: options.request ?? createFetchRequest({ baseUrl: options.baseUrl }),
+        // 网关前缀由 jh4j adapter 统一添加；内置 fetch 不再重复拼接。
+        request: options.request ?? createFetchRequest(),
         baseUrl: options.baseUrl
       });
     app.provide(MACH_REPORT_FETCHER_KEY, fetcher);
 
-    const pdfFontUrl = options.pdfFontUrl ?? options.config?.defaults?.pdfFontUrl ?? "/simhei.ttf";
-    app.provide(
-      MACH_REPORT_PDF_EXPORTER_KEY,
-      options.pdfExporter ?? createDefaultPdfExporter({ fontUrl: pdfFontUrl })
-    );
+    if (options.pdfExporter) app.provide(MACH_REPORT_PDF_EXPORTER_KEY, options.pdfExporter);
 
     // 配置中心以响应式 ref 注入（路由级 provideMachReportConfig 可叠加）
-    app.provide(MACH_REPORT_CONFIG_KEY, computed(() => options.config ?? null));
+    app.provide(MACH_REPORT_CONFIG_KEY, computed(() => {
+      if (options.pdfFontUrl === undefined) return options.config ?? null;
+      const config = options.config ?? { defaults: {}, presets: {} };
+      return { ...config, defaults: { ...config.defaults, pdfFontUrl: options.pdfFontUrl } };
+    }));
 
     if (options.globalComponent !== false) {
       app.component("MachReportPreview", MachReportPreview);
