@@ -130,6 +130,7 @@ export function usePrintExport(
     onError: (message: string, code?: string) => void;
     onWarning?: (message: string) => void;
     onBusy?: (format: string | null) => void;
+    onPrinting?: (printing: boolean) => void;
   }
 ) {
   let printFrame: HTMLIFrameElement | null = null;
@@ -198,6 +199,7 @@ export function usePrintExport(
     releasePrintFrame();
     closePendingWindows();
     busyTasks.clear();
+    hooks.onPrinting?.(false);
   }
 
   function downloadBlob(blob: Blob, filename: string): void {
@@ -215,6 +217,7 @@ export function usePrintExport(
     if (disposed || !p || p.pages.length === 0) return;
     const epoch = planEpoch;
     printing = true;
+    hooks.onPrinting?.(true);
     releasePrintFrame();
     const head = buildPrintHead(p);
     printFrame = document.createElement("iframe");
@@ -243,6 +246,7 @@ export function usePrintExport(
       if (isActive(p, epoch)) hooks.onError("调用打印失败，请改用导出 PDF", "print");
     } finally {
       printing = false;
+      if (!disposed) hooks.onPrinting?.(false);
     }
   }
 
@@ -394,10 +398,11 @@ export function usePrintExport(
     // 先同步打开空窗口，避免异步生成 PDF 后被浏览器当成弹窗拦截。
     const w = window.open("", "_blank");
     if (!w) {
-      hooks.onError("浏览器拦截了弹窗，请允许弹窗后重试");
+      hooks.onError("浏览器拦截了弹窗，请允许弹窗后重试", "pdf");
       return;
     }
     pendingWindows.set(w, { plan: p, epoch });
+    const token = beginBusy(p, epoch, "PDF");
     void getPdfBytes(p, epoch).then((bytes) => {
       if (!isActive(p, epoch) || w.closed) {
         if (pendingWindows.delete(w)) w.close();
@@ -419,7 +424,7 @@ export function usePrintExport(
       w.close();
       pendingWindows.delete(w);
       if (isActive(p, epoch)) hooks.onError(error instanceof Error ? `PDF 预览失败: ${error.message}` : "PDF 预览失败", "pdf");
-    });
+    }).finally(() => endBusy(token));
   }
 
   return {

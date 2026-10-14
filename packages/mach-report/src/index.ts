@@ -11,4 +11,5 @@ export * from "./render/dom";
 export * from "./render/canvas";
 export * from "./render/window";
 export * from "./builder/template-builder";
+export * from "./builder/table-template";
 export * from "./source/report-source";

@@ -44,6 +44,26 @@ app.use(machReportPlugin, {
 
 `report-id` 选择注册的报表定义，业务单据 ID 和查询条件放在 `params`。不需要在页面实现 `paginateTemplate`、校验器或页合并；无需手写组件 ID 分支或重复参数面板定义。
 
+## 标准明细：只定义业务列
+
+普通台账、订单明细无需手算坐标和宽度：
+
+```ts
+import { createTableTemplate } from "@agile-team/mach-report/vue";
+
+export const outboundTemplate = createTableTemplate({
+  title: "出库单",
+  columns: [
+    { header: "物料", field: "name", flex: 3 },
+    { header: "数量", field: "qty", style: { align: "right" } }
+  ]
+});
+```
+
+默认 A4、各 10 mm 页边距、`detail` 数据集；未指定宽度的列按 `flex` 权重分配页面余量，默认权重为 1。`widthMm` 固定列优先，其余列分配剩余宽度；全部列固定时表格保持列宽之和。支持 `paper`、`landscape`、`margins`、`params`，`listOptions` 沿用重复表头、分组、小计、总计和格式化配置。非法尺寸或固定列溢出提前报错，标题默认只出现在第一页。
+
+后续仍注册 `{ template, load }` 或 `{ template, datasets }`。多区块、签字栏或定位精确的业务单据继续使用 `createTemplate()`；两种模板消费同一数据源与分页器。
+
 ## 接口已返回数据集或使用静态数据
 
 接口本身返回 `{ detail: [...] }` 等数据集时，直接提供 `load`：
@@ -88,18 +108,33 @@ const template = createTemplate()
 import { useMachReport } from "@agile-team/mach-report/vue";
 
 const report = useMachReport();
+const { state } = report;
 async function exportExcel() {
   await report.exportAs("xlsx");
 }
 </script>
 
 <template>
-  <button :disabled="!report.ready.value" @click="exportExcel">导出 Excel</button>
+  <button :disabled="!state.canExport" @click="exportExcel">导出 Excel</button>
+  <span v-if="state.loading">正在加载报表</span>
   <MachReportPreview :ref="report.ref" report-id="outbound" :params="{ orderId }" />
 </template>
 ```
 
 句柄提供 `reload()`、`print()`、`exportAs()`、`openPdfWindow()`、`gotoPage()` 和 `setParams()`。`ready` 表示组件控制器已挂载，不代表数据加载完成；未挂载调用明确报 `config` 错误。组件未加载有效页面时打印和导出保持空操作。
+
+`state` 是稳定的只读对象，支持如上解构并响应更新；读取字段无需 `.value`。在 Vue 模板或 `computed` 中读取字段即可跟踪变化，单独解构 `const { loading } = state` 只会得到当时的值。组件 ref 和后代控制器也提供只读状态。
+
+| 字段 | 含义 |
+| --- | --- |
+| `loading` / `hasPlan` | 正在查询 / 已加载非空页面计划 |
+| `pageCount` / `currentPage` | 总页数 / 当前页（从 1 开始） |
+| `exporting` / `printing` | 异步导出的显示名称或 `null` / 正在准备打印 |
+| `canExport` / `canPrint` | 已有页面且未加载，并且对应操作空闲；不代表特定出口能保留全部内容 |
+| `error` | 最近一次操作错误 `{ code, message, cause? }`，新操作清空；字体预检异常单独记录 |
+| `pdfFont` | 字体预检状态、URL 与诊断信息；不阻塞预览、打印或 Excel |
+
+卸载时句柄回到空状态。旧自定义控制器没有 `state` 时也使用空状态，旧六个方法继续可用；需要外部按钮状态的自定义控制器应实现新字段。
 
 `reload`、`print`、`exportAs`、`setParams` 可等待；等待表示本次工作结束，生成失败仍通过现有 `error` 事件报告，不能把 Promise 成功完成视为输出成功。`openPdfWindow()` 必须在点击等用户手势中同步调用，以保留浏览器弹窗权限。
 
@@ -147,3 +182,5 @@ document.querySelector("#report")!.replaceChildren(renderPlan(plan, document));
 配置支持字段继承：应用 defaults → preset → 路由叠加 → 组件 props。`messages`、`theme` 和同名 preset 保留未覆盖字段。普通及异步插件均遵守 `globalComponent=false`，不会覆盖宿主已注册的同名组件。
 
 PDF、XLSX、SQL 实现继续在独立子入口；`/vue` 重导出核心能力不会加载这些重依赖。异步插件的 `reports` 注册阶段不取数，首次查询才加载数据源实现。中文 PDF 字体需要由项目部署完整字库，示例子集仅供示例使用。
+
+`report.checkPdfFont()` 可主动检查或重试，结果也反映在 `state.pdfFont`；取消时拒绝 `AbortError`。HEAD 结果 `available` 只表示资源可达，实际导出仍验证文件与字符覆盖；不支持 HEAD 的服务返回 `unverified`，可以继续尝试导出。完整部署说明见 [PDF 字体指南](./PDF.md)。

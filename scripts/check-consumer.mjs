@@ -39,6 +39,9 @@ try {
   const runtime = `
 const template = core.createTemplate().page("a4").text("Consumer", { leftMm: 10, topMm: 10, widthMm: 80, heightMm: 8 }).build();
 const { plan } = core.paginateTemplate(template, {});
+const tableTemplate = core.createTableTemplate({ title: "Consumer", columns: [{ header: "Name", field: "name" }, { header: "Qty", field: "qty", widthMm: 25 }] });
+const tablePlan = core.paginateTemplate(tableTemplate, { detail: [{ name: "Item", qty: 3 }] }).plan;
+if (!tablePlan.pages[0]?.components.some(c => c.grid)) throw new Error("Missing standard table output");
 const source = core.createReportSource({ consumer: core.defineReport({ template, load: () => ({}) }) });
 const loaded = await source({ reportIds: ["consumer"], params: {} });
 if (loaded.pages.length !== plan.pages.length) throw new Error("Invalid report source output");
@@ -47,9 +50,10 @@ const xlsxResult = await xlsx.renderPlanToXlsx(plan);
 if (new TextDecoder().decode(pdfResult.bytes.slice(0, 5)) !== "%PDF-") throw new Error("Invalid PDF");
 if (new Uint8Array(xlsxResult.buffer)[0] !== 0x50) throw new Error("Invalid XLSX");
 if (typeof sql.compileDynamicSql !== "function") throw new Error("Missing SQL API");
+if (typeof vue.useMachReport !== "function" || typeof vue.createTableTemplate !== "function" || typeof asyncVue.preloadMachReport !== "function") throw new Error("Missing Vue runtime API");
 `;
-  writeFileSync(resolve(scratch, "smoke.mjs"), `import * as core from "@agile-team/mach-report";\nimport * as pdf from "@agile-team/mach-report/pdf";\nimport * as xlsx from "@agile-team/mach-report/xlsx";\nimport * as sql from "@agile-team/mach-report/sql";\n${runtime}`);
-  writeFileSync(resolve(scratch, "smoke.cjs"), `const core = require("@agile-team/mach-report");\nconst pdf = require("@agile-team/mach-report/pdf");\nconst xlsx = require("@agile-team/mach-report/xlsx");\nconst sql = require("@agile-team/mach-report/sql");\n(async () => {${runtime}})().catch(error => { console.error(error); process.exitCode = 1; });`);
+  writeFileSync(resolve(scratch, "smoke.mjs"), `import * as core from "@agile-team/mach-report";\nimport * as pdf from "@agile-team/mach-report/pdf";\nimport * as xlsx from "@agile-team/mach-report/xlsx";\nimport * as sql from "@agile-team/mach-report/sql";\nimport * as vue from "@agile-team/mach-report/vue";\nimport * as asyncVue from "@agile-team/mach-report/vue/async";\n${runtime}`);
+  writeFileSync(resolve(scratch, "smoke.cjs"), `const core = require("@agile-team/mach-report");\nconst pdf = require("@agile-team/mach-report/pdf");\nconst xlsx = require("@agile-team/mach-report/xlsx");\nconst sql = require("@agile-team/mach-report/sql");\nconst vue = require("@agile-team/mach-report/vue");\nconst asyncVue = require("@agile-team/mach-report/vue/async");\n(async () => {${runtime}})().catch(error => { console.error(error); process.exitCode = 1; });`);
   run(process.execPath, ["smoke.mjs"]);
   run(process.execPath, ["smoke.cjs"]);
 
@@ -57,7 +61,7 @@ if (typeof sql.compileDynamicSql !== "function") throw new Error("Missing SQL AP
 import { renderPlanToXlsx } from "@agile-team/mach-report/xlsx";
 import { renderPlanToPdf } from "@agile-team/mach-report/pdf";
 import { compileDynamicSql } from "@agile-team/mach-report/sql";
-import { machReportPlugin, createTemplate as createVueTemplate, createReportSource, defineReport, defineMachReportConfig, useMachReport } from "@agile-team/mach-report/vue";
+import { machReportPlugin, createTemplate as createVueTemplate, createTableTemplate, createReportSource, defineReport, defineMachReportConfig, useMachReport, type PdfFontCheckResult } from "@agile-team/mach-report/vue";
 import { preloadMachReport } from "@agile-team/mach-report/vue/async";
 async function consume() {
   const builder: ReturnType<typeof createTemplate> = createVueTemplate();
@@ -70,6 +74,11 @@ async function consume() {
   await source({ reportIds: ["sample"], params: {} });
   const config = defineMachReportConfig({ defaults: { pdfFontUrl: "/report.otf" } });
   const report = useMachReport();
+  const { state } = report;
+  const loading: boolean = state.loading;
+  const fontResult: PdfFontCheckResult = await report.checkPdfFont();
+  const simple = createTableTemplate({ title: "Consumer", columns: [{ header: "Name", field: "name", flex: 2 }] });
+  void [loading, fontResult, simple];
   const exportJob: Promise<void> = report.exportAs("xlsx");
   void exportJob;
   const { plan } = paginateTemplate(createTemplate().page("a4").build(), {});

@@ -66,8 +66,19 @@ function cellFontSizePt(style: GridCell["style"]): number {
   return resolveFontSize(style).fontSizePt;
 }
 
+const fontCharacterSets = new WeakMap<PDFFont, ReadonlySet<number>>();
+
 function encodeText(font: PDFFont, text: string): { encoded: string; supported: boolean } {
   try {
+    let characterSet = fontCharacterSets.get(font);
+    if (!characterSet) {
+      characterSet = new Set(font.getCharacterSet());
+      fontCharacterSets.set(font, characterSet);
+    }
+    // fontkit 可把缺失字符编码为 .notdef 而不抛错；必须显式检查 Unicode 码点。
+    for (const character of text) {
+      if (!characterSet.has(character.codePointAt(0)!)) return { encoded: "", supported: false };
+    }
     font.encodeText(text);
     return { encoded: text, supported: true };
   } catch {
@@ -145,7 +156,8 @@ export async function renderPlanToPdf(
   ): void {
     const align = cellStyle?.align ?? comp.style?.align;
     const lineH = spec.fontSizePt * LINE_HEIGHT;
-    spec.lines.forEach((line, i) => {
+    // 兼容直接传入的 lines / 富文本段：换行符用于分行，不参与字形覆盖检查。
+    spec.lines.flatMap((line) => line.split(/\r\n|\r|\n/)).forEach((line, i) => {
       const { encoded, supported } = encodeText(font, line);
       if (line && !supported) unsupportedTextCount++;
       if (!encoded) return;

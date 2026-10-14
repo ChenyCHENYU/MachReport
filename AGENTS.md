@@ -15,7 +15,8 @@ pnpm check:docs               # 文档相对链接、README 发布同步与 SVG 
 pnpm check:consumer           # 实际 npm 包隔离消费，ESM/CJS 运行与严格类型检查
 pnpm verify                   # 类型 → lint → build → 覆盖率/产物守卫 → 文档 → 消费端
 pnpm test:e2e                 # E2E（真 Chromium；配置自动启动 examples dev server）
-pnpm release                  # 一键发版：changeset version → install → verify → E2E → publish
+pnpm run version              # 合并 changeset 并同步 README 版本，检查后提交推送
+pnpm release                  # 已提交版本的发版：clean gate → install → verify → E2E → publish
 ```
 
 ## 架构地图
@@ -40,9 +41,10 @@ pnpm release                  # 一键发版：changeset version → install →
 ## 发布流程（pnpm release 的展开）
 
 1. 写 `.changeset/xxx.md`（bump 类型 + 变更说明）
-2. 用户授权发布后执行 `pnpm release`（版本合并 → 锁文件安装 → 完整校验 → E2E → npm publish）
-3. 验证：`npm dist-tag ls @agile-team/mach-report`（新版本 CDN 传播可能延迟几分钟，tarball 端点先行可用）
-4. npm token 只放 `~/.npmrc`，绝不入仓库；轮换走 npmjs.com
+2. 用户授权发布后执行 `pnpm run version`，核对版本与 CHANGELOG；锁文件需要更新时正常安装后再验证 frozen install
+3. 完整校验并提交推送源码和版本；执行 `pnpm release`，保持工作区干净，标签必须指向实际发布提交
+4. 推送发布标签，验证 `npm dist-tag ls @agile-team/mach-report` 及实际 tarball（CDN 传播可能稍有延迟）
+5. npm 认证优先使用本机配置；临时凭据配置仅存系统临时目录、权限 600，完成或失败后立即删除。token 绝不写入仓库、命令历史或日志；轮换走 npmjs.com
 
 ## 已知未了项
 

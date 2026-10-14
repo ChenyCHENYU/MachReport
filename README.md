@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.0.0-2563eb" alt="Source version 2.0.0" />
+  <img src="https://img.shields.io/badge/source-2.1.0-2563eb" alt="Source version 2.1.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -58,18 +58,16 @@ Vue 组件要求 Vue `^3.2.0`；主题样式在应用入口引入一次。只使
 
 ```vue
 <script setup lang="ts">
-import { createTemplate, createLocalFetcher, ReportPreview } from "@agile-team/mach-report/vue";
+import { createTableTemplate, createLocalFetcher, ReportPreview } from "@agile-team/mach-report/vue";
 import "@agile-team/mach-report/vue/style.css";
 
-const template = createTemplate()
-  .page("a4")
-  .text("产品出库单", { leftMm: 12, topMm: 12, widthMm: 186, heightMm: 10 },
-    { bold: true, fontSize: 16, align: "center" })
-  .list("detail", { leftMm: 12, topMm: 30, widthMm: 186 }, [
-    { header: "物料", field: "name", widthMm: 120 },
-    { header: "数量", field: "qty", widthMm: 66, style: { align: "right" } }
-  ])
-  .build();
+const template = createTableTemplate({
+  title: "产品出库单",
+  columns: [
+    { header: "物料", field: "name", flex: 2 },
+    { header: "数量", field: "qty", style: { align: "right" } }
+  ]
+});
 
 const fetcher = createLocalFetcher({
   outbound: { template, datasets: { detail: [{ name: "物料 A", qty: 3 }] } }
@@ -80,6 +78,8 @@ const fetcher = createLocalFetcher({
   <ReportPreview report-id="outbound" :fetcher="fetcher" height="70vh" />
 </template>
 ```
+
+标准明细只定义标题和列：默认 A4、10 mm 页边距、`detail` 数据集，自动分配列宽并分页。支持固定列宽、权重、横向纸张、分组与总计；复杂单据继续使用 `createTemplate()` 自由排版。
 
 ### 项目接入：注册一次，页面只传 ID 和参数
 
@@ -106,7 +106,7 @@ app.use(machReportPlugin, {
 
 `template` 使用上例或项目自己的模板；`orderApi` 是项目现有业务请求客户端。接口已经返回数据集时，直接写 `load: ({ params, signal }) => reportApi(params, { signal })`，无需 `defineReport` 或字段映射。静态数据使用 `{ template, datasets }`。
 
-模板的 `params` 会自动生成查询面板，显式 `paramDefs` 可覆盖。父页面用 `useMachReport()` 获得 `ref`、`ready` 和可等待的控制方法。完整示例及接入边界见[项目接入指南](./docs/INTEGRATION.md)。旧 `fetcher` 与 `createLocalFetcher` 继续支持。
+模板的 `params` 会自动生成查询面板，显式 `paramDefs` 可覆盖。父页面用 `useMachReport()` 获得 `ref`、可等待的控制方法和只读响应式 `state`；例如 `report.state.canExport` 直接驱动外部按钮，加载、页数、导出、打印与错误无需另建状态。完整示例及接入边界见[项目接入指南](./docs/INTEGRATION.md)。旧 `fetcher` 与 `createLocalFetcher` 继续支持。
 
 ### 原生 TypeScript：生成并渲染页面
 
@@ -180,6 +180,8 @@ app.use(machReportPlugin, { fetcher, config });
 ```
 
 优先级为：内置值 → 应用 defaults → 命名 preset → 组件属性；路由级 `provideMachReportConfig` 会叠加应用配置。中文 PDF 需要部署覆盖所用字符的字体并配置 `pdfFontUrl`；Vue 出口遇到缺字或页面渲染错误会阻止下载。`.doc` 出口是 Word 兼容的 HTML 文档，并非 `.docx`。
+
+有效报表显示后，组件对已启用的 PDF 出口自动做轻量 HEAD 字体检查，不下载字库或加载 PDF 引擎。结果通过 `state.pdfFont` 提供，资源异常显示可重试提示；实际导出再验证字体文件及文字覆盖范围。部署、跨域与缓存处理见 [PDF 字体指南](./docs/PDF.md)。
 
 ## 接入项目数据
 
@@ -269,6 +271,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 | --- | --- |
 | 接入与 API | [API 速查](./docs/API.md)：数据模型、模板、Vue 属性 / 事件、配置与导出 |
 | Excel | [导出指南](./docs/EXCEL.md)：能力边界、Node 示例与原始数据类型 |
+| PDF | [字体与导出指南](./docs/PDF.md)：首次诊断、字库部署、缺字与缓存 |
 | 本地报表 | [最小示例](./examples/minimal)：出库单、工艺卡、多页与多模板预览 |
 | 远程组件 | [模块联邦示例](./examples/fed-host) · [部署包](./packages/federation) |
 | 排版与字体 | [字体测量与校准](./docs/font-calibration.md) |
@@ -279,7 +282,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.0.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.1.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

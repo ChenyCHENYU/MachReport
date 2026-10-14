@@ -177,7 +177,7 @@ describe("exportAs 出口矩阵接线", () => {
     const onError = vi.fn();
     const onWarning = vi.fn();
     const createUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:stale-excel");
-    const api = usePrintExport(current, { getPdfExporter: () => vi.fn(), onError, onWarning });
+    const api = usePrintExport(current, { getPdfExporter: () => vi.fn<() => Promise<Uint8Array>>(), onError, onWarning });
     try {
       const pending = api.exportAs("xlsx");
       await vi.waitFor(() => expect(renderExcel).toHaveBeenCalledOnce());
@@ -201,7 +201,7 @@ describe("exportAs 出口矩阵接线", () => {
 
   it("打印准备期间卸载不会再弹出打印窗口", async () => {
     vi.useFakeTimers();
-    const api = usePrintExport(shallowRef(plan), { getPdfExporter: () => vi.fn(), onError: vi.fn() });
+    const api = usePrintExport(shallowRef(plan), { getPdfExporter: () => vi.fn<() => Promise<Uint8Array>>(), onError: vi.fn() });
     try {
       const pending = api.print();
       const frame = document.querySelector("iframe")!;

@@ -53,9 +53,9 @@ import {
   useMachReportConfig,
   type MachReportMessages
 } from "./config";
-import { createDefaultPdfExporter, type PdfExporter } from "./pdf-exporter";
-import { MachReportError, toErrorDetail } from "./errors";
-import type { MachReportController } from "./controller";
+import { createDefaultPdfExporter, type PdfExporter, type PdfFontCheckResult } from "./pdf-exporter";
+import { MachReportError, toErrorDetail, type MachReportErrorCode } from "./errors";
+import type { MachReportController, MachReportState, MachReportStateError } from "./controller";
 
 const props = defineProps({
   reportId: {
@@ -102,6 +102,10 @@ const emit = defineEmits<{
 const plan = shallowRef<RenderPlan | null>(null);
 const loading = ref(false);
 const errorMessage = ref("");
+const lastError = shallowRef<Readonly<MachReportStateError> | null>(null);
+const exporting = ref<string | null>(null);
+const printing = ref(false);
+const pdfFont = shallowRef<Readonly<PdfFontCheckResult>>(Object.freeze({ status: "unchecked", fontUrl: "" }));
 const exportNotice = ref<{ kind: "error" | "warning" | "progress"; message: string } | null>(null);
 const currentPage = ref(1);
 const containerRef = ref<HTMLElement | null>(null);
@@ -120,6 +124,23 @@ const injectedPdfExporter = inject(MACH_REPORT_PDF_EXPORTER_KEY, null);
 const reportIds = computed(() => normalizeReportIds(props.reportId));
 const effectiveFetcher = computed(() => props.fetcher ?? injectedFetcher);
 const pageCount = computed(() => plan.value?.pages.length ?? 0);
+const state = computed<MachReportState>(() => Object.freeze({
+  loading: loading.value,
+  hasPlan: pageCount.value > 0,
+  pageCount: pageCount.value,
+  currentPage: currentPage.value,
+  exporting: exporting.value,
+  printing: printing.value,
+  canExport: !loading.value && pageCount.value > 0 && exporting.value === null,
+  canPrint: !loading.value && pageCount.value > 0 && !printing.value,
+  error: lastError.value,
+  pdfFont: pdfFont.value
+}));
+
+function reportError(message: string, code: MachReportErrorCode, cause?: unknown): void {
+  lastError.value = Object.freeze({ message, code, cause });
+  emit("error", message, { code, cause });
+}
 
 /** 配置解析：preset > 应用级 defaults；未配置时全部落到内置缺省 */
 const configRef = useMachReportConfig();
@@ -145,6 +166,64 @@ function getPdfExporter(): PdfExporter {
   }
   return cachedPdfExporter;
 }
+
+let fontCheckSeq = 0;
+let fontCheckController: AbortController | null = null;
+let destroyed = false;
+
+function cancelFontCheck(): void {
+  fontCheckSeq++;
+  fontCheckController?.abort();
+  fontCheckController = null;
+}
+
+/** 检查失败只影响 PDF 诊断，不阻塞预览或其它输出。 */
+async function checkPdfFont(): Promise<PdfFontCheckResult> {
+  if (destroyed) throw new MachReportError("config", "报表预览已卸载");
+  cancelFontCheck();
+  const seq = fontCheckSeq;
+  const controller = new AbortController();
+  fontCheckController = controller;
+  const fontUrl = resolved.value.pdfFontUrl;
+  pdfFont.value = Object.freeze({ status: "checking", fontUrl });
+  try {
+    const exporter = getPdfExporter();
+    const result: PdfFontCheckResult = exporter.checkFont
+      ? await exporter.checkFont(controller.signal)
+      : { status: "unverified", fontUrl: "", message: "自定义 PDF 导出器未提供字体预检查；字体由宿主确认" };
+    if (!destroyed && seq === fontCheckSeq && !controller.signal.aborted) pdfFont.value = Object.freeze({ ...result });
+    return result;
+  } catch (cause) {
+    if (controller.signal.aborted) throw cause;
+    const result: PdfFontCheckResult = {
+      status: "error", fontUrl,
+      message: cause instanceof Error ? cause.message : "PDF 字体检查失败", cause
+    };
+    if (!destroyed && seq === fontCheckSeq) pdfFont.value = Object.freeze(result);
+    return result;
+  } finally {
+    if (fontCheckController === controller) fontCheckController = null;
+  }
+}
+
+function retryPdfFont(): void {
+  void checkPdfFont().catch(() => { /* 切换或卸载的取消由生命周期处理。 */ });
+}
+
+watch(
+  [plan, () => resolved.value.pdfFontUrl, effectiveShowExport, effectiveShowPdfWindow],
+  () => {
+    const sameUrl = pdfFont.value.fontUrl === resolved.value.pdfFontUrl;
+    cancelFontCheck();
+    if (!sameUrl || pdfFont.value.status === "checking") {
+      pdfFont.value = Object.freeze({ status: "unchecked", fontUrl: resolved.value.pdfFontUrl });
+    }
+    if (!destroyed && pageCount.value > 0 && (effectiveShowExport.value || effectiveShowPdfWindow.value)) {
+      void checkPdfFont().catch(() => { /* 取消时不报告过期诊断。 */ });
+    }
+  },
+  { immediate: true }
+);
 
 // ── 参数面板：定义优先级 prop > 模板 params；值合并优先级 面板值 > props.params ──
 const effectiveParamDefs = computed<ReportParamDef[]>(() =>
@@ -189,7 +268,7 @@ function onParamQuery(): void {
     const label = missing[0]!.label ?? missing[0]!.field;
     const message = resolvedMessages.value.paramRequired.replace("{label}", label);
     errorMessage.value = message;
-    emit("error", message, { code: "param" });
+    reportError(message, "param");
     return;
   }
   void reload();
@@ -240,16 +319,17 @@ async function reload(): Promise<void> {
   const fetcher = effectiveFetcher.value;
   // 新一轮负责结束旧 loading；参数/配置早退时旧请求的 finally 已失去代际权限。
   loading.value = false;
+  lastError.value = null;
   if (reportIds.value.length === 0) {
     errorMessage.value = "缺少报表 ID";
     invalidate();
-    emit("error", errorMessage.value, { code: "param" });
+    reportError(errorMessage.value, "param");
     return;
   }
   if (!fetcher) {
     errorMessage.value = "未提供渲染数据源 fetcher";
     invalidate();
-    emit("error", errorMessage.value, { code: "config" });
+    reportError(errorMessage.value, "config");
     return;
   }
   loading.value = true;
@@ -307,7 +387,8 @@ async function reload(): Promise<void> {
             error
           );
     errorMessage.value = normalized.message;
-    emit("error", normalized.message, toErrorDetail(normalized));
+    const detail = toErrorDetail(normalized);
+    reportError(normalized.message, detail.code, detail.cause);
   } finally {
     if (seq === reloadSeq) loading.value = false;
     if (loadController === controller) loadController = null;
@@ -327,17 +408,18 @@ function gotoPage(n: number): void {
   vp.scrollTop = offset * zoom.value;
 }
 
-const { print, exportAs, openPdfWindow, releasePrintFrame, dispose } = usePrintExport(plan, {
+const exportApi = usePrintExport(plan, {
   getPdfExporter,
   onError: (message, code) => {
     exportNotice.value = { kind: "error", message };
-    emit("error", message, { code: code ?? "print" });
+    reportError(message, (code ?? "print") as MachReportErrorCode);
   },
   onWarning: (message) => {
     exportNotice.value = { kind: "warning", message };
     emit("warning", message);
   },
   onBusy: (format) => {
+    exporting.value = format;
     if (format) {
       exportNotice.value = {
         kind: "progress",
@@ -346,8 +428,22 @@ const { print, exportAs, openPdfWindow, releasePrintFrame, dispose } = usePrintE
     } else if (exportNotice.value?.kind === "progress") {
       exportNotice.value = null;
     }
-  }
+  },
+  onPrinting: (value) => { printing.value = value; }
 });
+const { releasePrintFrame, dispose } = exportApi;
+async function print(): Promise<void> {
+  lastError.value = null;
+  await exportApi.print();
+}
+async function exportAs(format: string): Promise<void> {
+  lastError.value = null;
+  await exportApi.exportAs(format);
+}
+function openPdfWindow(): void {
+  lastError.value = null;
+  exportApi.openPdfWindow();
+}
 
 /** 控制器注入：后代组件 useReportPreview() 免模板 ref 编程式访问（与 expose 同面） */
 /** 编程式设参查询：合并进面板值（面板本地字典经 v-model 同步），可选立即重载 */
@@ -356,7 +452,10 @@ async function setParams(values: Record<string, string>, opts: { reload?: boolea
   if (opts.reload !== false) await reload();
 }
 
-const controller: MachReportController = { reload, print, exportAs, openPdfWindow, gotoPage, setParams };
+const controller: MachReportController = {
+  reload, print, exportAs, openPdfWindow, gotoPage, setParams, checkPdfFont,
+  get state() { return state.value; }
+};
 provide(MACH_REPORT_CONTROLLER_KEY, controller);
 
 // ── 交互：Ctrl+滚轮缩放 / 键盘翻页与缩放 / Ctrl+F 搜索 ──
@@ -507,6 +606,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  destroyed = true;
+  cancelFontCheck();
   reloadSeq++; // 卸载后未完成请求的成功/失败回调均失效
   loadController?.abort();
   loadController = null;
@@ -529,12 +630,13 @@ watch(
     loadController = null;
     loading.value = false;
     errorMessage.value = "";
+    lastError.value = null;
     exportNotice.value = null;
     invalidate();
   }
 );
 
-defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams });
+defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, checkPdfFont, state });
 </script>
 
 <template>
@@ -571,6 +673,10 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams });
     />
     <div v-if="exportNotice" class="mrp-export-notice" :class="`mrp-export-${exportNotice.kind}`" role="alert">
       {{ exportNotice.message }}
+    </div>
+    <div v-if="pdfFont.status === 'error' && (effectiveShowExport || effectiveShowPdfWindow)" class="mrp-export-notice mrp-export-warning" role="status">
+      {{ resolvedMessages.pdfFontUnavailable }}
+      <button type="button" @click="retryPdfFont">{{ resolvedMessages.retry }}</button>
     </div>
     <div class="mrp-main">
       <div

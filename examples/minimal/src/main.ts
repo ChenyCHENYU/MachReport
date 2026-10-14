@@ -1,5 +1,5 @@
 import { createApp, h, ref, computed, watch } from "vue";
-import { ReportPreview, defineMachReportConfig, machReportPlugin, useMachReport, type DatasetRows, type ReportParamDef, type ReportTemplate } from "@agile-team/mach-report/vue";
+import { ReportPreview, createTableTemplate, defineMachReportConfig, machReportPlugin, useMachReport, type DatasetRows, type ReportParamDef, type ReportTemplate } from "@agile-team/mach-report/vue";
 import { renderDynamicSql } from "@agile-team/mach-report/sql";
 
 type DemoReportEntry = { template: ReportTemplate; datasets: DatasetRows };
@@ -186,6 +186,15 @@ const processCard: ReportTemplate = {
   ]
 };
 
+// 常规明细只声明标题和字段，纸张、页边距、列宽与分页由包内完成。
+const standardDetail = createTableTemplate({
+  title: "出库单",
+  columns: [
+    { header: "物料", field: "name" },
+    { header: "数量", field: "qty", style: { align: "right" } }
+  ]
+});
+
 function makeDetail(n: number) {
   return Array.from({ length: n }, (_, i) => ({
     no: String(i + 1),
@@ -216,7 +225,8 @@ function makeSteps() {
 const entries: Record<string, DemoReportEntry> = {
   delivery: { template: deliveryNote, datasets: { detail: makeDetail(96) } },
   card: { template: processCard, datasets: { steps: makeSteps() } },
-  combined: { template: deliveryNote, datasets: { detail: makeDetail(20) } }
+  combined: { template: deliveryNote, datasets: { detail: makeDetail(20) } },
+  standard: { template: standardDetail, datasets: { detail: makeDetail(96) } }
 };
 
 const queryParams: ReportParamDef[] = [
@@ -227,6 +237,7 @@ const queryParams: ReportParamDef[] = [
 ];
 deliveryNote.params = queryParams;
 processCard.params = queryParams;
+standardDetail.params = queryParams;
 const currentReport = ref<string | string[]>("delivery");
 const reportIds = computed(() =>
   currentReport.value === "combined" ? ["combined", "card"] : currentReport.value
@@ -255,11 +266,14 @@ const app = createApp({
           h("button", { onClick: () => pick("delivery") }, "出库单（96 行，多页）"),
           h("button", { onClick: () => pick("card") }, "工艺卡（LF 精炼）"),
           h("button", { onClick: () => pick("combined") }, "多模板拼接（出库单+工艺卡）"),
-          h("button", { onClick: () => void report.exportAs("pdf") }, "导出 PDF（前端直出）"),
+          h("button", { onClick: () => pick("standard") }, "标准明细（自动布局）"),
+          h("button", { onClick: () => void report.exportAs("pdf"), disabled: !report.state.canExport }, "导出 PDF（前端直出）"),
           h("button", { onClick: () => void showCanvas() }, "Canvas 位图渲染"),
           h("button", { onClick: () => void showCanvasCalibration() }, "Canvas 校准渲染"),
           h("button", { onClick: () => void showCanvasPager() }, "Canvas 窗口化（大报表）"),
           h("div", { class: "info" }, [
+            h("div", { class: "report-status", role: "status", "aria-live": "polite" },
+              report.state.loading ? "加载中…" : `共 ${report.state.pageCount} 页`),
             h("div", null, `sql-engine 演示渲染结果：`),
             h("div", { style: "word-break:break-all" }, sqlDemo.sql)
           ])

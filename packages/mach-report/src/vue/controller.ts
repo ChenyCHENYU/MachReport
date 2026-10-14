@@ -1,12 +1,44 @@
 import { computed, inject, shallowRef, type ComputedRef } from "vue";
 import { MACH_REPORT_CONTROLLER_KEY } from "./injection-keys";
 import { MachReportError } from "./errors";
+import type { MachReportErrorCode } from "./errors";
+import type { PdfFontCheckResult } from "./pdf-exporter";
+
+export interface MachReportStateError {
+  message: string;
+  code: MachReportErrorCode;
+  cause?: unknown;
+}
+
+/** 只读快照，由组件的同一套状态驱动；无需通过事件另建状态。 */
+export interface MachReportState {
+  readonly loading: boolean;
+  readonly hasPlan: boolean;
+  readonly pageCount: number;
+  readonly currentPage: number;
+  /** 当前导出显示名称，空闲时为 null。 */
+  readonly exporting: string | null;
+  readonly printing: boolean;
+  readonly canExport: boolean;
+  readonly canPrint: boolean;
+  readonly error: Readonly<MachReportStateError> | null;
+  readonly pdfFont: Readonly<PdfFontCheckResult>;
+}
+
+const EMPTY_STATE: MachReportState = Object.freeze({
+  loading: false, hasPlan: false, pageCount: 0, currentPage: 1,
+  exporting: null, printing: false, canExport: false, canPrint: false, error: null,
+  pdfFont: Object.freeze({ status: "unchecked", fontUrl: "" })
+});
 
 /**
  * ReportPreview 的编程式控制器（与组件 ref 方法同面）：
  * reload / print / exportAs / openPdfWindow / gotoPage / setParams。
  */
 export interface MachReportController {
+  /** 新组件提供；可选以兼容旧自定义控制器。 */
+  readonly state?: MachReportState;
+  checkPdfFont?(): Promise<PdfFontCheckResult>;
   reload(): Promise<void>;
   print(): Promise<void>;
   /** 支持 html/pdf/xlsx/png/word（excel/image/doc 为兼容别名）；未知格式报 export 错误。 */
@@ -21,6 +53,8 @@ export interface MachReportController {
 export interface MachReportHandle extends MachReportController {
   ref(instance: unknown): void;
   readonly ready: ComputedRef<boolean>;
+  readonly state: MachReportState;
+  checkPdfFont(): Promise<PdfFontCheckResult>;
   exportAs(format: string): Promise<void>;
   setParams(values: Record<string, string>, opts?: { reload?: boolean }): Promise<void>;
 }
@@ -32,6 +66,20 @@ export interface MachReportHandle extends MachReportController {
  */
 export function useMachReport(): MachReportHandle {
   const instance = shallowRef<MachReportController | null>(null);
+  const currentState = (): MachReportState => instance.value?.state ?? EMPTY_STATE;
+  // 固定对象 + 只读 getter，支持 const { state } = report，挂载/卸载后仍实时读取。
+  const state: MachReportState = Object.freeze({
+    get loading() { return currentState().loading; },
+    get hasPlan() { return currentState().hasPlan; },
+    get pageCount() { return currentState().pageCount; },
+    get currentPage() { return currentState().currentPage; },
+    get exporting() { return currentState().exporting; },
+    get printing() { return currentState().printing; },
+    get canExport() { return currentState().canExport; },
+    get canPrint() { return currentState().canPrint; },
+    get error() { return currentState().error; },
+    get pdfFont() { return currentState().pdfFont; }
+  });
   function getController(): MachReportController {
     if (!instance.value) {
       throw new MachReportError("config", "报表预览尚未挂载，请在 ready 后调用控制器");
@@ -52,6 +100,12 @@ export function useMachReport(): MachReportHandle {
         : null;
     },
     ready: computed(() => instance.value !== null),
+    state,
+    async checkPdfFont(): Promise<PdfFontCheckResult> {
+      const controller = getController();
+      if (!controller.checkPdfFont) return { status: "unverified", fontUrl: "", message: "旧自定义控制器未提供字体检查，请由宿主确认字体配置" };
+      return controller.checkPdfFont();
+    },
     async reload(): Promise<void> { await getController().reload(); },
     async print(): Promise<void> { await getController().print(); },
     async exportAs(format: string): Promise<void> { await getController().exportAs(format); },

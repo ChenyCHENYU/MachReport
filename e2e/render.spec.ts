@@ -35,6 +35,60 @@ test.describe("MachReport example 真浏览器渲染", () => {
     await expect(page.getByText("冶炼浇注工艺卡（LF 精炼）")).toBeVisible();
   });
 
+  test("标准明细自动布局与父页面只读状态", async ({ page }) => {
+    let releaseFont!: () => void;
+    const fontGate = new Promise<void>((resolve) => { releaseFont = resolve; });
+    await page.route("**/fonts/mach-report-demo.otf", async (route) => {
+      if (route.request().method() === "GET") await fontGate;
+      await route.continue();
+    });
+
+    try {
+      await page.goto("http://localhost:8610");
+      await expect(page.getByText("产品出库单")).toBeVisible({ timeout: 10000 });
+      await page.getByRole("button", { name: "标准明细（自动布局）" }).click();
+      await expect(page.getByText("出库单", { exact: true })).toBeVisible();
+      await expect(page.getByText("合金结构钢坯 1", { exact: true })).toBeVisible();
+      await expect(page.getByText("3 支", { exact: true })).toBeVisible();
+
+      const paper = page.locator('.mrp-page-holder[data-page="1"] .mr-page');
+      const table = paper.locator(".mr-grid")
+        .filter({ has: page.getByText("物料", { exact: true }) })
+        .filter({ has: page.getByText("数量", { exact: true }) });
+      await expect(table).toHaveCount(1);
+      await expect(table.locator("tr").first().locator("td")).toHaveText(["物料", "数量"]);
+      const paperBox = (await paper.boundingBox())!;
+      const tableBox = (await table.boundingBox())!;
+      const cellWidths = await table.locator("tr").first().locator("td").evaluateAll(
+        (cells) => cells.map((cell) => cell.getBoundingClientRect().width)
+      );
+      expect(Math.abs(cellWidths[0]! - cellWidths[1]!)).toBeLessThan(1);
+      expect(tableBox.width / paperBox.width).toBeGreaterThan(0.85);
+      expect(tableBox.x).toBeGreaterThan(paperBox.x);
+      expect(tableBox.x + tableBox.width).toBeLessThan(paperBox.x + paperBox.width);
+
+      const indicator = page.locator(".mrp-pageinfo");
+      const total = Number((await indicator.textContent())!.split("/")[1]!.trim());
+      expect(total).toBeGreaterThan(1);
+      await expect(page.locator(".report-status")).toHaveText(`共 ${total} 页`);
+      const exportButton = page.getByRole("button", { name: "导出 PDF（前端直出）" });
+      await expect(exportButton).toBeEnabled();
+      const downloadPromise = page.waitForEvent("download", {
+        predicate: (download) => download.suggestedFilename() === "mach-report.pdf",
+        timeout: 30000
+      });
+      await exportButton.click();
+      await expect(exportButton).toBeDisabled();
+      releaseFont();
+      const download = await downloadPromise;
+      expect(await download.failure()).toBeNull();
+      await expect(exportButton).toBeEnabled();
+      await expect(page.locator(".report-status")).toHaveText(`共 ${total} 页`);
+    } finally {
+      releaseFont();
+    }
+  });
+
   test("缩放按钮切换（transform: scale，零重排）", async ({ page }) => {
     await page.goto("http://localhost:8610");
     await expect(page.getByText("产品出库单")).toBeVisible({ timeout: 10000 });

@@ -1,6 +1,7 @@
 // @vitest-environment node
-import { existsSync, readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { describe, expect, it, vi } from "vitest";
+import { PDFFont } from "pdf-lib";
 import { renderPlanToPdf } from "../render-pdf";
 import { paginateTemplate, createTemplate } from "@agile-team/mach-report";
 import type { RenderPlan } from "@agile-team/mach-report";
@@ -29,7 +30,18 @@ function planFixture(): RenderPlan {
   }).plan;
 }
 
-const SIMHEI = "C:\\Windows\\Fonts\\simhei.ttf";
+const DEMO_FONT = readFileSync(new URL("../../../../../examples/minimal/public/fonts/mach-report-demo.otf", import.meta.url));
+
+function textPlan(lines: string[]): RenderPlan {
+  return {
+    schemaVersion: "font-coverage",
+    pages: [{
+      pageWidthMm: 210,
+      pageHeightMm: 297,
+      components: [{ kind: "text", leftMm: 10, topMm: 10, widthMm: 180, heightMm: 100, lines }]
+    }]
+  };
+}
 
 describe("renderPlanToPdf", () => {
   it("生成合法 PDF 字节流（%PDF 头 + 页数正确）", async () => {
@@ -51,15 +63,10 @@ describe("renderPlanToPdf", () => {
     expect(bytes.length).toBeGreaterThan(500);
   });
 
-  it("中文字体嵌入后无 unsupported 文本", async () => {
-    if (!existsSync(SIMHEI)) {
-      console.warn("skip: simhei.ttf not found");
-      return;
-    }
-    const fontBytes = readFileSync(SIMHEI);
+  it("真实 demo OTF 嵌入后支持其覆盖的中文（测试不依赖系统字体）", async () => {
     const template = createTemplate()
       .page()
-      .text("钢铁冶炼浇注工艺卡", { leftMm: 50, topMm: 5, widthMm: 110 }, { fontSize: 14 })
+      .text("报表钢炼浇注工艺卡", { leftMm: 50, topMm: 5, widthMm: 110 }, { fontSize: 14 })
       .list(
         "步骤",
         { leftMm: 12, topMm: 20, widthMm: 186 },
@@ -71,15 +78,47 @@ describe("renderPlanToPdf", () => {
       .build();
     const plan = paginateTemplate(template, {
       步骤: [
-        { s: "进站温度", p: "1556 摄氏度" },
-        { s: "白渣保持", p: "18 分钟" }
+        { s: "进站温度", p: "1556 ℃" },
+        { s: "白渣保持", p: "18 分" }
       ]
     }).plan;
     const { bytes, unsupportedTextCount } = await renderPlanToPdf(plan, {
-      customFontBytes: fontBytes
+      customFontBytes: DEMO_FONT
     });
     expect(unsupportedTextCount).toBe(0);
     expect(bytes.length).toBeGreaterThan(2000);
+  });
+
+  it("自定义字体缺失的中文和 emoji 按行计数，多个缺字不生成 .notdef", async () => {
+    // 仓库子集覆盖“报表钢”，不覆盖“铁/龘/😀”；UTF-16 代理对作为单个码点检查。
+    const { bytes, unsupportedTextCount, pageErrors } = await renderPlanToPdf(
+      textPlan(["报表钢", "铁龘", "😀😀", "ASCII"]),
+      { customFontBytes: DEMO_FONT }
+    );
+    expect(unsupportedTextCount).toBe(2);
+    expect(pageErrors).toEqual([]);
+    expect(new TextDecoder().decode(bytes.subarray(0, 5))).toBe("%PDF-");
+  });
+
+  it("字符集每个字体只建立一次，换行/空行与可编码的字符组合不计缺字", async () => {
+    const getCharacterSet = vi.spyOn(PDFFont.prototype, "getCharacterSet");
+    try {
+      const { unsupportedTextCount, pageErrors } = await renderPlanToPdf(
+        textPlan(["", "报表\r\n钢\n", "ffi fl", "ASCII"]),
+        { customFontBytes: DEMO_FONT }
+      );
+      expect(unsupportedTextCount).toBe(0);
+      expect(pageErrors).toEqual([]);
+      expect(getCharacterSet).toHaveBeenCalledTimes(1);
+    } finally {
+      getCharacterSet.mockRestore();
+    }
+  });
+
+  it("内置西文字体支持的重音文本和直接 lines 中的换行仍能导出", async () => {
+    const { unsupportedTextCount, pageErrors } = await renderPlanToPdf(textPlan(["café\r\nASCII", ""]));
+    expect(unsupportedTextCount).toBe(0);
+    expect(pageErrors).toEqual([]);
   });
 
   it("无嵌入字体时中文计入 unsupported（不崩溃）", async () => {

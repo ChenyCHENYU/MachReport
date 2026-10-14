@@ -1,5 +1,16 @@
 # @agile-team/mach-report
 
+## 2.1.0
+
+### Minor Changes
+
+- 5697af6: 新增框架无关 createReportSource 与类型化 defineReport，支持插件 reports 一次注册模板和业务取数，包内完成分页、校验、告警和有序多报表合并，自动读取模板参数。Vue 入口重导出核心 API，并新增 useMachReport 父页面控制句柄。完善请求取消与完整响应超时、配置字段继承、异步注册开关，以及可等待的导出、并发去重和卸载清理；保留旧 fetcher、本地适配器及组件控制入口。
+- 新增只读预览和导出状态、可重试的轻量 PDF 字体预检查，以及按纸张和边距自动分配列宽的 createTableTemplate 标准明细模板。完善字体加载诊断、真实自定义字体缺字检测、打印与 PDF 窗口忙碌状态，保持旧控制器、导出函数和毫米模板接口兼容。
+
+### Patch Changes
+
+- aec9234: 修复报表网格列宽、字号、合计列传递和纸张 DSL 选项，以及 XLSX 合并范围、标题列数、降级告警与完整类型声明。补强渲染计划校验、Vue 请求生命周期、SQL 执行注释检查、构建产物和独立消费端校验。统一 MachReport 品牌 README，明确 Excel 能力边界，补齐中文 PDF 示例字体并更新安全依赖补丁。
+
 ## 2.0.0
 
 ### Major Changes

@@ -22,7 +22,7 @@
     "check:docs": "node scripts/check-docs.mjs",
     "check:consumer": "node scripts/check-consumer.mjs",
     "verify": "pnpm typecheck && pnpm lint && pnpm build && pnpm test:coverage && pnpm check:docs && pnpm check:consumer",
-    "release": "pnpm run version && pnpm install --frozen-lockfile && pnpm verify && pnpm test:e2e && pnpm changeset publish",
+    "release": "node scripts/check-release.mjs && pnpm install --frozen-lockfile && pnpm verify && pnpm test:e2e --retries=0 && node scripts/check-release.mjs && pnpm changeset publish",
     "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {

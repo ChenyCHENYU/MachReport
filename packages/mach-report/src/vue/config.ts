@@ -30,6 +30,8 @@ export interface MachReportMessages {
   /** @deprecated 未被组件消费，将在下个大版本移除（保留仅为类型兼容） */
   errorPrefix: string;
   retry: string;
+  /** 可选新增文案，保留旧完整文案对象兼容。 */
+  pdfFontUnavailable?: string;
   /** 搜索框占位文案 */
   searchPlaceholder: string;
   /** 搜索命中计数，{cur}/{total} 占位 */
@@ -65,6 +67,7 @@ export const DEFAULT_MESSAGES: MachReportMessages = {
   empty: "暂无预览数据",
   errorPrefix: "",
   retry: "重试",
+  pdfFontUnavailable: "PDF 字体尚未就绪，请联系管理员检查字体配置；预览及其它导出仍可使用。",
   searchPlaceholder: "搜索报表内容",
   matchInfo: "{cur}/{total}",
   prevMatch: "‹",

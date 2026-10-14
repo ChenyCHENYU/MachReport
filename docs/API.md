@@ -54,6 +54,35 @@ const { plan, warnings } = paginateTemplate(template, {
 
 模板支持纸张尺寸、页边距、文本、图片、表格/明细、分组小计、总计、页码、格式化和条件格式。分页告警在 `warnings` 中返回；业务侧应记录或展示有意义的告警。
 
+### 标准明细工厂
+
+```ts
+import { createTableTemplate } from "@agile-team/mach-report";
+
+const detailTemplate = createTableTemplate({
+  title: "出库单",
+  columns: [
+    { header: "物料", field: "name", flex: 2 },
+    { header: "数量", field: "qty" }
+  ]
+});
+```
+
+返回普通 `ReportTemplate`，可直接注册到 `reports` 或传给 `paginateTemplate`。
+
+| 选项 | 行为 |
+| --- | --- |
+| `columns` | 必填非空列数组，沿用 `ListColumn` 的字段、样式与格式化；`widthMm` 可选 |
+| 列 `widthMm` / `flex` | 固定毫米宽优先；其余列按正权重分配余量，默认 1；全部固定时保持列宽之和 |
+| `paper` / `landscape` | 默认 A4，支持预设或 `{ widthMm, heightMm }`、横向 |
+| `margins` | 默认各 10 mm；字段为 `marginTopMm` / `marginBottomMm` / `marginLeftMm` / `marginRightMm` |
+| `title` / `titleStyle` | 可选首页标题；默认居中、加粗、16 pt |
+| `titleHeightMm` / `titleGapMm` | 标题默认占高 10 mm，距表格 4 mm；无标题不占空间 |
+| `dataset` / `params` | 默认 `detail` 数据集 / 模板查询参数 |
+| `listOptions` | 继承列表行高、字号、重复表头、分组、小计与总计；位置和列宽由工厂生成 |
+
+输入不被修改；非法尺寸、无可用空间或固定列溢出同步抛错。标题只在第一页显示，续页沿用表格起点与重复表头策略。自由布局继续用 `createTemplate()`。
+
 ## 后端只提供业务数据
 
 核心分页、DOM / Canvas、PDF 和 XLSX API 不依赖 Vue；`/vue` 提供的预览、工具栏与参数面板依赖 Vue 3。其他框架可直接使用核心与导出 API，自行封装界面。
@@ -159,6 +188,10 @@ fetcher 可选的 `getParamDefs(reportIds)` 方法提供参数元数据，新数
 组件 ref 方法：`reload()`、`print()`、`exportAs(format)`、`openPdfWindow()`、`gotoPage(page)`、`setParams(values, { reload? })`。`exportAs` 支持 `html`、`pdf`、`xlsx` / `excel`、`png` / `image`、`word` / `doc`；未知格式会报错。引擎级图片导出另支持 JPEG。
 
 父页面推荐 `const report = useMachReport()`，模板绑定 `:ref="report.ref"`，控制方法直接从句柄调用。`ready` 是组件已挂载状态；`reload`、`print`、`exportAs`、`setParams` 可等待，但生成错误仍走 `error` 事件。PDF 窗口方法保持同步调用，保留点击事件的弹窗权限。
+
+句柄 `state` 为只读响应式对象，字段包括 `loading`、`hasPlan`、`pageCount`、`currentPage`、`exporting`（显示名称或 `null`）、`printing`、`canExport`、`canPrint`、`error` 和 `pdfFont`。`const { state } = report` 保持响应性，在模板或 `computed` 中读字段即可；无需 `.value`。`error` 含 `code`、`message`、可选 `cause`，新操作清空。原组件 ref / 后代控制器也提供状态；为兼容旧自定义控制器，`MachReportController.state` 与 `checkPdfFont` 可选，而新句柄始终提供两者。
+
+`checkPdfFont(): Promise<PdfFontCheckResult>` 用于主动诊断 / 重试；取消时拒绝 `AbortError`。字体状态为 `unchecked`、`checking`、`available`、`disabled`、`unverified` 或 `error`，含 `fontUrl` 和可选 `message` / `cause`。组件有有效页面且 PDF 操作显示时自动检查，诊断错误不触发普通 `error` 事件。详细状态语义、轻量检查与部署见 [PDF 字体指南](./PDF.md)。
 
 ### 配置中心
 
