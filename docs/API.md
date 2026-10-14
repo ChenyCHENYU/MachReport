@@ -54,6 +54,41 @@ const { plan, warnings } = paginateTemplate(template, {
 
 模板支持纸张尺寸、页边距、文本、图片、表格/明细、分组小计、总计、页码、格式化和条件格式。分页告警在 `warnings` 中返回；业务侧应记录或展示有意义的告警。
 
+## 后端只提供业务数据
+
+核心分页、DOM / Canvas、PDF 和 XLSX API 不依赖 Vue；`/vue` 提供的预览、工具栏与参数面板依赖 Vue 3。其他框架可直接使用核心与导出 API，自行封装界面。
+
+常规业务接入可以复用已有后端接口，不需要后端安装 MachReport。前端保留上例的 `template`，将后端数据映射到模板约定的 `detail` 数据集。在 Vue 中，适配器如下：
+
+```ts
+import { paginateTemplate } from "@agile-team/mach-report";
+import type { PlanFetcher } from "@agile-team/mach-report/vue";
+
+const fetcher: PlanFetcher = async ({ reportIds, params }) => {
+  if (reportIds.length !== 1 || reportIds[0] !== "outbound-order") {
+    throw new Error("未知报表定义");
+  }
+  if (!params.orderId) throw new Error("缺少单据 ID");
+
+  const response = await fetch(`/api/outbound/${encodeURIComponent(params.orderId)}`);
+  if (!response.ok) throw new Error(`取数失败：HTTP ${response.status}`);
+  const data = (await response.json()) as {
+    items: Array<{ materialName: string; quantity: number }>;
+  };
+  const { plan, warnings } = paginateTemplate(template, {
+    detail: data.items.map((item) => ({ name: item.materialName, qty: item.quantity }))
+  });
+  if (warnings.length > 0) console.warn("报表分页告警", warnings);
+  return plan;
+};
+```
+
+组件使用 `report-id="outbound-order"`、`:params="{ orderId }"` 和 `:fetcher="fetcher"`。示例路径和响应结构由业务项目替换；实际项目复用自己的请求客户端、鉴权、业务数据校验及日志机制。这里的类型断言不承担运行时校验。
+
+`detail` 必须与模板 `.list("detail", ...)` 一致，行中的 `name` / `qty` 必须与列的 `field` 一致。`PlanFetcher` 最终返回的是分页后的 `RenderPlan`，不是原始数据数组。分页告警需要由适配器处理，当前返回契约不携带这些告警。
+
+数据应覆盖所需报表范围。普通列表接口只返回当前分页时，只能生成该批数据的报表；完整导出需要后端提供完整结果或由应用完成受控取数。权限、租户隔离和数据范围仍由后端校验。模板可在前端定义，也可通过接口加载；不需要专用数据库或固定后端语言。
+
 ## Vue 3 预览组件
 
 ### 注册与接入
@@ -148,7 +183,9 @@ app.use(machReportPlugin, { fetcher, config });
 | `@agile-team/mach-report/xlsx` | `renderPlanToXlsx` |
 | `@agile-team/mach-report/sql` | 动态 SQL 编译与单 SELECT 校验工具 |
 
-PDF 和 XLSX 子路径可以在 Node.js ≥ 18 中使用；只导入需要的入口。XLSX 保留表格数据与结构，不做像素级版式复制；图片/条码/图表跳过时会产生保真告警。Word 出口生成兼容 HTML `.doc`，不是 `.docx`。
+PDF 和 XLSX 子路径的发布包声明 Node.js ≥ 18；只导入需要的入口。XLSX 每页输出一张 Sheet，表格值为格式化后的文本，不保留原始数值 / 日期类型或公式，也不做像素级版式复制；无法导出的内容返回告警。完整例子见 [Excel 导出指南](./EXCEL.md)。Word 出口生成兼容 HTML `.doc`，不是 `.docx`。
+
+Canvas / PNG 当前不绘制图片型组件（图片、条码、二维码、图表）；预览与各导出后端的支持范围应按实际组件验证。SQL 入口只编译 / 校验字符串，不连接数据库；业务后端仍需使用参数绑定、只读账户和查询权限控制。
 
 ## 模块联邦
 
@@ -157,9 +194,7 @@ PDF 和 XLSX 子路径可以在 Node.js ≥ 18 中使用；只导入需要的入
 ## 验证
 
 ```bash
-pnpm typecheck
-pnpm lint
-pnpm test
-pnpm build
-pnpm exec playwright test
+pnpm install --frozen-lockfile
+pnpm verify
+pnpm test:e2e
 ```

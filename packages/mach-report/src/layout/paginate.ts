@@ -169,6 +169,8 @@ interface ListInterning {
   borderStyle: ComponentStyle;
   headerHeightMm: number;
   headerGrid: PlanGrid;
+  /** 缩放后的列宽：所有行共享，避免渲染后端按单元格数均分或截断跨度后的列 */
+  colWidthsMm: number[];
   columns: ListColumn[];
 }
 
@@ -185,14 +187,13 @@ function interList(list: ListComponent, measurer: TextMeasurer): ListInterning {
 
   // 每列单元格样式只构造一次：{ align, verticalAlign, ...col.style }
   const cellStyles = list.columns.map((col) =>
-    col.style
-      ? ({ align: "left", verticalAlign: "middle", ...col.style } as ComponentStyle)
-      : ({ align: "left", verticalAlign: "middle" } as ComponentStyle)
+    ({ fontSize: fontSizePt, align: "left", verticalAlign: "middle", ...col.style }) as ComponentStyle
   );
 
   // 表头单元格样式（含底色/加粗），同样驻留
   const headerCellStyles = list.columns.map((col) =>
     ({
+      fontSize: fontSizePt,
       bold: list.headerBold ?? true,
       align: "center",
       verticalAlign: "middle",
@@ -223,6 +224,7 @@ function interList(list: ListComponent, measurer: TextMeasurer): ListInterning {
     list.border === false
       ? { borderTop: false, borderRight: false, borderBottom: false, borderLeft: false }
       : { borderBottom: true, borderLeft: true, borderRight: true, borderTop: true };
+  const colWidthsMm = list.columns.map((col) => col.widthMm);
 
   return {
     fontSizePt,
@@ -230,7 +232,12 @@ function interList(list: ListComponent, measurer: TextMeasurer): ListInterning {
     cellStyles,
     borderStyle,
     headerHeightMm: headerHeight,
-    headerGrid: { cells: [headerCells as GridCellCompat[]], rowHeightsMm: [headerHeight] },
+    headerGrid: {
+      cells: [headerCells as GridCellCompat[]],
+      colWidthsMm,
+      rowHeightsMm: [headerHeight]
+    },
+    colWidthsMm,
     columns: list.columns
   };
 }
@@ -285,7 +292,10 @@ function buildRowGridFast(
     }
     cells[i] = { text: texts[i]!, style };
   }
-  return { grid: { cells: [cells], rowHeightsMm: [height] }, heightMm: height };
+  return {
+    grid: { cells: [cells], colWidthsMm: inter.colWidthsMm, rowHeightsMm: [height] },
+    heightMm: height
+  };
 }
 
 export function paginateTemplate(
@@ -401,6 +411,15 @@ export function paginateTemplate(
 
       /** 输出一个网格行组件（rect+grid，样式共享 inter.borderStyle） */
       const placeGridRow = (grid: PlanGrid, heightMm: number, nidPrefix: string): void => {
+        const freshTop = scaledList.headerEveryPage !== false
+          ? list.topMm + inter.headerHeightMm
+          : contentTop;
+        const availableHeight = contentBottom() - freshTop;
+        if (heightMm > availableHeight) {
+          warnings.push(
+            `列表 ${list.id ?? list.dataset} 行高 ${heightMm.toFixed(2)}mm 超出单页可用高度 ${availableHeight.toFixed(2)}mm，预览与打印可能截断内容`
+          );
+        }
         ensureSpace(heightMm);
         current.components.push({
           kind: "rect",
@@ -430,14 +449,18 @@ export function paginateTemplate(
       ): { grid: PlanGrid; heightMm: number } => {
         const cells: GridCellCompat[] = [];
         const span = Math.max(1, Math.min(labelSpanTo, scaledList.columns.length));
-        cells.push({ text: label, colSpan: span, style: { bold: true, ...style } });
+        const summaryStyle: ComponentStyle = { fontSize: inter.fontSizePt, ...style };
+        cells.push({ text: label, colSpan: span, style: { bold: true, ...summaryStyle } });
         for (let i = span; i < scaledList.columns.length; i++) {
           const col = scaledList.columns[i]!;
-          cells.push({ text: values.get(col.field) ?? "", style });
+          cells.push({ text: values.get(col.field) ?? "", style: summaryStyle });
         }
         const lineMm = (inter.fontSizePt * LINE_HEIGHT * 25.4) / 72;
         const height = Math.max(inter.rowHeightFloorMm, lineMm + inter.paddingMm * 2);
-        return { grid: { cells: [cells], rowHeightsMm: [height] }, heightMm: height };
+        return {
+          grid: { cells: [cells], colWidthsMm: inter.colWidthsMm, rowHeightsMm: [height] },
+          heightMm: height
+        };
       };
 
       const numericSum = (groupRows: Record<string, unknown>[], field: string): number => {
@@ -455,12 +478,10 @@ export function paginateTemplate(
 
       // ── 分组装配：组头 → 行 → 组尾小计；末尾可选总合计 ──
       const groupBy = scaledList.groupBy;
-      const subtotalFields =
-        (typeof scaledList.grandTotal === "object" && scaledList.grandTotal.fields) ||
-        groupBy?.subtotal ||
-        [];
-      const firstSubtotalIdx = scaledList.columns.findIndex((c) => subtotalFields.includes(c.field));
-      const labelSpan = firstSubtotalIdx > 0 ? firstSubtotalIdx : 1;
+      const labelSpanFor = (fields: string[]): number => {
+        const firstFieldIdx = scaledList.columns.findIndex((c) => fields.includes(c.field));
+        return firstFieldIdx > 0 ? firstFieldIdx : 1;
+      };
 
       interface RowUnit {
         kind: "row" | "groupHeader" | "subtotal" | "grand";
@@ -521,7 +542,7 @@ export function paginateTemplate(
             unit.label!,
             values,
             (groupBy?.subtotalStyle ?? {}) as ComponentStyle,
-            labelSpan
+            labelSpanFor(groupBy!.subtotal ?? [])
           );
           placeGridRow(g.grid, g.heightMm, "listst");
         }
@@ -539,7 +560,7 @@ export function paginateTemplate(
             gt?.label ?? "合计",
             values,
             (gt?.style ?? {}) as ComponentStyle,
-            labelSpan
+            labelSpanFor(fields)
           );
           placeGridRow(g.grid, g.heightMm, "listgt");
         } else {

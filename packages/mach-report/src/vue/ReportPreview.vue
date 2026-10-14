@@ -231,6 +231,8 @@ let reloadSeq = 0;
 async function reload(): Promise<void> {
   const seq = ++reloadSeq;
   const fetcher = props.fetcher ?? injectedFetcher;
+  // 新一轮负责结束旧 loading；参数/配置早退时旧请求的 finally 已失去代际权限。
+  loading.value = false;
   if (reportIds.value.length === 0) {
     errorMessage.value = "缺少报表 ID";
     invalidate();
@@ -484,6 +486,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  reloadSeq++; // 卸载后未完成请求的成功/失败回调均失效
   window.removeEventListener("resize", onResize);
   thumbs.destroy();
   search.reset(); // 清防抖计时器（若挂载期间恰在防抖窗口内）

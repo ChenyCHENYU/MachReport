@@ -89,7 +89,9 @@ export class TemplateBuilder {
         "marginRightMm" in maybeOptions);
     const options: PageOptions = legacyMargins
       ? { margins: maybeOptions as PageMargins }
-      : ((maybeOptions as PageOptions | undefined) ?? {});
+      : (typeof optionsOrHeight === "number"
+          ? ((maybeOptions as PageOptions | undefined) ?? {})
+          : optionsOrHeight);
     const { widthMm, heightMm } = resolvePaper(
       paper,
       typeof optionsOrHeight === "number" ? optionsOrHeight : undefined,

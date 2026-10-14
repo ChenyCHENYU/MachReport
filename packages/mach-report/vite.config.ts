@@ -11,7 +11,7 @@ import dts from "vite-plugin-dts";
  * - 外部化：vue（optional peer）与包自身子路径（自引用 self-reference：
  *   vue 入口静态依赖引擎主入口、pdf 懒加载走 ./pdf 子路径——运行时经本包
  *   exports 解析，引擎代码全局单份）
- * - dts：vue-tsc 生成含 .vue 的声明；构建脚本另复制 .d.cts（require 类型出口）
+ * - dts：聚合六入口声明，内联 ExcelJS 类型；构建脚本对齐 Vue 声明路径并复制 .d.cts
  */
 export default defineConfig({
   plugins: [
@@ -21,6 +21,21 @@ export default defineConfig({
       outDir: "dist",
       entryRoot: "src",
       cleanVueFileName: true,
+      rollupTypes: true,
+      bundledPackages: ["exceljs"],
+      beforeWriteFile(filePath, content) {
+        // Vue SFC 推导会把可增补的 GlobalComponents interface 直接放入 Record 约束。
+        // 映射成同字段类型，保留宿主全局组件信息，同时使严格消费端可验证索引约束。
+        const normalized = content.replace(
+          /, GlobalComponents, GlobalDirectives,/g,
+          ", { [K in keyof GlobalComponents]: GlobalComponents[K] }, { [K in keyof GlobalDirectives]: GlobalDirectives[K] },"
+        );
+        // 完整 Workbook API 含 Node stream 签名，types: [] 宿主也需显式解析 Node 声明。
+        if (filePath.endsWith("/xlsx.d.ts") && !normalized.includes('/// <reference types="node" />')) {
+          return { filePath, content: `/// <reference types="node" />\n${normalized}` };
+        }
+        return { filePath, content: normalized };
+      },
       exclude: ["src/**/__tests__/**", "**/*.test.ts"]
     })
   ],
@@ -40,6 +55,7 @@ export default defineConfig({
     rollupOptions: {
       external: (id) => id === "vue" || id.startsWith("@agile-team/mach-report"),
       output: {
+        exports: "named",
         assetFileNames: (info) =>
           info.names?.some((n) => n.endsWith(".css")) ? "style.css" : (info.names?.[0] ?? "asset")
       }

@@ -25,7 +25,42 @@ export class SqlValidationError extends Error {
 
 const FORBIDDEN_TOP_LEVEL = /\b(insert|update|delete|merge|create|alter|drop|truncate|grant|revoke|call|exec|execute)\b/i;
 
+/** 数据库会执行这些块注释，必须在普通去注释之前拒绝；字符串内容保持字面语义。 */
+function assertNoExecutableComments(sql: string): void {
+  // 宿主 SQL mode 未知：默认转义与 NO_BACKSLASH_ESCAPES 任一解释能执行就拒绝。
+  for (const backslashEscapes of [true, false]) {
+    let quote: "'" | '"' | "`" | null = null;
+    for (let i = 0; i < sql.length; i++) {
+      const ch = sql[i]!;
+      if (quote) {
+        if (backslashEscapes && ch === "\\") i++;
+        else if (ch === quote) {
+          if (sql[i + 1] === quote) i++;
+          else quote = null;
+        }
+        continue;
+      }
+      if (ch === "'" || ch === '"' || ch === "`") {
+        quote = ch;
+      } else if (ch === "/" && sql[i + 1] === "*") {
+        if (sql[i + 2] === "!" || /^m!/i.test(sql.slice(i + 2, i + 4))) {
+          throw new SqlValidationError("禁止 MySQL/MariaDB 可执行注释", sql);
+        }
+        const end = sql.indexOf("*/", i + 2);
+        if (end < 0) break;
+        i = end + 1;
+      } else if (
+        (ch === "-" && sql[i + 1] === "-" && /\s/.test(sql[i + 2] ?? "")) ||
+        (ch === "#" && sql[i + 1] !== "{")
+      ) {
+        while (i + 1 < sql.length && sql[i + 1] !== "\n" && sql[i + 1] !== "\r") i++;
+      }
+    }
+  }
+}
+
 export function compileDynamicSql(source: string): CompiledSql {
+  assertNoExecutableComments(source);
   let tokens: Token[];
   try {
     tokens = tokenize(source);
@@ -99,6 +134,7 @@ export function compileDynamicSql(source: string): CompiledSql {
             break;
         }
       }
+      assertNoExecutableComments(out);
       return { sql: out, binds, warnings };
     }
   };
@@ -129,6 +165,7 @@ function stripStringLiterals(sql: string): string {
  * - 顶层禁止 DML/DDL/调用关键字（字符串字面量内容不参与匹配）
  */
 export function assertSingleSelect(sql: string): void {
+  assertNoExecutableComments(sql);
   const clean = stripSqlComments(sql);
   if (clean === "") throw new SqlValidationError("空 SQL", sql);
   if (!/^(select|with)\b/i.test(clean)) {

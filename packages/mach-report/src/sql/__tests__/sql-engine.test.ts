@@ -46,6 +46,40 @@ describe("compileDynamicSql: 基础语法", () => {
   it("未闭合的 #{} 抛语法错误", () => {
     expect(() => compileDynamicSql("select #{oops")).toThrowError(SqlSyntaxError);
   });
+
+  it.each(["/*!50000 into outfile '/tmp/report' */", "/*M!100100 into outfile '/tmp/report' */"])(
+    "编译入口拒绝可执行注释 %s",
+    (comment) => {
+      expect(() => compileDynamicSql(`select 1 ${comment}`)).toThrowError(/可执行注释/);
+      expect(() => assertSingleSelect(`select 1 ${comment}`)).toThrowError(/可执行注释/);
+    }
+  );
+
+  it("动态替换和 if 分支引入的可执行注释同样被拒绝", () => {
+    const tail = "/*!50000 into outfile '/tmp/report' */";
+    expect(() => compileDynamicSql("select 1 ${tail}").render({ tail })).toThrowError(/可执行注释/);
+    expect(() => compileDynamicSql('{if(true, "select 1 " + #tail, "select 2")}').render({ tail }))
+      .toThrowError(/可执行注释/);
+  });
+
+  it("NO_BACKSLASH_ESCAPES 模式中的引号不能隐藏可执行注释", () => {
+    const sql = String.raw`select '\' /*!50000 into outfile '/tmp/report' */`;
+    expect(() => compileDynamicSql(sql)).toThrowError(/可执行注释/);
+    expect(() => assertSingleSelect(sql)).toThrowError(/可执行注释/);
+  });
+
+  it("SQL 字符串和普通注释里的执行注释标记不误报", () => {
+    for (const sql of [
+      "select '/*! marker */' as label",
+      'select "/*M! marker */" as label',
+      "select 'it''s /*! marker */' as label",
+      "select 1 /* plain text: /*! marker */",
+      "select 1 -- /*! marker\n"
+    ]) {
+      expect(() => compileDynamicSql(sql).render({}), sql).not.toThrow();
+      expect(() => assertSingleSelect(sql), sql).not.toThrow();
+    }
+  });
 });
 
 describe("compileDynamicSql: {if} 动态条件（手册范式）", () => {

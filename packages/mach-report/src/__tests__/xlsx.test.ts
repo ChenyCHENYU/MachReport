@@ -88,4 +88,134 @@ describe("renderPlanToXlsx（./xlsx 子路径）", () => {
     const { warnings } = await renderPlanToXlsx(plan);
     expect(warnings.some((w) => w.includes("已跳过"))).toBe(true);
   });
+
+  it("没有文本回退的富文本与未导出的嵌套组件计入告警，保留已有文本", async () => {
+    const plan: RenderPlan = {
+      schemaVersion: "t",
+      pages: [{
+        pageWidthMm: 210,
+        pageHeightMm: 297,
+        components: [
+          {
+            kind: "text", nid: "rich-only", leftMm: 0, topMm: 0, widthMm: 80, heightMm: 8,
+            richParagraphs: [{ segments: [{ text: "富文本专有内容" }] }]
+          },
+          {
+            kind: "text", nid: "rich-fallback", leftMm: 0, topMm: 10, widthMm: 80, heightMm: 8,
+            text: "已有文本回退", richParagraphs: [{ segments: [{ text: "富文本" }] }]
+          },
+          {
+            kind: "rect", nid: "nested-grid", leftMm: 0, topMm: 20, widthMm: 80, heightMm: 8,
+            grid: { cells: [[
+              { children: [{ kind: "text", leftMm: 0, topMm: 0, widthMm: 40, heightMm: 8, text: "子组件" }] },
+              { text: "单元格已有文本", children: [{ kind: "image", leftMm: 0, topMm: 0, widthMm: 40, heightMm: 8 }] }
+            ]] }
+          }
+        ]
+      }]
+    };
+    const { workbook, warnings } = await renderPlanToXlsx(plan);
+    expect(warnings).toHaveLength(3);
+    expect(warnings[0]).toContain("rich-only: 富文本内容");
+    expect(warnings[1]).toContain("nested-grid cell 1:1: 嵌套组件内容");
+    expect(warnings[2]).toContain("nested-grid cell 1:2: 嵌套组件内容");
+    const sheet = workbook.worksheets[0]!;
+    expect(sheet.getCell("A1").value).toBe("");
+    expect(sheet.getCell("A2").value).toBe("已有文本回退");
+    expect(sheet.getCell("A3").value).toBe("");
+    expect(sheet.getCell("B3").value).toBe("单元格已有文本");
+  });
+
+  it("无网格的线与形状组件均告警，不影响普通文本导出", async () => {
+    const plan: RenderPlan = {
+      schemaVersion: "t",
+      pages: [{
+        pageWidthMm: 210,
+        pageHeightMm: 297,
+        components: [
+          ...(["line", "rect", "ellipse"] as const).map((kind) => ({
+            kind, leftMm: 0, topMm: 0, widthMm: 80, heightMm: 8
+          })),
+          { kind: "text", leftMm: 0, topMm: 10, widthMm: 80, heightMm: 8, text: "正文" }
+        ]
+      }]
+    };
+    const { workbook, warnings } = await renderPlanToXlsx(plan);
+    expect(warnings).toHaveLength(3);
+    for (const kind of ["line", "rect", "ellipse"]) {
+      expect(warnings.some((warning) => warning.includes(`组件类型 ${kind}`))).toBe(true);
+    }
+    expect(workbook.worksheets[0]!.getCell("A1").value).toBe("正文");
+  });
+
+  it("越界合并收敛到当前网格，不占用后续文本行", async () => {
+    const plan: RenderPlan = {
+      schemaVersion: "t",
+      pages: [{
+        pageWidthMm: 210,
+        pageHeightMm: 297,
+        components: [
+          {
+            kind: "rect", leftMm: 0, topMm: 0, widthMm: 80, heightMm: 10,
+            grid: {
+              cells: [[{ text: "网格内容", colSpan: 99, rowSpan: 99 }], []],
+              colWidthsMm: [40, 40],
+              rowHeightsMm: [5, 5]
+            }
+          },
+          { kind: "text", leftMm: 0, topMm: 10, widthMm: 80, heightMm: 8, text: "后续标题" }
+        ]
+      }]
+    };
+    const { workbook } = await renderPlanToXlsx(plan);
+    const sheet = workbook.worksheets[0]!;
+    expect(sheet.model.merges).toEqual(["A1:B2", "A3:B3"]);
+    expect(sheet.getCell("A1").value).toBe("网格内容");
+    expect(sheet.getCell("A3").value).toBe("后续标题");
+    expect(sheet.columnCount).toBe(2);
+    expect(sheet.rowCount).toBe(3);
+  });
+
+  it("标题只合并真实网格列，不因毫米宽度生成空白列", async () => {
+    const plan: RenderPlan = {
+      schemaVersion: "t",
+      pages: [{
+        pageWidthMm: 210,
+        pageHeightMm: 297,
+        components: [
+          { kind: "text", leftMm: 70, topMm: 5, widthMm: 70, heightMm: 8, text: "三列报表" },
+          {
+            kind: "rect", leftMm: 12, topMm: 20, widthMm: 186, heightMm: 8,
+            grid: { cells: [[{ text: "名称" }, { text: "数量" }, { text: "金额" }]], colWidthsMm: [106, 40, 40] }
+          }
+        ]
+      }]
+    };
+    const { workbook } = await renderPlanToXlsx(plan);
+    const sheet = workbook.worksheets[0]!;
+    expect(sheet.model.merges).toEqual(["A1:C1"]);
+    expect(sheet.columnCount).toBe(3);
+    expect(sheet.getCell("C2").value).toBe("金额");
+  });
+
+  it("纯文本报表使用单列，并按文本组件宽度设置列宽", async () => {
+    const plan: RenderPlan = {
+      schemaVersion: "t",
+      pages: [{
+        pageWidthMm: 210,
+        pageHeightMm: 297,
+        components: [
+          { kind: "text", leftMm: 0, topMm: 0, widthMm: 70, heightMm: 8, text: "标题" },
+          { kind: "text", leftMm: 0, topMm: 10, widthMm: 140, heightMm: 8, text: "正文" }
+        ]
+      }]
+    };
+    const { workbook } = await renderPlanToXlsx(plan);
+    const sheet = workbook.worksheets[0]!;
+    expect(sheet.columnCount).toBe(1);
+    expect(sheet.model.merges).toEqual([]);
+    expect(sheet.getColumn(1).width).toBeCloseTo(140 * (96 / 25.4) / 7);
+    expect(sheet.getCell("A1").value).toBe("标题");
+    expect(sheet.getCell("A2").value).toBe("正文");
+  });
 });

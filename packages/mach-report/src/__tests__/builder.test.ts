@@ -3,6 +3,16 @@ import { createTemplate } from "../builder/template-builder";
 import { paginateTemplate, renderPlan } from "../index";
 
 describe("template builder DSL", () => {
+  it("纸张预设与自定义尺寸的第二参数应用横向和页边距", () => {
+    for (const paper of ["a4", { widthMm: 210, heightMm: 297 }] as const) {
+      const { pages } = createTemplate().page(paper, {
+        landscape: true,
+        margins: { marginTopMm: 18, marginLeftMm: 15 }
+      }).build();
+      expect(pages[0]).toMatchObject({ widthMm: 297, heightMm: 210, marginTopMm: 18, marginLeftMm: 15 });
+    }
+  });
+
   it("单页快路径：链式直接 build", () => {
     const template = createTemplate()
       .page(210, 297, { marginTopMm: 12 })

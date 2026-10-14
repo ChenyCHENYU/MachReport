@@ -51,8 +51,7 @@ describe("单包发布产物（框架子路径 ./vue 契约）", () => {
   it.skipIf(!built)("vue 类型声明齐备且含组件/插件符号", () => {
     const dts = readFileSync(resolve(dist, "vue/index.d.ts"), "utf8");
     expect(dts).toContain("ReportPreview");
-    const pluginDts = readFileSync(resolve(dist, "vue/plugin.d.ts"), "utf8");
-    expect(pluginDts).toContain("machReportPlugin");
+    expect(dts).toContain("machReportPlugin");
     expect(existsSync(resolve(dist, "vue/index.d.cts"))).toBe(true);
   });
 

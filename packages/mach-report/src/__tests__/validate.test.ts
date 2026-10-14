@@ -29,6 +29,28 @@ describe("validateRenderPlan", () => {
     expect(r.errors[0]!.path).toBe("$.pages");
   });
 
+  it.each([undefined, null])("缺失或为空的 components 被拒绝（%s）", (components) => {
+    const r = validateRenderPlan({ pages: [{ ...goodPage, components }] });
+    expect(r.ok).toBe(false);
+    expect(r.errors.map((e) => e.path)).toContain("$.pages.0.components");
+  });
+
+  it.each(["leftMm", "topMm", "widthMm", "heightMm"])("几何字段 %s 必填且不能为 null", (key) => {
+    for (const value of [undefined, null]) {
+      const component = { ...goodPage.components[0], [key]: value };
+      const r = validateRenderPlan({ pages: [{ ...goodPage, components: [component] }] });
+      expect(r.ok).toBe(false);
+      expect(r.errors.map((e) => e.path)).toContain(`$.pages.0.components.0.${key}`);
+    }
+  });
+
+  it.each(["widthMm", "heightMm"])("组件尺寸 %s 不能为负数", (key) => {
+    const component = { ...goodPage.components[0], [key]: -1 };
+    const r = validateRenderPlan({ pages: [{ ...goodPage, components: [component] }] });
+    expect(r.ok).toBe(false);
+    expect(r.errors.map((e) => e.path)).toContain(`$.pages.0.components.0.${key}`);
+  });
+
   it("非法 kind 降级为 warning，避免单个扩展组件阻断整张报表", () => {
     const r = validateRenderPlan({
       pages: [

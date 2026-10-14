@@ -1,9 +1,19 @@
-import { copyFileSync, existsSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
+import { dirname } from "node:path";
 
 /**
  * 复制入口 .d.ts → .d.cts（require 条件的类型出口，对齐双格式声明）。
- * 仅处理 exports 指向的入口声明（嵌套声明由 TS 相对解析，无需复制）。
+ * rollup 声明按 Vite 入口命名；先对齐已发布的 Vue 子路径，再复制 require 类型入口。
  */
+for (const [from, to] of [
+  ["dist/vue.d.ts", "dist/vue/index.d.ts"],
+  ["dist/vue-async.d.ts", "dist/vue/async.d.ts"]
+]) {
+  if (!existsSync(from)) throw new Error(`Missing rolled declaration: ${from}`);
+  mkdirSync(dirname(to), { recursive: true });
+  renameSync(from, to);
+}
+
 const entries = [
   "dist/index.d.ts",
   "dist/pdf.d.ts",
@@ -17,6 +27,8 @@ for (const from of entries) {
   if (existsSync(from)) {
     copyFileSync(from, from.replace(/\.d\.ts$/, ".d.cts"));
     count++;
+  } else {
+    throw new Error(`Missing public declaration: ${from}`);
   }
 }
 console.log(`copied ${count} entry .d.cts files`);

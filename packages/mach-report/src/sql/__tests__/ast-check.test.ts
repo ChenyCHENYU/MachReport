@@ -33,6 +33,15 @@ describe("assertSingleSelectAst（AST 深度校验）", () => {
     expect(r.ok).toBe(false);
   });
 
+  it.each(["/*!50000 into outfile '/tmp/report' */", "/*M!100100 into outfile '/tmp/report' */"])(
+    "可执行注释不能通过 AST 或词法降级 %s",
+    (comment) => {
+      const r = assertSingleSelectAst(`select 1 ${comment}`);
+      expect(r.ok).toBe(false);
+      expect(r.message).toContain("可执行注释");
+    }
+  );
+
   it("SELECT ... INTO 在 AST 层被识别拒绝", () => {
     const r = assertSingleSelectAst("select * into t2 from t1");
     expect(r.ok).toBe(false);

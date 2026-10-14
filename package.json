@@ -6,19 +6,23 @@
   "description": "独立的 TypeScript 报表引擎与 Vue 3 预览组件",
   "packageManager": "pnpm@11.8.0",
   "engines": {
-    "node": ">=18"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "build": "pnpm -r --if-present run build",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "typecheck": "tsc -b tsconfig.json && vue-tsc --noEmit -p packages/mach-report && vue-tsc --noEmit -p packages/federation",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings=0",
     "lint:fix": "eslint . --fix",
     "changeset": "changeset",
-    "version": "changeset version",
+    "version": "changeset version && node scripts/sync-readme-version.mjs",
     "clean": "pnpm -r --if-present run clean",
-    "release": "pnpm changeset version && pnpm install && pnpm build && pnpm test && pnpm changeset publish",
+    "check:docs": "node scripts/check-docs.mjs",
+    "check:consumer": "node scripts/check-consumer.mjs",
+    "verify": "pnpm typecheck && pnpm lint && pnpm build && pnpm test:coverage && pnpm check:docs && pnpm check:consumer",
+    "release": "pnpm run version && pnpm install --frozen-lockfile && pnpm verify && pnpm test:e2e && pnpm changeset publish",
     "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {

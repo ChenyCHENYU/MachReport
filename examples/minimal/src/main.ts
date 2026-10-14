@@ -1,22 +1,20 @@
 import { createApp, h, ref, computed } from "vue";
-import { ReportPreview, createLocalFetcher, machReportPlugin } from "@agile-team/mach-report/vue";
+import { ReportPreview, createDefaultPdfExporter, createLocalFetcher, machReportPlugin } from "@agile-team/mach-report/vue";
 import type { ReportTemplate } from "@agile-team/mach-report";
 import { renderDynamicSql } from "@agile-team/mach-report/sql";
 
 let cachedTemplateRef: { template: ReportTemplate; datasets: Record<string, Record<string, unknown>[]> } | null = null;
 
 let pagerRef: { destroy(): void; window(): { start: number; end: number } } | null = null;
+const demoFontUrl = "/fonts/mach-report-demo.otf";
+const pdfExporter = createDefaultPdfExporter({ fontUrl: demoFontUrl });
 
 async function exportPdf(): Promise<void> {
   const entry = cachedTemplateRef;
   if (!entry) return;
-  const [{ renderPlanToPdf, loadFontWithCache }, { paginateTemplate }] = await Promise.all([
-    import("@agile-team/mach-report/pdf"),
-    import("@agile-team/mach-report")
-  ]);
+  const { paginateTemplate } = await import("@agile-team/mach-report");
   const { plan } = paginateTemplate(entry.template, entry.datasets);
-  const font = await loadFontWithCache("/simhei.ttf");
-  const { bytes } = await renderPlanToPdf(plan, font ? { customFontBytes: font } : {});
+  const bytes = await pdfExporter(plan, console.warn);
   const blob = new Blob([bytes as unknown as BlobPart], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -297,6 +295,9 @@ const app = createApp({
 });
 
 // 插件化注册演示：数据面一次注入，ReportPreview 不传 fetcher 也能取到（此处仍显式传以便对比）
-app.use(machReportPlugin, { fetcher: fetcherWithCache });
+app.use(machReportPlugin, {
+  fetcher: fetcherWithCache,
+  config: { defaults: { pdfFontUrl: demoFontUrl } }
+});
 
 app.mount("#app");

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 /**
  * 发布产物零依赖守卫（mach-table 家族发布口径）：
- * - 依赖图必须为零：pdf-lib/fontkit/node-sql-parser 打进子路径产物而非 dependencies
+ * - 运行时代码依赖为零：重依赖打进子路径产物；仅 @types/node 支撑完整 Workbook 类型
  * - 双格式（.js/.cjs + .d.ts/.d.cts）与公开入口齐备
  */
 const pkgDir = resolve(__dirname, "../..");
@@ -13,13 +13,14 @@ const dist = resolve(pkgDir, "dist");
 const built = existsSync(dist);
 
 describe("mach-report 引擎发布产物（零运行时依赖单包）", () => {
-  it("package.json 无 dependencies（重依赖已打进子路径产物）", () => {
+  it("package.json 仅声明 Node 类型依赖（重依赖已打进子路径产物）", () => {
     const pkg = JSON.parse(readFileSync(resolve(pkgDir, "package.json"), "utf8")) as {
       dependencies?: Record<string, string>;
       devDependencies?: Record<string, string>;
       engines?: Record<string, string>;
     };
-    expect(pkg.dependencies, "引擎不得声明运行时依赖").toBeUndefined();
+    expect(Object.keys(pkg.dependencies ?? {}), "引擎不得声明运行时代码依赖").toEqual(["@types/node"]);
+    expect(pkg.dependencies?.["@types/node"]).toBeTruthy();
     expect(pkg.devDependencies?.["pdf-lib"]).toBeTruthy();
     expect(pkg.engines?.node).toBe(">=18.0.0");
   });
@@ -39,5 +40,15 @@ describe("mach-report 引擎发布产物（零运行时依赖单包）", () => {
     expect(pdfJs.length).toBeGreaterThan(100_000); // pdf-lib 已内联（~数百 KB）
     const sqlJs = readFileSync(resolve(dist, "sql.js"), "utf8");
     expect(sqlJs.length).toBeGreaterThan(100_000); // node-sql-parser 已内联
+  });
+
+  it.skipIf(!built)("XLSX 声明内联完整 Workbook API，不要求宿主安装 ExcelJS", () => {
+    const dts = readFileSync(resolve(dist, "xlsx.d.ts"), "utf8");
+    expect(dts).not.toMatch(/(?:from\s*|import\s*\()(['"])exceljs\1/);
+    expect(dts).toContain('/// <reference types="node" />');
+    expect(dts).toContain("XlsxRenderResult");
+    expect(dts).toContain("addWorksheet(");
+    expect(dts).toContain("getWorksheet(");
+    expect(dts).toContain("writeBuffer(");
   });
 });

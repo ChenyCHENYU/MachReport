@@ -28,7 +28,6 @@ function isObj(v: unknown): v is Record<string, unknown> {
 
 function checkNumber(obj: Record<string, unknown>, key: string, path: string, errors: ValidationError[]): void {
   const v = obj[key];
-  if (v === undefined || v === null) return;
   if (typeof v !== "number" || !Number.isFinite(v)) {
     errors.push({ path: `${path}.${key}`, message: `应为有限数字，实际 ${JSON.stringify(v)}` });
   }
@@ -56,9 +55,12 @@ export function validateComponent(
   for (const key of ["leftMm", "topMm", "widthMm", "heightMm"]) {
     checkNumber(comp, key, path, errors);
   }
-  if (comp["leftMm"] != null && comp["widthMm"] != null) {
-    if ((comp["leftMm"] as number) < -100 || (comp["widthMm"] as number) < 0) {
-      errors.push({ path, message: "几何数值异常（leftMm<-100 或 widthMm<0）" });
+  if (typeof comp["leftMm"] === "number" && comp["leftMm"] < -100) {
+    errors.push({ path: `${path}.leftMm`, message: "几何数值异常（leftMm<-100）" });
+  }
+  for (const key of ["widthMm", "heightMm"]) {
+    if (typeof comp[key] === "number" && comp[key] < 0) {
+      errors.push({ path: `${path}.${key}`, message: "组件尺寸不能为负数" });
     }
   }
   const grid = comp["grid"];
@@ -115,7 +117,7 @@ export function validatePage(
     errors.push({ path: `${path}.pageHeightMm`, message: `页高非法: ${JSON.stringify(h)}` });
   }
   const comps = page["components"];
-  if (comps !== undefined && !Array.isArray(comps)) {
+  if (!Array.isArray(comps)) {
     errors.push({ path: `${path}.components`, message: "components 应为数组" });
   } else if (Array.isArray(comps)) {
     comps.forEach((comp, i) =>

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { paginateTemplate } from "../layout/paginate";
 import type { ListComponent, ReportTemplate } from "../layout/paginate";
 import { formatValue } from "../format";
+import { resolveGridLayout } from "../render/grid-geometry";
 
 function listWith(extras: Partial<ListComponent>): ListComponent {
   return {
@@ -114,6 +115,79 @@ describe("分组小计与总合计", () => {
     { name: "热轧卷", wh: "1号库", qty: 5, amount: 50 },
     { name: "冷轧板", wh: "2号库", qty: 8, amount: 80 }
   ];
+
+  it("不等宽列在表头、明细、组头、小计和合计中保持同一几何", () => {
+    const { plan } = paginateTemplate(
+      page([listWith({
+        widthMm: 95,
+        groupBy: { field: "wh", subtotal: ["amount"] },
+        grandTotal: true
+      })]),
+      { detail: rows }
+    );
+    const components = plan.pages.flatMap((p) => p.components);
+    const prefixes = ["listh_", "listr_", "listg_", "listst_", "listgt_"];
+    for (const prefix of prefixes) {
+      const comp = components.find((c) => c.nid?.startsWith(prefix))!;
+      expect(comp, prefix).toBeDefined();
+      expect(comp.grid?.colWidthsMm, prefix).toEqual([45, 25, 25]);
+      const layout = resolveGridLayout(comp.grid!, comp.widthMm, comp.heightMm);
+      expect(layout.columns.map((col) => col.size), prefix).toEqual([45, 25, 25]);
+      if (prefix === "listg_") {
+        expect(layout.cells[0]?.widthMm).toBe(95);
+      } else if (prefix === "listst_" || prefix === "listgt_") {
+        // label 跨前两列后，第三列金额仍须进入几何输出，不能因数组仅有两项而被截断。
+        expect(layout.cells).toHaveLength(2);
+        expect(layout.cells[0]?.widthMm).toBe(70);
+        expect(layout.cells[1]).toMatchObject({ ci: 2, xMm: 70, widthMm: 25 });
+        expect(layout.cells[1]?.cell.text).toBe(prefix === "listst_" ? "150" : "230");
+      }
+    }
+  });
+
+  it("列表字号传递给所有行，列和汇总样式仍可显式覆盖", () => {
+    const { plan } = paginateTemplate(
+      page([listWith({
+        fontSizePt: 20,
+        columns: [
+          { header: "物料", field: "name", widthMm: 90 },
+          { header: "数量", field: "qty", widthMm: 50, style: { fontSize: 14 } },
+          { header: "金额", field: "amount", widthMm: 50 }
+        ],
+        groupBy: { field: "wh", subtotal: ["qty"], subtotalStyle: { fontSize: 16 } },
+        grandTotal: { fields: ["amount"] }
+      })]),
+      { detail: rows }
+    );
+    const components = plan.pages.flatMap((p) => p.components);
+    for (const prefix of ["listh_", "listr_"]) {
+      const cells = components.find((c) => c.nid?.startsWith(prefix))!.grid!.cells[0]!;
+      expect(cells.map((cell) => cell?.style?.fontSize)).toEqual([20, 14, 20]);
+    }
+    for (const [prefix, size] of [["listg_", 20], ["listst_", 16], ["listgt_", 20]] as const) {
+      const cells = components.find((c) => c.nid?.startsWith(prefix))!.grid!.cells[0]!;
+      expect(cells.every((cell) => cell?.style?.fontSize === size)).toBe(true);
+    }
+  });
+
+  it("小计与总计字段位置不同时分别计算标签跨度", () => {
+    const { plan } = paginateTemplate(
+      page([listWith({
+        groupBy: { field: "wh", subtotal: ["qty"] },
+        grandTotal: { fields: ["amount"] }
+      })]),
+      { detail: rows }
+    );
+    const components = plan.pages.flatMap((p) => p.components);
+    const subtotal = components.find((c) => c.nid?.startsWith("listst_"))!;
+    const grand = components.find((c) => c.nid?.startsWith("listgt_"))!;
+    const subtotalLayout = resolveGridLayout(subtotal.grid!, subtotal.widthMm, subtotal.heightMm);
+    expect(subtotalLayout.cells[0]?.cell.colSpan).toBe(1);
+    expect(subtotalLayout.cells.find((cell) => cell.ci === 1)?.cell.text).toBe("15");
+    const grandLayout = resolveGridLayout(grand.grid!, grand.widthMm, grand.heightMm);
+    expect(grandLayout.cells[0]?.cell.colSpan).toBe(2);
+    expect(grandLayout.cells.find((cell) => cell.ci === 2)?.cell.text).toBe("230");
+  });
 
   it("组头/组尾小计/总合计结构与数值", () => {
     const { plan } = paginateTemplate(

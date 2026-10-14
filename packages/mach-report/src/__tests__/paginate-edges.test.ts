@@ -44,9 +44,10 @@ describe("paginate 边界补强", () => {
       ]
     };
     const huge = "字".repeat(3000);
-    const { plan } = paginateTemplate(tpl, { d: [{ t: huge }] });
+    const { plan, warnings } = paginateTemplate(tpl, { d: [{ t: huge }] });
     expect(plan.pages.length).toBeGreaterThan(1);
     expect(plan.pages.length).toBeLessThan(50);
+    expect(warnings.some((warning) => warning.includes("超出单页可用高度"))).toBe(true);
   });
 
   it("多列表顺序流分页（后一列表接前一列表末页）", () => {

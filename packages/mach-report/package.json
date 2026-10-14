@@ -91,12 +91,13 @@
     "node": ">=18.0.0"
   },
   "files": [
-    "dist"
+    "dist",
+    "LICENSING.md"
   ],
   "scripts": {
     "build": "vite build && node scripts/copy-dcts.mjs",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
-    "prepublishOnly": "node scripts/sync-readme.mjs"
+    "prepack": "node scripts/sync-readme.mjs"
   },
   "peerDependencies": {
     "vue": "^3.2.0"
@@ -105,6 +106,9 @@
     "vue": {
       "optional": true
     }
+  },
+  "dependencies": {
+    "@types/node": "^22.12.0"
   },
   "devDependencies": {
     "@pdf-lib/fontkit": "^1.1.1",

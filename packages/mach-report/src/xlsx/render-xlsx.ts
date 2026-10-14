@@ -1,7 +1,8 @@
-import ExcelJS from "exceljs";
+import ExcelJSRuntime from "exceljs";
+import type * as ExcelJS from "exceljs";
 import type { RenderPlan } from "../schema/render-plan";
 import type { PlanComponent } from "../schema/render-plan";
-import { resolveGridLayout } from "../render/grid-geometry";
+import { resolveGridLayout, type GridLayout } from "../render/grid-geometry";
 
 /**
  * RenderPlan → xlsx 导出（B 端第二出口，对齐家族 @agile-team/mach-table-xlsx 路线）：
@@ -9,7 +10,7 @@ import { resolveGridLayout } from "../render/grid-geometry";
  *   加粗/对齐/底色/字号直译（resolveGridLayout 复用单真相源几何）
  * - 文本组件 → 合并标题行（顺序流式输出，保字号/加粗/对齐；非像素级定位，
  *   目标是"财务能直接用的对账表"而非复刻版面）
- * - 图片/条码/图表跳过并计入 warnings（与 PDF 保真告警同口径）
+ * - 未支持组件、富文本专有内容与单元格嵌套组件跳过并计入 warnings
  */
 
 export interface XlsxRenderOptions {
@@ -45,7 +46,7 @@ export async function renderPlanToXlsx(
   plan: RenderPlan,
   options: XlsxRenderOptions = {}
 ): Promise<XlsxRenderResult> {
-  const workbook = new ExcelJS.Workbook();
+  const workbook = new ExcelJSRuntime.Workbook();
   const warnings: string[] = [];
 
   plan.pages.forEach((page, pageIndex) => {
@@ -60,10 +61,27 @@ export async function renderPlanToXlsx(
       }
     );
 
-    let cursorRow = 1;
+    // 标题沿用真实表格列数；Excel 列宽单位不能当作列数量。
+    const gridLayouts = new Map<PlanComponent, GridLayout>();
+    let sheetColumnCount = 1;
+    let textWidthMm = 0;
     for (const comp of page.components) {
       if (comp.grid) {
         const layout = resolveGridLayout(comp.grid, comp.widthMm, comp.heightMm);
+        gridLayouts.set(comp, layout);
+        sheetColumnCount = Math.max(sheetColumnCount, layout.columns.length);
+      } else if (comp.kind === "text") {
+        textWidthMm = Math.max(textWidthMm, comp.widthMm);
+      }
+    }
+    if (gridLayouts.size === 0 && textWidthMm > 0) {
+      sheet.getColumn(1).width = textWidthMm * MM_TO_COL_WIDTH;
+    }
+
+    let cursorRow = 1;
+    for (const comp of page.components) {
+      if (comp.grid) {
+        const layout = gridLayouts.get(comp)!;
         // 列宽：优先 colWidthsMm，否则按解析结果
         const colCount = Math.max(layout.columns.length, 1);
         const widths: number[] = [];
@@ -83,6 +101,9 @@ export async function renderPlanToXlsx(
           if (row.height == null || row.height < rowHpt) row.height = rowHpt;
           const cell = row.getCell(box.ci + 1);
           cell.value = typeof box.cell.text === "string" ? box.cell.text : "";
+          if (box.cell.children?.length) {
+            warnings.push(`page ${pageIndex + 1} ${comp.nid ?? comp.kind} cell ${box.ri + 1}:${box.ci + 1}: 嵌套组件内容暂不支持 xlsx 导出，已跳过`);
+          }
           cell.alignment = {
             horizontal: box.cell.style?.align ?? "left",
             vertical: "middle"
@@ -94,9 +115,9 @@ export async function renderPlanToXlsx(
             bottom: { style: "thin" }, right: { style: "thin" }
           };
           cellFont(cell, comp, box.cell.style?.bold === true, box.cell.style?.fontSize, box.cell.style?.color);
-          // 跨度合并（colSpan/rowSpan > 1 时）
-          const colSpan = Math.max(1, box.cell.colSpan ?? 1);
-          const rowSpan = Math.max(1, box.cell.rowSpan ?? 1);
+          // 与统一几何一致，越界跨度收敛到当前网格内，避免占用后续组件行。
+          const colSpan = Math.max(1, Math.min(box.cell.colSpan ?? 1, layout.columns.length - box.ci));
+          const rowSpan = Math.max(1, Math.min(box.cell.rowSpan ?? 1, layout.rows.length - box.ri));
           if (colSpan > 1 || rowSpan > 1) {
             sheet.mergeCells(
               cursorRow + box.ri,
@@ -114,20 +135,21 @@ export async function renderPlanToXlsx(
           const text = Array.isArray(comp.lines) && comp.lines.length > 0
             ? comp.lines.join("\n")
             : (comp.text ?? "");
+          if (comp.richParagraphs?.length && text.length === 0) {
+            warnings.push(`page ${pageIndex + 1} ${comp.nid ?? comp.kind}: 富文本内容暂不支持 xlsx 导出，已跳过`);
+          }
           const row = sheet.getRow(cursorRow);
           const cell = row.getCell(1);
           cell.value = text;
           cell.alignment = { horizontal: comp.style?.align === "center" ? "center" : comp.style?.align === "right" ? "right" : "left", vertical: "middle" };
           cellFont(cell, comp);
-          sheet.mergeCells(cursorRow, 1, cursorRow, Math.max(1, Math.round(comp.widthMm * MM_TO_COL_WIDTH)));
+          if (sheetColumnCount > 1) sheet.mergeCells(cursorRow, 1, cursorRow, sheetColumnCount);
           row.height = comp.heightMm * MM_TO_PT;
           cursorRow += 1;
           break;
         }
         default:
-          if (comp.kind === "image" || comp.kind === "barcode" || comp.kind === "qrcode" || comp.kind === "chart") {
-            warnings.push(`page ${pageIndex + 1} ${comp.nid ?? comp.kind}: 该组件类型暂不支持 xlsx 导出，已跳过`);
-          }
+          warnings.push(`page ${pageIndex + 1} ${comp.nid ?? comp.kind}: 组件类型 ${comp.kind} 暂不支持 xlsx 导出，已跳过`);
           break;
       }
     }

@@ -1,9 +1,49 @@
 import { describe, expect, it, vi } from "vitest";
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import ReportPreview from "../ReportPreview.vue";
 import type { PlanFetcher } from "../adapters";
+import type { RenderPlan } from "@agile-team/mach-report";
 
 describe("坏数据防御", () => {
+  it.each(["reportId", "fetcher"] as const)("加载中移除 %s 后显示错误，旧请求不能恢复加载状态", async (field) => {
+    let finish!: (plan: RenderPlan) => void;
+    const fetcher = vi.fn<PlanFetcher>(() => new Promise((resolve) => { finish = resolve; }));
+    const wrapper = mount(ReportPreview, { props: { reportId: "X", fetcher } });
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+    await wrapper.setProps(field === "reportId" ? { reportId: null } : { fetcher: null });
+    expect(wrapper.find(".mrp-error").exists()).toBe(true);
+    finish({ schemaVersion: "t", pages: [] });
+    await flushPromises();
+    expect(wrapper.find(".mrp-error").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it.each(["resolve", "reject"] as const)("卸载后请求 %s 不再发出 loaded/error", async (outcome) => {
+    let finish!: () => void;
+    const readPages = vi.fn();
+    const latePlan: RenderPlan = {
+      schemaVersion: "t",
+      get pages() {
+        readPages();
+        return [];
+      }
+    };
+    const fetcher: PlanFetcher = () => new Promise((resolve, reject) => {
+      finish = () => outcome === "resolve"
+        ? resolve(latePlan)
+        : reject(new Error("late failure"));
+    });
+    const onLoaded = vi.fn();
+    const onError = vi.fn();
+    const wrapper = mount(ReportPreview, { props: { reportId: "X", fetcher, onLoaded, onError } });
+    wrapper.unmount();
+    finish();
+    await flushPromises();
+    expect(onLoaded).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(readPages).not.toHaveBeenCalled(); // 卸载后的结果连计划校验也不再执行
+  });
+
   it("fetcher 返回坏计划时给出行级校验错误", async () => {
     const badFetcher = (async () => ({
       schemaVersion: "x",
