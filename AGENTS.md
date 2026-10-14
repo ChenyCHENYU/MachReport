@@ -45,6 +45,7 @@ pnpm release                  # 已提交版本的发版：clean gate → instal
 3. 完整校验并提交推送源码和版本；执行 `pnpm release`，保持工作区干净，标签必须指向实际发布提交
 4. 推送发布标签，验证 `npm dist-tag ls @agile-team/mach-report` 及实际 tarball（CDN 传播可能稍有延迟）
 5. npm 认证优先使用本机配置；临时凭据配置仅存系统临时目录、权限 600，完成或失败后立即删除。token 绝不写入仓库、命令历史或日志；轮换走 npmjs.com
+6. 发布物通过 `publishConfig.registry` 固定官方 `https://registry.npmjs.org`；安装镜像可以由开发环境选择，发布不得跟随本机镜像源。临时环境配置同时处理 npm 大小写环境变量，避免子进程覆盖目标。
 
 ## 已知未了项
 
