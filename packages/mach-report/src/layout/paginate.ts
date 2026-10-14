@@ -4,6 +4,7 @@ import type {
   PlanComponent,
   PlanGrid,
   PlanPage,
+  PlanTableFragment,
   RenderPlan
 } from "../schema/render-plan";
 import { RENDER_PLAN_SCHEMA_VERSION } from "../schema/render-plan";
@@ -59,6 +60,10 @@ export type ListGrandTotal =
 export interface ListComponent {
   kind: "list";
   id?: string;
+  /** 宽表标记用于连续 Excel；不改变低层列表的列宽和分页算法。 */
+  layout?: "page" | "wide";
+  /** 逻辑表名称，供 Excel Sheet 命名；不额外生成标题组件。 */
+  title?: string;
   leftMm: number;
   topMm: number;
   widthMm: number;
@@ -87,6 +92,8 @@ export type TemplateComponent = PlanComponent | ListComponent;
 export interface TemplatePage {
   widthMm: number;
   heightMm: number;
+  /** 宽表保持全列自然宽度，页高只控制内部纵向分段。 */
+  layout?: "page" | "wide";
   marginTopMm?: number;
   marginBottomMm?: number;
   marginLeftMm?: number;
@@ -152,7 +159,7 @@ function makeWorkingPage(page: TemplatePage): WorkingPage {
 }
 
 function toContentBottom(page: TemplatePage, wp: WorkingPage): number {
-  return wp.heightMm - (page.marginBottomMm ?? wp.marginBottomMm);
+  return wp.heightMm - (page.layout === "wide" ? wp.marginBottomMm : (page.marginBottomMm ?? wp.marginBottomMm));
 }
 
 function cellText(value: unknown): string {
@@ -374,16 +381,17 @@ export function paginateTemplate(
   /** 含 {totalPages} 占位符的克隆文本组件（分页结束后统一回填总页数） */
   const placeholderClones: PlanComponent[] = [];
 
-  for (const tplPage of template.pages) {
+  for (const [templatePageIndex, tplPage] of template.pages.entries()) {
     const current = makeWorkingPage(tplPage);
     const contentBottom = () => toContentBottom(tplPage, current);
     const contentTop = current.marginTopMm;
     /** 页锚组件：含 {page}/{totalPages} 占位符的文本，每个输出页克隆注入（页脚场景） */
     const anchors: PlanComponent[] = [];
-    const pushCurrent = () => {
+    const pushCurrent = (isFinal = false) => {
       pages.push({
         pageWidthMm: current.widthMm,
         pageHeightMm: current.heightMm,
+        ...(tplPage.layout === undefined ? {} : { layout: tplPage.layout }),
         marginTopMm: current.marginTopMm,
         marginBottomMm: current.marginBottomMm,
         marginLeftMm: current.marginLeftMm,
@@ -401,9 +409,17 @@ export function paginateTemplate(
           if (clone.text.includes("{totalPages}")) placeholderClones.push(clone);
         }
       }
+      if (tplPage.layout === "wide") {
+        const output = pages[pages.length - 1]!;
+        // 高度只是窗口化分段：中间段紧接内容，不留下整张纸的空白。
+        const contentHeight = output.components.reduce((bottom, component) => Math.max(bottom, component.topMm + component.heightMm), 0);
+        const bottomMargin = isFinal ? (tplPage.marginBottomMm ?? 0) : 0;
+        output.pageHeightMm = Math.max(1, contentHeight + bottomMargin);
+        output.marginBottomMm = bottomMargin;
+      }
     };
 
-    for (const comp of tplPage.components) {
+    for (const [componentIndex, comp] of tplPage.components.entries()) {
       if (comp.kind !== "list") {
         // 占位符组件转为页锚（每页克隆，模板对象不被污染，可复用分页）
         if (comp.kind === "text" && typeof (comp as PlanComponent).text === "string") {
@@ -427,6 +443,13 @@ export function paginateTemplate(
       const scale = columnsWidth > list.widthMm ? list.widthMm / columnsWidth : 1;
       const scaledList: ListComponent =
         scale === 1 ? list : { ...list, columns: list.columns.map((c) => ({ ...c, widthMm: c.widthMm * scale })) };
+      const tableBase = {
+        id: `table:${templatePageIndex}:${componentIndex}`,
+        columnKeys: list.columns.map((column) => column.field),
+        ...(list.layout === undefined ? {} : { layout: list.layout }),
+        ...(list.title === undefined ? {} : { title: list.title })
+      };
+      let tableRowIndex = 0;
 
       const inter: ListInterningWithFloor = {
         ...interList(scaledList, measurer),
@@ -441,6 +464,7 @@ export function paginateTemplate(
         heightMm: inter.headerHeightMm,
         grid: inter.headerGrid,
         nid: nextId("listh"),
+        table: { ...tableBase, role: "header", rowIndex: -1 },
         style: inter.borderStyle
       };
 
@@ -459,20 +483,26 @@ export function paginateTemplate(
           const next = makeWorkingPage(tplPage);
           current.components = next.components;
           current.heightMm = next.heightMm;
+          if (tplPage.layout === "wide") {
+            current.marginTopMm = 0;
+            current.marginBottomMm = 0;
+          }
+          const continuationTop = tplPage.layout === "wide" ? 0 : list.topMm;
           if (scaledList.headerEveryPage !== false) {
-            placeHeader(current, list.topMm);
-            y = list.topMm + inter.headerHeightMm;
+            placeHeader(current, continuationTop);
+            y = continuationTop + inter.headerHeightMm;
           } else {
-            y = contentTop;
+            y = tplPage.layout === "wide" ? 0 : contentTop;
           }
         }
       };
 
       /** 输出一个网格行组件（rect+grid，样式共享 inter.borderStyle） */
-      const placeGridRow = (grid: PlanGrid, heightMm: number, nidPrefix: string): void => {
+      const placeGridRow = (grid: PlanGrid, heightMm: number, nidPrefix: string, role: PlanTableFragment["role"]): void => {
+        const continuationTop = tplPage.layout === "wide" ? 0 : list.topMm;
         const freshTop = scaledList.headerEveryPage !== false
-          ? list.topMm + inter.headerHeightMm
-          : contentTop;
+          ? continuationTop + inter.headerHeightMm
+          : (tplPage.layout === "wide" ? 0 : contentTop);
         const availableHeight = contentBottom() - freshTop;
         if (heightMm > availableHeight) {
           warnings.push(
@@ -488,6 +518,7 @@ export function paginateTemplate(
           heightMm,
           grid,
           nid: nextId(nidPrefix),
+          table: { ...tableBase, role, rowIndex: tableRowIndex++ },
           style: inter.borderStyle
         });
         y += heightMm;
@@ -593,7 +624,7 @@ export function paginateTemplate(
       for (const unit of units) {
         if (unit.kind === "row") {
           const rowGrid = buildRowGridFast(inter, unit.row!, measurer);
-          placeGridRow(rowGrid.grid, rowGrid.heightMm, "listr");
+          placeGridRow(rowGrid.grid, rowGrid.heightMm, "listr", "body");
         } else if (unit.kind === "groupHeader") {
           const g = buildSpanRow(
             unit.label!,
@@ -605,7 +636,7 @@ export function paginateTemplate(
           if (groupBy?.keepWithNext !== false && y + g.heightMm + baseRowH > contentBottom()) {
             ensureSpace(g.heightMm + baseRowH);
           }
-          placeGridRow(g.grid, g.heightMm, "listg");
+          placeGridRow(g.grid, g.heightMm, "listg", "group-header");
         } else if (unit.kind === "subtotal") {
           const values = new Map<string, GridCell>();
           for (const f of groupBy!.subtotal ?? []) values.set(f, formatSum(unit.rows!, f));
@@ -615,7 +646,7 @@ export function paginateTemplate(
             (groupBy?.subtotalStyle ?? {}) as ComponentStyle,
             labelSpanFor(groupBy!.subtotal ?? [])
           );
-          placeGridRow(g.grid, g.heightMm, "listst");
+          placeGridRow(g.grid, g.heightMm, "listst", "subtotal");
         }
       }
 
@@ -633,13 +664,13 @@ export function paginateTemplate(
             (gt?.style ?? {}) as ComponentStyle,
             labelSpanFor(fields)
           );
-          placeGridRow(g.grid, g.heightMm, "listgt");
+          placeGridRow(g.grid, g.heightMm, "listgt", "grand-total");
         } else {
           warnings.push(`列表 ${list.id ?? ""} 配置了 grandTotal 但未提供合计字段（groupBy.subtotal 或 grandTotal.fields）`);
         }
       }
     }
-    pushCurrent();
+    pushCurrent(true);
   }
 
   // 占位符收尾：回填 {totalPages}（页脚高度固定，回填不影响分页布局）

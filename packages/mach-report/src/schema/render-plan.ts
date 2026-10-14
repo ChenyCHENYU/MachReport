@@ -71,6 +71,19 @@ export interface PlanGrid {
   gapMm?: number;
 }
 
+/** 列表的逻辑行来源；用于连续 Excel 重组，避免按文本猜测重复表头。 */
+export interface PlanTableFragment {
+  /** 在整个计划中唯一的逻辑表身份；同一表的分页片段共享身份。 */
+  id: string;
+  /** 表头固定 -1；其余行（包括组头/小计/总计）从 0 连续递增。 */
+  rowIndex: number;
+  role: "header" | "body" | "group-header" | "subtotal" | "grand-total";
+  /** 按物理列顺序保存字段身份；不以表头显示文本判断列结构。 */
+  columnKeys: string[];
+  layout?: "page" | "wide";
+  title?: string;
+}
+
 export interface PlanComponent {
   kind: ComponentKind;
   leftMm: number;
@@ -85,6 +98,7 @@ export interface PlanComponent {
   richParagraphs?: RichParagraph[];
   imageData?: string;
   grid?: PlanGrid;
+  table?: PlanTableFragment;
   style?: ComponentStyle;
   meta?: Record<string, unknown>;
   /** MachReport 扩展字段：未知 kind 的兜底渲染标记 */
@@ -92,6 +106,8 @@ export interface PlanComponent {
 }
 
 export interface PlanPage {
+  /** wide 表示完整自然列宽；页面仅为预览的垂直窗口分段。 */
+  layout?: "page" | "wide";
   pageWidthMm: number;
   pageHeightMm: number;
   marginTopMm?: number;

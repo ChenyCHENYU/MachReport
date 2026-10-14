@@ -6,6 +6,7 @@ import type {
 } from "../schema/render-plan";
 import { isImageBackedComponent, isRichText } from "../schema/render-plan";
 import { mmToPx, round } from "../units";
+import { DEFAULT_TEXT_COLOR } from "../defaults";
 import {
   resolveBoxBorders,
   resolveFontSize,
@@ -344,6 +345,7 @@ export function renderPage(
     .mm("width", page.pageWidthMm, dpi)
     .mm("height", page.pageHeightMm, dpi)
     .add("background-color", "#fff")
+    .add("color", DEFAULT_TEXT_COLOR)
     .add("overflow", "hidden")
     .add("box-sizing", "border-box")
     .applyTo(el);

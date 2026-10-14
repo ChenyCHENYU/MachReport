@@ -3,12 +3,12 @@
 </p>
 
 <p align="center">
-  <strong>面向业务单据、明细台账与打印场景的 TypeScript 报表引擎</strong><br />
-  框架无关内核 · 毫米级页面模型 · Vue 3 预览 · PDF / Excel 输出
+  <strong>面向业务宽表、明细台账与标准打印的 TypeScript 报表引擎</strong><br />
+  完整列宽预览 · 连续 Excel · A3 / A4 选配 · 框架无关内核
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.2.0-2563eb" alt="Source version 2.2.0" />
+  <img src="https://img.shields.io/badge/source-2.3.0-2563eb" alt="Source version 2.3.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -18,6 +18,7 @@
 
 <p align="center">
   <a href="#60-秒开始"><strong>快速开始</strong></a> ·
+  <a href="#完整宽表与标准纸张"><strong>完整宽表</strong></a> ·
   <a href="#excel-报表能力与边界"><strong>Excel 能力</strong></a> ·
   <a href="#对齐与可读性">对齐配置</a> ·
   <a href="#模板配置与管理扩展">模板管理</a> ·
@@ -32,11 +33,12 @@
 
 ## 为什么选择 MachReport
 
-MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定义纸张与内容，由分页引擎生成统一的 `RenderPlan`，再交给预览、打印或文件导出。适合出入库单、工艺卡、订单明细和分组汇总等需要明确纸张尺寸与分页的业务场景。
+MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定义布局与内容，由引擎生成统一的 `RenderPlan`，再交给预览、打印或文件导出。生产日报等多列报表按完整列宽展开；出入库单、工艺卡和订单明细可选标准纸张与分页。
 
 | 维度 | 已具备的能力 |
 | --- | --- |
 | 页面模型 | 毫米单位、纸张预设与自定义尺寸、页边距、横纵向、文本与表格几何 |
+| 完整宽表 | 自然列宽、横向滚动、默认 100% 预览；纵向分段窗口化，Excel 自动合并连续 Sheet |
 | 明细与汇总 | 自动折行与分页、重复表头、连续分组小计、末尾总计、页码占位符 |
 | 数据呈现 | 表头与内容独立对齐、类型自动对齐、数值 / 百分比 / 日期格式化、条件格式 |
 | 预览交互 | 正文与缩略图双窗口渲染、缩放与适宽、可取消分片搜索、参数面板 |
@@ -83,6 +85,33 @@ const fetcher = createLocalFetcher({
 ```
 
 标准明细只定义标题和列：默认 A4、10 mm 页边距、`detail` 数据集、表头居中，按内容类型对齐，自动分配列宽并分页。支持固定列宽、权重、横向纸张、分组与总计；复杂单据继续使用 `createTemplate()` 自由排版。
+
+### 完整宽表与标准纸张
+
+同一个工厂增加 `layout: "wide"`，列数增加时表格随之展开。自动列默认每列 30 mm，`columnWidthMm` 调整统一宽度；单列 `widthMm` 优先，`flex` 是基准宽度的倍数。页面接入、接口和数据集写法保持一致。
+
+```ts
+const template = createTableTemplate({
+  layout: "wide",
+  title: "炼钢生产日报",
+  columns: [
+    { header: "日期", field: "date", widthMm: 32 },
+    { header: "班组", field: "team", widthMm: 24 },
+    { header: "产量", field: "output", format: { kind: "number", digits: 3 } }
+    // 继续声明全部业务列，列宽不受 A3/A4 限制。
+  ]
+});
+```
+
+宽表默认按 100% 显示，横向滚动查看全部列；适宽和缩放仍可手动选择。内部纵向分段用于预览窗口化，Excel 默认把同一逻辑表还原为一张连续 Sheet，保留全部列、行与原始值，重复页头只写一次。
+
+| 使用目标 | 配置 |
+| --- | --- |
+| 完整宽表预览 + 连续 Excel | 模板 `layout: "wide"`；导出无需额外配置 |
+| 宽表的 Excel 另选打印纸型 | 应用配置 `xlsx: { paperSize: "a3" }` 或 `"a4"`，只影响打印设置 |
+| 按标准纸张排版预览 / PDF / 打印 | 模板 `paper: "a3", landscape: true` 或 `paper: "a4"`，保持默认 `layout: "page"` |
+
+`wide` 与模板的 `paper / landscape` 分别表达自然列宽和固定纸张，不同时设置。标准纸张模式保持原有余量分配；显式固定列宽超出纸张会报错。列很多时优先宽表，避免把所有列挤进一张纸的可用宽度。Excel 打印纸型不会改写工作表列宽。
 
 ### 项目接入：注册一次，页面只传 ID 和参数
 
@@ -149,17 +178,17 @@ await writeFile("report.xlsx", new Uint8Array(buffer));
 
 | 项目 | 当前行为 |
 | --- | --- |
-| 工作簿结构 | 每个报表页生成一张工作表，默认 `Sheet1`、`Sheet2`…，可自定义名称 |
+| 工作簿结构 | 默认 `sheetMode: "auto"`：宽表按逻辑表生成连续 Sheet，普通页面仍每页一张；可显式选择 pages / continuous |
 | 表格结构 | 表头、明细、小计 / 总计的渲染结果，列宽、行高、跨行 / 跨列合并 |
 | 基础样式 | 字号、字体族、加粗 / 斜体 / 下划线、颜色、水平 / 垂直对齐、换行、底色与边框开关 |
 | 标题文本 | 按组件顺序写入合并行；页面绝对坐标转换为工作表行流 |
-| 单元格类型 | 默认 `text` 保留显示文本；`raw` 保留列表原始数值、布尔、文本编号、空值和汇总数值 |
+| 单元格类型 | 宽表默认 raw，普通页面默认 text；可显式覆盖，raw 保留数值、布尔、文本编号、空值和汇总数值 |
 | 数字格式 | `raw` 模式沿用小数位、千分位和百分比格式，不猜测文本编号的类型 |
 | 非表格内容 | 图片、条码、二维码、图表、嵌套组件和无文本回退的富文本等暂不导出，跳过时返回 `warnings` |
-| 版式与打印 | 自动识别 A3 / A4 / A5，可配置 `paperSize`；自定义尺寸回退有告警，绝对坐标仍转为行流 |
+| 版式与打印 | 普通页面自动识别 A3 / A4 / A5；宽表默认不强制纸型，可选 paperSize，工作表列宽保持完整 |
 | Excel 编辑工作流 | 尚无 `.xlsx` 模板导入、交互式工作簿编辑、公式计算或透视表 API |
 
-列表自动保留原始值，Vue 可在配置中一次启用 `xlsx: { valueMode: "raw" }`；旧计划没有原始值时继续导出显示文本。日期对象、公式和自定义布局仍需业务明确处理。Excel 不做 PDF 坐标复刻；可使用返回的 ExcelJS `workbook` 继续处理并重新序列化。
+列表自动保留原始值，Vue 可在配置中一次启用 `xlsx: { valueMode: "raw" }`；旧计划没有原始值时继续导出显示文本。连续导出使用包内记录的逻辑行与列身份，不按文字猜测重复表头；多报表保持独立 Sheet。显式 continuous 要求可识别的列表结构，不支持的布局会报错。日期对象、公式和自由布局仍需业务明确处理。Excel 不做 PDF 坐标复刻；可使用返回的 ExcelJS `workbook` 继续处理并重新序列化。
 
 完整示例、类型保留策略和注意事项见 [Excel 导出指南](./docs/EXCEL.md)。
 
@@ -367,7 +396,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.2.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.3.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

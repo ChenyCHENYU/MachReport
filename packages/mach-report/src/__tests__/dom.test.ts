@@ -19,6 +19,27 @@ describe("dom renderer", () => {
     expect(el.style.height).toBe("1122.52px");
   });
 
+  it("白纸正文不继承宿主浅色文字，显式单元格色仍有效", () => {
+    const host = document.createElement("div");
+    host.style.color = "#e8e8e8";
+    const page = renderPage({
+      pageWidthMm: 210, pageHeightMm: 40,
+      components: [{
+        kind: "rect", leftMm: 10, topMm: 10, widthMm: 100, heightMm: 10,
+        grid: { cells: [[{ text: "默认正文" }, { text: "业务强调", style: { color: "#123456" } }]] }
+      }]
+    }, 96, {}, document);
+    host.append(page);
+    document.body.append(host);
+    try {
+      const cells = page.querySelectorAll("td");
+      expect(["#000000", "rgb(0, 0, 0)"]).toContain(getComputedStyle(cells[0]!).color);
+      expect(["#123456", "rgb(18, 52, 86)"]).toContain(getComputedStyle(cells[1]!).color);
+    } finally {
+      host.remove();
+    }
+  });
+
   it("文本组件绝对定位与字号", () => {
     const plan = makePlan([{
       pageWidthMm: 210, pageHeightMm: 297,

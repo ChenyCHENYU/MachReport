@@ -191,6 +191,8 @@ function validateList(list: JsonObject, path: string, errors: ValidationError[])
   for (const key of ["leftMm", "topMm"]) numberField(list, key, path, errors, -Infinity, true);
   numberField(list, "widthMm", path, errors, Number.MIN_VALUE, true);
   stringField(list, "dataset", path, errors, true);
+  stringField(list, "title", path, errors);
+  if (list.layout !== undefined && list.layout !== "page" && list.layout !== "wide") errors.push({ path: `${path}.layout`, message: "布局应为 page 或 wide" });
   if (!Array.isArray(list.columns) || list.columns.length === 0) {
     errors.push({ path: `${path}.columns`, message: "列表至少需要一列" });
   } else list.columns.forEach((column, index) => {
@@ -321,7 +323,7 @@ export function validateReportTemplate(input: unknown): ValidationResult {
       if (!isObject(page)) { errors.push({ path, message: "页应为对象" }); return; }
       numberField(page, "widthMm", path, errors, Number.MIN_VALUE, true);
       numberField(page, "heightMm", path, errors, Number.MIN_VALUE, true);
-      if (typeof page.widthMm === "number" && page.widthMm >= 3000) errors.push({ path: `${path}.widthMm`, message: "页宽应小于 3000mm" });
+      if (page.layout !== undefined && page.layout !== "page" && page.layout !== "wide") errors.push({ path: `${path}.layout`, message: "布局应为 page 或 wide" });
       if (typeof page.heightMm === "number" && page.heightMm >= 5000) errors.push({ path: `${path}.heightMm`, message: "页高应小于 5000mm" });
       for (const key of ["marginTopMm", "marginBottomMm", "marginLeftMm", "marginRightMm"]) numberField(page, key, path, errors);
       if (typeof page.widthMm === "number" && Number(page.marginLeftMm ?? 0) + Number(page.marginRightMm ?? 0) >= page.widthMm) errors.push({ path, message: "横向页边距占满页面" });

@@ -72,9 +72,11 @@ const detailTemplate = createTableTemplate({
 
 | 选项 | 行为 |
 | --- | --- |
+| `layout` | 默认 `page` 保持旧布局；`wide` 按全部列的自然宽度展开，纵向仅分段预览 |
+| `columnWidthMm` | 仅 wide：自动列基准宽度，默认 30 mm；单列 flex 为其倍数 |
 | `columns` | 必填非空列数组，沿用 `ListColumn` 的字段、样式与格式化；`widthMm` 可选 |
-| 列 `widthMm` / `flex` | 固定毫米宽优先；其余列按正权重分配余量，默认 1；全部固定时保持列宽之和 |
-| `paper` / `landscape` | 默认 A4，支持预设或 `{ widthMm, heightMm }`、横向 |
+| 列 `widthMm` / `flex` | 固定毫米宽优先；page 中其余列按正权重分配余量，wide 中为基准宽度的倍数，默认 1 |
+| `paper` / `landscape` | page 默认 A4，支持预设或 `{ widthMm, heightMm }`、横向；与 wide 互斥 |
 | `margins` | 默认各 10 mm；字段为 `marginTopMm` / `marginBottomMm` / `marginLeftMm` / `marginRightMm` |
 | `title` / `titleStyle` | 可选首页标题；默认居中、加粗、16 pt |
 | `titleHeightMm` / `titleGapMm` | 标题默认占高 10 mm，距表格 4 mm；无标题不占空间 |
@@ -84,7 +86,19 @@ const detailTemplate = createTableTemplate({
 | 列 / `listOptions.headerAlign` | 表头独立对齐；标准明细默认 center，不随内容自动对齐 |
 | 列 / `listOptions.headerStyle` | 表头独立样式，列级覆盖整表；表头字号参与真实折行与行高测量 |
 
-输入不被修改；非法尺寸、无可用空间或固定列溢出同步抛错。标题只在第一页显示，续页沿用表格起点与重复表头策略。自由布局继续用 `createTemplate()`。
+输入不被修改；非法尺寸、无可用空间或 page 固定列溢出同步抛错。标题只在首段显示。wide 默认以 100% 预览，横向滚动查看完整列，纵向分段保持窗口化；普通 page 沿用纸张分页与重复表头策略。自由布局继续用 `createTemplate()`。
+
+```ts
+const wideTemplate = createTableTemplate({
+  layout: "wide",
+  columnWidthMm: 30,
+  columns: productionColumns
+});
+// 标准纸张模板：createTableTemplate({ paper: "a3", landscape: true, columns })。
+// 宽表的 Excel 打印纸型在 xlsx.paperSize 中选配，不改变预览与数据列宽。
+```
+
+`PlanPage.layout` 标识 wide 分段；列表网格自动携带 `PlanComponent.table` 的稳定表 ID、逻辑行序、角色和列身份。`createReportSource` 合并报表时隔离表 ID，供 Excel 精确还原同一逻辑表；手工修改这些元数据需保持一致。
 
 内容样式优先级为条件规则 → 列 `align` → 列 `style.align` → 列表 `align` → 旧默认；表头依次取列 `headerStyle`、列 `headerAlign`、列表 `headerStyle`、列表 `headerAlign`，再回退旧样式。低层 `.list()` 未声明新字段时保持兼容。数值字符串不会仅因外观而自动右对齐；显式 number/percent 格式可声明其数值呈现意图。
 
@@ -241,7 +255,7 @@ app.use(machReportPlugin, { fetcher, config });
 | `@agile-team/mach-report/xlsx` | `renderPlanToXlsx` |
 | `@agile-team/mach-report/sql` | 动态 SQL 编译与单 SELECT 校验工具 |
 
-PDF 和 XLSX 子路径的发布包声明 Node.js ≥ 18；只导入需要的入口。XLSX 每页一张 Sheet；默认 text 模式保留显示文本，`valueMode: "raw"` 使用列表自动保存的原始数值/布尔/文本/空值及数字格式。无元数据的旧计划回退显示文本，日期对象和公式不自动转换。`paperSize` 默认 auto 识别 A3/A4/A5，也可显式指定。它不做坐标复刻，无法导出的内容返回告警。完整例子见 [Excel 导出指南](./EXCEL.md)。Word 出口生成兼容 HTML `.doc`，不是 `.docx`。
+PDF 和 XLSX 子路径的发布包声明 Node.js ≥ 18；只导入需要的入口。XLSX 默认 `sheetMode: "auto"`：明确标记的 wide 列表按逻辑表还原连续 Sheet，其余页面仍每页一张。`pages` 强制逐页，`continuous` 要求完整列表元数据，不明布局明确拒绝。wide 默认 raw，其余默认 text；`valueMode` 可覆盖。raw 使用列表保存的原始数值/布尔/文本/空值及数字格式，无元数据的旧计划回退显示文本，日期对象和公式不自动转换。`paperSize` 默认 auto，普通页识别 A3/A4/A5，wide 不强制纸型；显式纸型仅设置打印，不改变列宽。它不做坐标复刻，无法导出的内容返回告警。完整例子见 [Excel 导出指南](./EXCEL.md)。Word 出口生成兼容 HTML `.doc`，不是 `.docx`。
 
 Canvas / PNG 当前不绘制图片型组件（图片、条码、二维码、图表）；预览与各导出后端的支持范围应按实际组件验证。SQL 入口只编译 / 校验字符串，不连接数据库；业务后端仍需使用参数绑定、只读账户和查询权限控制。
 

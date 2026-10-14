@@ -176,7 +176,21 @@ export function createReportSource(
       } catch (error) {
         throw new ReportSourceError("validate", `报表 ${reportId} 排版失败：${error instanceof Error ? error.message : String(error)}`, error);
       }
-      for (const page of result.plan.pages) pages.push(page);
+      // 同一模板可被多个报表或重复 ID 使用；逻辑表身份仅在本次合并计划内唯一。
+      // 只克隆带来源的组件，不改动宿主模板或数据。
+      const tableIds = new Map<string, string>();
+      const scopedTableId = (id: string): string => {
+        let scoped = tableIds.get(id);
+        if (scoped === undefined) { scoped = JSON.stringify([index, reportId, id]); tableIds.set(id, scoped); }
+        return scoped;
+      };
+      for (const page of result.plan.pages) pages.push({
+        ...page,
+        components: page.components.map((component) => component.table ? {
+          ...component,
+          table: { ...component.table, id: scopedTableId(component.table.id) }
+        } : component)
+      });
       warnings.push(...result.warnings.map((message) => `${reportId}: ${message}`));
     }
     checkAbort(signal);

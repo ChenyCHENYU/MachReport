@@ -114,9 +114,12 @@ const thumbsRef = ref<HTMLElement | null>(null);
 const showThumbs = ref(false);
 const timing = useLoadTiming();
 
+const wideReport = computed(() => !!plan.value?.pages.length && plan.value.pages.every((page) => page.layout === "wide"));
 const PAGE_GAP_PX = computed(() => Math.max(0, effectiveGapPx.value));
 const PX_PER_MM = 96 / 25.4;
 const UI_MEMORY_KEY = "mach-report:ui";
+const WIDE_UI_MEMORY_KEY = "mach-report:ui:wide";
+let zoomMemoryKey = UI_MEMORY_KEY;
 
 const injectedFetcher = inject(MACH_REPORT_FETCHER_KEY, null);
 const injectedPdfExporter = inject(MACH_REPORT_PDF_EXPORTER_KEY, null);
@@ -153,7 +156,7 @@ const resolvedMessages = computed<MachReportMessages>(() => ({
 const effectiveShowExport = computed(() => props.showExport ?? resolved.value.showExport);
 const effectiveShowPrint = computed(() => props.showPrint ?? resolved.value.showPrint);
 const effectiveShowPdfWindow = computed(() => props.showPdfWindow ?? resolved.value.showPdfWindow);
-const effectiveGapPx = computed(() => props.gapPx ?? resolved.value.gapPx);
+const effectiveGapPx = computed(() => props.gapPx ?? (wideReport.value ? 0 : resolved.value.gapPx));
 const effectiveShowParams = computed(() => props.showParams ?? resolved.value.showParams);
 let cachedPdfFontUrl: string | null = null;
 let cachedPdfExporter: PdfExporter | null = null;
@@ -169,6 +172,7 @@ function getPdfExporter(): PdfExporter {
 
 let fontCheckSeq = 0;
 let fontCheckController: AbortController | null = null;
+let viewportObserver: ResizeObserver | null = null;
 let destroyed = false;
 
 function cancelFontCheck(): void {
@@ -285,7 +289,7 @@ const shellStyle = computed(() => ({
 
 const { zoom, zoomMode, applyFitZoom, setZoom } = useZoom(() => ({
   viewport: viewportRef.value,
-  pageWidthPx: (plan.value?.pages[0]?.pageWidthMm ?? 210) * PX_PER_MM
+  pageWidthPx: pageWindow.contentSize.value.w || 210 * PX_PER_MM
 }));
 
 const pageWindow = usePageWindow(plan, zoom, {
@@ -298,8 +302,7 @@ const onViewportScroll = makeScrollHandler(currentPage, pageCount);
 
 /** 缩放原始值（Ctrl+滚轮/键盘 ± 用）：clamp 30%~300% */
 function setZoomRaw(next: number): void {
-  zoomMode.value = "raw";
-  zoom.value = Math.min(3, Math.max(0.3, next));
+  setZoom(next * 100);
 }
 
 function invalidate(): void {
@@ -372,7 +375,16 @@ async function reload(): Promise<void> {
     plan.value = next;
     currentPage.value = 1;
     timing.end(t0);
-    if (viewportRef.value) viewportRef.value.scrollTop = 0;
+    if (viewportRef.value) {
+      viewportRef.value.scrollTop = 0;
+      viewportRef.value.scrollLeft = 0;
+    }
+    // 纸张与宽表分别记忆，旧的适宽偏好不会把新宽表默认压成小字。
+    const nextMemoryKey = wideReport.value ? WIDE_UI_MEMORY_KEY : UI_MEMORY_KEY;
+    if (nextMemoryKey !== zoomMemoryKey) {
+      zoomMemoryKey = nextMemoryKey;
+      loadZoomMemory();
+    }
     if (zoomMode.value === "fit") applyFitZoom();
     emit("loaded", next.pages.length);
   } catch (error) {
@@ -512,7 +524,7 @@ function onKeydown(e: KeyboardEvent): void {
 function persistZoom(): void {
   try {
     localStorage.setItem(
-      UI_MEMORY_KEY,
+      zoomMemoryKey,
       JSON.stringify({ zoomMode: zoomMode.value === "fit" ? "fit" : Math.round(zoom.value * 100) })
     );
   } catch {
@@ -522,9 +534,25 @@ function persistZoom(): void {
 watch([zoomMode, zoom], persistZoom);
 
 /** 窗口内页 → DOM（holder 首次出现时挂载，页面级懒渲染）+ 搜索高亮 */
+let lastFocusedMatch = "";
+function revealSearchMatch(force = false): void {
+  const activeMatch = search.activeMatch.value;
+  if (!wideReport.value || !activeMatch) return;
+  const matchKey = `${search.query.value}:${search.matchIndex.value}:${activeMatch.pageIndex}`;
+  if (!force && matchKey === lastFocusedMatch) return;
+  const holder = containerRef.value?.querySelector(`[data-page="${activeMatch.pageIndex + 1}"]`);
+  const mark = holder?.querySelectorAll<HTMLElement>("mark.mrp-hit")[activeMatch.occurrence];
+  if (mark) {
+    mark.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    lastFocusedMatch = matchKey;
+  }
+}
 watchEffect(() => {
   const current = plan.value;
   if (!current) return;
+  const activeMatch = search.activeMatch.value;
+  void search.matchIndex.value;
+  if (!activeMatch) lastFocusedMatch = "";
   // 跟踪窗口本身；DOM 查询不会收集依赖，滚动新增 holder 也必须实际渲染。
   void visiblePages.value;
   const scaleEl = containerRef.value;
@@ -547,6 +575,7 @@ watchEffect(() => {
     search.apply(pageEl);
     holder.appendChild(pageEl);
   });
+  revealSearchMatch();
 }, { flush: "post" });
 
 /** 查询清空时移除全部高亮标记 */
@@ -563,7 +592,10 @@ const thumbs = useThumbs(plan, {
   visible: showThumbs,
   renderThumbCanvas: (pageIndex) => {
     try {
-      const { canvases } = renderPlanToCanvas(plan.value!, { start: pageIndex, end: pageIndex, dpr: 0.2 });
+      const page = plan.value!.pages[pageIndex]!;
+      // 画布本身限制到缩略图尺寸；超宽表不能先分配全宽位图再用 CSS 压缩。
+      const dpr = Math.min(0.2, 116 / Math.max(1, page.pageWidthMm * PX_PER_MM));
+      const { canvases } = renderPlanToCanvas(plan.value!, { start: pageIndex, end: pageIndex, dpr });
       return canvases[0] ?? null;
     } catch {
       return null; // 无 2D 环境（SSR/测试）：保留占位框
@@ -588,11 +620,13 @@ function onResize(): void {
   refreshViewport(viewportRef.value);
   thumbs.schedule();
   if (zoomMode.value === "fit") applyFitZoom();
+  revealSearchMatch(true);
 }
 
 function loadZoomMemory(): void {
+  setZoom(zoomMemoryKey === WIDE_UI_MEMORY_KEY ? 100 : "fit");
   try {
-    const saved = JSON.parse(localStorage.getItem(UI_MEMORY_KEY) ?? "{}") as {
+    const saved = JSON.parse(localStorage.getItem(zoomMemoryKey) ?? "{}") as {
       zoomMode?: "fit" | number;
     };
     if (saved.zoomMode === "fit") setZoom("fit");
@@ -604,6 +638,10 @@ function loadZoomMemory(): void {
 
 onMounted(() => {
   window.addEventListener("resize", onResize);
+  if (typeof ResizeObserver !== "undefined" && viewportRef.value) {
+    viewportObserver = new ResizeObserver(onResize);
+    viewportObserver.observe(viewportRef.value);
+  }
   refreshViewport(viewportRef.value);
   loadZoomMemory();
   if (props.autoLoad) void reload();
@@ -616,6 +654,8 @@ onUnmounted(() => {
   loadController?.abort();
   loadController = null;
   window.removeEventListener("resize", onResize);
+  viewportObserver?.disconnect();
+  viewportObserver = null;
   thumbs.destroy();
   search.reset(); // 清防抖计时器（若挂载期间恰在防抖窗口内）
   dispose();
@@ -644,7 +684,7 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, chec
 </script>
 
 <template>
-  <div class="mach-report-preview" :style="shellStyle">
+  <div class="mach-report-preview" :class="{ 'mrp-wide-report': wideReport }" :style="shellStyle">
     <ReportParamPanel
       v-if="effectiveShowParams && effectiveParamDefs.length > 0"
       :defs="effectiveParamDefs"
@@ -785,19 +825,22 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, chec
 .mrp-main { display: flex; flex: 1; min-height: 0; }
 .mrp-body {
   flex: 1;
+  min-width: 0;
   overflow: auto;
   padding: 24px;
   outline: none; /* 键盘交互容器聚焦不带轮廓 */
 }
 /* 缩放容器：外层按缩放后尺寸占位，内层 transform 缩放（零重排） */
-.mrp-scale { margin: 0 auto; }
-.mrp-scale-inner { display: flex; flex-direction: column; align-items: center; }
+.mrp-scale { position: relative; margin: 0 auto; }
+.mrp-scale-inner { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; }
 .mrp-page-holder {
   background: #fff;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
   margin-bottom: v-bind("PAGE_GAP_PX + 'px'");
   flex: none;
 }
+/* 宽表的纵向分段只是渲染窗口，不再用纸张阴影和页间留白打断表格。 */
+.mrp-wide-report .mrp-page-holder { box-shadow: none; }
 .mrp-state {
   padding: 40px;
   text-align: center;
@@ -829,6 +872,7 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, chec
   color: #7a5c00;
   border-radius: 2px;
   padding: 0 1px;
+  scroll-margin: 8px;
 }
 /* 缩略图侧栏 */
 .mrp-thumbs {

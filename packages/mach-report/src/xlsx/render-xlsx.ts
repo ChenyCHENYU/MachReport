@@ -15,11 +15,13 @@ import { resolveFontSize } from "../render/style";
  */
 
 export interface XlsxRenderOptions {
-  /** 工作表命名（默认 "Sheet1" 起序） */
-  sheetName?: (pageIndex: number) => string;
-  /** 默认 text 保留显示文本；raw 使用列表自动保留的原始数值、布尔、文本与空值。 */
+  /** 工作表命名（连续表默认使用标题，其余默认 "Sheet1" 起序）。 */
+  sheetName?: (sheetIndex: number) => string;
+  /** auto 默认将 wide 逻辑表合并为连续 Sheet；pages 保留逐页；continuous 要求明确的表来源。 */
+  sheetMode?: "auto" | "pages" | "continuous";
+  /** 宽表或连续表默认 raw，其余默认 text；显式配置可覆盖默认值。 */
   valueMode?: "text" | "raw";
-  /** 默认 auto 按计划识别 A3/A4/A5；自定义尺寸回退 A4 并返回告警。 */
+  /** 连续表默认不限制打印纸型；显式 A3/A4/A5 仅设置打印适配，不改变 Excel 列宽。 */
   paperSize?: "auto" | "a3" | "a4" | "a5";
 }
 
@@ -32,6 +34,22 @@ export interface XlsxRenderResult {
 const MM_TO_PT = 72 / 25.4;
 /** Excel 列宽单位 ≈ 7px（Calibri 11）；96dpi 下 mm→px 再除 7 */
 const MM_TO_COL_WIDTH = (96 / 25.4) / 7;
+const MAX_CELL_CHARACTERS = 32_767;
+const MAX_CELL_LINE_FEEDS = 253;
+
+/** 仅校验最终写入 Excel 的字符串；原始数值不受其显示文本长度影响。 */
+function validateCellText(value: unknown, address: string): void {
+  if (typeof value !== "string") return;
+  if (value.length > MAX_CELL_CHARACTERS) {
+    throw new Error(`Excel 单元格 ${address} 最多支持 32767 个字符，无法无损导出；内容未裁剪`);
+  }
+  let lineFeeds = 0;
+  for (let index = 0; index < value.length; index++) {
+    if (value.charCodeAt(index) === 10 && ++lineFeeds > MAX_CELL_LINE_FEEDS) {
+      throw new Error(`Excel 单元格 ${address} 最多支持 253 个换行，无法无损导出；内容未改写`);
+    }
+  }
+}
 
 function argbOf(hex: string | undefined): string | undefined {
   if (!hex) return undefined;
@@ -69,17 +87,131 @@ function paperSize(page: PlanPage, option: XlsxRenderOptions["paperSize"], index
 function setCellValue(cell: ExcelJS.Cell, source: GridCell, mode: XlsxRenderOptions["valueMode"], warnings: string[]): void {
   const text = typeof source.text === "string" ? source.text : "";
   if (mode !== "raw" || !Object.prototype.hasOwnProperty.call(source, "value")) {
+    validateCellText(text, cell.address);
     cell.value = text;
     return;
   }
   const value = source.value;
   if (value === null || typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))) {
+    validateCellText(value, cell.address);
     cell.value = value;
     if (typeof value === "number" && source.numberFormat) cell.numFmt = source.numberFormat;
     return;
   }
+  validateCellText(text, cell.address);
   cell.value = text;
   warnings.push(`原始单元格值无效，已保留显示文本：${cell.address}`);
+}
+
+interface SheetUnit {
+  pages: { page: PlanPage; index: number }[];
+  continuous: boolean;
+  tableId?: string;
+  title?: string;
+}
+
+interface TablePage {
+  id: string;
+  title?: string;
+  wide: boolean;
+}
+
+/** 仅在整页可可靠归属同一张逻辑表时合并；普通自由布局绝不推测。 */
+function tablePage(page: PlanPage): TablePage | undefined {
+  const fragments = page.components.filter((comp) => comp.table !== undefined);
+  const first = fragments[0]?.table;
+  if (!first || typeof first.id !== "string" || !first.id.trim() || !Array.isArray(first.columnKeys) || !first.columnKeys.length) return undefined;
+  for (const comp of page.components) {
+    if (comp.table) {
+      if (!comp.grid || comp.table.id !== first.id) return undefined;
+      continue;
+    }
+    if (comp.grid || comp.kind !== "text") return undefined;
+    if (comp.richParagraphs?.length && !comp.text && !comp.lines?.length) return undefined;
+  }
+  return { id: first.id, title: first.title, wide: first.layout === "wide" || page.layout === "wide" };
+}
+
+function sheetUnits(plan: RenderPlan, mode: XlsxRenderOptions["sheetMode"], warnings: string[]): SheetUnit[] {
+  const units: SheetUnit[] = [];
+  const candidates = plan.pages.map((page) => tablePage(page));
+  // 某页混入自由矩阵时整张逻辑表一起回退，避免只导出部分连续行。
+  const blockedIds = new Set<string>();
+  for (const [index, page] of plan.pages.entries()) {
+    if (candidates[index]) continue;
+    for (const comp of page.components) {
+      if (typeof comp.table?.id === "string") blockedIds.add(comp.table.id);
+    }
+  }
+  for (const [index, page] of plan.pages.entries()) {
+    const candidate = candidates[index];
+    const table = mode !== "pages" && (mode === "continuous" || !candidate || !blockedIds.has(candidate.id)) ? candidate : undefined;
+    if (mode === "continuous" && !table) {
+      throw new Error(`page ${index + 1}: continuous Excel 需要完整、单一的逻辑表来源；自由布局请使用 sheetMode: 'pages'`);
+    }
+    const continuous = table !== undefined && (mode === "continuous" || table.wide);
+    if (!continuous && mode !== "pages" && (page.layout === "wide" || page.components.some((comp) => comp.table?.layout === "wide"))) {
+      warnings.push(`page ${index + 1}: 混合或缺少逻辑表来源，已保留独立 Sheet，未猜测合并内容`);
+    }
+    const previous = units[units.length - 1];
+    if (continuous && previous?.continuous && previous.tableId === table.id) {
+      previous.pages.push({ page, index });
+    } else {
+      units.push({ pages: [{ page, index }], continuous, ...(continuous ? { tableId: table.id, title: table.title } : {}) });
+    }
+  }
+  return units;
+}
+
+function validateContinuousTable(unit: SheetUnit): void {
+  let keys: string[] | undefined;
+  let widths: number[] | undefined;
+  let expectedRow = 0;
+  let headerSeen = false;
+  for (const { page, index } of unit.pages) {
+    for (const comp of page.components) {
+      if (!comp.table || !comp.grid) continue;
+      const fragment = comp.table;
+      const layout = resolveGridLayout(comp.grid, comp.widthMm, comp.heightMm);
+      const currentWidths = layout.columns.map((column) => column.size);
+      if (
+        fragment.columnKeys.length !== currentWidths.length ||
+        (keys && (keys.length !== fragment.columnKeys.length || keys.some((key, i) => key !== fragment.columnKeys[i]))) ||
+        (widths && (widths.length !== currentWidths.length || widths.some((width, i) => Math.abs(width - currentWidths[i]!) > 0.001)))
+      ) {
+        throw new Error(`page ${index + 1}: 连续 Excel 逻辑表 ${fragment.id} 的列结构或列宽不一致`);
+      }
+      keys ??= fragment.columnKeys;
+      widths ??= currentWidths;
+      if (fragment.role === "header") {
+        if (fragment.rowIndex !== -1) throw new Error(`page ${index + 1}: 连续 Excel 表头 rowIndex 必须为 -1`);
+        headerSeen = true;
+      } else {
+        if (!["body", "group-header", "subtotal", "grand-total"].includes(fragment.role) || fragment.rowIndex !== expectedRow) {
+          throw new Error(`page ${index + 1}: 连续 Excel 逻辑行来源不连续或重复（期望 ${expectedRow}）`);
+        }
+        expectedRow += layout.rows.length;
+      }
+      if (layout.cells.some((box) => box.cell.children?.length)) {
+        throw new Error(`page ${index + 1}: 连续 Excel 暂不支持嵌套组件；请使用独立 Sheet 导出并检查告警`);
+      }
+    }
+  }
+  if (!headerSeen) throw new Error("连续 Excel 逻辑表缺少明确表头来源");
+}
+
+function generatedSheetName(title: string | undefined, index: number, used: Set<string>): string {
+  let base = (title?.replace(/[\\/*?:[\]]/g, " ").replace(/\s+/g, " ").trim() || `Sheet${index + 1}`)
+    .slice(0, 31).replace(/^'+|'+$/g, "").trim() || `Sheet${index + 1}`;
+  if (base.toLowerCase() === "history") base += " 报表";
+  let name = base;
+  let suffix = 1;
+  while (used.has(name.toLowerCase())) {
+    const tail = ` (${++suffix})`;
+    name = base.slice(0, 31 - tail.length) + tail;
+  }
+  used.add(name.toLowerCase());
+  return name;
 }
 
 export async function renderPlanToXlsx(
@@ -92,26 +224,57 @@ export async function renderPlanToXlsx(
   if (options.paperSize !== undefined && options.paperSize !== "auto" && !Object.prototype.hasOwnProperty.call(EXCEL_PAPERS, options.paperSize)) {
     throw new Error("xlsx paperSize 必须是 auto、a3、a4 或 a5");
   }
+  if (options.sheetMode !== undefined && !["auto", "pages", "continuous"].includes(options.sheetMode)) {
+    throw new Error("xlsx sheetMode 必须是 auto、pages 或 continuous");
+  }
   const workbook = new ExcelJSRuntime.Workbook();
   const warnings: string[] = [];
+  const dimensionWarnings = new Set<"column" | "row">();
+  const limitColumnWidth = (width: number): number => {
+    if (width <= 255) return width;
+    if (!dimensionWarnings.has("column")) {
+      warnings.push("Excel 单列宽度上限为 255 字符，超宽列已收敛至 255；单元格值完整保留，显示范围可能受限");
+      dimensionWarnings.add("column");
+    }
+    return 255;
+  };
+  const limitRowHeight = (height: number): number => {
+    if (height <= 409) return height;
+    if (!dimensionWarnings.has("row")) {
+      warnings.push("Excel 行高上限为 409pt，超高行已收敛至 409pt；单元格值完整保留，显示范围可能受限");
+      dimensionWarnings.add("row");
+    }
+    return 409;
+  };
+  const units = sheetUnits(plan, options.sheetMode, warnings);
+  const usedNames = new Set<string>();
 
-  plan.pages.forEach((page, pageIndex) => {
+  units.forEach((unit, sheetIndex) => {
+    if (unit.continuous) validateContinuousTable(unit);
+    const { page, index: pageIndex } = unit.pages[0]!;
+    const name = options.sheetName?.(sheetIndex) ?? generatedSheetName(unit.title, sheetIndex, usedNames);
+    usedNames.add(name.toLowerCase());
+    const naturalWide = page.layout === "wide" || page.components.some((comp) => comp.table?.layout === "wide");
+    const configurePaper = (!unit.continuous && !naturalWide) || (options.paperSize !== undefined && options.paperSize !== "auto");
     const sheet = workbook.addWorksheet(
-      options.sheetName?.(pageIndex) ?? `Sheet${pageIndex + 1}`,
-      {
+      name,
+      configurePaper ? {
         pageSetup: {
           paperSize: paperSize(page, options.paperSize, pageIndex, warnings),
           orientation: page.pageWidthMm > page.pageHeightMm ? "landscape" : "portrait",
-          fitToPage: true
+          fitToPage: true,
+          ...(unit.continuous ? { fitToWidth: 1, fitToHeight: 0 } : {})
         }
-      }
+      } : {}
     );
+    const valueMode = options.valueMode ?? (naturalWide || unit.continuous ? "raw" : "text");
+    const components = unit.pages.flatMap((entry) => entry.page.components.map((comp) => ({ comp, pageIndex: entry.index })));
 
     // 标题沿用真实表格列数；Excel 列宽单位不能当作列数量。
     const gridLayouts = new Map<PlanComponent, GridLayout>();
     let sheetColumnCount = 1;
     let textWidthMm = 0;
-    for (const comp of page.components) {
+    for (const { comp } of components) {
       if (comp.grid) {
         const layout = resolveGridLayout(comp.grid, comp.widthMm, comp.heightMm);
         gridLayouts.set(comp, layout);
@@ -120,14 +283,27 @@ export async function renderPlanToXlsx(
         textWidthMm = Math.max(textWidthMm, comp.widthMm);
       }
     }
+    if (sheetColumnCount > 16_384) throw new Error("Excel 最多支持 16384 列，无法无损导出此报表");
     if (gridLayouts.size === 0 && textWidthMm > 0) {
-      sheet.getColumn(1).width = textWidthMm * MM_TO_COL_WIDTH;
+      sheet.getColumn(1).width = limitColumnWidth(textWidthMm * MM_TO_COL_WIDTH);
     }
 
     let cursorRow = 1;
-    for (const comp of page.components) {
+    let headerWritten = false;
+    for (const { comp, pageIndex } of components) {
+      if (unit.continuous && comp.table?.role === "header") {
+        if (headerWritten) continue;
+        headerWritten = true;
+      }
+      if (cursorRow > 1_048_576) throw new Error("Excel 最多支持 1048576 行，无法无损导出此报表");
       if (comp.grid) {
         const layout = gridLayouts.get(comp)!;
+        if (cursorRow + layout.rows.length - 1 > 1_048_576) throw new Error("Excel 最多支持 1048576 行，无法无损导出此报表");
+        if (unit.continuous && comp.table?.role === "header") {
+          const frozenRows = cursorRow + layout.rows.length - 1;
+          sheet.views = [{ state: "frozen", ySplit: frozenRows, xSplit: 0 }];
+          sheet.pageSetup.printTitlesRow = `1:${frozenRows}`;
+        }
         // 列宽：优先 colWidthsMm，否则按解析结果
         const colCount = Math.max(layout.columns.length, 1);
         const widths: number[] = [];
@@ -136,17 +312,18 @@ export async function renderPlanToXlsx(
         }
         for (let i = 0; i < colCount; i++) {
           const col = sheet.getColumn(i + 1);
-          if (col.width == null || col.width < widths[i]! * MM_TO_COL_WIDTH) {
-            col.width = widths[i]! * MM_TO_COL_WIDTH;
+          const width = limitColumnWidth(widths[i]! * MM_TO_COL_WIDTH);
+          if (col.width == null || col.width < width) {
+            col.width = width;
           }
         }
         // 行高 + 单元格
         for (const box of layout.cells) {
           const row = sheet.getRow(cursorRow + box.ri);
-          const rowHpt = (layout.rows[box.ri]?.size ?? 5) * MM_TO_PT;
+          const rowHpt = limitRowHeight((layout.rows[box.ri]?.size ?? 5) * MM_TO_PT);
           if (row.height == null || row.height < rowHpt) row.height = rowHpt;
           const cell = row.getCell(box.ci + 1);
-          setCellValue(cell, box.cell, options.valueMode, warnings);
+          setCellValue(cell, box.cell, valueMode, warnings);
           if (box.cell.children?.length) {
             warnings.push(`page ${pageIndex + 1} ${comp.nid ?? comp.kind} cell ${box.ri + 1}:${box.ci + 1}: 嵌套组件内容暂不支持 xlsx 导出，已跳过`);
           }
@@ -192,11 +369,12 @@ export async function renderPlanToXlsx(
           }
           const row = sheet.getRow(cursorRow);
           const cell = row.getCell(1);
+          validateCellText(text, cell.address);
           cell.value = text;
           cell.alignment = { horizontal: comp.style?.align === "center" ? "center" : comp.style?.align === "right" ? "right" : "left", vertical: "middle" };
           cellFont(cell, comp.style);
           if (sheetColumnCount > 1) sheet.mergeCells(cursorRow, 1, cursorRow, sheetColumnCount);
-          row.height = comp.heightMm * MM_TO_PT;
+          row.height = limitRowHeight(comp.heightMm * MM_TO_PT);
           cursorRow += 1;
           break;
         }

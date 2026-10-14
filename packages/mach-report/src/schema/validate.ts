@@ -63,6 +63,21 @@ export function validateComponent(
       errors.push({ path: `${path}.${key}`, message: "组件尺寸不能为负数" });
     }
   }
+  const table = comp["table"];
+  if (table !== undefined) {
+    const tablePath = `${path}.table`;
+    if (!isObj(table)) errors.push({ path: tablePath, message: "逻辑表来源应为对象" });
+    else {
+      if (typeof table["id"] !== "string" || !table["id"].trim()) errors.push({ path: `${tablePath}.id`, message: "逻辑表 ID 应为非空字符串" });
+      const role = table["role"];
+      if (!["header", "body", "group-header", "subtotal", "grand-total"].includes(role as string)) errors.push({ path: `${tablePath}.role`, message: "未知逻辑表行角色" });
+      const rowIndex = table["rowIndex"];
+      if (typeof rowIndex !== "number" || !Number.isInteger(rowIndex) || (role === "header" ? rowIndex !== -1 : rowIndex < 0)) errors.push({ path: `${tablePath}.rowIndex`, message: "表头索引应为 -1，内容行索引应为非负整数" });
+      if (!Array.isArray(table["columnKeys"]) || table["columnKeys"].some((key) => typeof key !== "string")) errors.push({ path: `${tablePath}.columnKeys`, message: "逻辑列字段应为字符串数组" });
+      if (table["layout"] !== undefined && table["layout"] !== "page" && table["layout"] !== "wide") errors.push({ path: `${tablePath}.layout`, message: "布局应为 page 或 wide" });
+      if (table["title"] !== undefined && typeof table["title"] !== "string") errors.push({ path: `${tablePath}.title`, message: "逻辑表名称应为字符串" });
+    }
+  }
   const grid = comp["grid"];
   if (grid !== undefined) {
     if (!isObj(grid) || !Array.isArray(grid["cells"])) {
@@ -110,11 +125,14 @@ export function validatePage(
   }
   const w = page["pageWidthMm"];
   const h = page["pageHeightMm"];
-  if (typeof w !== "number" || !(w > 0 && w < 3000)) {
+  if (typeof w !== "number" || !Number.isFinite(w) || w <= 0) {
     errors.push({ path: `${path}.pageWidthMm`, message: `页宽非法: ${JSON.stringify(w)}` });
   }
   if (typeof h !== "number" || !(h > 0 && h < 5000)) {
     errors.push({ path: `${path}.pageHeightMm`, message: `页高非法: ${JSON.stringify(h)}` });
+  }
+  if (page["layout"] !== undefined && page["layout"] !== "page" && page["layout"] !== "wide") {
+    errors.push({ path: `${path}.layout`, message: "布局应为 page 或 wide" });
   }
   const comps = page["components"];
   if (!Array.isArray(comps)) {

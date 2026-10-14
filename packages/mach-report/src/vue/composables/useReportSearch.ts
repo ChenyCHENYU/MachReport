@@ -16,6 +16,8 @@ export interface ReportSearchState {
   query: Ref<string>;
   matchIndex: Ref<number>;
   matchCount: Ref<number>;
+  /** 当前页内命中序号，用于宽表将远右列的搜索结果滚动到可见位置。 */
+  activeMatch: Ref<{ pageIndex: number; occurrence: number } | null>;
   /** 分片搜索期间不阻塞预览滚动，输入/换单据会取消旧搜索。 */
   searching: Ref<boolean>;
   toggle(): void;
@@ -92,6 +94,19 @@ export function useReportSearch(options: ReportSearchOptions): ReportSearchState
   const searching = ref(false);
   // 每个命中页只保存一次累计数量；百万次重复文本命中也不创建百万个页号。
   let matches: { pageIndex: number; cumulative: number }[] = [];
+  const activeMatch = computed(() => {
+    if (matchCount.value === 0) return null;
+    const target = matchIndex.value;
+    let lo = 0;
+    let hi = matches.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (matches[mid]!.cumulative <= target) lo = mid + 1;
+      else hi = mid;
+    }
+    const match = matches[lo];
+    return match ? { pageIndex: match.pageIndex, occurrence: target - (matches[lo - 1]?.cumulative ?? 0) } : null;
+  });
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let scanTimer: ReturnType<typeof setTimeout> | null = null;
   let generation = 0;
@@ -123,7 +138,8 @@ export function useReportSearch(options: ReportSearchOptions): ReportSearchState
       if (seq !== generation || current !== plan.value) return;
       const started = performance.now();
       let scanned = 0;
-      while (scanned < 500 && performance.now() - started < 4) {
+      // 时间预算保持4ms；短单元格允许一片多扫描，减少嵌套定时器钳制产生的空等。
+      while (scanned < 5000 && performance.now() - started < 4) {
         const next = texts.next();
         if (next.done) {
           matches = nextMatches;
@@ -187,7 +203,7 @@ export function useReportSearch(options: ReportSearchOptions): ReportSearchState
   onScopeDispose(reset);
 
   return {
-    visible, query, matchIndex, matchCount, searching,
+    visible, query, matchIndex, matchCount, activeMatch, searching,
     toggle: () => { visible.value = !visible.value; },
     onInput, onNav,
     apply: (pageEl) => { if (query.value.trim()) highlight(pageEl, query.value.trim()); },
