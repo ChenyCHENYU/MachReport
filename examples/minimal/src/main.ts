@@ -1,28 +1,12 @@
-import { createApp, h, ref, computed } from "vue";
-import { ReportPreview, createDefaultPdfExporter, createLocalFetcher, machReportPlugin } from "@agile-team/mach-report/vue";
-import type { ReportTemplate } from "@agile-team/mach-report";
+import { createApp, h, ref, computed, watch } from "vue";
+import { ReportPreview, defineMachReportConfig, machReportPlugin, useMachReport, type DatasetRows, type ReportParamDef, type ReportTemplate } from "@agile-team/mach-report/vue";
 import { renderDynamicSql } from "@agile-team/mach-report/sql";
 
-let cachedTemplateRef: { template: ReportTemplate; datasets: Record<string, Record<string, unknown>[]> } | null = null;
+type DemoReportEntry = { template: ReportTemplate; datasets: DatasetRows };
+let cachedTemplateRef: DemoReportEntry | null = null;
 
 let pagerRef: { destroy(): void; window(): { start: number; end: number } } | null = null;
 const demoFontUrl = "/fonts/mach-report-demo.otf";
-const pdfExporter = createDefaultPdfExporter({ fontUrl: demoFontUrl });
-
-async function exportPdf(): Promise<void> {
-  const entry = cachedTemplateRef;
-  if (!entry) return;
-  const { paginateTemplate } = await import("@agile-team/mach-report");
-  const { plan } = paginateTemplate(entry.template, entry.datasets);
-  const bytes = await pdfExporter(plan, console.warn);
-  const blob = new Blob([bytes as unknown as BlobPart], { type: "application/pdf" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "mach-report.pdf";
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 async function showCanvas(): Promise<void> {
   const entry = cachedTemplateRef;
@@ -229,24 +213,29 @@ function makeSteps() {
   return rows;
 }
 
-const entries = {
+const entries: Record<string, DemoReportEntry> = {
   delivery: { template: deliveryNote, datasets: { detail: makeDetail(96) } },
   card: { template: processCard, datasets: { steps: makeSteps() } },
   combined: { template: deliveryNote, datasets: { detail: makeDetail(20) } }
 };
 
-const fetcher = createLocalFetcher(entries);
-const fetcherWithCache = async (input: Parameters<typeof fetcher>[0]) => {
-  const id = input.reportIds[0] ?? "";
-  cachedTemplateRef = entries[id]
-    ? { template: entries[id]!.template, datasets: entries[id]!.datasets ?? {} }
-    : { template: entries["combined"]!.template, datasets: entries["combined"]!.datasets ?? {} };
-  return fetcher(input);
-};
+const queryParams: ReportParamDef[] = [
+  { field: "wh", label: "仓库", type: "select", required: true, options: [
+    { label: "全部仓库", value: "ALL" }, { label: "1号库", value: "W1" }
+  ], defaultValue: "ALL" },
+  { field: "date", label: "日期", type: "date", defaultValue: "2026-09-30" }
+];
+deliveryNote.params = queryParams;
+processCard.params = queryParams;
 const currentReport = ref<string | string[]>("delivery");
 const reportIds = computed(() =>
   currentReport.value === "combined" ? ["combined", "card"] : currentReport.value
 );
+// 侧栏底层渲染演示需要当前模板；正常插件接入只需下方 reports 注册。
+watch(reportIds, (ids) => {
+  const id = Array.isArray(ids) ? ids[0] ?? "delivery" : ids;
+  cachedTemplateRef = entries[id] ?? entries.delivery!;
+}, { immediate: true });
 
 const sqlDemo = renderDynamicSql(
   "select * from t_warehouse where 1=1 {if(isEmpty(#id), \"\", \"and id = #{id}\")}",
@@ -255,6 +244,7 @@ const sqlDemo = renderDynamicSql(
 
 const app = createApp({
   setup() {
+    const report = useMachReport();
     const pick = (id: string) => {
       currentReport.value = id;
     };
@@ -265,7 +255,7 @@ const app = createApp({
           h("button", { onClick: () => pick("delivery") }, "出库单（96 行，多页）"),
           h("button", { onClick: () => pick("card") }, "工艺卡（LF 精炼）"),
           h("button", { onClick: () => pick("combined") }, "多模板拼接（出库单+工艺卡）"),
-          h("button", { onClick: () => void exportPdf() }, "导出 PDF（前端直出）"),
+          h("button", { onClick: () => void report.exportAs("pdf") }, "导出 PDF（前端直出）"),
           h("button", { onClick: () => void showCanvas() }, "Canvas 位图渲染"),
           h("button", { onClick: () => void showCanvasCalibration() }, "Canvas 校准渲染"),
           h("button", { onClick: () => void showCanvasPager() }, "Canvas 窗口化（大报表）"),
@@ -277,27 +267,19 @@ const app = createApp({
         h("div", { class: "main" }, [
           // 不加 :key：验证组件内部 watch reportId 的重载与竞态防护（契约要求零改动切换）
           h(ReportPreview, {
+            ref: report.ref,
             reportId: reportIds.value,
-            fetcher: fetcherWithCache,
-            height: "100vh",
-            // 参数面板演示：声明式定义 → 组件自动生成查询条件（使用侧零表单代码）
-            paramDefs: [
-              { field: "wh", label: "仓库", type: "select", required: true, options: [
-                { label: "全部仓库", value: "ALL" },
-                { label: "1号库", value: "W1" }
-              ], defaultValue: "ALL" },
-              { field: "date", label: "日期", type: "date", defaultValue: "2026-09-30" }
-            ]
+            height: "100vh"
           })
         ])
       ]);
   }
 });
 
-// 插件化注册演示：数据面一次注入，ReportPreview 不传 fetcher 也能取到（此处仍显式传以便对比）
+// 注册一次：页面只传 ID；参数面板、分页、合并、校验由插件完成。
 app.use(machReportPlugin, {
-  fetcher: fetcherWithCache,
-  config: { defaults: { pdfFontUrl: demoFontUrl } }
+  reports: entries,
+  config: defineMachReportConfig({ defaults: { pdfFontUrl: demoFontUrl } })
 });
 
 app.mount("#app");

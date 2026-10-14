@@ -4,7 +4,7 @@ import { mount } from "@vue/test-utils";
 import ReportPreview from "../ReportPreview.vue";
 import { buildWordHtml, usePrintExport } from "../composables/usePrintExport";
 import { createDefaultPdfExporter } from "../pdf-exporter";
-import { ref } from "vue";
+import { ref, shallowRef } from "vue";
 import type { RenderPlan } from "@agile-team/mach-report";
 
 const plan: RenderPlan = {
@@ -36,6 +36,188 @@ describe("buildWordHtml（Word 兼容导出）", () => {
 });
 
 describe("exportAs 出口矩阵接线", () => {
+  it("await 等待导出完成，重复 PDF 调用共享生成和下载", async () => {
+    let finish!: (bytes: Uint8Array) => void;
+    const exporter = vi.fn(() => new Promise<Uint8Array>((resolve) => { finish = resolve; }));
+    const createUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:shared-pdf");
+    const revokeUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const api = usePrintExport(shallowRef(plan), { getPdfExporter: () => exporter, onError: vi.fn() });
+    try {
+      let settled = false;
+      const first = api.exportAs("pdf").then(() => { settled = true; });
+      const second = api.exportAs("pdf");
+      await vi.waitFor(() => expect(exporter).toHaveBeenCalledOnce());
+      expect(settled).toBe(false);
+      finish(new Uint8Array([37, 80, 68, 70]));
+      await Promise.all([first, second]);
+      expect(createUrl).toHaveBeenCalledOnce();
+      expect(settled).toBe(true);
+    } finally {
+      api.dispose();
+      createUrl.mockRestore();
+      revokeUrl.mockRestore();
+    }
+  });
+
+  it("XLSX 同一计划去重，Excel 完成后仍等待并发 PDF", async () => {
+    const xlsx = await import("@agile-team/mach-report/xlsx");
+    let finishExcel!: (value: Awaited<ReturnType<typeof xlsx.renderPlanToXlsx>>) => void;
+    const renderExcel = vi.spyOn(xlsx, "renderPlanToXlsx").mockImplementation(() => new Promise((resolve) => { finishExcel = resolve; }));
+    let finishPdf!: (bytes: Uint8Array) => void;
+    const exporter = vi.fn(() => new Promise<Uint8Array>((resolve) => { finishPdf = resolve; }));
+    const onBusy = vi.fn();
+    const createUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:concurrent");
+    const revokeUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const api = usePrintExport(shallowRef(plan), { getPdfExporter: () => exporter, onBusy, onError: vi.fn() });
+    try {
+      const pdf = api.exportAs("pdf");
+      const firstExcel = api.exportAs("xlsx");
+      const secondExcel = api.exportAs("excel");
+      expect(onBusy.mock.calls.map(([format]) => format)).toEqual(["PDF", "Excel"]);
+      await vi.waitFor(() => expect(renderExcel).toHaveBeenCalledOnce());
+      finishExcel({
+        workbook: {} as Awaited<ReturnType<typeof xlsx.renderPlanToXlsx>>["workbook"],
+        buffer: new ArrayBuffer(2),
+        warnings: []
+      });
+      await Promise.all([firstExcel, secondExcel]);
+      expect(createUrl).toHaveBeenCalledOnce();
+      expect(onBusy.mock.calls.map(([format]) => format)).toEqual(["PDF", "Excel", "PDF"]);
+      finishPdf(new Uint8Array([37, 80, 68, 70]));
+      await pdf;
+      expect(onBusy.mock.calls.map(([format]) => format)).toEqual(["PDF", "Excel", "PDF", null]);
+      expect(createUrl).toHaveBeenCalledTimes(2);
+    } finally {
+      api.dispose();
+      renderExcel.mockRestore();
+      createUrl.mockRestore();
+      revokeUrl.mockRestore();
+    }
+  });
+
+  it.each(["switch", "dispose"] as const)("%s 后旧 PDF 的成功、错误和告警均失效", async (action) => {
+    const current = shallowRef<RenderPlan | null>(plan);
+    let finish!: (bytes: Uint8Array) => void;
+    let fail!: (reason: Error) => void;
+    let warn!: (message: string) => void;
+    let runs = 0;
+    const onError = vi.fn();
+    const onWarning = vi.fn();
+    const createUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:stale");
+    const api = usePrintExport(current, {
+      getPdfExporter: () => (_plan, onWarn) => {
+        runs++;
+        warn = onWarn!;
+        return new Promise((resolve, reject) => { finish = resolve; fail = reject; });
+      },
+      onError,
+      onWarning
+    });
+    try {
+      const pending = api.exportAs("pdf");
+      await vi.waitFor(() => expect(finish).toBeDefined());
+      if (action === "switch") current.value = { ...plan, pages: [] };
+      else api.dispose();
+      warn("旧字体告警");
+      fail(new Error("旧任务失败"));
+      await pending;
+      expect(onError).not.toHaveBeenCalled();
+      expect(onWarning).not.toHaveBeenCalled();
+      expect(createUrl).not.toHaveBeenCalled();
+
+      // disposed 句柄不会发起第二次工作；切换后新计划也不能复用旧 promise。
+      if (action === "switch") current.value = plan;
+      const next = api.exportAs("pdf");
+      if (action === "switch") {
+        await vi.waitFor(() => expect(runs).toBe(2));
+        current.value = null;
+        finish(new Uint8Array([37, 80, 68, 70]));
+      }
+      await next;
+      expect(createUrl).not.toHaveBeenCalled();
+      if (action === "dispose") expect(runs).toBe(1);
+    } finally {
+      api.dispose();
+      createUrl.mockRestore();
+    }
+  });
+
+  it("PDF 窗口在用户操作中同步打开；卸载关闭尚未生成的空窗口", async () => {
+    let finish!: (bytes: Uint8Array) => void;
+    const exporter = vi.fn(() => new Promise<Uint8Array>((resolve) => { finish = resolve; }));
+    const viewer = { closed: false, close: vi.fn() };
+    const open = vi.spyOn(window, "open").mockReturnValue(viewer as unknown as Window);
+    const createUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:pending-window");
+    const onError = vi.fn();
+    const api = usePrintExport(shallowRef(plan), { getPdfExporter: () => exporter, onError });
+    try {
+      api.openPdfWindow();
+      expect(open).toHaveBeenCalledWith("", "_blank");
+      expect(exporter).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(exporter).toHaveBeenCalledOnce());
+      api.dispose();
+      expect(viewer.close).toHaveBeenCalledOnce();
+      finish(new Uint8Array([37, 80, 68, 70]));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(createUrl).not.toHaveBeenCalled();
+      expect(onError).not.toHaveBeenCalled();
+    } finally {
+      api.dispose();
+      open.mockRestore();
+      createUrl.mockRestore();
+    }
+  });
+
+  it.each(["switch", "dispose"] as const)("%s 后 XLSX 生成结果不再下载或报告内容遗漏", async (action) => {
+    const xlsx = await import("@agile-team/mach-report/xlsx");
+    let finish!: (value: Awaited<ReturnType<typeof xlsx.renderPlanToXlsx>>) => void;
+    const renderExcel = vi.spyOn(xlsx, "renderPlanToXlsx").mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    const current = shallowRef<RenderPlan | null>(plan);
+    const onError = vi.fn();
+    const onWarning = vi.fn();
+    const createUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:stale-excel");
+    const api = usePrintExport(current, { getPdfExporter: () => vi.fn(), onError, onWarning });
+    try {
+      const pending = api.exportAs("xlsx");
+      await vi.waitFor(() => expect(renderExcel).toHaveBeenCalledOnce());
+      if (action === "switch") current.value = null;
+      else api.dispose();
+      finish({
+        workbook: {} as Awaited<ReturnType<typeof xlsx.renderPlanToXlsx>>["workbook"],
+        buffer: new ArrayBuffer(2),
+        warnings: ["旧报表图形未导出"]
+      });
+      await pending;
+      expect(onError).not.toHaveBeenCalled();
+      expect(onWarning).not.toHaveBeenCalled();
+      expect(createUrl).not.toHaveBeenCalled();
+    } finally {
+      api.dispose();
+      renderExcel.mockRestore();
+      createUrl.mockRestore();
+    }
+  });
+
+  it("打印准备期间卸载不会再弹出打印窗口", async () => {
+    vi.useFakeTimers();
+    const api = usePrintExport(shallowRef(plan), { getPdfExporter: () => vi.fn(), onError: vi.fn() });
+    try {
+      const pending = api.print();
+      const frame = document.querySelector("iframe")!;
+      const print = vi.fn();
+      Object.defineProperty(frame.contentWindow!, "print", { value: print, configurable: true });
+      api.dispose();
+      await vi.advanceTimersByTimeAsync(1);
+      await pending;
+      expect(print).not.toHaveBeenCalled();
+      expect(frame.isConnected).toBe(false);
+    } finally {
+      api.dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it("PDF 异步生成期间报告忙碌状态，失败后清除", async () => {
     const onBusy = vi.fn();
     const onError = vi.fn();

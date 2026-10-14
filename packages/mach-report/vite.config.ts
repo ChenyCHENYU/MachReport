@@ -26,10 +26,16 @@ export default defineConfig({
       beforeWriteFile(filePath, content) {
         // Vue SFC 推导会把可增补的 GlobalComponents interface 直接放入 Record 约束。
         // 映射成同字段类型，保留宿主全局组件信息，同时使严格消费端可验证索引约束。
-        const normalized = content.replace(
+        let normalized = content.replace(
           /, GlobalComponents, GlobalDirectives,/g,
           ", { [K in keyof GlobalComponents]: GlobalComponents[K] }, { [K in keyof GlobalDirectives]: GlobalDirectives[K] },"
         );
+        // 自引用的 star export 会让 API Extractor 沿 package exports 回到 .ts 实现，
+        // 引发语义分析错误。只在聚合前移除这行；最终声明由 copy-dcts 恢复外部重导出。
+        // 保留外部重导出，避免将含 private 成员的核心类型复制成另一份名义类型。
+        if (filePath.endsWith("/vue/index.d.ts")) {
+          normalized = normalized.replace(/^export \* from ['"]@agile-team\/mach-report['"];?\r?\n/gm, "");
+        }
         // 完整 Workbook API 含 Node stream 签名，types: [] 宿主也需显式解析 Node 声明。
         if (filePath.endsWith("/xlsx.d.ts") && !normalized.includes('/// <reference types="node" />')) {
           return { filePath, content: `/// <reference types="node" />\n${normalized}` };

@@ -1,4 +1,4 @@
-import { paginateTemplate, RENDER_PLAN_SCHEMA_VERSION } from "@agile-team/mach-report";
+import { createReportSource } from "@agile-team/mach-report";
 import type { ReportTemplate } from "@agile-team/mach-report";
 import type { PlanFetcher } from "./adapters";
 import { PlanLoadError } from "./adapters";
@@ -15,18 +15,17 @@ export interface LocalTemplateEntry {
 export function createLocalFetcher(
   entries: Record<string, LocalTemplateEntry>
 ): PlanFetcher {
-  return async ({ reportIds }) => {
-    if (reportIds.length === 0) throw new PlanLoadError("缺少报表 ID");
-    const allPages = [];
-    for (const id of reportIds) {
-      const entry = entries[id];
-      if (!entry) throw new PlanLoadError(`本地模板 ${id} 不存在`);
-      const { plan, warnings } = paginateTemplate(entry.template, entry.datasets ?? {});
-      if (warnings.length > 0) {
-        console.warn("[mach-report] 分页告警:", warnings);
+  const source = createReportSource(entries);
+  const fetcher: PlanFetcher = async (input) => {
+    // 保留本地 adapter 的旧错误类型与文案，其余编排复用统一数据源。
+    if (input.reportIds.length === 0) throw new PlanLoadError("缺少报表 ID");
+    for (const id of input.reportIds) {
+      if (!Object.prototype.hasOwnProperty.call(entries, id) || !entries[id]) {
+        throw new PlanLoadError(`本地模板 ${id} 不存在`);
       }
-      allPages.push(...plan.pages);
     }
-    return { schemaVersion: RENDER_PLAN_SCHEMA_VERSION, pages: allPages };
+    return source(input);
   };
+  fetcher.getParamDefs = source.getParamDefs;
+  return fetcher;
 }

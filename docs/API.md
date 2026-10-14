@@ -58,51 +58,55 @@ const { plan, warnings } = paginateTemplate(template, {
 
 核心分页、DOM / Canvas、PDF 和 XLSX API 不依赖 Vue；`/vue` 提供的预览、工具栏与参数面板依赖 Vue 3。其他框架可直接使用核心与导出 API，自行封装界面。
 
-常规业务接入可以复用已有后端接口，不需要后端安装 MachReport。前端保留上例的 `template`，将后端数据映射到模板约定的 `detail` 数据集。在 Vue 中，适配器如下：
+常规业务接入可以复用已有后端接口，不需要后端安装 MachReport。前端保留上例的 `template`，将后端数据映射到模板约定的 `detail` 数据集。插件一次注册，无需手写分页与 ID 分支：
 
 ```ts
-import { paginateTemplate } from "@agile-team/mach-report";
-import type { PlanFetcher } from "@agile-team/mach-report/vue";
+import { defineReport, machReportPlugin } from "@agile-team/mach-report/vue";
 
-const fetcher: PlanFetcher = async ({ reportIds, params }) => {
-  if (reportIds.length !== 1 || reportIds[0] !== "outbound-order") {
-    throw new Error("未知报表定义");
+app.use(machReportPlugin, {
+  reports: {
+    "outbound-order": defineReport({
+      template,
+      load: async ({ params, signal }) => {
+        if (!params.orderId) throw new Error("缺少单据 ID");
+        const response = await fetch(`/api/outbound/${encodeURIComponent(params.orderId)}`, { signal });
+        if (!response.ok) throw new Error(`取数失败：HTTP ${response.status}`);
+        return (await response.json()) as {
+          items: Array<{ materialName: string; quantity: number }>;
+        };
+      },
+      mapData: (data) => ({
+        detail: data.items.map((item) => ({ name: item.materialName, qty: item.quantity }))
+      })
+    })
   }
-  if (!params.orderId) throw new Error("缺少单据 ID");
-
-  const response = await fetch(`/api/outbound/${encodeURIComponent(params.orderId)}`);
-  if (!response.ok) throw new Error(`取数失败：HTTP ${response.status}`);
-  const data = (await response.json()) as {
-    items: Array<{ materialName: string; quantity: number }>;
-  };
-  const { plan, warnings } = paginateTemplate(template, {
-    detail: data.items.map((item) => ({ name: item.materialName, qty: item.quantity }))
-  });
-  if (warnings.length > 0) console.warn("报表分页告警", warnings);
-  return plan;
-};
+});
 ```
 
-组件使用 `report-id="outbound-order"`、`:params="{ orderId }"` 和 `:fetcher="fetcher"`。示例路径和响应结构由业务项目替换；实际项目复用自己的请求客户端、鉴权、业务数据校验及日志机制。这里的类型断言不承担运行时校验。
+组件使用 `report-id="outbound-order"`、`:params="{ orderId }"`。示例路径和响应结构由业务项目替换；实际项目复用自己的请求客户端、鉴权、业务数据校验及日志机制。这里的类型断言不承担运行时校验。
 
-`detail` 必须与模板 `.list("detail", ...)` 一致，行中的 `name` / `qty` 必须与列的 `field` 一致。`PlanFetcher` 最终返回的是分页后的 `RenderPlan`，不是原始数据数组。分页告警需要由适配器处理，当前返回契约不携带这些告警。
+`detail` 必须与模板 `.list("detail", ...)` 一致，行中的 `name` / `qty` 必须与列的 `field` 一致。包内完成数据集容器校验、分页、计划校验和有序合并；分页告警通过组件 `warning` 事件及配置的日志通道报告。接口已返回数据集时直接注册 `{ template, load }`，静态数据使用 `{ template, datasets }`。
+
+框架无关项目使用 `createReportSource(reports)`，获得兼容 `PlanFetcher` 的可调用数据源；`defineReport({ template, load, mapData })` 用于推导业务响应并映射数据。报表定义还支持 `params` 参数覆盖和 `pagination` 测量选项。详见[项目接入指南](./INTEGRATION.md)。
 
 数据应覆盖所需报表范围。普通列表接口只返回当前分页时，只能生成该批数据的报表；完整导出需要后端提供完整结果或由应用完成受控取数。权限、租户隔离和数据范围仍由后端校验。模板可在前端定义，也可通过接口加载；不需要专用数据库或固定后端语言。
 
 ## Vue 3 预览组件
 
-### 注册与接入
+### 高级接口：后端返回渲染计划
+
+常规注册使用上文的 `reports`；后端已生成 `RenderPlan` 或需要完全自定义加载时使用 `fetcher`：
 
 ```ts
-import type { RenderPlan } from "@agile-team/mach-report";
-import { machReportPlugin, type PlanFetcher } from "@agile-team/mach-report/vue";
+import { machReportPlugin, type RenderPlan, type PlanFetcher } from "@agile-team/mach-report/vue";
 import "@agile-team/mach-report/vue/style.css";
 
-const fetcher: PlanFetcher = async ({ reportIds, params }) => {
+const fetcher: PlanFetcher = async ({ reportIds, params, signal }) => {
   const response = await fetch("/api/report-plan", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ reportIds, params })
+    body: JSON.stringify({ reportIds, params }),
+    signal
   });
   if (!response.ok) throw new Error(`报表加载失败：HTTP ${response.status}`);
   return (await response.json()) as RenderPlan;
@@ -117,12 +121,14 @@ app.use(machReportPlugin, { fetcher });
 type PlanFetcher = (input: {
   reportIds: string[];
   params: Record<string, string>;
+  signal?: AbortSignal;
+  onWarning?: (message: string) => void;
 }) => Promise<RenderPlan>;
 ```
 
-插件只注册全局组件并注入可选配置。未传插件级 `fetcher` 时，可在单个组件上用 `:fetcher` 传入；两处都没有时组件显示配置错误，不会发出隐式网络请求。
+fetcher 可选的 `getParamDefs(reportIds)` 方法提供参数元数据，新数据源及本地适配器已实现。优先级为组件 `fetcher` → 插件显式 `fetcher` → 插件 `reports`；全部缺失时组件显示配置错误，不发出隐式网络请求。旧函数可忽略新增可选字段，保持兼容。
 
-本地模板可用 `createLocalFetcher({ [reportId]: { template, datasets } })`；它与远程 `PlanFetcher` 使用同一接口。若只需要 HTTP 请求工具，可用 `createFetchRequest({ baseUrl, headers, credentials, timeoutMs })`，接口路径与返回体由项目自行处理。
+本地模板可用 `createLocalFetcher({ [reportId]: { template, datasets } })`；它与远程 `PlanFetcher` 使用同一接口。请求工具 `createFetchRequest({ baseUrl, headers, credentials, timeoutMs })` 支持请求 `signal`、已有查询参数合并，以及覆盖完整 JSON body 读取的超时；接口路径与返回体由项目自行处理。
 
 ```vue
 <template>
@@ -143,14 +149,16 @@ type PlanFetcher = (input: {
 | `reportId` | 报表 ID，支持字符串、逗号分隔字符串或数组；多 ID 会按顺序合并页 |
 | `params` | 项目查询参数，传给 `PlanFetcher`；宿主更新时同步参数面板 |
 | `fetcher` | 当前组件的数据源，优先于插件注入的数据源 |
-| `paramDefs` / `showParams` | 查询条件定义与参数面板显隐 |
-| `height` / `autoLoad` | 容器高度 / 挂载后是否自动加载 |
+| `paramDefs` / `showParams` | 自动使用数据源的模板参数；prop 优先，`[]` 可禁用自动面板定义；showParams 仅控制显隐 |
+| `height` / `autoLoad` | 容器高度 / 自动加载；手动模式在 ID、参数或数据源变化时也取消并清理旧结果 |
 | `showExport` / `showPrint` / `showPdfWindow` | 工具栏操作显隐 |
 | `gapPx` / `messages` / `preset` | 页间距、文案与配置预设 |
 
 组件事件：`loaded(pageCount)`、`error(message, { code, cause? })`、`warning(message)`。`error` 的 `code` 可为 `param`、`fetch`、`validate`、`render`、`pdf`、`print`、`export` 或 `config`。
 
 组件 ref 方法：`reload()`、`print()`、`exportAs(format)`、`openPdfWindow()`、`gotoPage(page)`、`setParams(values, { reload? })`。`exportAs` 支持 `html`、`pdf`、`xlsx` / `excel`、`png` / `image`、`word` / `doc`；未知格式会报错。引擎级图片导出另支持 JPEG。
+
+父页面推荐 `const report = useMachReport()`，模板绑定 `:ref="report.ref"`，控制方法直接从句柄调用。`ready` 是组件已挂载状态；`reload`、`print`、`exportAs`、`setParams` 可等待，但生成错误仍走 `error` 事件。PDF 窗口方法保持同步调用，保留点击事件的弹窗权限。
 
 ### 配置中心
 
@@ -178,7 +186,7 @@ app.use(machReportPlugin, { fetcher, config });
 
 | 入口 | 用途 |
 | --- | --- |
-| `@agile-team/mach-report` | 模板、分页、校验、DOM/Canvas 渲染、窗口计算 |
+| `@agile-team/mach-report` | 模板、报表数据源、分页、校验、DOM/Canvas 渲染、窗口计算 |
 | `@agile-team/mach-report/pdf` | `renderPlanToPdf`、字体加载与缓存 |
 | `@agile-team/mach-report/xlsx` | `renderPlanToXlsx` |
 | `@agile-team/mach-report/sql` | 动态 SQL 编译与单 SELECT 校验工具 |

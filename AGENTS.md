@@ -24,13 +24,15 @@ pnpm release                  # 一键发版：changeset version → install →
 - `src/`：`layout/`（分页+折行）`render/`（DOM/Canvas/几何/样式/虚拟化）`schema/` `builder/` `format.ts`（值格式化/条件规则）
 - 子路径域：`src/pdf` `src/sql` `src/xlsx` `src/vue`——重依赖（pdf-lib/node-sql-parser/exceljs）与框架代码只存在于子路径产物；ExcelJS 声明内联，唯一依赖 `@types/node` 用于公开 Workbook 的 Node 类型签名
 - 数据来源通过 `PlanFetcher({ reportIds, params })` 注入；不得在插件中内置某个项目的接口路径、鉴权或响应格式
+- 常规接入使用插件 `reports` 或核心 `createReportSource`：宿主只定义模板、取数和字段映射，包内统一分页、参数元数据、校验与页合并。Vue 入口重导出核心 API；保留旧 fetcher 逃生口，signal / onWarning 为可选增强。
+- 父页面控制用 `useMachReport` 的稳定 ref / ready / 方法；重载与卸载必须取消旧取数，导出必须去重并隔离过期结果。同步打开 PDF 窗口，避免丢失浏览器用户手势。
 - **ESLint 边界规则**：引擎核心不得 import 任何子路径域（主入口零重依赖零框架，有产物守卫测试双保险）
 - 自引用（self-reference）：vue 子路径静态依赖引擎、PDF 懒加载走 `./pdf`，构建时外部化
 
 ## 约定
 
 - 版本：changesets（`.changeset/*.md` → `pnpm run version`，同步 README 源码版本）
-- 测试先行：新能力必须带单测；渲染几何/坐标回归走 E2E 结构化断言（见 `e2e/canvas.spec.ts`）
+- 测试先行：新能力必须带单测；数据源测试使用真实分页，Vue 测试真实挂载并清理。渲染几何/坐标回归走 E2E 结构化断言（见 `e2e/canvas.spec.ts`）
 - 性能预算：`perf-budget.test.ts` 的阈值改动需在 PR 说明理由
 - 文案/主题：走 `config.ts` 的 messages/theme（不要硬编码）
 - 主分支 main；使用 `git remote -v` 确认已配置远端，仅在用户授权后推送或发布。GitHub clone 默认只有 origin，不假设存在 gitee。

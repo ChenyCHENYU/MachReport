@@ -58,8 +58,7 @@ Vue 组件要求 Vue `^3.2.0`；主题样式在应用入口引入一次。只使
 
 ```vue
 <script setup lang="ts">
-import { createTemplate } from "@agile-team/mach-report";
-import { createLocalFetcher, ReportPreview } from "@agile-team/mach-report/vue";
+import { createTemplate, createLocalFetcher, ReportPreview } from "@agile-team/mach-report/vue";
 import "@agile-team/mach-report/vue/style.css";
 
 const template = createTemplate()
@@ -82,7 +81,32 @@ const fetcher = createLocalFetcher({
 </template>
 ```
 
-全局接入时，在应用入口调用 `app.use(machReportPlugin, { fetcher })`，页面使用 `<MachReportPreview report-id="outbound" />`。查询参数应在业务 `PlanFetcher` 中参与取数；`createLocalFetcher` 仅按报表 ID 读取已提供的模板与数据集。
+### 项目接入：注册一次，页面只传 ID 和参数
+
+模板与业务取数集中注册，分页、校验、参数面板、多报表合并及请求生命周期交给包内处理。Vue 用户从同一个 `/vue` 入口获取组件和核心能力。
+
+```ts
+import { machReportPlugin, defineReport } from "@agile-team/mach-report/vue";
+import "@agile-team/mach-report/vue/style.css";
+
+app.use(machReportPlugin, {
+  reports: {
+    outbound: defineReport({
+      template,
+      load: ({ params, signal }) => orderApi.report(params, { signal }),
+      mapData: (data) => ({ detail: data.items })
+    })
+  }
+});
+```
+
+```vue
+<MachReportPreview report-id="outbound" :params="{ orderId }" height="70vh" />
+```
+
+`template` 使用上例或项目自己的模板；`orderApi` 是项目现有业务请求客户端。接口已经返回数据集时，直接写 `load: ({ params, signal }) => reportApi(params, { signal })`，无需 `defineReport` 或字段映射。静态数据使用 `{ template, datasets }`。
+
+模板的 `params` 会自动生成查询面板，显式 `paramDefs` 可覆盖。父页面用 `useMachReport()` 获得 `ref`、`ready` 和可等待的控制方法。完整示例及接入边界见[项目接入指南](./docs/INTEGRATION.md)。旧 `fetcher` 与 `createLocalFetcher` 继续支持。
 
 ### 原生 TypeScript：生成并渲染页面
 
@@ -159,38 +183,35 @@ app.use(machReportPlugin, { fetcher, config });
 
 ## 接入项目数据
 
-**后端可以只提供业务数据。** 前端定义模板与字段映射，再调用 `paginateTemplate(template, datasets)`，即可生成用于预览、打印和导出的 `RenderPlan`。后端无需安装 MachReport，也不必实现专用报表服务；模板也可以由后端存储后返回。
+**后端可以只提供业务数据。** 宿主定义模板和取数函数，通过插件 `reports` 或核心 `createReportSource()` 注册；包内自动生成用于预览、打印和导出的 `RenderPlan`。后端无需安装 MachReport，也不必实现专用报表服务；模板也可以由后端存储后返回。
 
 | 接入模式 | 后端返回 | 前端负责 |
 | --- | --- | --- |
-| 业务数据模式（常规项目优先） | 业务 JSON，如单据明细、查询结果 | 获取模板、映射字段、分页、预览和导出 |
-| 渲染计划模式 | 符合协议的 `RenderPlan` JSON | 校验计划、预览和导出 |
+| 业务数据模式（常规项目优先） | 业务 JSON，如单据明细、查询结果 | 宿主提供模板、取数及字段映射；包内分页、校验、预览和导出 |
+| 渲染计划模式 | 符合协议的 `RenderPlan` JSON | 宿主提供 fetcher；组件校验、预览和导出 |
 
 内核、PDF 和 XLSX 出口不依赖前端框架；**现成的 `ReportPreview`、工具栏和参数面板依赖 Vue 3**。React、Angular 或原生 JavaScript 项目可调用核心 DOM / Canvas API 和导出 API，自行封装界面与生命周期。框架无关不代表各框架都已有预览组件。
 
-Vue 接入通过 `PlanFetcher` 适配两种模式。它最终必须返回 `RenderPlan`，不能直接返回普通业务数组。业务数据模式的完整示例见 [API：后端只提供业务数据](./docs/API.md#后端只提供业务数据)。接口路径、请求库、鉴权和响应映射由宿主项目管理。
+常规业务接入使用上方的 `reports`，无需手写 `PlanFetcher` 或调用分页器。业务数据模式的完整示例见[项目接入指南](./docs/INTEGRATION.md)。接口路径、请求库、鉴权和字段映射由宿主项目管理。
 
 如果已有接口直接返回渲染计划：
 
 ```ts
-import { validateRenderPlan, type RenderPlan } from "@agile-team/mach-report";
-import type { PlanFetcher } from "@agile-team/mach-report/vue";
+import type { RenderPlan, PlanFetcher } from "@agile-team/mach-report/vue";
 
-const fetcher: PlanFetcher = async ({ reportIds, params }) => {
+const fetcher: PlanFetcher = async ({ reportIds, params, signal }) => {
   const response = await fetch("/api/report-plan", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ reportIds, params })
+    body: JSON.stringify({ reportIds, params }),
+    signal
   });
   if (!response.ok) throw new Error(`报表加载失败：HTTP ${response.status}`);
-  const plan = (await response.json()) as RenderPlan;
-  const result = validateRenderPlan(plan);
-  if (!result.ok) throw new Error(result.errors[0]?.message ?? "报表格式错误");
-  return plan;
+  return (await response.json()) as RenderPlan; // 预览组件负责计划校验
 };
 ```
 
-`/api/report-plan` 是示例路径，请替换为实际接口。参数面板通过 `paramDefs` 声明，查询时将参数传给 fetcher。`report-id` 用于选择报表定义，业务单据 ID 可放在 `params` 中；具体映射由应用定义。`createLocalFetcher` 使用已提供的模板与数据，不会自动请求后端。
+`/api/report-plan` 是示例路径，请替换为实际接口。`PlanFetcher` 是高级逃生口，返回 `RenderPlan`，并可接收 `signal` 和 `onWarning`；旧函数可忽略新增可选参数。`report-id` 选择报表定义，业务单据 ID 放在 `params` 中。模板参数随 `reports` 自动传递，原始计划接口则可通过 `paramDefs` 声明查询面板。
 
 ```text
 模板 + 数据 ── paginateTemplate ──┐
@@ -203,8 +224,8 @@ const fetcher: PlanFetcher = async ({ reportIds, params }) => {
 
 | 入口 | 用途 |
 | --- | --- |
-| `@agile-team/mach-report` | 模板 DSL、分页、格式化、计划校验、DOM / Canvas、页窗口计算 |
-| `@agile-team/mach-report/vue` | Vue 组件、插件、配置中心、本地 / 请求适配器、控制器类型 |
+| `@agile-team/mach-report` | 模板 DSL、报表数据源、分页、格式化、计划校验、DOM / Canvas、页窗口计算 |
+| `@agile-team/mach-report/vue` | 重导出核心 API；Vue 组件、插件、配置中心、适配器和父页面控制句柄 |
 | `@agile-team/mach-report/vue/async` | 异步全局组件插件与 `preloadMachReport` 预取 |
 | `@agile-team/mach-report/vue/style.css` | Vue 预览样式 |
 | `@agile-team/mach-report/pdf` | `renderPlanToPdf`、字体加载与缓存 |

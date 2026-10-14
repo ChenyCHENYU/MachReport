@@ -13,6 +13,7 @@ export default defineConfig({
       provider: "v8",
       include: [
         "packages/mach-report/src/layout/**",
+        "packages/mach-report/src/source/**",
         "packages/mach-report/src/render/**",
         "packages/mach-report/src/format.ts"
       ],

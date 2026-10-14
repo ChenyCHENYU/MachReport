@@ -38,15 +38,15 @@ export default tseslint.config(
     files: [
       "packages/mach-report/src/index.ts",
       "packages/mach-report/src/{defaults,units,pdf,sql}.ts",
-      "packages/mach-report/src/{layout,render,schema,builder}/**/*.ts"
+      "packages/mach-report/src/{layout,render,schema,builder,source}/**/*.ts"
     ],
     rules: {
       "no-restricted-imports": [
         "error",
         {
           patterns: [
-            { group: ["../pdf/*", "../pdf", "../sql/*", "../sql", "../vue/*", "../vue"], message: "Engine core must not depend on subpath domains (pdf/sql/vue)." },
-            { group: ["@agile-team/mach-report/pdf", "@agile-team/mach-report/sql", "@agile-team/mach-report/vue"], message: "Engine core must not depend on subpath domains (pdf/sql/vue)." }
+            { group: ["../pdf/*", "../pdf", "../sql/*", "../sql", "../xlsx/*", "../xlsx", "../vue/*", "../vue"], message: "Engine core must not depend on subpath domains (pdf/sql/xlsx/vue)." },
+            { group: ["@agile-team/mach-report/pdf", "@agile-team/mach-report/sql", "@agile-team/mach-report/xlsx", "@agile-team/mach-report/vue", "@agile-team/mach-report/vue/*"], message: "Engine core must not depend on subpath domains (pdf/sql/xlsx/vue)." }
           ]
         }
       ]

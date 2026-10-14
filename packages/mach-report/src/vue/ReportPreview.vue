@@ -25,6 +25,7 @@ import type { RenderPlan } from "@agile-team/mach-report";
 import {
   renderPage as renderPageToDom,
   renderPlanToCanvas,
+  ReportSourceError,
   validateRenderPlan
 } from "@agile-team/mach-report";
 import { normalizeReportIds, type PlanFetcher } from "./adapters";
@@ -117,6 +118,7 @@ const injectedFetcher = inject(MACH_REPORT_FETCHER_KEY, null);
 const injectedPdfExporter = inject(MACH_REPORT_PDF_EXPORTER_KEY, null);
 
 const reportIds = computed(() => normalizeReportIds(props.reportId));
+const effectiveFetcher = computed(() => props.fetcher ?? injectedFetcher);
 const pageCount = computed(() => plan.value?.pages.length ?? 0);
 
 /** 配置解析：preset > 应用级 defaults；未配置时全部落到内置缺省 */
@@ -145,8 +147,9 @@ function getPdfExporter(): PdfExporter {
 }
 
 // ── 参数面板：定义优先级 prop > 模板 params；值合并优先级 面板值 > props.params ──
-/** 本地模式：createLocalFetcher 无法把模板递给组件，宿主可用 template.params 直读；此处兜底从模板无门获取，走 prop */
-const effectiveParamDefs = computed<ReportParamDef[]>(() => props.paramDefs ?? []);
+const effectiveParamDefs = computed<ReportParamDef[]>(() =>
+  props.paramDefs ?? effectiveFetcher.value?.getParamDefs?.(reportIds.value) ?? []
+);
 const paramValues = ref<Record<string, string>>({});
 const paramAttempted = ref(false);
 
@@ -160,6 +163,7 @@ function initParamValues(defs: ReportParamDef[]): void {
 }
 initParamValues(effectiveParamDefs.value);
 watch(effectiveParamDefs, (defs) => initParamValues(defs));
+watch(reportIds, () => initParamValues(effectiveParamDefs.value));
 watch(() => JSON.stringify(props.params), () => initParamValues(effectiveParamDefs.value));
 
 /** 生效参数：面板值覆盖宿主传入值（面板是"用户当前意图"） */
@@ -227,10 +231,13 @@ function invalidate(): void {
 
 /** 代际令牌：报表 ID 快速切换时，旧请求即使后返回也不得覆盖新数据 */
 let reloadSeq = 0;
+let loadController: AbortController | null = null;
 
 async function reload(): Promise<void> {
   const seq = ++reloadSeq;
-  const fetcher = props.fetcher ?? injectedFetcher;
+  loadController?.abort();
+  loadController = null;
+  const fetcher = effectiveFetcher.value;
   // 新一轮负责结束旧 loading；参数/配置早退时旧请求的 finally 已失去代际权限。
   loading.value = false;
   if (reportIds.value.length === 0) {
@@ -250,10 +257,21 @@ async function reload(): Promise<void> {
   exportNotice.value = null;
   invalidate();
   const t0 = timing.start();
+  const controller = new AbortController();
+  loadController = controller;
+  const reportedWarnings = new Set<string>();
+  function reportWarning(message: string): void {
+    if (seq !== reloadSeq || controller.signal.aborted || reportedWarnings.has(message)) return;
+    reportedWarnings.add(message);
+    resolved.value.logger.warn("[mach-report] 报表告警:", message);
+    emit("warning", message);
+  }
   try {
     const next = await fetcher({
       reportIds: reportIds.value,
-      params: { ...effectiveParams.value }
+      params: { ...effectiveParams.value },
+      signal: controller.signal,
+      onWarning: reportWarning
     });
     if (seq !== reloadSeq) return;
     const check = validateRenderPlan(next);
@@ -267,9 +285,9 @@ async function reload(): Promise<void> {
         `渲染计划校验失败(${check.errors.length} 处): ${head}`
       );
     }
-    if (check.warnings.length > 0) {
-      resolved.value.logger.warn("[mach-report] 渲染计划告警:", check.warnings);
-    }
+    check.warnings.forEach((warning) => reportWarning(`${warning.path}: ${warning.message}`));
+    // warning 处理器可能同步发起下一次查询；回到本次调用时必须重新核对代际。
+    if (seq !== reloadSeq || controller.signal.aborted) return;
     plan.value = next;
     currentPage.value = 1;
     timing.end(t0);
@@ -281,6 +299,8 @@ async function reload(): Promise<void> {
     const normalized =
       error instanceof MachReportError
         ? error
+        : error instanceof ReportSourceError
+          ? new MachReportError(error.code, error.message, error.cause)
         : new MachReportError(
             "fetch",
             error instanceof Error ? error.message : "预览加载失败",
@@ -290,6 +310,7 @@ async function reload(): Promise<void> {
     emit("error", normalized.message, toErrorDetail(normalized));
   } finally {
     if (seq === reloadSeq) loading.value = false;
+    if (loadController === controller) loadController = null;
   }
 }
 
@@ -306,7 +327,7 @@ function gotoPage(n: number): void {
   vp.scrollTop = offset * zoom.value;
 }
 
-const { print, exportAs, openPdfWindow, releasePrintFrame } = usePrintExport(plan, {
+const { print, exportAs, openPdfWindow, releasePrintFrame, dispose } = usePrintExport(plan, {
   getPdfExporter,
   onError: (message, code) => {
     exportNotice.value = { kind: "error", message };
@@ -330,9 +351,9 @@ const { print, exportAs, openPdfWindow, releasePrintFrame } = usePrintExport(pla
 
 /** 控制器注入：后代组件 useReportPreview() 免模板 ref 编程式访问（与 expose 同面） */
 /** 编程式设参查询：合并进面板值（面板本地字典经 v-model 同步），可选立即重载 */
-function setParams(values: Record<string, string>, opts: { reload?: boolean } = {}): void {
+async function setParams(values: Record<string, string>, opts: { reload?: boolean } = {}): Promise<void> {
   paramValues.value = { ...paramValues.value, ...values };
-  if (opts.reload !== false) void reload();
+  if (opts.reload !== false) await reload();
 }
 
 const controller: MachReportController = { reload, print, exportAs, openPdfWindow, gotoPage, setParams };
@@ -487,23 +508,29 @@ onMounted(() => {
 
 onUnmounted(() => {
   reloadSeq++; // 卸载后未完成请求的成功/失败回调均失效
+  loadController?.abort();
+  loadController = null;
   window.removeEventListener("resize", onResize);
   thumbs.destroy();
   search.reset(); // 清防抖计时器（若挂载期间恰在防抖窗口内）
-  releasePrintFrame();
+  dispose();
 });
 
 watch(
-  () => [props.reportId, JSON.stringify(props.params)] as const,
+  () => [JSON.stringify(reportIds.value), JSON.stringify(props.params), effectiveFetcher.value] as const,
   () => {
-    if (props.autoLoad) void reload();
-  }
-);
-
-watch(
-  () => props.fetcher ?? injectedFetcher,
-  () => {
-    if (props.autoLoad) void reload();
+    if (props.autoLoad) {
+      void reload();
+      return;
+    }
+    // 手动加载模式也不能继续呈现已切换的 ID / 查询 / 数据源的旧结果。
+    reloadSeq++;
+    loadController?.abort();
+    loadController = null;
+    loading.value = false;
+    errorMessage.value = "";
+    exportNotice.value = null;
+    invalidate();
   }
 );
 

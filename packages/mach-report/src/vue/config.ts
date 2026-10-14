@@ -132,9 +132,12 @@ export interface MachReportConfig {
   defaultPreset?: string;
 }
 
-/** 类型化配置声明（纯类型助手，便于独立 config 文件） */
-export function defineMachReportConfig(config: MachReportConfig): MachReportConfig {
-  return config;
+/** 应用配置输入：只声明需要的 defaults 或 presets，省略层由包内补齐。 */
+export type MachReportConfigInput = Partial<MachReportConfig>;
+
+/** 类型化配置声明，归一化为完整配置，便于直接传给插件或路由层。 */
+export function defineMachReportConfig(config: MachReportConfigInput = {}): MachReportConfig {
+  return { ...config, defaults: config.defaults ?? {}, presets: config.presets ?? {} };
 }
 
 /** 类型化 preset 声明 */
@@ -169,6 +172,19 @@ const FALLBACK_CONFIG: ResolvedConfig = {
 const SILENT_LOGGER: MachReportLogger = { warn: () => {}, info: () => {} };
 export { SILENT_LOGGER };
 
+/** 主题和文案按字段继承，避免局部覆盖要求业务重复整份配置。 */
+function mergeDefaults(
+  base: MachReportDefaults | undefined,
+  overlay: MachReportDefaults | undefined
+): MachReportDefaults {
+  return {
+    ...base,
+    ...overlay,
+    theme: { ...base?.theme, ...overlay?.theme },
+    messages: { ...base?.messages, ...overlay?.messages }
+  };
+}
+
 export function resolveConfig(
   config: MachReportConfig | null | undefined,
   presetName?: string
@@ -176,7 +192,7 @@ export function resolveConfig(
   const preset = presetName ? config?.presets?.[presetName] : config?.defaultPreset
     ? config?.presets?.[config.defaultPreset]
     : undefined;
-  const merged: MachReportDefaults = { ...config?.defaults, ...preset };
+  const merged = mergeDefaults(config?.defaults, preset);
   return {
     showExport: merged.showExport ?? FALLBACK_CONFIG.showExport,
     showPrint: merged.showPrint ?? FALLBACK_CONFIG.showPrint,
@@ -210,20 +226,28 @@ type ConfigRef = ComputedRef<MachReportConfig | null>;
 
 /**
  * 路由/布局级响应式叠加：就近提供配置层（如某路由关闭导出按钮）。
- * 与应用级 config 合并（本层 defaults/presets 优先）。
+ * 本层 defaults 优先于上层 defaults/preset，本层 preset 再覆盖本层 defaults。
+ * 同名 preset 与 messages/theme 均按字段继承；组件 props 仍拥有最高优先级。
  */
-export function provideMachReportConfig(overlay: MachReportConfig | MachReportDefaults): void {
+export function provideMachReportConfig(overlay: MachReportConfigInput | MachReportDefaults): void {
   const parent = inject<ConfigRef | null>(MACH_REPORT_CONFIG_KEY, null);
   const merged = computed<MachReportConfig | null>(() => {
     const parentConfig = parent?.value ?? null;
     const overlayConfig: MachReportConfig =
-      "defaults" in overlay && "presets" in overlay
-        ? overlay
+      "defaults" in overlay || "presets" in overlay || "defaultPreset" in overlay
+        ? defineMachReportConfig(overlay as MachReportConfigInput)
         : { defaults: overlay as MachReportDefaults, presets: {} };
     if (!parentConfig) return overlayConfig;
+    const presets = { ...parentConfig.presets, ...overlayConfig.presets };
+    for (const name of Object.keys(presets)) {
+      presets[name] = mergeDefaults(
+        mergeDefaults(parentConfig.presets[name], overlayConfig.defaults),
+        overlayConfig.presets[name]
+      );
+    }
     return {
-      defaults: { ...parentConfig.defaults, ...overlayConfig.defaults },
-      presets: { ...parentConfig.presets, ...overlayConfig.presets },
+      defaults: mergeDefaults(parentConfig.defaults, overlayConfig.defaults),
+      presets,
       defaultPreset: overlayConfig.defaultPreset ?? parentConfig.defaultPreset
     };
   });

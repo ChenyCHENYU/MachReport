@@ -39,6 +39,9 @@ try {
   const runtime = `
 const template = core.createTemplate().page("a4").text("Consumer", { leftMm: 10, topMm: 10, widthMm: 80, heightMm: 8 }).build();
 const { plan } = core.paginateTemplate(template, {});
+const source = core.createReportSource({ consumer: core.defineReport({ template, load: () => ({}) }) });
+const loaded = await source({ reportIds: ["consumer"], params: {} });
+if (loaded.pages.length !== plan.pages.length) throw new Error("Invalid report source output");
 const pdfResult = await pdf.renderPlanToPdf(plan);
 const xlsxResult = await xlsx.renderPlanToXlsx(plan);
 if (new TextDecoder().decode(pdfResult.bytes.slice(0, 5)) !== "%PDF-") throw new Error("Invalid PDF");
@@ -54,9 +57,21 @@ if (typeof sql.compileDynamicSql !== "function") throw new Error("Missing SQL AP
 import { renderPlanToXlsx } from "@agile-team/mach-report/xlsx";
 import { renderPlanToPdf } from "@agile-team/mach-report/pdf";
 import { compileDynamicSql } from "@agile-team/mach-report/sql";
-import { machReportPlugin } from "@agile-team/mach-report/vue";
+import { machReportPlugin, createTemplate as createVueTemplate, createReportSource, defineReport, defineMachReportConfig, useMachReport } from "@agile-team/mach-report/vue";
 import { preloadMachReport } from "@agile-team/mach-report/vue/async";
 async function consume() {
+  const builder: ReturnType<typeof createTemplate> = createVueTemplate();
+  const definition = defineReport({
+    template: builder.page("a4").build(),
+    load: async ({ params, signal }) => ({ items: [{ name: params.name, qty: signal?.aborted ? 0 : 3 }] }),
+    mapData: (data) => ({ detail: data.items })
+  });
+  const source = createReportSource({ sample: definition });
+  await source({ reportIds: ["sample"], params: {} });
+  const config = defineMachReportConfig({ defaults: { pdfFontUrl: "/report.otf" } });
+  const report = useMachReport();
+  const exportJob: Promise<void> = report.exportAs("xlsx");
+  void exportJob;
   const { plan } = paginateTemplate(createTemplate().page("a4").build(), {});
   const result = await renderPlanToXlsx(plan);
   result.workbook.addWorksheet("custom").getCell("A1").value = 42;
@@ -65,7 +80,7 @@ async function consume() {
   const bytes: ArrayBuffer = result.buffer;
   await renderPlanToPdf(plan);
   compileDynamicSql("select 1");
-  return { bytes, machReportPlugin, preloadMachReport };
+  return { bytes, machReportPlugin, preloadMachReport, config, report };
 }
 void consume;
 `;

@@ -55,7 +55,9 @@ describe("machReportPlugin（项目自带数据源）", () => {
       new Uint8Array([1, 2, 3])
     );
     app.mount(document.createElement("div"));
-    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledWith({ reportIds: ["T1"], params: {} }));
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledWith(expect.objectContaining({
+      reportIds: ["T1"], params: {}, signal: expect.any(AbortSignal), onWarning: expect.any(Function)
+    })));
     app.unmount();
   });
 

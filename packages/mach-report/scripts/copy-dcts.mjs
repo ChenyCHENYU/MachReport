@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, renameSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 /**
@@ -22,6 +22,10 @@ const entries = [
   "dist/vue/index.d.ts",
   "dist/vue/async.d.ts"
 ];
+const vueEntry = "dist/vue/index.d.ts";
+const vueDeclaration = readFileSync(vueEntry, "utf8");
+// 对应 vite.config.ts 聚合前的临时移除，公开类型仍重导出同一个核心包。
+writeFileSync(vueEntry, `export * from "@agile-team/mach-report";\n${vueDeclaration}`);
 let count = 0;
 for (const from of entries) {
   if (existsSync(from)) {

@@ -8,6 +8,8 @@ import {
   MACH_REPORT_PDF_EXPORTER_KEY
 } from "./injection-keys";
 import type { MachReportConfig } from "./config";
+import type { ReportRegistry } from "@agile-team/mach-report";
+import { getReportParamDefs } from "../source/report-params";
 
 /**
  * 全局组件（懒加载分片：首次渲染才拉取组件与引擎依赖，
@@ -18,6 +20,8 @@ export const MachReportPreview = defineAsyncComponent(() => import("./ReportPrev
 export interface MachReportPluginOptions {
   /** 报表数据源；也可直接传给 ReportPreview 的 fetcher prop */
   fetcher?: PlanFetcher;
+  /** 常规业务接入：注册模板与取数，包内完成分页与参数面板；显式 fetcher 优先。 */
+  reports?: ReportRegistry;
   /** 应用级配置中心（defaults/presets/文案/主题），见 defineMachReportConfig */
   config?: MachReportConfig;
   /** PDF 导出字体 URL（默认 /simhei.ttf；'' 跳过字体） */
@@ -40,7 +44,18 @@ export interface MachReportPluginOptions {
  */
 export const machReportPlugin = {
   install(app: App, options: MachReportPluginOptions = {}): void {
-    if (options.fetcher) app.provide(MACH_REPORT_FETCHER_KEY, options.fetcher);
+    let fetcher = options.fetcher;
+    if (!fetcher && options.reports) {
+      const reports = options.reports;
+      // 异步插件注册阶段只读参数元数据；首次查询才加载核心数据源。
+      let pending: Promise<PlanFetcher> | undefined;
+      fetcher = async (input) => {
+        pending ??= import("@agile-team/mach-report").then(({ createReportSource }) => createReportSource(reports));
+        return (await pending)(input);
+      };
+      fetcher.getParamDefs = (ids) => getReportParamDefs(reports, ids);
+    }
+    if (fetcher) app.provide(MACH_REPORT_FETCHER_KEY, fetcher);
 
     if (options.pdfExporter) app.provide(MACH_REPORT_PDF_EXPORTER_KEY, options.pdfExporter);
 
@@ -51,7 +66,7 @@ export const machReportPlugin = {
       return { ...config, defaults: { ...config.defaults, pdfFontUrl: options.pdfFontUrl } };
     }));
 
-    if (options.globalComponent !== false) {
+    if (options.globalComponent !== false && !app.component("MachReportPreview")) {
       app.component("MachReportPreview", MachReportPreview);
     }
   }

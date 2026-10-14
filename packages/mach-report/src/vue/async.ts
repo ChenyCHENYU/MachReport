@@ -1,4 +1,3 @@
-import { defineAsyncComponent } from "vue";
 import { machReportPlugin, type MachReportPluginOptions } from "./plugin";
 
 /**
@@ -9,14 +8,14 @@ import { machReportPlugin, type MachReportPluginOptions } from "./plugin";
  *
  * ```ts
  * import AsyncMachReportPlugin, { preloadMachReport } from "@agile-team/mach-report/vue/async";
- * app.use(AsyncMachReportPlugin, { baseUrl: "/sub/mach-report" });
+ * app.use(AsyncMachReportPlugin, { reports: { outbound: { template, load } } });
  * void preloadMachReport(); // 可选：路由 hover 时预取
  * // 模板：<MachReportPreview report-id="X" />
  * ```
  */
 
 /** 全局异步组件（懒加载 ReportPreview 及其引擎分片；与主插件同源共享） */
-export const MachReportPreview = defineAsyncComponent(() => import("./ReportPreview.vue"));
+export { MachReportPreview } from "./plugin";
 
 /** 预取组件分片（路由 hover / 空闲时调用，正式渲染零等待） */
 export function preloadMachReport(): Promise<unknown> {
@@ -27,7 +26,6 @@ export const machReportAsyncPlugin = {
   install(app: import("vue").App, options: MachReportPluginOptions = {}) {
     // 数据面/PDF 导出器/配置注入与主插件同一实现（均为轻量注册，不含组件代码）
     machReportPlugin.install(app, options);
-    app.component("MachReportPreview", MachReportPreview);
   }
 };
 

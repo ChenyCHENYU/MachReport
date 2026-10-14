@@ -25,6 +25,24 @@ MachReport 已具备可复用报表引擎的主要骨架：模板 DSL / JSON →
 
 核心不依赖 Vue、ExcelJS 或 PDF / SQL 实现。重依赖被内联进独立子入口；“零运行时依赖”不代表这些出口体积为零。公开 Workbook 类型包含 Node stream API，因此提供 `@types/node` 类型依赖。
 
+## 对照 MachTable：本轮接入收敛
+
+基于 MachTable 的适配入口、查询编排和 `useMachTable` 使用方式，MachReport 原先仍要求宿主完成模板到计划的连接，以及父页面的控制器接线。本轮将常规流程收进同一份框架无关数据源，并由 Vue 插件直接消费。
+
+| 使用侧原先承担 | 现在的包内职责 | 保留的业务职责 |
+| --- | --- | --- |
+| 手写 ID 判断、分页、页合并和校验 | 插件 `reports` / 核心 `createReportSource` | 报表 ID、模板和数据范围 |
+| 业务响应转数据集，并手写后续排版 | `defineReport` 推导取数类型并衔接映射、分页 | 取数函数与明确字段映射 |
+| 重复传模板参数定义 | 数据源提供参数元数据，组件自动显示面板 | 参数本身的业务含义 |
+| 导入核心与 Vue 两个入口 | `/vue` 重导出同一套核心 API 与类型 | 按需选择 PDF / XLSX / SQL 出口 |
+| 手写父组件 ref 类型与可选链 | `useMachReport` 提供稳定 ref / ready / 控制方法 | 页面操作与结果提示 |
+| 旧请求取消、过期告警、重复导出协调 | 统一 signal、代际隔离、导出去重及卸载清理 | 请求客户端消费 signal、事件处理 |
+| 局部文案与主题要求重复整份配置 | defaults / preset / 路由按字段继承 | 局部差异配置 |
+
+常规页面现在只需 `<MachReportPreview report-id="outbound" :params="{ orderId }" />`。插件注册模板及业务取数，包内完成其余编排；高级自定义 fetcher、本地适配器、原 ref 和后代控制器仍保留。没有新增后端依赖或报表服务。完整示例见[项目接入指南](./INTEGRATION.md)。
+
+此次同时修正完整响应体超时、已有查询参数合并、异步插件注册开关和同名组件覆盖，并补齐 `autoLoad=false` 手动加载后的过期结果清理。同步分页仍不可抢占；真实 HTTP 取消依赖业务请求客户端消费 signal。控制器可等待工作结束，输出失败保持走原来的 error 事件契约。
+
 ## 本次已修复
 
 | 问题 | 原来的影响 | 本次处理 |
@@ -59,8 +77,6 @@ MachReport 已具备可复用报表引擎的主要骨架：模板 DSL / JSON →
 | P1 | 单行高于整页时仅告警，内容可能截断 | 明确策略：拆行、缩放或拒绝；选择一种默认行为并返回稳定告警码 |
 | P1 | [DOM 文本](../packages/mach-report/src/render/dom.ts) 内外层重复应用旋转 / 透明度；Canvas/PDF 支持也不完整 | 明确外层几何与内层文字样式职责，建立跨后端样式契约和视觉用例 |
 | P1 | [计划校验](../packages/mach-report/src/schema/validate.ts) 尚未全面检查富文本 segment、跨度、行列尺寸等深层字段 | 例如 `segments: [null]` 应在渲染前拒绝；补嵌套深度和规模上限 |
-| P2 | [请求适配器](../packages/mach-report/src/vue/adapters.ts) 超时在响应头到达后结束，慢 JSON body 不受限制；已有 query 时拼接第二个 `?` | 覆盖完整响应读取周期，用 URL / URLSearchParams 合并查询参数 |
-| P2 | [导出 composable](../packages/mach-report/src/vue/composables/usePrintExport.ts) XLSX 无并发去重；各格式忙碌状态可能互相清除 | 统一任务状态、取消和重复点击策略；用同一对象管理结果与告警 |
 | P2 | [SQL 检查](../packages/mach-report/src/sql/compile.ts) 正则对字符串内分号等存在误判，原样替换仍需宿主约束 | 共用词法分析器；值一律绑定，动态标识符采用白名单，方言降级明确记录 |
 | P2 | 单元覆盖率统计集中在 layout / render / format，尚无全域阈值 | 把 schema、Vue 生命周期与导出纳入预算；先建立实际基线，再按改动逐步提高 |
 
@@ -79,7 +95,7 @@ MachReport 已具备可复用报表引擎的主要骨架：模板 DSL / JSON →
 
 ## 性能与依赖治理
 
-本次构建的 ESM 入口 gzip 约为：主入口 12.3 KB、XLSX 303 KB、PDF 547 KB、SQL 581 KB。以上是入口文件本身，不含共享分片、字体或整个应用，也不是性能承诺。按需导入是必要设计。
+本轮构建的 ESM 入口 gzip 约为：主入口 13.3 KB（初轮 12.3 KB）、XLSX 303 KB、PDF 547 KB、SQL 581 KB。新增数据源使用原分页器，未引入运行时代码依赖。以上是入口文件本身，不含共享分片、字体或整个应用，也不是性能承诺。按需导入是必要设计。
 
 下一轮优先建立完整依赖图 gzip 预算及真实大报表导出基准，再讨论 Worker 或换库。第三方实现虽声明在 `devDependencies`，仍会随子入口打包交付，依赖审计必须覆盖这些被内联的库，不能只执行生产依赖审计。
 
@@ -106,7 +122,9 @@ pnpm test:e2e --retries=0
 
 本次环境为 Node 24.19.0、pnpm 11.8.0、Chromium。发布包仍声明 Node ≥ 18，Vue peer 仍为 `^3.2.0`；最低 Node / Vue 版本以及 Firefox / WebKit 尚未形成消费端矩阵，应作为后续兼容性门禁补齐。
 
-| 检查 | 本次结果 |
+初轮修复验证基线：
+
+| 检查 | 初轮结果 |
 | --- | --- |
 | 锁文件安装 | `pnpm install --frozen-lockfile` 通过 |
 | TypeScript 与 ESLint | 通过，ESLint 零警告 |
@@ -117,6 +135,10 @@ pnpm test:e2e --retries=0
 | 文档与品牌资源 | 相对链接、npm 链接转换、源码版本和 SVG 结构检查通过；README 首屏与 Logo 已做本地渲染检查 |
 | 依赖安全审计 | 仍有 1 项构建工具链中危告警，详见上文 |
 
-当前配置统计的单元覆盖率为：行 67.96%、语句 67.85%、分支 59.32%、函数 75%。范围限于配置纳入的 layout / render / format；其中 layout 行覆盖率 95.66%、DOM 渲染 95.03%、Canvas 渲染 10.82%。浏览器测试覆盖了部分 Canvas 行为，但没有合并进这份单元覆盖率，不能据此宣称全项目覆盖率达标。
+初轮配置统计的单元覆盖率为：行 67.96%、语句 67.85%、分支 59.32%、函数 75%。范围限于配置纳入的 layout / render / format；其中 layout 行覆盖率 95.66%、DOM 渲染 95.03%、Canvas 渲染 10.82%。本轮新增 source 域统计。浏览器测试覆盖了部分 Canvas 行为，但没有合并进单元覆盖率，不能据此宣称全项目覆盖率达标。
 
-本次已准备 patch changeset，发布版本保持 `2.0.0`；提交源码与发布 npm 新版本是两个独立步骤。
+本轮接入收敛验证：**39 个测试文件、350 项单元测试通过、零重试**；`pnpm verify` 的类型、零警告 lint、全部构建、文档和真实 npm tarball 隔离消费通过，Chromium **15 项 E2E 通过、零重试**。隔离消费增加了从 `/vue` 单入口创建模板、核心类型身份、类型推导业务映射、注册数据源、简化配置及父页面句柄的 ESM / CJS 严格类型检查；核心数据源另有真实运行检查。独立复查另覆盖了多报表 ID 数组原地变更、重复告警和告警事件同步重载的边界。
+
+本轮覆盖率范围为 layout / render / format / source：行 70.56%、语句 70.55%、分支 61.85%、函数 78.67%；新 source 域行覆盖率 100%。这些数字只描述当前统计范围，Vue 的生命周期和导出接线通过独立单测及 E2E 验证。
+
+初轮已准备 patch changeset，本轮接入能力准备 minor changeset，源码包版本保持 `2.0.0`；提交源码与发布 npm 新版本是两个独立步骤。
