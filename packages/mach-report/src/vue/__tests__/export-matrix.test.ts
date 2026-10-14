@@ -36,6 +36,28 @@ describe("buildWordHtml（Word 兼容导出）", () => {
 });
 
 describe("exportAs 出口矩阵接线", () => {
+  it("Excel 导出接收配置快照，生成过程中配置变化不会改变本次输出", async () => {
+    const xlsx = await import("@agile-team/mach-report/xlsx");
+    const renderExcel = vi.spyOn(xlsx, "renderPlanToXlsx").mockResolvedValue({
+      workbook: {} as Awaited<ReturnType<typeof xlsx.renderPlanToXlsx>>["workbook"],
+      buffer: new ArrayBuffer(2), warnings: []
+    });
+    const options: { valueMode: "raw" | "text"; paperSize: "a3" | "a4" } = { valueMode: "raw", paperSize: "a3" };
+    const createUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:configured-excel");
+    const revokeUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const api = usePrintExport(shallowRef(plan), { getPdfExporter: () => async () => new Uint8Array(), getXlsxOptions: () => options, onError: vi.fn() });
+    try {
+      const pending = api.exportAs("xlsx");
+      options.valueMode = "text";
+      options.paperSize = "a4";
+      await pending;
+      expect(renderExcel).toHaveBeenCalledWith(plan, { valueMode: "raw", paperSize: "a3" });
+      expect(createUrl).toHaveBeenCalledOnce();
+    } finally {
+      api.dispose(); renderExcel.mockRestore(); createUrl.mockRestore(); revokeUrl.mockRestore();
+    }
+  });
+
   it("await 等待导出完成，重复 PDF 调用共享生成和下载", async () => {
     let finish!: (bytes: Uint8Array) => void;
     const exporter = vi.fn(() => new Promise<Uint8Array>((resolve) => { finish = resolve; }));

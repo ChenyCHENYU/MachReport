@@ -1,8 +1,9 @@
 import ExcelJSRuntime from "exceljs";
 import type * as ExcelJS from "exceljs";
 import type { RenderPlan } from "../schema/render-plan";
-import type { PlanComponent } from "../schema/render-plan";
+import type { ComponentStyle, GridCell, PlanComponent, PlanPage } from "../schema/render-plan";
 import { resolveGridLayout, type GridLayout } from "../render/grid-geometry";
+import { resolveFontSize } from "../render/style";
 
 /**
  * RenderPlan → xlsx 导出（B 端第二出口，对齐家族 @agile-team/mach-table-xlsx 路线）：
@@ -16,6 +17,10 @@ import { resolveGridLayout, type GridLayout } from "../render/grid-geometry";
 export interface XlsxRenderOptions {
   /** 工作表命名（默认 "Sheet1" 起序） */
   sheetName?: (pageIndex: number) => string;
+  /** 默认 text 保留显示文本；raw 使用列表自动保留的原始数值、布尔、文本与空值。 */
+  valueMode?: "text" | "raw";
+  /** 默认 auto 按计划识别 A3/A4/A5；自定义尺寸回退 A4 并返回告警。 */
+  paperSize?: "auto" | "a3" | "a4" | "a5";
 }
 
 export interface XlsxRenderResult {
@@ -34,18 +39,59 @@ function argbOf(hex: string | undefined): string | undefined {
   return /^[0-9a-fA-F]{6}$/.test(h) ? `FF${h.toUpperCase()}` : undefined;
 }
 
-function cellFont(cell: ExcelJS.Cell, comp: PlanComponent, bold = false, sizePt?: number, color?: string): void {
+function cellFont(cell: ExcelJS.Cell, style: ComponentStyle = {}): void {
   cell.font = {
-    bold: bold || comp.style?.bold === true,
-    size: sizePt ?? comp.style?.fontSize ?? 10.5,
-    color: argbOf(color ?? comp.style?.color) ? { argb: argbOf(color ?? comp.style?.color)! } : undefined
+    name: style.fontFamily,
+    bold: style.bold === true,
+    italic: style.italic === true,
+    underline: style.underline === true,
+    size: resolveFontSize(style).fontSizePt,
+    color: argbOf(style.color) ? { argb: argbOf(style.color)! } : undefined
   };
+}
+
+const EXCEL_PAPERS = {
+  a3: { width: 297, height: 420, code: 8 },
+  a4: { width: 210, height: 297, code: 9 },
+  a5: { width: 148, height: 210, code: 11 }
+} as const;
+
+function paperSize(page: PlanPage, option: XlsxRenderOptions["paperSize"], index: number, warnings: string[]): number {
+  if (option && option !== "auto") return EXCEL_PAPERS[option].code;
+  const width = Math.min(page.pageWidthMm, page.pageHeightMm);
+  const height = Math.max(page.pageWidthMm, page.pageHeightMm);
+  const match = Object.values(EXCEL_PAPERS).find((paper) => Math.abs(width - paper.width) <= 1 && Math.abs(height - paper.height) <= 1);
+  if (match) return match.code;
+  warnings.push(`page ${index + 1}: 自定义纸张 ${page.pageWidthMm}×${page.pageHeightMm}mm 无对应 Excel 纸型，打印设置回退 A4；可显式配置 paperSize`);
+  return EXCEL_PAPERS.a4.code;
+}
+
+function setCellValue(cell: ExcelJS.Cell, source: GridCell, mode: XlsxRenderOptions["valueMode"], warnings: string[]): void {
+  const text = typeof source.text === "string" ? source.text : "";
+  if (mode !== "raw" || !Object.prototype.hasOwnProperty.call(source, "value")) {
+    cell.value = text;
+    return;
+  }
+  const value = source.value;
+  if (value === null || typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))) {
+    cell.value = value;
+    if (typeof value === "number" && source.numberFormat) cell.numFmt = source.numberFormat;
+    return;
+  }
+  cell.value = text;
+  warnings.push(`原始单元格值无效，已保留显示文本：${cell.address}`);
 }
 
 export async function renderPlanToXlsx(
   plan: RenderPlan,
   options: XlsxRenderOptions = {}
 ): Promise<XlsxRenderResult> {
+  if (options.valueMode !== undefined && options.valueMode !== "text" && options.valueMode !== "raw") {
+    throw new Error("xlsx valueMode 必须是 text 或 raw");
+  }
+  if (options.paperSize !== undefined && options.paperSize !== "auto" && !Object.prototype.hasOwnProperty.call(EXCEL_PAPERS, options.paperSize)) {
+    throw new Error("xlsx paperSize 必须是 auto、a3、a4 或 a5");
+  }
   const workbook = new ExcelJSRuntime.Workbook();
   const warnings: string[] = [];
 
@@ -54,7 +100,7 @@ export async function renderPlanToXlsx(
       options.sheetName?.(pageIndex) ?? `Sheet${pageIndex + 1}`,
       {
         pageSetup: {
-          paperSize: 9, // A4
+          paperSize: paperSize(page, options.paperSize, pageIndex, warnings),
           orientation: page.pageWidthMm > page.pageHeightMm ? "landscape" : "portrait",
           fitToPage: true
         }
@@ -100,21 +146,27 @@ export async function renderPlanToXlsx(
           const rowHpt = (layout.rows[box.ri]?.size ?? 5) * MM_TO_PT;
           if (row.height == null || row.height < rowHpt) row.height = rowHpt;
           const cell = row.getCell(box.ci + 1);
-          cell.value = typeof box.cell.text === "string" ? box.cell.text : "";
+          setCellValue(cell, box.cell, options.valueMode, warnings);
           if (box.cell.children?.length) {
             warnings.push(`page ${pageIndex + 1} ${comp.nid ?? comp.kind} cell ${box.ri + 1}:${box.ci + 1}: 嵌套组件内容暂不支持 xlsx 导出，已跳过`);
           }
+          const style = { ...comp.style, ...box.cell.style };
           cell.alignment = {
-            horizontal: box.cell.style?.align ?? "left",
-            vertical: "middle"
+            horizontal: style.align ?? "left",
+            vertical: style.verticalAlign ?? "middle",
+            wrapText: true
           };
-          const bg = argbOf(box.cell.style?.backgroundColor);
+          const bg = argbOf(style.backgroundColor);
           if (bg) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: bg } };
+          const borderColor = argbOf(style.borderColor ?? style.lineColor);
+          const edge = { style: "thin" as const, ...(borderColor ? { color: { argb: borderColor } } : {}) };
           cell.border = {
-            top: { style: "thin" }, left: { style: "thin" },
-            bottom: { style: "thin" }, right: { style: "thin" }
+            ...(style.borderTop !== false ? { top: edge } : {}),
+            ...(style.borderLeft !== false ? { left: edge } : {}),
+            ...(style.borderBottom !== false ? { bottom: edge } : {}),
+            ...(style.borderRight !== false ? { right: edge } : {})
           };
-          cellFont(cell, comp, box.cell.style?.bold === true, box.cell.style?.fontSize, box.cell.style?.color);
+          cellFont(cell, style);
           // 与统一几何一致，越界跨度收敛到当前网格内，避免占用后续组件行。
           const colSpan = Math.max(1, Math.min(box.cell.colSpan ?? 1, layout.columns.length - box.ci));
           const rowSpan = Math.max(1, Math.min(box.cell.rowSpan ?? 1, layout.rows.length - box.ri));
@@ -142,7 +194,7 @@ export async function renderPlanToXlsx(
           const cell = row.getCell(1);
           cell.value = text;
           cell.alignment = { horizontal: comp.style?.align === "center" ? "center" : comp.style?.align === "right" ? "right" : "left", vertical: "middle" };
-          cellFont(cell, comp);
+          cellFont(cell, comp.style);
           if (sheetColumnCount > 1) sheet.mergeCells(cursorRow, 1, cursorRow, sheetColumnCount);
           row.height = comp.heightMm * MM_TO_PT;
           cursorRow += 1;

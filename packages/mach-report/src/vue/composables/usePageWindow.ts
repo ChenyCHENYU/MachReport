@@ -1,86 +1,72 @@
-import { computed, ref, unref, type Ref } from "vue";
+import { computed, onScopeDispose, ref, unref, type Ref } from "vue";
 import type { PlanPage, RenderPlan } from "@agile-team/mach-report";
-import { computePageWindow } from "@agile-team/mach-report";
+import { createPageWindowIndex } from "../../render/page-window-index";
 
-/**
- * 页级视口虚拟化（DOM 后端）。
- *
- * 坐标口径（与 transform: scale 缩放配合）：
- * - 页高/间距/占位均在"自然坐标系"（未缩放 px）维护
- * - 视口滚动量与视口高换算回自然系（除以 zoom）后再进 computePageWindow
- */
+/** 页级虚拟化；页几何按计划引用缓存，滚动仅更新坐标，不遍历整个计划。 */
 export function usePageWindow(
   plan: Ref<RenderPlan | null>,
   zoom: Ref<number>,
-  options: { pxPerMm?: number; gapPx?: number | Ref<number> } = {}
+  options: { pxPerMm?: number; gapPx?: number | Ref<number>; overscan?: number | Ref<number> } = {}
 ) {
   const pxPerMm = options.pxPerMm ?? 96 / 25.4;
   const gapPx = computed(() => Math.max(0, unref(options.gapPx) ?? 18));
   const scrollTop = ref(0);
   const viewportHeight = ref(800);
-
-  const pageHeightsPx = computed(() =>
-    (plan.value?.pages ?? []).map((p) => p.pageHeightMm * pxPerMm)
-  );
-  /** 自然坐标系内容尺寸：每页高度 + 页间距（transform 外层占位依据） */
-  const contentSize = computed(() => {
+  const geometry = computed(() => {
     const pages = plan.value?.pages ?? [];
-    let h = 0;
-    let w = 0;
-    for (const p of pages) {
-      h += p.pageHeightMm * pxPerMm + gapPx.value;
-      w = Math.max(w, p.pageWidthMm * pxPerMm);
-    }
-    return { w, h };
+    return createPageWindowIndex(pages.map((page) => page.pageHeightMm * pxPerMm), gapPx.value);
   });
-  const windowRange = computed(() =>
-    computePageWindow({
-      pageHeightsPx: pageHeightsPx.value,
-      viewportHeightPx: viewportHeight.value / zoom.value,
-      scrollTopPx: scrollTop.value / zoom.value,
-      overscan: 1,
-      gapPx: gapPx.value
-    })
-  );
+  const contentSize = computed(() => {
+    let width = 0;
+    for (const page of plan.value?.pages ?? []) width = Math.max(width, page.pageWidthMm * pxPerMm);
+    return { w: width, h: geometry.value.totalHeightPx };
+  });
+  const windowRange = computed(() => geometry.value.window(
+    viewportHeight.value / zoom.value,
+    scrollTop.value / zoom.value,
+    unref(options.overscan) ?? 1
+  ));
   const visiblePages = computed(() => {
     const p = plan.value;
     if (!p) return [] as { page: PlanPage; index: number }[];
     const { start, end } = windowRange.value;
-    if (end < start) return [];
     return p.pages.slice(start, end + 1).map((page, i) => ({ page, index: start + i }));
   });
+  let scrollRaf = 0;
+  let disposed = false;
 
-  /** 滚动处理器：rAF 节流 + 自然系换算 + 当前页码同步 */
+  function refreshViewport(vp: HTMLElement | null): void {
+    if (!vp) return;
+    scrollTop.value = vp.scrollTop;
+    viewportHeight.value = vp.clientHeight || 800;
+  }
+
+  /** rAF 节流并及时取消；当前页由缓存几何计算，避免读所有页 DOM 的布局。 */
   function makeScrollHandler(currentPage: Ref<number>, pageCount: Ref<number>) {
-    let scrollRaf = 0;
     return (vp: HTMLElement) => {
-      if (scrollRaf) return;
+      if (scrollRaf || disposed) return;
       scrollRaf = requestAnimationFrame(() => {
         scrollRaf = 0;
-        scrollTop.value = vp.scrollTop;
-        viewportHeight.value = vp.clientHeight || 800;
-        // 按可视几何同步页码（getBoundingClientRect 为视觉坐标系，天然含缩放）
+        if (disposed) return;
+        refreshViewport(vp);
         if (pageCount.value <= 0) return;
-        const pageEls = vp.querySelectorAll<HTMLElement>(".mrp-page-holder");
-        if (!pageEls.length) return;
-        const threshold = vp.getBoundingClientRect().top + 56;
-        let next = 1;
-        pageEls.forEach((el) => {
-          if (el.getBoundingClientRect().top <= threshold) next = Number(el.dataset.page ?? 1);
-        });
-        currentPage.value = Math.max(1, Math.min(pageCount.value, next));
+        // body padding 为 24px；页码切换阈值保留距视口顶约 56px 的原有体验。
+        const position = Math.max(0, vp.scrollTop + 32) / zoom.value;
+        currentPage.value = Math.min(pageCount.value, geometry.value.pageAt(position) + 1);
       });
     };
   }
 
-  // 对外仅暴露消费面（scrollTop/pageHeightsPx 为内部状态，避免公共 API 面无谓膨胀）
+  function destroy(): void {
+    disposed = true;
+    if (scrollRaf) cancelAnimationFrame(scrollRaf);
+    scrollRaf = 0;
+  }
+  onScopeDispose(destroy);
+
   return {
-    contentSize,
-    windowRange,
-    visiblePages,
-    makeScrollHandler,
-    refreshViewport(vp: HTMLElement | null): void {
-      if (vp) viewportHeight.value = vp.clientHeight || 800;
-    }
+    contentSize, windowRange, visiblePages, makeScrollHandler, refreshViewport,
+    pageOffsetPx: (index: number) => geometry.value.offsetAt(index),
+    destroy
   };
 }

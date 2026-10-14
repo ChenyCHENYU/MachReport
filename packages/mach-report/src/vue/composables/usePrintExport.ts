@@ -5,6 +5,7 @@ import {
   renderPlanToImages
 } from "@agile-team/mach-report";
 import type { PdfExporter } from "../pdf-exporter";
+import type { XlsxRenderOptions } from "../../xlsx/render-xlsx";
 
 /**
  * 打印 / 导出 / PDF 窗口。
@@ -126,6 +127,8 @@ export function buildWordHtml(p: RenderPlan): { html: string; filename: string }
 export function usePrintExport(
   plan: Ref<RenderPlan | null>,
   hooks: {
+    /** 按导出开始时的配置快照处理，避免输出过程中跟随路由配置变化。 */
+    getXlsxOptions?: () => XlsxRenderOptions;
     getPdfExporter: () => PdfExporter;
     onError: (message: string, code?: string) => void;
     onWarning?: (message: string) => void;
@@ -291,14 +294,15 @@ export function usePrintExport(
     if (disposed || !p || p.pages.length === 0) return;
     const epoch = planEpoch;
     if (xlsxInFlight?.plan === p && xlsxInFlight.epoch === epoch) return xlsxInFlight.promise;
+    const xlsxOptions = { ...hooks.getXlsxOptions?.() };
     const token = beginBusy(p, epoch, "Excel");
     const promise = (async () => {
       try {
         const { renderPlanToXlsx } = await import("@agile-team/mach-report/xlsx");
         if (!isActive(p, epoch)) return;
-        const { buffer, warnings } = await renderPlanToXlsx(p);
+        const { buffer, warnings } = await renderPlanToXlsx(p, xlsxOptions);
         if (!isActive(p, epoch)) return;
-        if (warnings.length > 0) hooks.onWarning?.(`Excel 有 ${warnings.length} 处内容未导出：${warnings.slice(0, 2).join("；")}`);
+        if (warnings.length > 0) hooks.onWarning?.(`Excel 导出有 ${warnings.length} 条提示：${warnings.slice(0, 2).join("；")}`);
         if (!isActive(p, epoch)) return;
         downloadBlob(new Blob([buffer as unknown as globalThis.BlobPart], {
           type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

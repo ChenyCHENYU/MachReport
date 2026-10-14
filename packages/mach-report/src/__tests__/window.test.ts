@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { computePageWindow } from "../render/window";
+import { createPageWindowIndex } from "../render/page-window-index";
 
 const H = [1000, 1000, 1000, 1000, 1000];
 
@@ -19,7 +20,7 @@ describe("computePageWindow", () => {
   });
 
   it("滚动到中部只渲染中间窗口", () => {
-    const w = computePageWindow({ pageHeightsPx: H, viewportHeightPx: 800, scrollTopPx: 2500, overscan: 1 });
+    const w = computePageWindow({ pageHeightsPx: H, viewportHeightPx: 400, scrollTopPx: 2500, overscan: 1 });
     expect(w.start).toBeGreaterThanOrEqual(1);
     expect(w.end).toBeLessThanOrEqual(4);
     expect(w.padTopPx).toBeGreaterThan(0);
@@ -73,5 +74,19 @@ describe("computePageWindow", () => {
     });
     expect(w.end).toBe(4);
     expect(w.padBottomPx).toBe(0);
+  });
+
+  it("页内滚动时覆盖真实视口终点，overscan=0 也不遗漏下一页", () => {
+    const w = computePageWindow({ pageHeightsPx: [1000, 1000], viewportHeightPx: 800, scrollTopPx: 900, overscan: 0 });
+    expect(w).toEqual({ start: 0, end: 1, padTopPx: 0, padBottomPx: 0 });
+  });
+
+  it("缓存索引支持混合页高、跳页、零视口与异常输入的有界窗口", () => {
+    const index = createPageWindowIndex([300, 1000, 400], 20);
+    expect(index.offsetAt(2)).toBe(1340);
+    expect(index.totalHeightPx).toBe(1760);
+    expect(index.window(600, 1100, 0)).toMatchObject({ start: 1, end: 2 });
+    expect(index.window(0, 320, 0)).toMatchObject({ start: 1, end: 1 });
+    expect(index.window(Number.NaN, Number.NaN, -1)).toMatchObject({ start: 0, end: 0 });
   });
 });

@@ -80,8 +80,21 @@ const detailTemplate = createTableTemplate({
 | `titleHeightMm` / `titleGapMm` | 标题默认占高 10 mm，距表格 4 mm；无标题不占空间 |
 | `dataset` / `params` | 默认 `detail` 数据集 / 模板查询参数 |
 | `listOptions` | 继承列表行高、字号、重复表头、分组、小计与总计；位置和列宽由工厂生成 |
+| 列 / `listOptions.align` | `auto/left/center/right/justify`；标准明细默认 auto，真实数字居右，日期/布尔居中，文本居左 |
+| 列 / `listOptions.headerAlign` | 表头独立对齐；标准明细默认 center，不随内容自动对齐 |
+| 列 / `listOptions.headerStyle` | 表头独立样式，列级覆盖整表；表头字号参与真实折行与行高测量 |
 
 输入不被修改；非法尺寸、无可用空间或固定列溢出同步抛错。标题只在第一页显示，续页沿用表格起点与重复表头策略。自由布局继续用 `createTemplate()`。
+
+内容样式优先级为条件规则 → 列 `align` → 列 `style.align` → 列表 `align` → 旧默认；表头依次取列 `headerStyle`、列 `headerAlign`、列表 `headerStyle`、列表 `headerAlign`，再回退旧样式。低层 `.list()` 未声明新字段时保持兼容。数值字符串不会仅因外观而自动右对齐；显式 number/percent 格式可声明其数值呈现意图。
+
+### 模板管理 API
+
+`defineReportTemplate({ id, name, revision?, description?, template })` 创建版本化纯 JSON 文档；`parseReportTemplate(unknown)` 接收文件文本或接口 JSON 对象，`serializeReportTemplate(document)` 导出可持久化文本。`validateReportTemplate` / `validateReportTemplateDocument` 返回 `{ ok, errors, warnings }`；创建和解析失败抛 `ReportTemplateError`，`errors` 带字段路径。
+
+`createTemplateRegistry(documents?)` 提供 `get/list/register/remove`，读取返回独立快照。重复 ID 默认拒绝，更新使用 `register(document, { replace: true })`。文档协议版本为 `REPORT_TEMPLATE_DOCUMENT_VERSION`，`revision` 是宿主控制的修订标识；目录不承担权限、持久化或乐观锁。
+
+报表的 `template` 可为 `ReportTemplate` 或异步加载函数，接收 `{ reportId, params, signal }`。动态模板先校验再取业务数据，每次重新读取，无隐式缓存；自动参数面板需在定义的 `params` 中声明。静态模板保留旧行为。完整接口与后台生命周期见[模板管理扩展](./TEMPLATE_MANAGEMENT.md)。
 
 ## 后端只提供业务数据
 
@@ -203,6 +216,8 @@ const config = defineMachReportConfig({
     gapPx: 18,
     pdfFontUrl: "/fonts/NotoSansSC-Regular.ttf",
     showParams: true,
+    preview: { overscanPages: 1, searchDebounceMs: 200 },
+    xlsx: { valueMode: "raw", paperSize: "auto" },
     messages: { title: "订单报表" }
   },
   presets: {
@@ -215,6 +230,8 @@ app.use(machReportPlugin, { fetcher, config });
 
 优先级：组件属性 > 路由级 `provideMachReportConfig(overlay)` > preset > 应用 defaults > 内置缺省。中文 PDF 使用前请部署支持所需字符的字体，并设置 `pdfFontUrl`。缺字或 PDF 页面渲染错误会阻止下载残缺文件。
 
+`preview`、`xlsx`、`theme`、`messages` 均按字段继承。预览默认正文/缩略图窗口化、搜索分片与取消；`overscanPages` 范围0–10（默认1），`searchDebounceMs` 范围0–2000ms（默认200）。非有限数值回退默认，越界值收敛。窗口化不减少完整计划本身的内存或首次排版量。
+
 ## 框架无关的渲染与导出
 
 | 入口 | 用途 |
@@ -224,7 +241,7 @@ app.use(machReportPlugin, { fetcher, config });
 | `@agile-team/mach-report/xlsx` | `renderPlanToXlsx` |
 | `@agile-team/mach-report/sql` | 动态 SQL 编译与单 SELECT 校验工具 |
 
-PDF 和 XLSX 子路径的发布包声明 Node.js ≥ 18；只导入需要的入口。XLSX 每页输出一张 Sheet，表格值为格式化后的文本，不保留原始数值 / 日期类型或公式，也不做像素级版式复制；无法导出的内容返回告警。完整例子见 [Excel 导出指南](./EXCEL.md)。Word 出口生成兼容 HTML `.doc`，不是 `.docx`。
+PDF 和 XLSX 子路径的发布包声明 Node.js ≥ 18；只导入需要的入口。XLSX 每页一张 Sheet；默认 text 模式保留显示文本，`valueMode: "raw"` 使用列表自动保存的原始数值/布尔/文本/空值及数字格式。无元数据的旧计划回退显示文本，日期对象和公式不自动转换。`paperSize` 默认 auto 识别 A3/A4/A5，也可显式指定。它不做坐标复刻，无法导出的内容返回告警。完整例子见 [Excel 导出指南](./EXCEL.md)。Word 出口生成兼容 HTML `.doc`，不是 `.docx`。
 
 Canvas / PNG 当前不绘制图片型组件（图片、条码、二维码、图表）；预览与各导出后端的支持范围应按实际组件验证。SQL 入口只编译 / 校验字符串，不连接数据库；业务后端仍需使用参数绑定、只读账户和查询权限控制。
 

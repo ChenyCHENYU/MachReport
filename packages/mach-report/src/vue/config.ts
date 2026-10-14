@@ -1,5 +1,6 @@
 import { computed, inject, provide, type ComputedRef, type CSSProperties } from "vue";
 import { MACH_REPORT_CONFIG_KEY } from "./injection-keys";
+import type { XlsxRenderOptions } from "../xlsx/render-xlsx";
 
 /**
  * 配置中心（对齐 mach-table 的 defineMachTableConfig 体验）：
@@ -47,6 +48,8 @@ export interface MachReportMessages {
   reset: string;
   /** 必填缺失提示（{label} 占位） */
   paramRequired: string;
+  /** 可选搜索进度文案，旧完整 messages 对象无需新增字段。 */
+  searching?: string;
 }
 
 export const DEFAULT_MESSAGES: MachReportMessages = {
@@ -76,7 +79,8 @@ export const DEFAULT_MESSAGES: MachReportMessages = {
   paramsTitle: "查询条件",
   query: "查 询",
   reset: "重 置",
-  paramRequired: "请填写{label}"
+  paramRequired: "请填写{label}",
+  searching: "搜索中…"
 };
 
 /** 主题变量（组件外壳注入的 --mrp-* CSS 自定义属性） */
@@ -109,6 +113,14 @@ export const DEFAULT_THEME: MachReportTheme = {
 /** 日志通道（默认 console；可注入 noop 静默或上报 collector） */
 export type MachReportLogger = Pick<Console, "warn" | "info">;
 
+/** 预览按需调优；默认已经启用正文/缩略图虚拟化及可取消的分片搜索。 */
+export interface MachReportPreviewOptions {
+  /** 视口前后额外保留的正文页数，默认 1，归一化到 0~10 的整数。 */
+  overscanPages?: number;
+  /** 搜索输入防抖毫秒，默认 200，归一化到 0~2000。 */
+  searchDebounceMs?: number;
+}
+
 /** defaults 层可配置项（全部可选，均有内置缺省） */
 export interface MachReportDefaults {
   showExport?: boolean;
@@ -124,6 +136,9 @@ export interface MachReportDefaults {
   messages?: Partial<MachReportMessages>;
   /** 校验告警等内部日志通道（默认 console；静默传 { warn: () => {}, info: () => {} }） */
   logger?: MachReportLogger;
+  preview?: MachReportPreviewOptions;
+  /** Excel 出口配置，按字段继承；不配置使用导出器默认值。 */
+  xlsx?: XlsxRenderOptions;
 }
 
 export type MachReportPreset = MachReportDefaults;
@@ -158,6 +173,8 @@ export type ResolvedConfig = Required<
   theme: MachReportTheme;
   messages: MachReportMessages;
   logger: MachReportLogger;
+  preview: Required<MachReportPreviewOptions>;
+  xlsx: XlsxRenderOptions;
 };
 
 const FALLBACK_CONFIG: ResolvedConfig = {
@@ -169,7 +186,9 @@ const FALLBACK_CONFIG: ResolvedConfig = {
   pdfFontUrl: "/simhei.ttf",
   theme: DEFAULT_THEME,
   messages: DEFAULT_MESSAGES,
-  logger: console
+  logger: console,
+  preview: { overscanPages: 1, searchDebounceMs: 200 },
+  xlsx: {}
 };
 
 const SILENT_LOGGER: MachReportLogger = { warn: () => {}, info: () => {} };
@@ -184,7 +203,9 @@ function mergeDefaults(
     ...base,
     ...overlay,
     theme: { ...base?.theme, ...overlay?.theme },
-    messages: { ...base?.messages, ...overlay?.messages }
+    messages: { ...base?.messages, ...overlay?.messages },
+    preview: { ...base?.preview, ...overlay?.preview },
+    xlsx: { ...base?.xlsx, ...overlay?.xlsx }
   };
 }
 
@@ -205,8 +226,19 @@ export function resolveConfig(
     pdfFontUrl: merged.pdfFontUrl ?? FALLBACK_CONFIG.pdfFontUrl,
     theme: { ...DEFAULT_THEME, ...merged.theme },
     messages: { ...DEFAULT_MESSAGES, ...merged.messages },
-    logger: merged.logger ?? FALLBACK_CONFIG.logger
+    logger: merged.logger ?? FALLBACK_CONFIG.logger,
+    preview: {
+      overscanPages: boundedNumber(merged.preview?.overscanPages, 1, 10, true),
+      searchDebounceMs: boundedNumber(merged.preview?.searchDebounceMs, 200, 2000)
+    },
+    xlsx: { ...merged.xlsx }
   };
+}
+
+function boundedNumber(value: number | undefined, fallback: number, max: number, integer = false): number {
+  if (value == null || !Number.isFinite(value)) return fallback;
+  const bounded = Math.max(0, Math.min(max, value));
+  return integer ? Math.floor(bounded) : bounded;
 }
 
 /** theme 对象 → CSS 自定义属性 style 对象（注入组件外壳） */

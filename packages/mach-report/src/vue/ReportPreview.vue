@@ -290,7 +290,8 @@ const { zoom, zoomMode, applyFitZoom, setZoom } = useZoom(() => ({
 
 const pageWindow = usePageWindow(plan, zoom, {
   pxPerMm: PX_PER_MM,
-  gapPx: effectiveGapPx
+  gapPx: effectiveGapPx,
+  overscan: computed(() => resolved.value.preview.overscanPages)
 });
 const { contentSize, windowRange, visiblePages, makeScrollHandler, refreshViewport } = pageWindow;
 const onViewportScroll = makeScrollHandler(currentPage, pageCount);
@@ -401,15 +402,14 @@ function gotoPage(n: number): void {
   currentPage.value = target;
   const vp = viewportRef.value;
   if (!vp) return;
-  let offset = 0;
-  for (let i = 0; i < target - 1; i++) {
-    offset += (plan.value?.pages[i]?.pageHeightMm ?? 0) * PX_PER_MM + PAGE_GAP_PX.value;
-  }
-  vp.scrollTop = offset * zoom.value;
+  vp.scrollTop = pageWindow.pageOffsetPx(target - 1) * zoom.value;
+  // 程序化翻页即刻更新窗口；无需等待浏览器异步 scroll 事件才挂载目标页。
+  refreshViewport(vp);
 }
 
 const exportApi = usePrintExport(plan, {
   getPdfExporter,
+  getXlsxOptions: () => resolved.value.xlsx,
   onError: (message, code) => {
     exportNotice.value = { kind: "error", message };
     reportError(message, (code ?? "print") as MachReportErrorCode);
@@ -462,6 +462,7 @@ provide(MACH_REPORT_CONTROLLER_KEY, controller);
 const search = useReportSearch({
   plan,
   gotoPage,
+  debounceMs: computed(() => resolved.value.preview.searchDebounceMs),
   highlight: highlightTextNodes,
   clearHighlights
 });
@@ -524,6 +525,8 @@ watch([zoomMode, zoom], persistZoom);
 watchEffect(() => {
   const current = plan.value;
   if (!current) return;
+  // 跟踪窗口本身；DOM 查询不会收集依赖，滚动新增 holder 也必须实际渲染。
+  void visiblePages.value;
   const scaleEl = containerRef.value;
   if (!scaleEl) return;
   const holders = scaleEl.querySelectorAll<HTMLElement>(".mrp-page-holder");
@@ -583,6 +586,7 @@ const { debugStats } = useDebugPanel(debugRef, {
 
 function onResize(): void {
   refreshViewport(viewportRef.value);
+  thumbs.schedule();
   if (zoomMode.value === "fit") applyFitZoom();
 }
 
@@ -659,7 +663,7 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, chec
       :show-print="effectiveShowPrint"
       :show-pdf-window="effectiveShowPdfWindow"
       :messages="resolvedMessages"
-      :search="{ visible: search.visible.value, query: search.query.value, matchIndex: search.matchIndex.value, matchCount: search.matchCount.value }"
+      :search="{ visible: search.visible.value, query: search.query.value, matchIndex: search.matchIndex.value, matchCount: search.matchCount.value, searching: search.searching.value }"
       :thumbs-visible="showThumbs"
       @goto="gotoPage"
       @zoom="setZoom"
@@ -724,21 +728,24 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, chec
           </div>
         </div>
       </div>
-      <aside v-if="showThumbs && pageCount > 0" ref="thumbsRef" class="mrp-thumbs">
+      <aside v-if="showThumbs && pageCount > 0" ref="thumbsRef" class="mrp-thumbs" @scroll.passive="thumbs.onScroll">
+        <div v-if="thumbs.windowRange.value.padTopPx > 0" class="mrp-thumb-spacer" :style="{ height: `${thumbs.windowRange.value.padTopPx}px` }" aria-hidden="true" />
         <div
-          v-for="(page, i) in plan?.pages ?? []"
-          :key="i"
+          v-for="item in thumbs.visibleThumbs.value"
+          :key="item.index"
           class="mrp-thumb"
-          :class="{ 'mrp-thumb-active': i + 1 === currentPage }"
-          @click="gotoPage(i + 1)"
+          :style="{ height: `${item.height + 20}px` }"
+          :class="{ 'mrp-thumb-active': item.index + 1 === currentPage }"
+          @click="gotoPage(item.index + 1)"
         >
           <div
             class="mrp-thumb-box"
-            :data-thumb="i + 1"
-            :style="{ height: `${Math.round((page.pageHeightMm / page.pageWidthMm) * 116)}px` }"
+            :data-thumb="item.index + 1"
+            :style="{ height: `${item.height}px` }"
           />
-          <span class="mrp-thumb-no">{{ i + 1 }}</span>
+          <span class="mrp-thumb-no">{{ item.index + 1 }}</span>
         </div>
+        <div v-if="thumbs.windowRange.value.padBottomPx > 0" class="mrp-thumb-spacer" :style="{ height: `${thumbs.windowRange.value.padBottomPx}px` }" aria-hidden="true" />
       </aside>
     </div>
     <!-- 默认插槽（overlay 层）：自定义操作按钮/状态徽标 -->
@@ -833,10 +840,11 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, chec
   padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
-.mrp-thumb { cursor: pointer; text-align: center; }
+.mrp-thumb { cursor: pointer; text-align: center; flex: none; margin-bottom: 8px; }
+.mrp-thumb-spacer { flex: none; }
 .mrp-thumb-box {
+  box-sizing: border-box;
   width: 116px;
   background: #fff;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
@@ -844,7 +852,7 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, chec
   border: 2px solid transparent;
 }
 .mrp-thumb-active .mrp-thumb-box { border-color: var(--mrp-btn-active-bg); }
-.mrp-thumb-no { font-size: 11px; color: var(--mrp-toolbar-fg); }
+.mrp-thumb-no { display: block; margin-top: 4px; line-height: 16px; font-size: 11px; color: var(--mrp-toolbar-fg); }
 /* 调试面板 */
 .mrp-debug {
   position: absolute;

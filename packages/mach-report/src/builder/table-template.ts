@@ -36,6 +36,12 @@ function checkNumber(value: number, name: string, allowZero = false): void {
   }
 }
 
+function checkAlignment(value: unknown, name: string, allowAuto: boolean): void {
+  if (value !== undefined && !["left", "center", "right", "justify", ...(allowAuto ? ["auto"] : [])].includes(value as string)) {
+    throw new Error(`${name} 必须是 left/center/right/justify${allowAuto ? "/auto" : ""}`);
+  }
+}
+
 /**
  * 创建一页标准明细模板；分页与格式化继续由 paginateTemplate 处理。
  * 固定列保持毫米宽度，自动列共享余量；全部固定列时表格宽度为列宽之和。
@@ -99,6 +105,8 @@ export function createTableTemplate(options: TableTemplateOptions): ReportTempla
     throw new Error("listOptions 必须是列表配置对象");
   }
   const listOptions = options.listOptions ?? {};
+  checkAlignment(listOptions.align, "listOptions.align", true);
+  checkAlignment(listOptions.headerAlign, "listOptions.headerAlign", false);
   for (const name of ["fontSizePt", "rowHeightMm", "paddingMm"] as const) {
     const value = listOptions[name];
     if (value !== undefined) checkNumber(value, `listOptions.${name}`, name === "paddingMm");
@@ -110,6 +118,8 @@ export function createTableTemplate(options: TableTemplateOptions): ReportTempla
     if (!column || typeof column.header !== "string" || typeof column.field !== "string" || !column.field.trim()) {
       throw new Error(`columns[${index}] 需要字符串 header 与非空 field`);
     }
+    checkAlignment(column.align, `columns[${index}].align`, true);
+    checkAlignment(column.headerAlign, `columns[${index}].headerAlign`, false);
     if (column.flex !== undefined) checkNumber(column.flex, `columns[${index}].flex`);
     if (column.widthMm !== undefined) {
       checkNumber(column.widthMm, `columns[${index}].widthMm`);
@@ -148,6 +158,8 @@ export function createTableTemplate(options: TableTemplateOptions): ReportTempla
     });
   }
   page.components.push({
+    align: "auto",
+    headerAlign: "center",
     ...listOptions,
     kind: "list",
     dataset,

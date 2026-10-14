@@ -1,5 +1,6 @@
 import type {
   ComponentStyle,
+  GridCell,
   PlanComponent,
   PlanGrid,
   PlanPage,
@@ -7,14 +8,24 @@ import type {
 } from "../schema/render-plan";
 import { RENDER_PLAN_SCHEMA_VERSION } from "../schema/render-plan";
 import { DEFAULT_FONT_PT, LINE_HEIGHT } from "../defaults";
-import { heuristicMeasurer, wrapText, type TextMeasurer } from "./textwrap";
-import { evalStyleRule, formatValue, type ColumnFormat, type StyleRule } from "../format";
+import { heuristicMeasurer, wrapText, type TextMeasureOptions, type TextMeasurer } from "./textwrap";
+import { evalStyleRule, formatValue, toExcelNumberFormat, type ColumnFormat, type StyleRule } from "../format";
+import { resolveFontSize } from "../render/style";
+
+/** auto：真实数字/显式数值格式居右，日期与布尔居中，其他内容居左。 */
+export type ListAlignment = NonNullable<ComponentStyle["align"]> | "auto";
 
 export interface ListColumn {
   header: string;
   field: string;
   widthMm: number;
   style?: ComponentStyle;
+  /** 内容对齐，优先于 style.align；数值字符串不会自动判为数字。 */
+  align?: ListAlignment;
+  /** 独立的表头对齐，不改变内容对齐。 */
+  headerAlign?: ComponentStyle["align"];
+  /** 独立的表头样式，优先于列表级表头样式。 */
+  headerStyle?: ComponentStyle;
   /** 值格式化（声明式）：千分位/小数位、百分比、日期 pattern */
   format?: ColumnFormat;
   /** 条件格式规则（声明式，命中合并进单元格样式；如负数红字） */
@@ -59,6 +70,11 @@ export interface ListComponent {
   paddingMm?: number;
   headerEveryPage?: boolean;
   headerBackgroundColor?: string;
+  /** 内容默认对齐，列配置可覆盖；低层模板缺省仍为 left。 */
+  align?: ListAlignment;
+  /** 表头默认对齐，列配置可覆盖。 */
+  headerAlign?: ComponentStyle["align"];
+  headerStyle?: ComponentStyle;
   border?: boolean;
   /** 分组小计（组头/组尾小计/组头防孤行） */
   groupBy?: ListGroupBy;
@@ -139,13 +155,6 @@ function toContentBottom(page: TemplatePage, wp: WorkingPage): number {
   return wp.heightMm - (page.marginBottomMm ?? wp.marginBottomMm);
 }
 
-function estRowHeightMm(list: ListComponent, lines: number): number {
-  const fontSizePt = list.fontSizePt ?? DEFAULT_FONT_PT;
-  const lineMm = (fontSizePt * LINE_HEIGHT * 25.4) / 72;
-  const padding = (list.paddingMm ?? 1) * 2;
-  return Math.max(list.rowHeightMm ?? 0, lines * lineMm + padding);
-}
-
 function cellText(value: unknown): string {
   if (value == null) return "";
   if (typeof value === "string") return value;
@@ -164,7 +173,13 @@ interface ListInterning {
   fontSizePt: number;
   paddingMm: number;
   /** 每列常驻单元格样式引用（同列所有行共享同一对象） */
-  cellStyles: (ComponentStyle | undefined)[];
+  cellStyles: ComponentStyle[];
+  /** auto 列按类型复用三种样式，同类型行不创建新对象。 */
+  autoStyles: Array<Record<"left" | "center" | "right", ComponentStyle> | undefined>;
+  /** 条件规则与对齐变体预合成，同一列/规则/类型复用最终样式。 */
+  ruleStyles: Array<Array<Record<"left" | "center" | "right", ComponentStyle>> | undefined>;
+  textMetrics: WeakMap<ComponentStyle, CellTextMetrics>;
+  numberFormats: Array<string | undefined>;
   /** 列表整体边框样式（所有行/表头共享） */
   borderStyle: ComponentStyle;
   headerHeightMm: number;
@@ -174,21 +189,67 @@ interface ListInterning {
   columns: ListColumn[];
 }
 
-type GridCellCompat = {
-  text?: string;
-  colSpan?: number;
-  rowSpan?: number;
-  style?: ComponentStyle;
-};
+type GridCellCompat = GridCell;
+
+interface CellTextMetrics {
+  measureOptions: TextMeasureOptions;
+  lineMm: number;
+}
+
+function cellTextMetrics(inter: ListInterning, style: ComponentStyle): CellTextMetrics {
+  let metrics = inter.textMetrics.get(style);
+  if (!metrics) {
+    const fontSizePt = resolveFontSize(style).fontSizePt;
+    metrics = {
+      measureOptions: {
+        fontSizePt,
+        bold: style.bold,
+        letterSpacingPt: style.letterSpacing === undefined ? undefined : style.letterSpacing * 72 / 96
+      },
+      lineMm: fontSizePt * (style.lineHeight ?? LINE_HEIGHT) * 25.4 / 72
+    };
+    inter.textMetrics.set(style, metrics);
+  }
+  return metrics;
+}
+
+function autoAlignment(value: unknown, format?: ColumnFormat): "left" | "center" | "right" {
+  if (format?.kind === "number" || format?.kind === "percent") return "right";
+  if (format?.kind === "date" || value instanceof Date || typeof value === "boolean") return "center";
+  return typeof value === "number" && Number.isFinite(value) ? "right" : "left";
+}
+
+function rawCellValue(value: unknown): GridCell["value"] {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  return undefined;
+}
 
 function interList(list: ListComponent, measurer: TextMeasurer): ListInterning {
   const fontSizePt = list.fontSizePt ?? DEFAULT_FONT_PT;
   const paddingMm = list.paddingMm ?? 1;
 
-  // 每列单元格样式只构造一次：{ align, verticalAlign, ...col.style }
-  const cellStyles = list.columns.map((col) =>
-    ({ fontSize: fontSizePt, align: "left", verticalAlign: "middle", ...col.style }) as ComponentStyle
-  );
+  const alignments = list.columns.map((col) => col.align ?? col.style?.align ?? list.align ?? "left");
+  // 每列样式驻留：auto 只预建三种对齐，避免每行分配新对象。
+  const cellStyles = list.columns.map((col, index): ComponentStyle => ({
+    fontSize: fontSizePt,
+    verticalAlign: "middle",
+    ...col.style,
+    align: alignments[index] === "auto" ? "left" : alignments[index] as ComponentStyle["align"]
+  }));
+  const autoStyles = cellStyles.map((style, index) => alignments[index] === "auto"
+    ? { left: style, center: { ...style, align: "center" as const }, right: { ...style, align: "right" as const } }
+    : undefined);
+  const ruleStyles = list.columns.map((column, index) => column.rules?.map((rule) => {
+    const variants = autoStyles[index];
+    if (variants) return {
+      left: { ...variants.left, ...rule.style },
+      center: { ...variants.center, ...rule.style },
+      right: { ...variants.right, ...rule.style }
+    };
+    const style = { ...cellStyles[index], ...rule.style } as ComponentStyle;
+    return { left: style, center: style, right: style };
+  }));
 
   // 表头单元格样式（含底色/加粗），同样驻留
   const headerCellStyles = list.columns.map((col) =>
@@ -198,21 +259,26 @@ function interList(list: ListComponent, measurer: TextMeasurer): ListInterning {
       align: "center",
       verticalAlign: "middle",
       backgroundColor: list.headerBackgroundColor,
-      ...(col.style || {})
+      ...(col.style || {}),
+      ...(list.headerAlign === undefined ? {} : { align: list.headerAlign }),
+      ...list.headerStyle,
+      ...(col.headerAlign === undefined ? {} : { align: col.headerAlign }),
+      ...col.headerStyle
     }) as ComponentStyle
   );
 
   const headerTexts = list.columns.map((col) => col.header);
-  const headerLines = headerTexts.map((text, i) =>
-    wrapText(
-      text,
-      list.columns[i]!.widthMm - paddingMm * 2,
-      { fontSizePt, bold: list.headerBold ?? true },
-      measurer
-    )
-  );
-  const maxLines = Math.max(...headerLines.map((l) => l.length), 1);
-  const headerHeight = estRowHeightMm(list, maxLines);
+  let headerHeight = list.rowHeightMm ?? 0;
+  for (let i = 0; i < headerTexts.length; i++) {
+    const style = headerCellStyles[i]!;
+    const headerFontPt = resolveFontSize(style).fontSizePt;
+    const lines = wrapText(
+      headerTexts[i]!, list.columns[i]!.widthMm - paddingMm * 2,
+      { fontSizePt: headerFontPt, bold: style.bold }, measurer
+    );
+    const lineMm = (headerFontPt * (style.lineHeight ?? LINE_HEIGHT) * 25.4) / 72;
+    headerHeight = Math.max(headerHeight, Math.max(lines.length, 1) * lineMm + paddingMm * 2);
+  }
 
   const headerCells: GridCellCompat[] = headerTexts.map((text, i) => ({
     text,
@@ -230,6 +296,10 @@ function interList(list: ListComponent, measurer: TextMeasurer): ListInterning {
     fontSizePt,
     paddingMm,
     cellStyles,
+    autoStyles,
+    ruleStyles,
+    textMetrics: new WeakMap(),
+    numberFormats: list.columns.map((column) => toExcelNumberFormat(column.format)),
     borderStyle,
     headerHeightMm: headerHeight,
     headerGrid: {
@@ -246,51 +316,40 @@ interface ListInterningWithFloor extends ListInterning {
   rowHeightFloorMm: number;
 }
 
-/** 单行 → 网格（复用驻留样式，无逐格对象分配；规则命中时才克隆样式） */
+/** 单行 → 网格；最终样式先确定，折行与行高使用同一字号/加粗/行距。 */
 function buildRowGridFast(
   inter: ListInterningWithFloor,
   row: Record<string, unknown>,
   measurer: TextMeasurer
 ): { grid: PlanGrid; heightMm: number } {
   const columns = inter.columns;
-  const texts: string[] = new Array(columns.length);
-  let maxLines = 1;
-  for (let i = 0; i < columns.length; i++) {
-    const col = columns[i]!;
-    // 值格式化在进 plan 之前完成（三后端零感知）；无 format 时走基础类型转换
-    texts[i] = col.format ? formatValue(row[col.field], col.format) : cellText(row[col.field]);
-  }
-  // 折行只需算一次行数（宽度/字号同列恒定）
-  const lines: string[][] = new Array(columns.length);
-  for (let i = 0; i < columns.length; i++) {
-    const wrapped = wrapText(
-      texts[i]!,
-      columns[i]!.widthMm - inter.paddingMm * 2,
-      { fontSizePt: inter.fontSizePt },
-      measurer
-    );
-    lines[i] = wrapped;
-    if (wrapped.length > maxLines) maxLines = wrapped.length;
-  }
-  const lineMm = (inter.fontSizePt * LINE_HEIGHT * 25.4) / 72;
-  const height = Math.max(
-    inter.rowHeightFloorMm,
-    maxLines * lineMm + inter.paddingMm * 2
-  );
+  let height = inter.rowHeightFloorMm;
   const cells: GridCellCompat[] = new Array(columns.length);
   for (let i = 0; i < columns.length; i++) {
     const col = columns[i]!;
-    let style = inter.cellStyles[i];
-    // 条件格式：首个命中规则合并进样式（未命中保持驻留引用，热路径零分配）
+    const rawValue = row[col.field];
+    const alignment = inter.autoStyles[i] ? autoAlignment(rawValue, col.format) : "left";
+    let style = inter.autoStyles[i]?.[alignment] ?? inter.cellStyles[i]!;
+    // 条件格式首个命中生效；所有变体在列表级驻留，热路径不构造样式对象。
     if (col.rules) {
-      for (const rule of col.rules) {
+      for (let ruleIndex = 0; ruleIndex < col.rules.length; ruleIndex++) {
+        const rule = col.rules[ruleIndex]!;
         if (evalStyleRule(row, rule.when)) {
-          style = { ...(style ?? {}), ...(rule.style as ComponentStyle) };
+          style = inter.ruleStyles[i]![ruleIndex]![alignment];
           break;
         }
       }
     }
-    cells[i] = { text: texts[i]!, style };
+    // 格式化、测量和输出只遍历一次列；实际字体放大后，后续行按新高度排布。
+    const text = col.format ? formatValue(rawValue, col.format) : cellText(rawValue);
+    const metrics = cellTextMetrics(inter, style);
+    const wrapped = wrapText(text, col.widthMm - inter.paddingMm * 2, metrics.measureOptions, measurer);
+    height = Math.max(height, wrapped.length * metrics.lineMm + inter.paddingMm * 2);
+    const value = rawCellValue(rawValue);
+    const cell: GridCell = { text, style };
+    if (value !== undefined) cell.value = value;
+    if (typeof value === "number" && inter.numberFormats[i] !== undefined) cell.numberFormat = inter.numberFormats[i];
+    cells[i] = cell;
   }
   return {
     grid: { cells: [cells], colWidthsMm: inter.colWidthsMm, rowHeightsMm: [height] },
@@ -443,7 +502,7 @@ export function paginateTemplate(
       /** 构造跨越全部列的单行（组头/小计/合计通用）：label 列 + 各数值列 */
       const buildSpanRow = (
         label: string,
-        values: Map<string, string>,
+        values: Map<string, GridCell>,
         style: ComponentStyle,
         labelSpanTo: number
       ): { grid: PlanGrid; heightMm: number } => {
@@ -453,10 +512,20 @@ export function paginateTemplate(
         cells.push({ text: label, colSpan: span, style: { bold: true, ...summaryStyle } });
         for (let i = span; i < scaledList.columns.length; i++) {
           const col = scaledList.columns[i]!;
-          cells.push({ text: values.get(col.field) ?? "", style: summaryStyle });
+          const valueCell = values.get(col.field);
+          const columnStyle = inter.autoStyles[i]?.[autoAlignment(valueCell?.value, col.format)] ?? inter.cellStyles[i];
+          cells.push({ ...valueCell, text: valueCell?.text ?? "", style: { ...columnStyle, ...summaryStyle } });
         }
-        const lineMm = (inter.fontSizePt * LINE_HEIGHT * 25.4) / 72;
-        const height = Math.max(inter.rowHeightFloorMm, lineMm + inter.paddingMm * 2);
+        let height = inter.rowHeightFloorMm;
+        let columnIndex = 0;
+        for (const cell of cells) {
+          let widthMm = 0;
+          const endColumn = columnIndex + (cell.colSpan ?? 1);
+          for (; columnIndex < endColumn; columnIndex++) widthMm += inter.colWidthsMm[columnIndex] ?? 0;
+          const metrics = cellTextMetrics(inter, cell.style!);
+          const lines = wrapText(cell.text ?? "", widthMm - inter.paddingMm * 2, metrics.measureOptions, measurer);
+          height = Math.max(height, lines.length * metrics.lineMm + inter.paddingMm * 2);
+        }
         return {
           grid: { cells: [cells], colWidthsMm: inter.colWidthsMm, rowHeightsMm: [height] },
           heightMm: height
@@ -471,9 +540,11 @@ export function paginateTemplate(
         }
         return s;
       };
-      const formatSum = (groupRows: Record<string, unknown>[], field: string): string => {
+      const formatSum = (groupRows: Record<string, unknown>[], field: string): GridCell => {
         const col = scaledList.columns.find((c) => c.field === field);
-        return formatValue(numericSum(groupRows, field), col?.format ?? { kind: "number", thousands: true });
+        const format = col?.format ?? { kind: "number" as const, thousands: true };
+        const value = numericSum(groupRows, field);
+        return { text: formatValue(value, format), value, numberFormat: toExcelNumberFormat(format) };
       };
 
       // ── 分组装配：组头 → 行 → 组尾小计；末尾可选总合计 ──
@@ -536,7 +607,7 @@ export function paginateTemplate(
           }
           placeGridRow(g.grid, g.heightMm, "listg");
         } else if (unit.kind === "subtotal") {
-          const values = new Map<string, string>();
+          const values = new Map<string, GridCell>();
           for (const f of groupBy!.subtotal ?? []) values.set(f, formatSum(unit.rows!, f));
           const g = buildSpanRow(
             unit.label!,
@@ -554,7 +625,7 @@ export function paginateTemplate(
           typeof scaledList.grandTotal === "object" ? scaledList.grandTotal : undefined;
         const fields = gt?.fields ?? (groupBy?.subtotal ?? []);
         if (fields.length > 0) {
-          const values = new Map<string, string>();
+          const values = new Map<string, GridCell>();
           for (const f of fields) values.set(f, formatSum(dataRows, f));
           const g = buildSpanRow(
             gt?.label ?? "合计",

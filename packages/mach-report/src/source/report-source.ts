@@ -2,6 +2,7 @@ import { paginateTemplate, type DatasetRows, type PaginateOptions, type ReportPa
 import { RENDER_PLAN_SCHEMA_VERSION, type RenderPlan } from "../schema/render-plan";
 import { validateRenderPlan } from "../schema/validate";
 import { getReportParamDefs } from "./report-params";
+import { ReportTemplateError, validateReportTemplate } from "./template-registry";
 
 /** 取数与排版共同使用的请求上下文；取消只影响本次调用。 */
 export interface ReportLoadContext {
@@ -28,12 +29,15 @@ export interface ReportSource extends ReportFetcher {
   getParamDefs(reportIds: string[]): ReportParamDef[];
 }
 
+export type ReportTemplateLoader = (context: ReportLoadContext) => ReportTemplate | Promise<ReportTemplate>;
+
 export interface ReportDefinition {
-  template: ReportTemplate;
+  /** 静态模板或宿主提供的异步模板加载器；动态模板默认每次重新读取，不缓存版本。 */
+  template: ReportTemplate | ReportTemplateLoader;
   /** 静态数据；load 存在时优先使用 load 的结果。 */
   datasets?: DatasetRows;
   load?: (context: ReportLoadContext) => DatasetRows | Promise<DatasetRows>;
-  /** 覆盖模板参数定义，未提供时自动使用 template.params。 */
+  /** 覆盖模板参数定义；动态模板应在此声明查询面板元数据，避免查询前先请求模板。 */
   params?: ReportParamDef[];
   pagination?: PaginateOptions;
 }
@@ -127,15 +131,35 @@ export function createReportSource(
 
   const source: ReportFetcher = async ({ reportIds, params, signal, onWarning }) => {
     checkAbort(signal);
-    if (reportIds.length === 0) throw new ReportSourceError("config", "缺少报表 ID");
+    // 请求发起时锁定 IDs 与参数，异步加载期间宿主的响应式对象变化不改变本次报表口径。
+    const requestedIds = [...reportIds];
+    const requestedParams = { ...params };
+    if (requestedIds.length === 0) throw new ReportSourceError("config", "缺少报表 ID");
     // 先检查所有 ID，避免到中途才发现未注册而发出不必要的业务请求。
-    const definitions = reportIds.map(definitionFor);
+    const definitions = requestedIds.map(definitionFor);
     const pages: RenderPlan["pages"] = [];
     const warnings: string[] = [];
     for (const [index, definition] of definitions.entries()) {
       checkAbort(signal);
-      const reportId = reportIds[index]!;
-      const context: ReportLoadContext = { reportId, params: { ...params }, signal };
+      const reportId = requestedIds[index]!;
+      const context: ReportLoadContext = { reportId, params: { ...requestedParams }, signal };
+      let template: ReportTemplate;
+      if (typeof definition.template === "function") {
+        try {
+          template = await cancellable(definition.template(context), signal);
+          checkAbort(signal);
+          const validation = validateReportTemplate(template);
+          if (!validation.ok) {
+            throw new ReportSourceError("validate", `报表 ${reportId} 模板校验失败：${validation.errors.slice(0, 3).map((error) => `${error.path}: ${error.message}`).join("; ")}`);
+          }
+          warnings.push(...validation.warnings.map((warning) => `${reportId}: ${warning.path}: ${warning.message}`));
+        } catch (error) {
+          if (signal?.aborted) throw abortError(signal);
+          if (error instanceof ReportSourceError) throw error;
+          if (error instanceof ReportTemplateError) throw new ReportSourceError("validate", `报表 ${reportId} 模板校验失败：${error.message}`, error);
+          throw new ReportSourceError("fetch", `报表 ${reportId} 模板加载失败：${error instanceof Error ? error.message : String(error)}`, error);
+        }
+      } else template = definition.template;
       let data: DatasetRows;
       try {
         data = await cancellable(definition.load ? definition.load(context) : definition.datasets ?? {}, signal);
@@ -148,7 +172,7 @@ export function createReportSource(
       validateDatasets(data, reportId);
       let result;
       try {
-        result = paginateTemplate(definition.template, data, definition.pagination);
+        result = paginateTemplate(template, data, definition.pagination);
       } catch (error) {
         throw new ReportSourceError("validate", `报表 ${reportId} 排版失败：${error instanceof Error ? error.message : String(error)}`, error);
       }

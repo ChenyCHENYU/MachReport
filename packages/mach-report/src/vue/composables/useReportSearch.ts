@@ -1,12 +1,13 @@
-import { computed, ref, shallowRef, type Ref } from "vue";
-import type { RenderPlan } from "@agile-team/mach-report";
+import { computed, onScopeDispose, ref, shallowRef, unref, watch, type Ref } from "vue";
+import { createPageWindowIndex } from "../../render/page-window-index";
+import type { PlanComponent, RenderPlan } from "@agile-team/mach-report";
 
 /**
  * 预览交互 composables 集合（本文件包含四件）：
  *
- * - useReportSearch：搜索（防抖索引 → 跳页导航 → 命中页高亮）
+ * - useReportSearch：可取消的分片搜索 → 压缩命中计数 → 跳页高亮
  * - useDebugPanel：调试面板（?mrp-debug=1；planKB 按 plan 引用缓存）
- * - useThumbs：缩略图侧栏（IntersectionObserver 懒渲染小画布）
+ * - useThumbs：缩略图侧栏（虚拟窗口 + 每帧至多两个小画布）
  * - useLoadTiming：加载耗时计时（performance 不可用时降级为 0）
  */
 
@@ -15,6 +16,8 @@ export interface ReportSearchState {
   query: Ref<string>;
   matchIndex: Ref<number>;
   matchCount: Ref<number>;
+  /** 分片搜索期间不阻塞预览滚动，输入/换单据会取消旧搜索。 */
+  searching: Ref<boolean>;
   toggle(): void;
   onInput(query: string): void;
   onNav(dir: 1 | -1): void;
@@ -28,117 +31,167 @@ export interface ReportSearchState {
 export interface ReportSearchOptions {
   plan: Ref<RenderPlan | null>;
   gotoPage(page: number): void;
-  debounceMs?: number;
+  debounceMs?: number | Ref<number>;
   highlight: (pageEl: HTMLElement, query: string) => number;
   clearHighlights: (pageEl: HTMLElement) => void;
 }
 
 function countOccurrences(text: string, q: string): number {
+  const lower = text.toLowerCase();
   let count = 0;
-  let i = text.toLowerCase().indexOf(q);
-  while (i >= 0) {
-    count++;
-    i = text.toLowerCase().indexOf(q, i + q.length);
-  }
+  for (let i = lower.indexOf(q); i >= 0; i = lower.indexOf(q, i + q.length)) count++;
   return count;
+}
+
+/** 与 DOM 实际文本节点一致，包含折行、富文本和单元格子组件。 */
+function* componentTexts(components: PlanComponent[]): Generator<string> {
+  const stack = [...components].reverse();
+  while (stack.length > 0) {
+    const comp = stack.pop()!;
+    if (comp.grid) {
+      for (const row of comp.grid.cells ?? []) {
+        for (const cell of row ?? []) {
+          yield cell?.text ?? "";
+          if (cell?.children) {
+            for (let i = cell.children.length - 1; i >= 0; i--) stack.push(cell.children[i]!);
+          }
+        }
+      }
+    } else if (comp.kind === "text") {
+      if (comp.richParagraphs?.length) {
+        for (const paragraph of comp.richParagraphs) {
+          for (const segment of paragraph.segments ?? []) {
+            yield (segment.kind === "field" ? segment.field : segment.text) ?? "";
+          }
+        }
+      } else if (comp.lines?.length) {
+        yield* comp.lines;
+      } else {
+        yield comp.text ?? "";
+      }
+    }
+    // 非文本组件也计入分片工作量。
+    yield "";
+  }
+}
+
+function* pageTexts(plan: RenderPlan): Generator<{ text: string; pageIndex: number }> {
+  for (let pageIndex = 0; pageIndex < plan.pages.length; pageIndex++) {
+    for (const text of componentTexts(plan.pages[pageIndex]!.components)) yield { text, pageIndex };
+    // 空页也计入工作量，避免稀疏计划在 generator.next() 内遍历所有页。
+    yield { text: "", pageIndex };
+  }
 }
 
 export function useReportSearch(options: ReportSearchOptions): ReportSearchState {
   const { plan, gotoPage, highlight, clearHighlights } = options;
-  const debounceMs = options.debounceMs ?? 200;
-  // 输入防抖：避免逐键触发 O(全计划) 扫描与页面跳转抖动；
-  // matchIndex 循环导航（‹/›）；高亮由页面挂载方调用 apply/clear
-  // （虚拟化窗口外的页随窗口重建自然清理）
-
   const visible = ref(false);
-  const query = ref("");          // 生效查询（防抖后）
-  const rawInput = ref("");       // 原始输入
+  const query = ref("");
   const matchIndex = ref(0);
+  const matchCount = ref(0);
+  const searching = ref(false);
+  // 每个命中页只保存一次累计数量；百万次重复文本命中也不创建百万个页号。
+  let matches: { pageIndex: number; cumulative: number }[] = [];
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let scanTimer: ReturnType<typeof setTimeout> | null = null;
+  let generation = 0;
 
-  /** 扁平命中表：每项为一次命中所在页索引 */
-  const matches = computed<number[]>(() => {
-    const q = query.value.trim().toLowerCase();
-    const p = plan.value;
-    if (!q || !p) return [];
-    const out: number[] = [];
-    p.pages.forEach((page, pageIndex) => {
-      for (const comp of page.components) {
-        if (comp.grid) {
-          for (const row of comp.grid.cells ?? []) {
-            for (const cell of row ?? []) {
-              if (typeof cell?.text === "string") {
-                for (let k = 0; k < countOccurrences(cell.text, q); k++) out.push(pageIndex);
-              }
-            }
-          }
-        } else if (comp.kind === "text" && typeof comp.text === "string") {
-          for (let k = 0; k < countOccurrences(comp.text, q); k++) out.push(pageIndex);
+  function cancel(): void {
+    generation++;
+    if (debounceTimer) clearTimeout(debounceTimer);
+    if (scanTimer) clearTimeout(scanTimer);
+    debounceTimer = scanTimer = null;
+    searching.value = false;
+  }
+
+  function search(input: string): void {
+    query.value = input;
+    matchIndex.value = 0;
+    matchCount.value = 0;
+    matches = [];
+    searching.value = false;
+    const q = input.trim().toLowerCase();
+    const current = plan.value;
+    if (!q || !current) return;
+    searching.value = true;
+    const seq = generation;
+    const texts = pageTexts(current);
+    const nextMatches: typeof matches = [];
+    let count = 0;
+    function scan(): void {
+      scanTimer = null;
+      if (seq !== generation || current !== plan.value) return;
+      const started = performance.now();
+      let scanned = 0;
+      while (scanned < 500 && performance.now() - started < 4) {
+        const next = texts.next();
+        if (next.done) {
+          matches = nextMatches;
+          matchCount.value = count;
+          searching.value = false;
+          if (matches[0]) gotoPage(matches[0].pageIndex + 1);
+          return;
         }
+        const occurrences = countOccurrences(next.value.text, q);
+        if (occurrences > 0) {
+          count += occurrences;
+          const previous = nextMatches[nextMatches.length - 1];
+          if (previous?.pageIndex === next.value.pageIndex) previous.cumulative = count;
+          else nextMatches.push({ pageIndex: next.value.pageIndex, cumulative: count });
+        }
+        scanned++;
       }
-    });
-    return out;
-  });
-  const matchCount = computed(() => matches.value.length);
+      scanTimer = setTimeout(scan, 0);
+    }
+    scan();
+  }
 
   function onInput(input: string): void {
-    rawInput.value = input;
-    if (debounceTimer) clearTimeout(debounceTimer);
-    if (input.trim() === "") {
-      // 清空立即生效（不等防抖）
-      debounceTimer = null;
-      query.value = "";
-      matchIndex.value = 0;
+    cancel();
+    // 输入与清旧结果即时生效，防抖窗口也不得让旧计数/导航驱动新的查询。
+    query.value = input;
+    matchIndex.value = matchCount.value = 0;
+    matches = [];
+    if (!input.trim()) {
+      search("");
       return;
     }
+    searching.value = true;
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
-      query.value = rawInput.value;
-      matchIndex.value = 0;
-      // 定位到首个命中页（无命中不动）
-      const first = matches.value[0];
-      if (first != null) gotoPage(first + 1);
-    }, debounceMs);
+      search(input);
+    }, Math.max(0, unref(options.debounceMs) ?? 200));
   }
 
   function onNav(dir: 1 | -1): void {
-    const total = matches.value.length;
-    if (total === 0) return;
+    const total = matchCount.value;
+    if (total === 0 || searching.value) return;
     matchIndex.value = (matchIndex.value + dir + total) % total;
-    gotoPage(matches.value[matchIndex.value]! + 1);
-  }
-
-  function toggle(): void {
-    visible.value = !visible.value;
-  }
-
-  function apply(pageEl: HTMLElement): void {
-    const q = query.value.trim();
-    if (q) highlight(pageEl, q);
-  }
-
-  function clear(pageEl: HTMLElement): void {
-    clearHighlights(pageEl);
+    let lo = 0;
+    let hi = matches.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (matches[mid]!.cumulative <= matchIndex.value) lo = mid + 1;
+      else hi = mid;
+    }
+    gotoPage(matches[lo]!.pageIndex + 1);
   }
 
   function reset(): void {
-    rawInput.value = "";
+    cancel();
     query.value = "";
-    matchIndex.value = 0;
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = null;
+    matchIndex.value = matchCount.value = 0;
+    matches = [];
   }
+  watch(plan, reset, { flush: "sync" });
+  onScopeDispose(reset);
 
   return {
-    visible,
-    query,
-    matchIndex,
-    matchCount,
-    toggle,
-    onInput,
-    onNav,
-    apply,
-    clear,
+    visible, query, matchIndex, matchCount, searching,
+    toggle: () => { visible.value = !visible.value; },
+    onInput, onNav,
+    apply: (pageEl) => { if (query.value.trim()) highlight(pageEl, query.value.trim()); },
+    clear: (pageEl) => { clearHighlights(pageEl); },
     reset
   };
 }
@@ -182,7 +235,7 @@ export function useDebugPanel(debug: Ref<boolean>, stats: {
 }
 
 /**
- * 缩略图侧栏：懒渲染小画布（IntersectionObserver + 低 dpr）。
+ * 缩略图侧栏：虚拟化纸面和页码，并分帧渲染低 dpr 小画布。
  * 无 2D 环境（SSR/测试）保留占位框，不抛错。
  */
 export function useThumbs(plan: Ref<RenderPlan | null>, opts: {
@@ -191,44 +244,77 @@ export function useThumbs(plan: Ref<RenderPlan | null>, opts: {
   renderThumbCanvas: (pageIndex: number) => HTMLCanvasElement | null;
 }) {
   const { thumbsRoot, visible, renderThumbCanvas } = opts;
-  let observer: IntersectionObserver | null = null;
+  const scrollTop = ref(0);
+  const viewportHeight = ref(800);
+  const heights = computed(() => (plan.value?.pages ?? []).map(
+    (page) => Math.round((page.pageHeightMm / page.pageWidthMm) * 116)
+  ));
+  // 116px 纸面 + 页码行 20px + 间距 8px，和模板中的固定高度完全一致。
+  const geometry = computed(() => createPageWindowIndex(heights.value.map((height) => height + 20), 8));
+  const windowRange = computed(() => geometry.value.window(viewportHeight.value, scrollTop.value, 1));
+  const visibleThumbs = computed(() => {
+    if (!visible.value) return [];
+    const { start, end } = windowRange.value;
+    return heights.value.slice(start, end + 1).map((height, i) => ({ index: start + i, height }));
+  });
+  let renderRaf = 0;
+  let scrollRaf = 0;
+  let destroyed = false;
 
-  function renderInto(box: HTMLElement, pageIndex: number): void {
-    if (!plan.value || box.childElementCount > 0) return;
-    const canvas = renderThumbCanvas(pageIndex);
-    if (!canvas) return;
-    canvas.style.width = "100%";
-    canvas.style.height = "100%";
-    canvas.style.display = "block";
-    box.appendChild(canvas);
+  function refresh(): void {
+    const root = thumbsRoot.value;
+    if (!root) return;
+    scrollTop.value = root.scrollTop;
+    viewportHeight.value = root.clientHeight || 800;
   }
 
-  const schedule = (): void => {
-    if (!visible.value || !plan.value || !thumbsRoot.value) return;
-    if (typeof IntersectionObserver === "undefined") return;
-    observer?.disconnect();
-    observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          const box = entry.target as HTMLElement;
-          renderInto(box, Number(box.dataset.thumb ?? 1) - 1);
-          observer?.unobserve(box);
-        }
-      },
-      { root: thumbsRoot.value, rootMargin: "200px" }
-    );
-    thumbsRoot.value.querySelectorAll<HTMLElement>("[data-thumb]").forEach((el) => {
-      observer!.observe(el);
+  function onScroll(): void {
+    if (destroyed || scrollRaf) return;
+    scrollRaf = requestAnimationFrame(() => {
+      scrollRaf = 0;
+      refresh();
     });
-  };
+  }
 
-  const destroy = (): void => {
-    observer?.disconnect();
-    observer = null;
-  };
+  function schedule(): void {
+    // 访问窗口使 watchEffect 跟踪滚动；离屏缩略图随虚拟节点删除释放 canvas。
+    void visibleThumbs.value;
+    if (renderRaf) cancelAnimationFrame(renderRaf);
+    renderRaf = 0;
+    if (destroyed || !visible.value || !plan.value || !thumbsRoot.value) return;
+    refresh();
+    const indexes = visibleThumbs.value;
+    const current = plan.value;
+    const root = thumbsRoot.value;
+    let cursor = 0;
+    function renderBatch(): void {
+      renderRaf = 0;
+      if (destroyed || !visible.value || plan.value !== current || thumbsRoot.value !== root) return;
+      // 每帧至多两个小画布，避免打开侧栏时集中阻塞正文交互。
+      for (let rendered = 0; cursor < indexes.length && rendered < 2; rendered++, cursor++) {
+        const index = indexes[cursor]!.index;
+        const box = root.querySelector<HTMLElement>(`[data-thumb="${index + 1}"]`);
+        if (!box || box.childElementCount > 0) continue;
+        const canvas = renderThumbCanvas(index);
+        if (!canvas) continue;
+        canvas.style.width = "100%";
+        canvas.style.height = "100%";
+        canvas.style.display = "block";
+        box.appendChild(canvas);
+      }
+      if (cursor < indexes.length) renderRaf = requestAnimationFrame(renderBatch);
+    }
+    renderRaf = requestAnimationFrame(renderBatch);
+  }
 
-  return { schedule, destroy };
+  function destroy(): void {
+    destroyed = true;
+    if (renderRaf) cancelAnimationFrame(renderRaf);
+    if (scrollRaf) cancelAnimationFrame(scrollRaf);
+    renderRaf = scrollRaf = 0;
+  }
+  onScopeDispose(destroy);
+  return { schedule, destroy, onScroll, windowRange, visibleThumbs };
 }
 
 /** 加载耗时计时（performance 不可用时为 0） */

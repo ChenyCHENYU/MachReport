@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.1.0-2563eb" alt="Source version 2.1.0" />
+  <img src="https://img.shields.io/badge/source-2.2.0-2563eb" alt="Source version 2.2.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -19,6 +19,8 @@
 <p align="center">
   <a href="#60-秒开始"><strong>快速开始</strong></a> ·
   <a href="#excel-报表能力与边界"><strong>Excel 能力</strong></a> ·
+  <a href="#对齐与可读性">对齐配置</a> ·
+  <a href="#模板配置与管理扩展">模板管理</a> ·
   <a href="#接入项目数据">数据接入</a> ·
   <a href="#按需加载与包边界">按需入口</a> ·
   <a href="./docs/API.md">API</a> ·
@@ -36,13 +38,14 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | --- | --- |
 | 页面模型 | 毫米单位、纸张预设与自定义尺寸、页边距、横纵向、文本与表格几何 |
 | 明细与汇总 | 自动折行与分页、重复表头、连续分组小计、末尾总计、页码占位符 |
-| 数据呈现 | 数值 / 百分比 / 日期格式化、声明式条件格式、可注入文本测量器 |
-| 预览交互 | Vue 3 DOM 预览、页级虚拟化、缩放与适宽、搜索定位、缩略图、参数面板 |
+| 数据呈现 | 表头与内容独立对齐、类型自动对齐、数值 / 百分比 / 日期格式化、条件格式 |
+| 预览交互 | 正文与缩略图双窗口渲染、缩放与适宽、可取消分片搜索、参数面板 |
+| 模板配置 | 版本化 JSON 文档、导入导出校验、模板目录、异步加载与取消 |
 | 输出 | 浏览器打印、HTML、PDF、真正的 `.xlsx`、逐页 PNG、Word 兼容 HTML `.doc` |
 | 工程接入 | 局部组件、全局插件、异步入口、分层配置、结构化错误与导出告警 |
 | 引擎复用 | 框架无关的分页与校验、DOM / Canvas 渲染；PDF / XLSX 可用于 Node.js |
 
-数据接口、鉴权、查询与业务规则由宿主应用决定；`PlanFetcher` 只负责返回渲染计划。可视化拖拽设计器与报表管理控制台尚未提供。
+数据接口、鉴权、查询与业务规则由宿主应用决定。模板管理提供可直接连接文件或后台接口的文档与目录 API；可视化设计器、管理页面、审批与持久化由宿主扩展。
 
 ## 安装：一个包，按需入口
 
@@ -65,7 +68,7 @@ const template = createTableTemplate({
   title: "产品出库单",
   columns: [
     { header: "物料", field: "name", flex: 2 },
-    { header: "数量", field: "qty", style: { align: "right" } }
+    { header: "数量", field: "qty" }
   ]
 });
 
@@ -79,7 +82,7 @@ const fetcher = createLocalFetcher({
 </template>
 ```
 
-标准明细只定义标题和列：默认 A4、10 mm 页边距、`detail` 数据集，自动分配列宽并分页。支持固定列宽、权重、横向纸张、分组与总计；复杂单据继续使用 `createTemplate()` 自由排版。
+标准明细只定义标题和列：默认 A4、10 mm 页边距、`detail` 数据集、表头居中，按内容类型对齐，自动分配列宽并分页。支持固定列宽、权重、横向纸张、分组与总计；复杂单据继续使用 `createTemplate()` 自由排版。
 
 ### 项目接入：注册一次，页面只传 ID 和参数
 
@@ -137,6 +140,7 @@ import { renderPlanToXlsx } from "@agile-team/mach-report/xlsx";
 
 // plan 是 paginateTemplate 或业务接口生成的 RenderPlan。
 const { buffer, warnings } = await renderPlanToXlsx(plan, {
+  valueMode: "raw",
   sheetName: (pageIndex) => `报表${pageIndex + 1}`
 });
 if (warnings.length > 0) console.warn(warnings);
@@ -147,16 +151,95 @@ await writeFile("report.xlsx", new Uint8Array(buffer));
 | --- | --- |
 | 工作簿结构 | 每个报表页生成一张工作表，默认 `Sheet1`、`Sheet2`…，可自定义名称 |
 | 表格结构 | 表头、明细、小计 / 总计的渲染结果，列宽、行高、跨行 / 跨列合并 |
-| 基础样式 | 字号、加粗、文字颜色、水平对齐、单元格底色与细边框 |
+| 基础样式 | 字号、字体族、加粗 / 斜体 / 下划线、颜色、水平 / 垂直对齐、换行、底色与边框开关 |
 | 标题文本 | 按组件顺序写入合并行；页面绝对坐标转换为工作表行流 |
-| 单元格类型 | 当前写入渲染后的文本，数字与日期不保留原始 Excel 类型或公式 |
+| 单元格类型 | 默认 `text` 保留显示文本；`raw` 保留列表原始数值、布尔、文本编号、空值和汇总数值 |
+| 数字格式 | `raw` 模式沿用小数位、千分位和百分比格式，不猜测文本编号的类型 |
 | 非表格内容 | 图片、条码、二维码、图表、嵌套组件和无文本回退的富文本等暂不导出，跳过时返回 `warnings` |
-| 版式与打印 | 基础 A4 打印设置；不保证复制 PDF 的坐标、纸张与全部样式 |
+| 版式与打印 | 自动识别 A3 / A4 / A5，可配置 `paperSize`；自定义尺寸回退有告警，绝对坐标仍转为行流 |
 | Excel 编辑工作流 | 尚无 `.xlsx` 模板导入、交互式工作簿编辑、公式计算或透视表 API |
 
-这条输出链适合把已生成的报表转为可打开、可编辑的 Excel 表格。需要保留数值 / 日期类型、公式或自定义工作簿布局时，可使用返回的 ExcelJS `workbook` 继续处理并重新序列化，或建立独立的业务数据导出流程。
+列表自动保留原始值，Vue 可在配置中一次启用 `xlsx: { valueMode: "raw" }`；旧计划没有原始值时继续导出显示文本。日期对象、公式和自定义布局仍需业务明确处理。Excel 不做 PDF 坐标复刻；可使用返回的 ExcelJS `workbook` 继续处理并重新序列化。
 
 完整示例、类型保留策略和注意事项见 [Excel 导出指南](./docs/EXCEL.md)。
+
+## 对齐与可读性
+
+`createTableTemplate()` 提供适合业务报表的默认值，常规列无需逐个配置。表头和内容独立设置，整表配置可被单列覆盖。
+
+| 内容 | 默认 / 建议 |
+| --- | --- |
+| 表头 | 标准明细默认居中；长说明列可单独居左 |
+| 名称、描述、文本编号 | 居左；编码不会因长得像数字而自动变成数值 |
+| 数量、金额、百分比 | 真实数字或明确指定数字格式时居右，便于比较位数 |
+| 日期、布尔值 | 自动模式居中；字符串状态可显式设置 `align: "center"` |
+| 统一业务要求 | `listOptions.align` / `headerAlign` 设置整表，列级配置优先 |
+
+```ts
+const template = createTableTemplate({
+  columns: [
+    { header: "物料名称", field: "name", flex: 2, headerAlign: "left" },
+    { header: "数量", field: "qty", format: { kind: "number", digits: 3 } },
+    { header: "状态", field: "status", align: "center" }
+  ]
+});
+```
+
+`align` 支持 `auto / left / center / right / justify`；`headerAlign` 支持四种明确对齐。`headerStyle` 可独立配置表头字体、底色与垂直对齐。条件规则只覆盖内容；旧低层模板未配置新字段时保留原有行为。DOM、Canvas、PDF 和 Excel 使用同一份解析后的样式。
+
+## 模板配置与管理扩展
+
+模板文档只保存布局与描述，可存为 JSON 文件或交给现有后台。模板 ID、名称、修订号和布局形成明确契约；查询接口、数据与鉴权继续使用项目已有能力。
+
+```ts
+import {
+  defineReportTemplate, createTemplateRegistry,
+  parseReportTemplate, serializeReportTemplate
+} from "@agile-team/mach-report/vue";
+
+const templates = createTemplateRegistry([
+  defineReportTemplate({ id: "outbound", name: "产品出库单", revision: "1", template })
+]);
+
+// imported 是文件文本或后台返回的 JSON 对象；包内完成校验。
+templates.register(parseReportTemplate(imported), { replace: true });
+const json = serializeReportTemplate(templates.get("outbound")!);
+```
+
+`list / get / register / remove` 提供模板目录与独立快照；重复 ID 默认拒绝，更新显式声明替换。文档版本由 `defineReportTemplate` 自动补齐，未知版本、非法字段和非 JSON 内容会给出结构化校验错误。
+
+远程管理只需让报表的 `template` 按需加载，页面写法保持不变：
+
+```ts
+app.use(machReportPlugin, {
+  reports: {
+    outbound: {
+      template: async ({ reportId, signal }) =>
+        parseReportTemplate(await templateApi.read(reportId, { signal })).template,
+      load: ({ params, signal }) => reportApi.data(params, { signal })
+    }
+  }
+});
+```
+
+动态模板不隐式缓存，每次重载读取当前版本；需要自动查询面板时，在报表定义中声明 `params`。管理后台可接入草稿、发布、版本历史与回滚，服务端负责权限和修订号冲突检查。完整方案见[模板管理扩展指南](./docs/TEMPLATE_MANAGEMENT.md)。
+
+## 大报表预览与性能
+
+正文和缩略图均按可见窗口渲染，离屏画布及时释放；页尺寸索引按计划建立一次，滚动和跳页通过二分定位。搜索按文本块分片，输入新查询、换单据或卸载会取消旧任务，命中计数按页保存，避免为每次重复文字创建一个记录。
+
+默认已启用，无需额外接入代码。需要调节时，统一放入配置中心：
+
+```ts
+defineMachReportConfig({
+  defaults: {
+    preview: { overscanPages: 1, searchDebounceMs: 200 },
+    xlsx: { valueMode: "raw", paperSize: "auto" }
+  }
+});
+```
+
+`overscanPages` 默认 1、限定 0–10；`searchDebounceMs` 默认 200、限定 0–2000 ms。应用、preset 与路由按字段继承。虚拟化控制渲染节点数量；完整数据仍需内存，首次分页和整本导出仍有计算成本。大业务范围应配合后端受控取数、日期范围和合理单元格内容，完整导出不能误用列表当前页数据。
 
 ## 一份清晰的应用配置
 
@@ -169,6 +252,7 @@ const config = defineMachReportConfig({
   defaults: {
     gapPx: 18,
     pdfFontUrl: "/fonts/NotoSansSC-Regular.ttf",
+    xlsx: { valueMode: "raw" },
     messages: { title: "业务报表" }
   },
   presets: {
@@ -226,7 +310,7 @@ const fetcher: PlanFetcher = async ({ reportIds, params, signal }) => {
 
 | 入口 | 用途 |
 | --- | --- |
-| `@agile-team/mach-report` | 模板 DSL、报表数据源、分页、格式化、计划校验、DOM / Canvas、页窗口计算 |
+| `@agile-team/mach-report` | 模板 DSL、模板文档 / 目录、报表数据源、分页、格式化、计划校验、DOM / Canvas、页窗口计算 |
 | `@agile-team/mach-report/vue` | 重导出核心 API；Vue 组件、插件、配置中心、适配器和父页面控制句柄 |
 | `@agile-team/mach-report/vue/async` | 异步全局组件插件与 `preloadMachReport` 预取 |
 | `@agile-team/mach-report/vue/style.css` | Vue 预览样式 |
@@ -271,6 +355,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 | --- | --- |
 | 接入与 API | [API 速查](./docs/API.md)：数据模型、模板、Vue 属性 / 事件、配置与导出 |
 | Excel | [导出指南](./docs/EXCEL.md)：能力边界、Node 示例与原始数据类型 |
+| 模板管理 | [扩展指南](./docs/TEMPLATE_MANAGEMENT.md)：JSON 文档、目录、动态版本与后台接入 |
 | PDF | [字体与导出指南](./docs/PDF.md)：首次诊断、字库部署、缺字与缓存 |
 | 本地报表 | [最小示例](./examples/minimal)：出库单、工艺卡、多页与多模板预览 |
 | 远程组件 | [模块联邦示例](./examples/fed-host) · [部署包](./packages/federation) |
@@ -282,7 +367,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.1.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.2.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

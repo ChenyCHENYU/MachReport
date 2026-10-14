@@ -13,3 +13,4 @@ export * from "./render/window";
 export * from "./builder/template-builder";
 export * from "./builder/table-template";
 export * from "./source/report-source";
+export * from "./source/template-registry";

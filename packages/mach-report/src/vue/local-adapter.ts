@@ -1,5 +1,5 @@
 import { createReportSource } from "@agile-team/mach-report";
-import type { ReportTemplate } from "@agile-team/mach-report";
+import type { ReportRegistry, ReportTemplate } from "@agile-team/mach-report";
 import type { PlanFetcher } from "./adapters";
 import { PlanLoadError } from "./adapters";
 
@@ -13,7 +13,7 @@ export interface LocalTemplateEntry {
  * 用于本地预览、离线场景和单测。
  */
 export function createLocalFetcher(
-  entries: Record<string, LocalTemplateEntry>
+  entries: Record<string, LocalTemplateEntry> | ReportRegistry
 ): PlanFetcher {
   const source = createReportSource(entries);
   const fetcher: PlanFetcher = async (input) => {

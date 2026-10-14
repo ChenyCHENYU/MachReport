@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { paginateTemplate, renderPlan, computePageWindow } from "../index";
 import type { ReportTemplate } from "../index";
+import { createPageWindowIndex } from "../render/page-window-index";
 
 const tpl: ReportTemplate = {
   pages: [
@@ -72,6 +73,20 @@ describe("性能预算", () => {
     }
     const cost = performance.now() - t0;
     console.log(`[perf] computePageWindow 1000 pages x100: ${cost.toFixed(2)}ms`);
+    expect(cost).toBeLessThan(50);
+  });
+
+  it("缓存几何的 100000 页 × 1000 次滚动 < 50ms，窗口恒定有界", () => {
+    const index = createPageWindowIndex(Array.from({ length: 100000 }, () => 1122.5), 18);
+    const t0 = performance.now();
+    let maxPages = 0;
+    for (let i = 0; i < 1000; i++) {
+      const window = index.window(800, i * 1122.5);
+      maxPages = Math.max(maxPages, window.end - window.start + 1);
+    }
+    const cost = performance.now() - t0;
+    console.log(`[perf] cached window 100000 pages x1000: ${cost.toFixed(2)}ms`);
+    expect(maxPages).toBeLessThanOrEqual(4);
     expect(cost).toBeLessThan(50);
   });
 });

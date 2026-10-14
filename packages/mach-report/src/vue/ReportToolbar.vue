@@ -17,7 +17,7 @@ const props = defineProps<{
   showPrint: boolean;
   showPdfWindow: boolean;
   messages: MachReportMessages;
-  search: { visible: boolean; query: string; matchIndex: number; matchCount: number };
+  search: { visible: boolean; query: string; matchIndex: number; matchCount: number; searching?: boolean };
   thumbsVisible: boolean;
 }>();
 
@@ -80,8 +80,9 @@ function pageInfo(text: string, cur: number, total: number): string {
         :value="search.query"
         @input="$emit('search-input', ($event.target as HTMLInputElement).value)"
       />
-      <span v-if="search.query" class="mrp-search-count">{{
-        pageInfo(messages.matchInfo, search.matchIndex + 1, search.matchCount)
+      <span v-if="search.query" class="mrp-search-count" role="status">{{ search.searching
+        ? messages.searching ?? "搜索中…"
+        : pageInfo(messages.matchInfo, search.matchCount > 0 ? search.matchIndex + 1 : 0, search.matchCount)
       }}</span>
       <button
         class="mrp-nav"

@@ -15,6 +15,20 @@ export type ColumnFormat =
   | { kind: "percent"; digits?: number }
   | { kind: "date"; pattern?: string };
 
+/** 数值型 Excel 导出的显示格式；日期/对象仍使用显示文本，不做隐式类型转换。 */
+export function toExcelNumberFormat(format?: ColumnFormat): string | undefined {
+  if (!format || format.kind === "date") return undefined;
+  const digits = format.digits;
+  // formatValue 使用 toFixed / Intl 的 0..100 精度约束；非法运行时输入不生成元数据。
+  if (digits !== undefined && (!Number.isInteger(digits) || digits < 0 || digits > 100)) return undefined;
+  if (format.kind === "percent") {
+    const decimalPlaces = digits ?? 2;
+    return `0${decimalPlaces ? `.${"0".repeat(decimalPlaces)}` : ""}%`;
+  }
+  if (digits === undefined) return format.thousands ? "#,##0.###############" : undefined;
+  return `${format.thousands ? "#,##0" : "0"}${digits ? `.${"0".repeat(digits)}` : ""}`;
+}
+
 /** 日历日字符串 → 本地 Date（不含时间的纯日期，杜绝 UTC 偏移） */
 export function parseDateLocal(input: string): Date | null {
   const m = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(input.trim());

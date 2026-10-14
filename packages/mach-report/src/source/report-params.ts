@@ -6,7 +6,8 @@ export function getReportParamDefs(reports: ReportRegistry, ids: string[]): Repo
   const fields = new Set<string>();
   return ids.flatMap((id) => {
     const definition = Object.prototype.hasOwnProperty.call(reports, id) ? reports[id] : undefined;
-    return (definition?.params ?? definition?.template.params ?? []).filter((param) => {
+    const params = definition?.params ?? (typeof definition?.template === "function" ? [] : definition?.template.params) ?? [];
+    return params.filter((param) => {
       if (fields.has(param.field)) return false;
       fields.add(param.field);
       return true;

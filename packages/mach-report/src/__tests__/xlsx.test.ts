@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { renderPlanToXlsx } from "../xlsx";
 import { paginateTemplate } from "../layout/paginate";
 import type { RenderPlan } from "../schema/render-plan";
+import ExcelJSRuntime from "exceljs";
+import { createTableTemplate } from "../builder/table-template";
 
 /** 构造带分组小计的出库单式计划（复用语义层能力） */
 function buildPlan(): RenderPlan {
@@ -44,6 +46,104 @@ function buildPlan(): RenderPlan {
 }
 
 describe("renderPlanToXlsx（./xlsx 子路径）", () => {
+  it("raw 模式经真实工作簿回读保留数值、空值、布尔、文本炉号和百分比格式", async () => {
+    const template = createTableTemplate({ columns: [
+      { header: "炉号", field: "id" },
+      { header: "重量", field: "weight", format: { kind: "number", digits: 3 } },
+      { header: "产率", field: "yield", format: { kind: "percent", digits: 2 } },
+      { header: "确认", field: "confirmed" }
+    ] });
+    const plan = paginateTemplate(template, { detail: [
+      { id: "00120", weight: 0, yield: 0.899, confirmed: false },
+      { id: "=SUM(A1:A2)", weight: null, yield: null, confirmed: true }
+    ] }).plan;
+    const { buffer } = await renderPlanToXlsx(plan, { valueMode: "raw" });
+    const workbook = new ExcelJSRuntime.Workbook();
+    await workbook.xlsx.load(buffer);
+    const sheet = workbook.worksheets[0]!;
+    expect(sheet.getCell("A2").value).toBe("00120");
+    expect(sheet.getCell("B2").value).toBe(0);
+    expect(sheet.getCell("B2").numFmt).toBe("0.000");
+    expect(sheet.getCell("C2").value).toBe(0.899);
+    expect(sheet.getCell("C2").numFmt).toBe("0.00%");
+    expect(sheet.getCell("D2").value).toBe(false);
+    expect(sheet.getCell("A3").value).toBe("=SUM(A1:A2)");
+    expect(sheet.getCell("A3").type).toBe(ExcelJSRuntime.ValueType.String);
+    expect(sheet.getCell("B3").value).toBeNull();
+    expect(sheet.getCell("C3").value).toBeNull();
+    expect(sheet.getCell("D3").value).toBe(true);
+  });
+
+  it("raw 模式的小计与总计保留真实数值，没有元数据的旧计划仍写显示文本", async () => {
+    const { workbook } = await renderPlanToXlsx(buildPlan(), { valueMode: "raw" });
+    const sheet = workbook.worksheets[0]!;
+    const amounts: number[] = [];
+    sheet.eachRow((row) => { if (typeof row.getCell(3).value === "number") amounts.push(row.getCell(3).value as number); });
+    expect(amounts).toContain(50.5);
+    expect(amounts).toContain(150.5);
+    expect(amounts).toContain(230.5);
+    const oldPlan: RenderPlan = { schemaVersion: "old", pages: [{ pageWidthMm: 210, pageHeightMm: 297, components: [
+      { kind: "rect", leftMm: 0, topMm: 0, widthMm: 40, heightMm: 5, grid: { cells: [[{ text: "00123" }]] } }
+    ] }] };
+    expect((await renderPlanToXlsx(oldPlan, { valueMode: "raw" })).workbook.worksheets[0]!.getCell("A1").value).toBe("00123");
+  });
+
+  it("按真实页面自动识别横向A3与A5，允许显式纸型并说明自定义纸张回退", async () => {
+    const plan: RenderPlan = { schemaVersion: "paper", pages: [
+      { pageWidthMm: 420, pageHeightMm: 297, components: [] },
+      { pageWidthMm: 148, pageHeightMm: 210, components: [] },
+      { pageWidthMm: 300, pageHeightMm: 500, components: [] }
+    ] };
+    const { workbook, warnings } = await renderPlanToXlsx(plan);
+    expect(workbook.worksheets.map((sheet) => sheet.pageSetup.paperSize)).toEqual([8, 11, 9]);
+    expect(workbook.worksheets[0]!.pageSetup.orientation).toBe("landscape");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("自定义纸张");
+    const forced = await renderPlanToXlsx(plan, { paperSize: "a4" });
+    expect(forced.workbook.worksheets.every((sheet) => sheet.pageSetup.paperSize === 9)).toBe(true);
+    expect(forced.warnings).toEqual([]);
+  });
+
+  it("单元格样式覆盖组件样式，保留垂直对齐、换行和显式非加粗", async () => {
+    const plan: RenderPlan = { schemaVersion: "style", pages: [{ pageWidthMm: 210, pageHeightMm: 297, components: [
+      { kind: "rect", leftMm: 0, topMm: 0, widthMm: 80, heightMm: 10,
+        style: { align: "right", verticalAlign: "bottom", bold: true, italic: true, color: "#123456" },
+        grid: { cells: [[{ text: "继承" }, { text: "覆盖\n换行", style: { align: "center", verticalAlign: "top", bold: false } }]] }
+      }
+    ] }] };
+    const sheet = (await renderPlanToXlsx(plan)).workbook.worksheets[0]!;
+    expect(sheet.getCell("A1").alignment).toMatchObject({ horizontal: "right", vertical: "bottom", wrapText: true });
+    expect(sheet.getCell("A1").font).toMatchObject({ bold: true, italic: true, color: { argb: "FF123456" } });
+    expect(sheet.getCell("B1").alignment).toMatchObject({ horizontal: "center", vertical: "top", wrapText: true });
+    expect(sheet.getCell("B1").font.bold).toBe(false);
+  });
+
+  it("拒绝未知导出配置；无效原始值回退显示文本且返回告警", async () => {
+    const plan = buildPlan();
+    await expect(renderPlanToXlsx(plan, { valueMode: "invalid" as "raw" })).rejects.toThrow("valueMode");
+    await expect(renderPlanToXlsx(plan, { paperSize: "invalid" as "auto" })).rejects.toThrow("paperSize");
+    const bad: RenderPlan = { schemaVersion: "raw", pages: [{ pageWidthMm: 210, pageHeightMm: 297, components: [
+      { kind: "rect", leftMm: 0, topMm: 0, widthMm: 40, heightMm: 5, grid: { cells: [[{ text: "不可用", value: Infinity }]] } }
+    ] }] };
+    const result = await renderPlanToXlsx(bad, { valueMode: "raw" });
+    expect(result.workbook.worksheets[0]!.getCell("A1").value).toBe("不可用");
+    expect(result.warnings).toHaveLength(1);
+  });
+
+  it("像素字号优先级与其它出口一致，无边框配置和单边颜色可保留", async () => {
+    const template = createTableTemplate({ columns: [
+      { header: "名称", field: "name", style: { fontSizePx: 16, fontSize: 20 } }
+    ], listOptions: { border: false } });
+    const plan = paginateTemplate(template, { detail: [{ name: "无边框" }] }).plan;
+    const sheet = (await renderPlanToXlsx(plan)).workbook.worksheets[0]!;
+    expect(sheet.getCell("A2").font.size).toBe(12);
+    expect(sheet.getCell("A2").border).toEqual({});
+    const component = plan.pages[0]!.components.find((comp) => comp.grid?.cells[0]?.[0]?.text === "无边框")!;
+    component.grid!.cells[0]![0]!.style = { ...component.grid!.cells[0]![0]!.style, borderBottom: true, borderColor: "#123456" };
+    const next = (await renderPlanToXlsx(plan)).workbook.worksheets[0]!.getCell("A2");
+    expect(next.border).toEqual({ bottom: { style: "thin", color: { argb: "FF123456" } } });
+  });
+
   it("产出合法 xlsx（PK zip 头）且工作表/单元格/合并正确", async () => {
     const plan = buildPlan();
     const { workbook, buffer, warnings } = await renderPlanToXlsx(plan);

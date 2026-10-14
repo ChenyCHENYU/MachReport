@@ -53,6 +53,10 @@ export interface RichSegment {
 export interface GridCell {
   text?: string;
   rawText?: string;
+  /** 原始值，仅供 Excel raw 模式消费；不参与预览、分页与 PDF 绘制。 */
+  value?: string | number | boolean | null;
+  /** Excel 数字格式（例如 #,##0.00 / 0.00%），不改变 text。 */
+  numberFormat?: string;
   children?: PlanComponent[];
   colSpan?: number;
   rowSpan?: number;
