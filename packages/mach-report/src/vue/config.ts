@@ -1,6 +1,8 @@
 import { computed, inject, provide, type ComputedRef, type CSSProperties } from "vue";
 import { MACH_REPORT_CONFIG_KEY } from "./injection-keys";
 import type { XlsxRenderOptions } from "../xlsx/render-xlsx";
+import type { ExcelImportOptions } from "../xlsx/import-types";
+import type { ReportEditingOptions } from "./editing";
 
 /**
  * 配置中心（对齐 mach-table 的 defineMachTableConfig 体验）：
@@ -50,6 +52,14 @@ export interface MachReportMessages {
   paramRequired: string;
   /** 可选搜索进度文案，旧完整 messages 对象无需新增字段。 */
   searching?: string;
+  importExcel?: string;
+  importing?: string;
+  editCell?: string;
+  editingHint?: string;
+  saving?: string;
+  editInvalidNumber?: string;
+  editInvalidBoolean?: string;
+  editConflict?: string;
 }
 
 export const DEFAULT_MESSAGES: MachReportMessages = {
@@ -80,7 +90,15 @@ export const DEFAULT_MESSAGES: MachReportMessages = {
   query: "查 询",
   reset: "重 置",
   paramRequired: "请填写{label}",
-  searching: "搜索中…"
+  searching: "搜索中…",
+  importExcel: "导入 Excel 模板",
+  importing: "正在导入 Excel…",
+  editCell: "编辑单元格",
+  editingHint: "双击单元格编辑 · Enter 确认 · Esc 取消",
+  saving: "正在保存修改…",
+  editInvalidNumber: "请输入有效数字；清空表示无值",
+  editInvalidBoolean: "请输入 true / false、是 / 否或 1 / 0",
+  editConflict: "该单元格已变化，请重新打开编辑"
 };
 
 /** 主题变量（组件外壳注入的 --mrp-* CSS 自定义属性） */
@@ -139,6 +157,10 @@ export interface MachReportDefaults {
   preview?: MachReportPreviewOptions;
   /** Excel 出口配置，按字段继承；不配置使用导出器默认值。 */
   xlsx?: XlsxRenderOptions;
+  /** 默认关闭；true 为本地草稿，对象可提供权限、校验和保存回调。 */
+  editable?: boolean | ReportEditingOptions;
+  /** 默认关闭；启用后提供导入按钮。ExcelJS 仅在导入时加载。 */
+  excelImport?: boolean | ExcelImportOptions;
 }
 
 export type MachReportPreset = MachReportDefaults;
@@ -175,6 +197,8 @@ export type ResolvedConfig = Required<
   logger: MachReportLogger;
   preview: Required<MachReportPreviewOptions>;
   xlsx: XlsxRenderOptions;
+  editable: boolean | ReportEditingOptions;
+  excelImport: boolean | ExcelImportOptions;
 };
 
 const FALLBACK_CONFIG: ResolvedConfig = {
@@ -188,7 +212,9 @@ const FALLBACK_CONFIG: ResolvedConfig = {
   messages: DEFAULT_MESSAGES,
   logger: console,
   preview: { overscanPages: 1, searchDebounceMs: 200 },
-  xlsx: {}
+  xlsx: {},
+  editable: false,
+  excelImport: false
 };
 
 const SILENT_LOGGER: MachReportLogger = { warn: () => {}, info: () => {} };
@@ -231,7 +257,9 @@ export function resolveConfig(
       overscanPages: boundedNumber(merged.preview?.overscanPages, 1, 10, true),
       searchDebounceMs: boundedNumber(merged.preview?.searchDebounceMs, 200, 2000)
     },
-    xlsx: { ...merged.xlsx }
+    xlsx: { ...merged.xlsx },
+    editable: merged.editable ?? false,
+    excelImport: merged.excelImport ?? false
   };
 }
 

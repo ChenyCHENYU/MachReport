@@ -21,11 +21,13 @@ import {
   watchEffect
 } from "vue";
 import type { PropType } from "vue";
-import type { RenderPlan } from "@agile-team/mach-report";
+import type { RenderPlan, PlanPage, ReportCellEdit } from "@agile-team/mach-report";
 import {
   renderPage as renderPageToDom,
   renderPlanToCanvas,
+  paginateTemplate,
   ReportSourceError,
+  ReportCellEditError,
   validateRenderPlan
 } from "@agile-team/mach-report";
 import { normalizeReportIds, type PlanFetcher } from "./adapters";
@@ -56,6 +58,9 @@ import {
 import { createDefaultPdfExporter, type PdfExporter, type PdfFontCheckResult } from "./pdf-exporter";
 import { MachReportError, toErrorDetail, type MachReportErrorCode } from "./errors";
 import type { MachReportController, MachReportState, MachReportStateError } from "./controller";
+import type { ReportEditingOptions } from "./editing";
+import type { ExcelImportOptions, ExcelImportResult } from "../xlsx/import-types";
+import { useCellEditing } from "./composables/useCellEditing";
 
 const props = defineProps({
   reportId: {
@@ -87,6 +92,8 @@ const props = defineProps({
   },
   /** 参数面板显隐（不传走配置中心，缺省 true；有参数定义才渲染） */
   showParams: { type: Boolean, default: undefined },
+  editable: { type: [Boolean, Object] as PropType<boolean | ReportEditingOptions>, default: undefined },
+  excelImport: { type: [Boolean, Object] as PropType<boolean | ExcelImportOptions>, default: undefined },
   fetcher: {
     type: Function as unknown as PropType<PlanFetcher | null>,
     default: null
@@ -97,6 +104,8 @@ const emit = defineEmits<{
   (e: "loaded", pageCount: number): void;
   (e: "error", message: string, detail?: { code: string; cause?: unknown }): void;
   (e: "warning", message: string): void;
+  (e: "cell-edit", edit: ReportCellEdit): void;
+  (e: "template-import", result: ExcelImportResult): void;
 }>();
 
 const plan = shallowRef<RenderPlan | null>(null);
@@ -112,6 +121,8 @@ const containerRef = ref<HTMLElement | null>(null);
 const viewportRef = ref<HTMLElement | null>(null);
 const thumbsRef = ref<HTMLElement | null>(null);
 const showThumbs = ref(false);
+const importing = ref(false);
+const importInputRef = ref<HTMLInputElement | null>(null);
 const timing = useLoadTiming();
 
 const wideReport = computed(() => !!plan.value?.pages.length && plan.value.pages.every((page) => page.layout === "wide"));
@@ -134,10 +145,14 @@ const state = computed<MachReportState>(() => Object.freeze({
   currentPage: currentPage.value,
   exporting: exporting.value,
   printing: printing.value,
-  canExport: !loading.value && pageCount.value > 0 && exporting.value === null,
-  canPrint: !loading.value && pageCount.value > 0 && !printing.value,
+  canExport: !loading.value && !importing.value && !editing.saving.value && pageCount.value > 0 && exporting.value === null,
+  canPrint: !loading.value && !importing.value && !editing.saving.value && pageCount.value > 0 && !printing.value,
   error: lastError.value,
-  pdfFont: pdfFont.value
+  pdfFont: pdfFont.value,
+  editing: editing.active.value !== null,
+  saving: editing.saving.value,
+  importing: importing.value,
+  dirty: editing.changes.value.length > 0
 }));
 
 function reportError(message: string, code: MachReportErrorCode, cause?: unknown): void {
@@ -158,6 +173,31 @@ const effectiveShowPrint = computed(() => props.showPrint ?? resolved.value.show
 const effectiveShowPdfWindow = computed(() => props.showPdfWindow ?? resolved.value.showPdfWindow);
 const effectiveGapPx = computed(() => props.gapPx ?? (wideReport.value ? 0 : resolved.value.gapPx));
 const effectiveShowParams = computed(() => props.showParams ?? resolved.value.showParams);
+const effectiveEditable = computed(() => props.editable ?? resolved.value.editable);
+const effectiveExcelImport = computed(() => props.excelImport ?? resolved.value.excelImport);
+function editErrorMessage(cause: unknown): string {
+  if (cause instanceof ReportCellEditError) {
+    const messages: Record<string, string | undefined> = {
+      number: resolvedMessages.value.editInvalidNumber,
+      boolean: resolvedMessages.value.editInvalidBoolean,
+      conflict: resolvedMessages.value.editConflict
+    };
+    return messages[cause.code] ?? cause.message;
+  }
+  return cause instanceof Error ? cause.message : "单元格保存失败";
+}
+const editing = useCellEditing({
+  plan,
+  options: effectiveEditable,
+  blocked: () => loading.value || importing.value || exporting.value !== null || printing.value,
+  label: () => resolvedMessages.value.editCell ?? "编辑单元格",
+  errorMessage: editErrorMessage,
+  onChange: (edit) => { lastError.value = null; exportNotice.value = null; emit("cell-edit", edit); },
+  onError: (message, cause) => {
+    exportNotice.value = { kind: "error", message };
+    reportError(message, "edit", cause);
+  }
+});
 let cachedPdfFontUrl: string | null = null;
 let cachedPdfExporter: PdfExporter | null = null;
 function getPdfExporter(): PdfExporter {
@@ -218,6 +258,7 @@ watch(
   [plan, () => resolved.value.pdfFontUrl, effectiveShowExport, effectiveShowPdfWindow],
   () => {
     const sameUrl = pdfFont.value.fontUrl === resolved.value.pdfFontUrl;
+    if (sameUrl && pdfFont.value.status === "available") return;
     cancelFontCheck();
     if (!sameUrl || pdfFont.value.status === "checking") {
       pdfFont.value = Object.freeze({ status: "unchecked", fontUrl: resolved.value.pdfFontUrl });
@@ -306,6 +347,8 @@ function setZoomRaw(next: number): void {
 }
 
 function invalidate(): void {
+  importing.value = false;
+  editing.reset();
   releasePrintFrame();
   plan.value = null;
   currentPage.value = 1;
@@ -319,6 +362,7 @@ let loadController: AbortController | null = null;
 async function reload(): Promise<void> {
   if (destroyed) return;
   const seq = ++reloadSeq;
+  importing.value = false;
   loadController?.abort();
   loadController = null;
   const fetcher = effectiveFetcher.value;
@@ -446,14 +490,22 @@ const exportApi = usePrintExport(plan, {
 });
 const { releasePrintFrame, dispose } = exportApi;
 async function print(): Promise<void> {
+  if (loading.value || importing.value) return;
+  if (editing.active.value && !await editing.commit()) return;
   lastError.value = null;
   await exportApi.print();
 }
 async function exportAs(format: string): Promise<void> {
+  if (loading.value || importing.value) return;
+  if (editing.active.value && !await editing.commit()) return;
   lastError.value = null;
   await exportApi.exportAs(format);
 }
 function openPdfWindow(): void {
+  if (loading.value || importing.value || editing.active.value) {
+    exportNotice.value = { kind: "warning", message: resolvedMessages.value.editingHint ?? "请先确认单元格修改" };
+    return;
+  }
   lastError.value = null;
   exportApi.openPdfWindow();
 }
@@ -467,10 +519,72 @@ async function setParams(values: Record<string, string>, opts: { reload?: boolea
 }
 
 const controller: MachReportController = {
-  reload, print, exportAs, openPdfWindow, gotoPage, setParams, checkPdfFont,
+  reload, print, exportAs, openPdfWindow, gotoPage, setParams, checkPdfFont, importExcel, getPlan,
+  getChanges: editing.getChanges,
   get state() { return state.value; }
 };
 provide(MACH_REPORT_CONTROLLER_KEY, controller);
+
+function getPlan(): RenderPlan | null {
+  return plan.value ? structuredClone(plan.value) : null;
+}
+
+/** Import is an explicit local replacement; business mapping/storage remains in the host. */
+async function importExcel(input: ArrayBuffer | Uint8Array | Blob, options?: ExcelImportOptions): Promise<ExcelImportResult | null> {
+  if (destroyed) throw new MachReportError("config", "报表预览已卸载");
+  const seq = ++reloadSeq;
+  loadController?.abort();
+  loadController = null;
+  loading.value = false;
+  editing.cancel();
+  exportApi.invalidatePending();
+  importing.value = true;
+  lastError.value = null;
+  exportNotice.value = { kind: "progress", message: resolvedMessages.value.importing ?? "正在导入 Excel…" };
+  try {
+    const { importExcelTemplate } = await import("@agile-team/mach-report/xlsx");
+    if (seq !== reloadSeq) return null;
+    const defaults = typeof effectiveExcelImport.value === "object" ? effectiveExcelImport.value : {};
+    const result = await importExcelTemplate(input, { ...defaults, ...options, limits: { ...defaults.limits, ...options?.limits } });
+    if (seq !== reloadSeq) return null;
+    const next = paginateTemplate(structuredClone(result.template), {}).plan;
+    const check = validateRenderPlan(next);
+    if (!check.ok) throw new Error(check.errors.map((error) => error.message).slice(0, 3).join("; "));
+    for (const message of result.warnings) {
+      if (seq !== reloadSeq) return null;
+      emit("warning", message);
+    }
+    if (seq !== reloadSeq) return null;
+    editing.reset();
+    releasePrintFrame();
+    search.reset();
+    plan.value = next;
+    currentPage.value = 1;
+    errorMessage.value = "";
+    exportNotice.value = result.warnings.length ? { kind: "warning", message: result.warnings.join("；") } : null;
+    if (viewportRef.value) { viewportRef.value.scrollTop = 0; viewportRef.value.scrollLeft = 0; }
+    zoomMemoryKey = wideReport.value ? WIDE_UI_MEMORY_KEY : UI_MEMORY_KEY;
+    loadZoomMemory();
+    emit("template-import", result);
+    if (seq === reloadSeq) emit("loaded", next.pages.length);
+    return result;
+  } catch (cause) {
+    if (seq !== reloadSeq) return null;
+    const error = new MachReportError("import", cause instanceof Error ? cause.message : "Excel 模板导入失败", cause);
+    exportNotice.value = { kind: "error", message: error.message };
+    reportError(error.message, "import", cause);
+    throw error;
+  } finally {
+    if (seq === reloadSeq) importing.value = false;
+  }
+}
+
+function onImportFile(event: Event): void {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (file) void importExcel(file).catch(() => { /* The import API already emits the structured error. */ });
+}
 
 // ── 交互：Ctrl+滚轮缩放 / 键盘翻页与缩放 / Ctrl+F 搜索 ──
 const search = useReportSearch({
@@ -488,6 +602,7 @@ function onWheel(e: WheelEvent): void {
 }
 
 function onKeydown(e: KeyboardEvent): void {
+  if (e.target instanceof Element && e.target.closest("input,textarea,select,[contenteditable='true']")) return;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
     e.preventDefault();
     if (!search.visible.value) search.toggle();
@@ -537,6 +652,7 @@ watch([zoomMode, zoom], persistZoom);
 
 /** 窗口内页 → DOM（holder 首次出现时挂载，页面级懒渲染）+ 搜索高亮 */
 let lastFocusedMatch = "";
+const renderedPages = new WeakMap<HTMLElement, PlanPage>();
 function revealSearchMatch(force = false): void {
   const activeMatch = search.activeMatch.value;
   if (!wideReport.value || !activeMatch) return;
@@ -563,7 +679,7 @@ watchEffect(() => {
   holders.forEach((holder) => {
     const index = Number(holder.dataset.page ?? 0) - 1;
     const page = current.pages[index];
-    if (!page || holder.childElementCount > 0) {
+    if (!page || (holder.childElementCount > 0 && renderedPages.get(holder) === page)) {
       // 已挂载页：查询变化时先清旧高亮再套新查询（避免"钢"→"钢板"嵌套残留）
       if (holder.firstElementChild) {
         const el = holder.firstElementChild as HTMLElement;
@@ -575,7 +691,8 @@ watchEffect(() => {
     holder.style.width = `${page.pageWidthMm * PX_PER_MM}px`;
     const pageEl = renderPageToDom(page, 96, {}, document);
     search.apply(pageEl);
-    holder.appendChild(pageEl);
+    holder.replaceChildren(pageEl);
+    renderedPages.set(holder, page);
   });
   revealSearchMatch();
 }, { flush: "post" });
@@ -651,6 +768,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   destroyed = true;
+  editing.reset();
+  importing.value = false;
   cancelFontCheck();
   reloadSeq++; // 卸载后未完成请求的成功/失败回调均失效
   loadController?.abort();
@@ -682,7 +801,7 @@ watch(
   }
 );
 
-defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, checkPdfFont, state });
+defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, checkPdfFont, importExcel, getPlan, getChanges: editing.getChanges, state });
 </script>
 
 <template>
@@ -707,6 +826,8 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, chec
       :messages="resolvedMessages"
       :search="{ visible: search.visible.value, query: search.query.value, matchIndex: search.matchIndex.value, matchCount: search.matchCount.value, searching: search.searching.value }"
       :thumbs-visible="showThumbs"
+      :show-import="!!effectiveExcelImport"
+      :busy="loading || importing || editing.saving.value"
       @goto="gotoPage"
       @zoom="setZoom"
       @export="(f) => exportAs(f)"
@@ -716,7 +837,10 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, chec
       @search-nav="search.onNav"
       @search-toggle="search.toggle"
       @thumbs-toggle="showThumbs = !showThumbs"
+      @import-excel="importInputRef?.click()"
     />
+    <input v-if="effectiveExcelImport" ref="importInputRef" class="mrp-import-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden @change="onImportFile" />
+    <div v-if="effectiveEditable && pageCount > 0" class="mrp-edit-hint" role="status">{{ editing.saving.value ? resolvedMessages.saving : resolvedMessages.editingHint }}</div>
     <div v-if="exportNotice" class="mrp-export-notice" :class="`mrp-export-${exportNotice.kind}`" role="alert">
       {{ exportNotice.message }}
     </div>
@@ -731,6 +855,7 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, chec
         tabindex="0"
         @wheel="onWheel"
         @keydown="onKeydown"
+        @dblclick="editing.onDoubleClick"
         @scroll.passive="onViewportScroll($event.target as HTMLElement)"
       >
         <div v-if="loading" class="mrp-state">{{ resolvedMessages.loading }}</div>
@@ -850,6 +975,7 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, chec
   font-size: 13px;
 }
 .mrp-error { color: #ff9d9d; }
+.mrp-edit-hint { padding: 5px 12px; font-size: 12px; color: var(--mrp-shell-fg); }
 .mrp-export-notice { padding: 7px 12px; font-size: 12px; background: #fff0c2; color: #613c00; }
 .mrp-export-error { background: #ffe0df; color: #8e1f1f; }
 .mrp-export-progress { background: #e7f0ff; color: #1a4d86; }

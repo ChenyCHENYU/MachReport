@@ -17,7 +17,7 @@ MachReport 支持生成真正的 `.xlsx` 工作簿。入口是 `@agile-team/mach
 | 打印配置 | 普通页 auto 识别 A3/A4/A5；wide 默认不强制纸型，可显式 paperSize | 纸型仅影响打印；不是 PDF 坐标复刻 |
 | 运行环境 | 浏览器、Node.js | 整本工作簿在内存中生成，暂无流式输出或取消接口 |
 
-没有 Excel 模板导入、在线工作簿编辑器、透视表或公式计算 API。主入口不加载 ExcelJS；实现与类型随 `/xlsx` 子入口发布。公开 `workbook` 保留 ExcelJS API，Node 类型依赖用于其 stream 签名。
+`/xlsx` 同时提供 `importExcelTemplate()`，可将 `.xlsx` 的多工作表、合并、尺寸、基础样式与已有内容转换为可复用模板，详见[Excel 模板导入](./EXCEL_IMPORT.md)。预览可按需开启[单元格编辑](./CELL_EDITING.md)；完整工作簿编辑器、透视表交互和公式计算不在当前 API 范围。主入口不加载 ExcelJS；实现与类型随 `/xlsx` 子入口发布。公开 `workbook` 保留 ExcelJS API，Node 类型依赖用于其 stream 签名。
 
 ## Node.js 最小示例
 

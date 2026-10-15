@@ -31,6 +31,10 @@ export interface ListColumn {
   format?: ColumnFormat;
   /** 条件格式规则（声明式，命中合并进单元格样式；如负数红字） */
   rules?: StyleRule[];
+  /** 内容列编辑控制；仍需由预览显式开启 editing，不影响表头/小计只读规则。 */
+  editable?: boolean;
+  /** 空值列或特殊数据类型可显式声明编辑输入类型。 */
+  valueType?: GridCell["valueType"];
 }
 
 /** 分组小计配置（声明式，见 ListComponent.groupBy） */
@@ -324,6 +328,14 @@ interface ListInterningWithFloor extends ListInterning {
   rowHeightFloorMm: number;
 }
 
+function applyCellEditMetadata(cell: GridCell, column: ListColumn, numberFormat: string | undefined): void {
+  const numeric = column.format?.kind === "number" || column.format?.kind === "percent";
+  if (column.valueType !== undefined) cell.valueType = column.valueType;
+  else if (numeric) cell.valueType = "number";
+  if (column.editable !== undefined) cell.editable = column.editable;
+  if ((typeof cell.value === "number" || cell.value == null) && numberFormat !== undefined) cell.numberFormat = numberFormat;
+}
+
 /** 单行 → 网格；最终样式先确定，折行与行高使用同一字号/加粗/行距。 */
 function buildRowGridFast(
   inter: ListInterningWithFloor,
@@ -356,7 +368,7 @@ function buildRowGridFast(
     const value = rawCellValue(rawValue);
     const cell: GridCell = { text, style };
     if (value !== undefined) cell.value = value;
-    if (typeof value === "number" && inter.numberFormats[i] !== undefined) cell.numberFormat = inter.numberFormats[i];
+    applyCellEditMetadata(cell, col, inter.numberFormats[i]);
     cells[i] = cell;
   }
   return {

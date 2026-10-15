@@ -1,5 +1,5 @@
 import { createApp, h, ref, computed, watch } from "vue";
-import { ReportPreview, createTableTemplate, defineMachReportConfig, machReportPlugin, useMachReport, type DatasetRows, type ReportParamDef, type ReportTemplate } from "@agile-team/mach-report/vue";
+import { ReportPreview, createTableTemplate, defineMachReportConfig, machReportPlugin, useMachReport, type DatasetRows, type ReportParamDef, type ReportTemplate, type RenderPlan } from "@agile-team/mach-report/vue";
 import { renderDynamicSql } from "@agile-team/mach-report/sql";
 
 type DemoReportEntry = { template: ReportTemplate; datasets: DatasetRows };
@@ -8,11 +8,11 @@ let cachedTemplateRef: DemoReportEntry | null = null;
 let pagerRef: { destroy(): void; window(): { start: number; end: number } } | null = null;
 const demoFontUrl = "/fonts/mach-report-demo.otf";
 
-async function showCanvas(): Promise<void> {
+async function showCanvas(snapshot?: RenderPlan | null): Promise<void> {
   const entry = cachedTemplateRef;
   if (!entry) return;
   const { renderPlanToCanvas, paginateTemplate } = await import("@agile-team/mach-report");
-  const { plan } = paginateTemplate(entry.template, entry.datasets);
+  const plan = snapshot ?? paginateTemplate(entry.template, entry.datasets).plan;
   const { canvases } = renderPlanToCanvas(plan, { dpr: 1 });
   const overlay = ensureOverlay();
   renderOverlayPages(overlay, canvases, "Canvas 位图渲染", "done");
@@ -49,11 +49,11 @@ async function showCanvasCalibration(): Promise<void> {
  * 窗口化 Canvas 分页器演示：96 行多页报表只按视口渲染（画布池 + 分帧），
  * 内存 O(窗口) 而非 O(总页数)——大报表（百页级）Canvas 渲染的正确姿势。
  */
-async function showCanvasPager(): Promise<void> {
+async function showCanvasPager(snapshot?: RenderPlan | null): Promise<void> {
   const entry = cachedTemplateRef;
   if (!entry) return;
   const { createCanvasPager, paginateTemplate } = await import("@agile-team/mach-report");
-  const { plan } = paginateTemplate(entry.template, entry.datasets);
+  const plan = snapshot ?? paginateTemplate(entry.template, entry.datasets).plan;
   pagerRef?.destroy();
   let overlay = document.getElementById("canvas-overlay");
   if (!overlay) {
@@ -256,6 +256,7 @@ const sqlDemo = renderDynamicSql(
 const app = createApp({
   setup() {
     const report = useMachReport();
+    const editable = ref(false);
     const pick = (id: string) => {
       currentReport.value = id;
     };
@@ -268,12 +269,18 @@ const app = createApp({
           h("button", { onClick: () => pick("combined") }, "多模板拼接（出库单+工艺卡）"),
           h("button", { onClick: () => pick("standard") }, "标准明细（自动布局）"),
           h("button", { onClick: () => void report.exportAs("pdf"), disabled: !report.state.canExport }, "导出 PDF（前端直出）"),
-          h("button", { onClick: () => void showCanvas() }, "Canvas 位图渲染"),
+          h("label", { style: "display:block;margin:12px 0;font-size:13px" }, [
+            h("input", { type: "checkbox", checked: editable.value, onChange: (event: Event) => { editable.value = (event.target as HTMLInputElement).checked; } }),
+            " 开启单元格编辑（本地草稿）"
+          ]),
+          h("button", { onClick: () => void showCanvas(report.getPlan()) }, "Canvas 位图渲染"),
           h("button", { onClick: () => void showCanvasCalibration() }, "Canvas 校准渲染"),
-          h("button", { onClick: () => void showCanvasPager() }, "Canvas 窗口化（大报表）"),
+          h("button", { onClick: () => void showCanvasPager(report.getPlan()) }, "Canvas 窗口化（大报表）"),
           h("div", { class: "info" }, [
             h("div", { class: "report-status", role: "status", "aria-live": "polite" },
               report.state.loading ? "加载中…" : `共 ${report.state.pageCount} 页`),
+            h("div", null, "可从工具栏导入 .xlsx，直接预览工作表；勾选上方开关后双击数据格编辑。示例修改仅保存在当前预览。"),
+            report.state.dirty ? h("div", null, "当前报表已有修改，导出包含修改后的值。") : null,
             h("div", null, `sql-engine 演示渲染结果：`),
             h("div", { style: "word-break:break-all" }, sqlDemo.sql)
           ])
@@ -283,6 +290,8 @@ const app = createApp({
           h(ReportPreview, {
             ref: report.ref,
             reportId: reportIds.value,
+            editable: editable.value,
+            excelImport: true,
             height: "100vh"
           })
         ])

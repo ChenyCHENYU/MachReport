@@ -131,6 +131,8 @@ function renderGridCell(
   const cell = box.cell;
   const cellEl = doc.createElement("td");
   cellEl.className = classOf("cell", options);
+  cellEl.dataset.mrRowIndex = String(box.ri);
+  cellEl.dataset.mrColumnIndex = String(box.ci);
   cellEl.setAttribute("role", comp.table?.role === "header" ? "columnheader" : "cell");
   if (cell.colSpan) cellEl.colSpan = cell.colSpan;
   if (cell.rowSpan) cellEl.rowSpan = cell.rowSpan;
@@ -415,9 +417,11 @@ export function renderPage(
     .add("overflow", "hidden")
     .add("box-sizing", "border-box")
     .applyTo(el);
-  for (const comp of page.components) {
-    el.appendChild(renderComponent(comp, dpi, options, doc));
-  }
+  page.components.forEach((comp, componentIndex) => {
+    const element = renderComponent(comp, dpi, options, doc);
+    element.dataset.mrComponentIndex = String(componentIndex);
+    el.appendChild(element);
+  });
   return el;
 }
 

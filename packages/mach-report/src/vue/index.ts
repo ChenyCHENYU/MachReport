@@ -11,6 +11,7 @@ export * from "./config";
 export * from "./pdf-exporter";
 export * from "./errors";
 export * from "./controller";
+export * from "./editing";
 export * from "./composables/usePageWindow";
 export * from "./composables/useZoom";
 export * from "./composables/usePrintExport";

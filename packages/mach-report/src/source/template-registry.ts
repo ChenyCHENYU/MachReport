@@ -1,6 +1,7 @@
 import type { ReportTemplate } from "../layout/paginate";
 import { RENDER_PLAN_SCHEMA_VERSION } from "../schema/render-plan";
 import { validateComponent, type ValidationError, type ValidationResult } from "../schema/validate";
+import { validateEditableMetadata } from "../schema/cell-edit-validation";
 
 /** 模板存储文档版本；与渲染计划版本独立演进。 */
 export const REPORT_TEMPLATE_DOCUMENT_VERSION = "1.0" as const;
@@ -216,6 +217,7 @@ function validateListColumns(columns: unknown, path: string, errors: ValidationE
   columns.forEach((column, index) => {
     const here = `${path}.${index}`;
     if (!isObject(column)) { errors.push({ path: here, message: "列应为对象" }); return; }
+    validateEditableMetadata(column, here, errors);
     if (typeof column.header !== "string") errors.push({ path: `${here}.header`, message: "表头应为字符串（允许空白表头）" });
     stringField(column, "field", here, errors, true);
     numberField(column, "widthMm", here, errors, Number.MIN_VALUE, true);

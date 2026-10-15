@@ -4,6 +4,7 @@ import type { RenderPlan } from "../schema/render-plan";
 import type { ComponentStyle, GridCell, PlanComponent, PlanPage } from "../schema/render-plan";
 import { resolveGridLayout, type GridLayout } from "../render/grid-geometry";
 import { mergeComponentStyles, resolveFontSize } from "../render/style";
+import { mmToExcelColumnWidth } from "./column-width";
 
 /**
  * RenderPlan → xlsx 导出（B 端第二出口，对齐家族 @agile-team/mach-table-xlsx 路线）：
@@ -32,8 +33,6 @@ export interface XlsxRenderResult {
 }
 
 const MM_TO_PT = 72 / 25.4;
-/** Excel 列宽单位 ≈ 7px（Calibri 11）；96dpi 下 mm→px 再除 7 */
-const MM_TO_COL_WIDTH = (96 / 25.4) / 7;
 const MAX_CELL_CHARACTERS = 32_767;
 const MAX_CELL_LINE_FEEDS = 253;
 
@@ -320,7 +319,7 @@ interface SheetWriter {
 function configureGridDimensions(writer: SheetWriter, layout: GridLayout, cursorRow: number): void {
   for (const [index, column] of layout.columns.entries()) {
     const target = writer.sheet.getColumn(index + 1);
-    const width = writer.limits.column(column.size * MM_TO_COL_WIDTH);
+    const width = writer.limits.column(mmToExcelColumnWidth(column.size));
     if (target.width == null || target.width < width) target.width = width;
   }
   // 行高属于网格几何，不能仅遍历可见单元格；被 rowSpan 覆盖的行也必须写入。
@@ -383,7 +382,7 @@ function freezeHeader(sheet: ExcelJS.Worksheet, cursorRow: number, rowCount: num
 
 function writeSheet(writer: SheetWriter, contents: SheetContents, continuous: boolean): void {
   if (!contents.grids.size && contents.textWidthMm > 0) {
-    writer.sheet.getColumn(1).width = writer.limits.column(contents.textWidthMm * MM_TO_COL_WIDTH);
+    writer.sheet.getColumn(1).width = writer.limits.column(mmToExcelColumnWidth(contents.textWidthMm));
   }
   let cursorRow = 1;
   let headerWritten = false;

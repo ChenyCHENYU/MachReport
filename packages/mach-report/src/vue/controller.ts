@@ -3,6 +3,8 @@ import { MACH_REPORT_CONTROLLER_KEY } from "./injection-keys";
 import { MachReportError } from "./errors";
 import type { MachReportErrorCode } from "./errors";
 import type { PdfFontCheckResult } from "./pdf-exporter";
+import type { RenderPlan, ReportCellEdit } from "@agile-team/mach-report";
+import type { ExcelImportOptions, ExcelImportResult } from "../xlsx/import-types";
 
 export interface MachReportStateError {
   message: string;
@@ -23,6 +25,10 @@ export interface MachReportState {
   readonly canPrint: boolean;
   readonly error: Readonly<MachReportStateError> | null;
   readonly pdfFont: Readonly<PdfFontCheckResult>;
+  readonly editing?: boolean;
+  readonly saving?: boolean;
+  readonly importing?: boolean;
+  readonly dirty?: boolean;
 }
 
 const EMPTY_STATE: MachReportState = Object.freeze({
@@ -47,6 +53,11 @@ export interface MachReportController {
   gotoPage(page: number): void;
   /** 编程式设置参数并查询（合并进面板值；opts.reload=false 仅设值不重载） */
   setParams(values: Record<string, string>, opts?: { reload?: boolean }): Promise<void> | void;
+  /** Explicit import does not require the toolbar excelImport option. No host APIs are called. */
+  importExcel?(input: ArrayBuffer | Uint8Array | Blob, options?: ExcelImportOptions): Promise<ExcelImportResult | null>;
+  /** Copies prevent consumers from mutating the preview's current snapshot. */
+  getPlan?(): RenderPlan | null;
+  getChanges?(): ReportCellEdit[];
 }
 
 /** 父组件使用的稳定句柄；ref 回调直接绑定到预览组件。 */
@@ -57,6 +68,9 @@ export interface MachReportHandle extends MachReportController {
   checkPdfFont(): Promise<PdfFontCheckResult>;
   exportAs(format: string): Promise<void>;
   setParams(values: Record<string, string>, opts?: { reload?: boolean }): Promise<void>;
+  importExcel(input: ArrayBuffer | Uint8Array | Blob, options?: ExcelImportOptions): Promise<ExcelImportResult | null>;
+  getPlan(): RenderPlan | null;
+  getChanges(): ReportCellEdit[];
 }
 
 /**
@@ -78,7 +92,11 @@ export function useMachReport(): MachReportHandle {
     get canExport() { return currentState().canExport; },
     get canPrint() { return currentState().canPrint; },
     get error() { return currentState().error; },
-    get pdfFont() { return currentState().pdfFont; }
+    get pdfFont() { return currentState().pdfFont; },
+    get editing() { return currentState().editing ?? false; },
+    get saving() { return currentState().saving ?? false; },
+    get importing() { return currentState().importing ?? false; },
+    get dirty() { return currentState().dirty ?? false; }
   });
   function getController(): MachReportController {
     if (!instance.value) {
@@ -113,6 +131,17 @@ export function useMachReport(): MachReportHandle {
     gotoPage(page: number): void { getController().gotoPage(page); },
     async setParams(values: Record<string, string>, opts?: { reload?: boolean }): Promise<void> {
       await getController().setParams(values, opts);
+    },
+    async importExcel(input, options): Promise<ExcelImportResult | null> {
+      const controller = getController();
+      if (!controller.importExcel) throw new MachReportError("config", "旧自定义控制器未提供 Excel 导入");
+      return controller.importExcel(input, options);
+    },
+    getPlan(): RenderPlan | null {
+      return getController().getPlan?.() ?? null;
+    },
+    getChanges(): ReportCellEdit[] {
+      return getController().getChanges?.() ?? [];
     }
   };
 }

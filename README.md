@@ -4,11 +4,11 @@
 
 <p align="center">
   <strong>面向业务宽表、明细台账与标准打印的 TypeScript 报表引擎</strong><br />
-  完整列宽预览 · 连续 Excel · A3 / A4 选配 · 框架无关内核
+  完整列宽预览 · Excel 模板导入 · 可选单元格编辑 · A3 / A4 选配
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.3.2-2563eb" alt="Source version 2.3.2" />
+  <img src="https://img.shields.io/badge/source-2.4.0-2563eb" alt="Source version 2.4.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -20,6 +20,7 @@
   <a href="#60-秒开始"><strong>快速开始</strong></a> ·
   <a href="#完整宽表与标准纸张"><strong>完整宽表</strong></a> ·
   <a href="#excel-报表能力与边界"><strong>Excel 能力</strong></a> ·
+  <a href="#单元格编辑">单元格编辑</a> ·
   <a href="#对齐与可读性">对齐配置</a> ·
   <a href="#模板配置与管理扩展">模板管理</a> ·
   <a href="#接入项目数据">数据接入</a> ·
@@ -42,6 +43,8 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 明细与汇总 | 自动折行与分页、重复表头、连续分组小计、末尾总计、页码占位符 |
 | 数据呈现 | 表头与内容独立对齐、类型自动对齐、数值 / 百分比 / 日期格式化、条件格式 |
 | 预览交互 | 正文与缩略图双窗口渲染、缩放与适宽、可取消分片搜索、参数面板 |
+| 内容编辑 | 默认只读，按需开启双击编辑；类型校验、异步保存、失败保留原值与输出同步 |
+| Excel 导入 | 多 Sheet、完整宽表、合并单元格、基础样式与缓存公式值转换为可复用模板 |
 | 模板配置 | 版本化 JSON 文档、导入导出校验、模板目录、异步加载与取消 |
 | 输出 | 浏览器打印、HTML、PDF、真正的 `.xlsx`、逐页 PNG、Word 兼容 HTML `.doc` |
 | 工程接入 | 局部组件、全局插件、异步入口、分层配置、结构化错误与导出告警 |
@@ -186,11 +189,42 @@ await writeFile("report.xlsx", new Uint8Array(buffer));
 | 数字格式 | `raw` 模式沿用小数位、千分位和百分比格式，不猜测文本编号的类型 |
 | 非表格内容 | 图片、条码、二维码、图表、嵌套组件和无文本回退的富文本等暂不导出，跳过时返回 `warnings` |
 | 版式与打印 | 普通页面自动识别 A3 / A4 / A5；宽表默认不强制纸型，可选 paperSize，工作表列宽保持完整 |
-| Excel 编辑工作流 | 尚无 `.xlsx` 模板导入、交互式工作簿编辑、公式计算或透视表 API |
+| Excel 模板导入 | `.xlsx` 转普通模板，多 Sheet、合并、尺寸、基础样式与原始值；默认完整宽表 |
+| 内容修改 | 预览按需双击编辑；公式格只读且不重算，工作簿编辑器与透视表交互不在当前范围 |
 
 列表自动保留原始值，Vue 可在配置中一次启用 `xlsx: { valueMode: "raw" }`；旧计划没有原始值时继续导出显示文本。连续导出使用包内记录的逻辑行与列身份，不按文字猜测重复表头；多报表保持独立 Sheet。显式 continuous 要求可识别的列表结构，不支持的布局会报错。日期对象、公式和自由布局仍需业务明确处理。Excel 不做 PDF 坐标复刻；可使用返回的 ExcelJS `workbook` 继续处理并重新序列化。
 
 完整示例、类型保留策略和注意事项见 [Excel 导出指南](./docs/EXCEL.md)。
+
+### 导入 Excel，直接生成报表
+
+Vue 组件默认关闭导入入口，增加一个配置即可选择本机文件：
+
+```vue
+<MachReportPreview report-id="production" excel-import />
+```
+
+独立引擎或 Node.js 使用同一转换 API：
+
+```ts
+import { importExcelTemplate } from "@agile-team/mach-report/xlsx";
+import { paginateTemplate } from "@agile-team/mach-report";
+
+const { template, warnings } = await importExcelTemplate(file);
+const { plan } = paginateTemplate(template, {});
+```
+
+默认导入全部可见 Sheet，以自然列宽生成 wide 报表，也支持 `layout: "a3" / "a4"`、选择 Sheet 和范围。保留已有内容，公式使用 Excel 保存的缓存结果并保持只读；不会执行公式或推断后端字段。未支持内容通过告警报告。资源预算和接入细节见 [Excel 模板导入](./docs/EXCEL_IMPORT.md)。
+
+## 单元格编辑
+
+报表默认只读。需要修改时开启 `editable`，双击单元格输入，Enter 提交，Esc 取消；打印与导出使用同一份更新后的计划。
+
+```vue
+<MachReportPreview report-id="production" editable />
+```
+
+本地修改不会写入后台。需要校验、持久化和封月权限时，将 `editable` 改为 `{ canEdit, validate, save }`；包内等待保存成功后再更新，失败保留原值，过期保存不会覆盖新报表。文本编号保持字符串、数值 0 保持数字；表头、汇总和公式默认只读。详细配置与框架无关 API 见 [单元格编辑](./docs/CELL_EDITING.md)。
 
 ## 对齐与可读性
 
@@ -399,7 +433,8 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 | 目标 | 入口 |
 | --- | --- |
 | 接入与 API | [API 速查](./docs/API.md)：数据模型、模板、Vue 属性 / 事件、配置与导出 |
-| Excel | [导出指南](./docs/EXCEL.md)：能力边界、Node 示例与原始数据类型 |
+| Excel | [导出指南](./docs/EXCEL.md)与[模板导入](./docs/EXCEL_IMPORT.md)：原始类型、宽表与工作簿转换 |
+| 单元格编辑 | [编辑指南](./docs/CELL_EDITING.md)：开关、类型、权限校验、异步保存与输出同步 |
 | 模板管理 | [扩展指南](./docs/TEMPLATE_MANAGEMENT.md)：JSON 文档、目录、动态版本与后台接入 |
 | PDF | [字体与导出指南](./docs/PDF.md)：首次诊断、字库部署、缺字与缓存 |
 | 本地报表 | [最小示例](./examples/minimal)：出库单、工艺卡、多页与多模板预览 |
@@ -413,7 +448,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.3.2`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.4.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

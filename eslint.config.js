@@ -44,7 +44,7 @@ export default tseslint.config(
     files: [
       "packages/mach-report/src/index.ts",
       "packages/mach-report/src/{defaults,units,pdf,sql}.ts",
-      "packages/mach-report/src/{layout,render,schema,builder,source}/**/*.ts"
+      "packages/mach-report/src/{layout,render,schema,builder,source,editing}/**/*.ts"
     ],
     rules: {
       "no-restricted-imports": [

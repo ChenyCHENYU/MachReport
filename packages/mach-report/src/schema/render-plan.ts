@@ -57,6 +57,12 @@ export interface GridCell {
   value?: string | number | boolean | null;
   /** Excel 数字格式（例如 #,##0.00 / 0.00%），不改变 text。 */
   numberFormat?: string;
+  /** 编辑输入类型；省略时只按原始值推断，数字字符串不会被转换为数值。 */
+  valueType?: "text" | "number" | "boolean";
+  /** 单元格级编辑控制；预览仍需显式开启 editing。 */
+  editable?: boolean;
+  /** Excel 公式保留元数据；当前引擎不计算公式，公式格始终只读。 */
+  formula?: string;
   children?: PlanComponent[];
   colSpan?: number;
   rowSpan?: number;

@@ -68,7 +68,7 @@ describe("连续完整 Excel 宽表", () => {
     const headers: number[] = [];
     sheet.eachRow((row) => { if (row.getCell(1).value === "指标1") headers.push(row.number); });
     expect(headers).toEqual([2]);
-    expect(sheet.getColumn(82).width).toBeCloseTo(24 * (96 / 25.4) / 7, 5);
+    expect(sheet.getColumn(82).width).toBeCloseTo((24 * (96 / 25.4) - 5) / 7, 5);
     expect(sheet.pageSetup.paperSize).toBeUndefined();
     expect(sheet.pageSetup.fitToPage).toBe(false);
     expect(sheet.views[0]).toMatchObject({ state: "frozen", ySplit: 2, xSplit: 0 });

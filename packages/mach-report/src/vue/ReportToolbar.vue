@@ -19,6 +19,8 @@ const props = defineProps<{
   messages: MachReportMessages;
   search: { visible: boolean; query: string; matchIndex: number; matchCount: number; searching?: boolean };
   thumbsVisible: boolean;
+  showImport?: boolean;
+  busy?: boolean;
 }>();
 
 defineEmits<{
@@ -31,6 +33,7 @@ defineEmits<{
   (e: "search-nav", dir: 1 | -1): void;
   (e: "search-toggle"): void;
   (e: "thumbs-toggle"): void;
+  (e: "import-excel"): void;
 }>();
 
 const searchInputRef = ref<HTMLInputElement | null>(null);
@@ -71,6 +74,7 @@ function pageInfo(text: string, cur: number, total: number): string {
 </button>
     </template>
     <span class="mrp-spacer" />
+    <button v-if="showImport" class="mrp-nav mrp-import-excel" type="button" :disabled="busy" @click="$emit('import-excel')">{{ messages.importExcel ?? "导入 Excel 模板" }}</button>
     <div v-if="search.visible" class="mrp-search">
       <input
         ref="searchInputRef"
@@ -146,6 +150,7 @@ function pageInfo(text: string, cur: number, total: number): string {
       v-if="showExport"
       class="mrp-nav"
       type="button"
+      :disabled="busy"
       @click="$emit('export', 'html')"
     >
 {{ messages.exportHtml }}
@@ -154,6 +159,7 @@ function pageInfo(text: string, cur: number, total: number): string {
       v-if="showExport"
       class="mrp-nav"
       type="button"
+      :disabled="busy"
       @click="$emit('export', 'pdf')"
     >
 {{ messages.exportPdf }}
@@ -162,6 +168,7 @@ function pageInfo(text: string, cur: number, total: number): string {
       v-if="showExport"
       class="mrp-nav"
       type="button"
+      :disabled="busy"
       @click="$emit('export', 'xlsx')"
     >
 {{ messages.exportExcel }}
@@ -170,6 +177,7 @@ function pageInfo(text: string, cur: number, total: number): string {
       v-if="showExport"
       class="mrp-nav"
       type="button"
+      :disabled="busy"
       @click="$emit('export', 'png')"
     >
 {{ messages.exportImage }}
@@ -178,12 +186,13 @@ function pageInfo(text: string, cur: number, total: number): string {
       v-if="showExport"
       class="mrp-nav"
       type="button"
+      :disabled="busy"
       @click="$emit('export', 'word')"
     >
 {{ messages.exportWord }}
 </button>
-    <button v-if="showPrint" class="mrp-nav" type="button" @click="$emit('print')">{{ messages.print }}</button>
-    <button v-if="showPdfWindow" class="mrp-nav" type="button" @click="$emit('pdf-window')">{{ messages.pdfWindow }}</button>
+    <button v-if="showPrint" class="mrp-nav" type="button" :disabled="busy" @click="$emit('print')">{{ messages.print }}</button>
+    <button v-if="showPdfWindow" class="mrp-nav" type="button" :disabled="busy" @click="$emit('pdf-window')">{{ messages.pdfWindow }}</button>
   </div>
 </template>
 

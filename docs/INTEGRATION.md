@@ -140,6 +140,27 @@ async function exportExcel() {
 
 原组件 ref 和后代 `useReportPreview()` 继续可用。同一计划的 PDF、XLSX 和 PNG 重复操作共享正在执行的工作；不同输出格式的忙碌状态会正确协调。切换报表和卸载后，过期任务不再触发下载、错误或告警；正在生成的空 PDF 窗口和打印 iframe 会清理。
 
+## 可选编辑与 Excel 模板导入
+
+默认接入保持只读。需要本地修改和导入文件时，页面只增加两个开关：
+
+```vue
+<MachReportPreview
+  :ref="report.ref"
+  report-id="production"
+  editable
+  excel-import
+  @cell-edit="onCellEdit"
+  @template-import="onTemplateImport"
+/>
+```
+
+双击编辑后，预览和各输出使用同一份新计划；导入 `.xlsx` 会把各 Sheet 的内容、合并、尺寸和基础样式转换为普通模板并替换当前预览。默认 wide 保持完整列宽，A3/A4 是选配。显式 `report.importExcel(file, options)` 可用于宿主已有的上传控件，不必显示包内按钮。
+
+业务持久化只需给 `editable` 提供 `{ canEdit, validate, save }`。包内先校验和保存，成功后更新计划，失败保留原值；保存函数应消费传入的 `signal`，并将逻辑表/字段身份映射到明确业务键。`getChanges()` 和 `getPlan()` 返回独立快照，可用于批量保存。具体配置见[单元格编辑](./CELL_EDITING.md)。
+
+导入不执行 Excel 公式、宏或外部链接，也不猜测模板与后端字段之间的关系。公式单元格使用缓存结果并保持只读，缺少缓存时空值告警。宿主继续负责模板版本、业务数据绑定、权限和审批；资源预算与转换边界见[Excel 模板导入](./EXCEL_IMPORT.md)。
+
 ## 不使用 Vue：同一数据源
 
 ```ts

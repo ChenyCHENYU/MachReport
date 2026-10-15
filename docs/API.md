@@ -209,14 +209,18 @@ fetcher 可选的 `getParamDefs(reportIds)` 方法提供参数元数据，新数
 | `height` / `autoLoad` | 容器高度 / 自动加载；手动模式在 ID、参数或数据源变化时也取消并清理旧结果 |
 | `showExport` / `showPrint` / `showPdfWindow` | 工具栏操作显隐 |
 | `gapPx` / `messages` / `preset` | 页间距、文案与配置预设 |
+| `editable` | 默认 false；true 为本地双击编辑，或 `{ canEdit, validate, save }` 配置业务权限、校验与保存 |
+| `excelImport` | 默认 false；true 显示 Excel 模板导入入口，或传 `ExcelImportOptions` 设置工作表、范围与版式 |
 
-组件事件：`loaded(pageCount)`、`error(message, { code, cause? })`、`warning(message)`。`error` 的 `code` 可为 `param`、`fetch`、`validate`、`render`、`pdf`、`print`、`export` 或 `config`。
+组件事件：`loaded(pageCount)`、`error(message, { code, cause? })`、`warning(message)`、`cell-edit(edit)`、`template-import(result)`。`error` 的 `code` 可为 `param`、`fetch`、`validate`、`render`、`pdf`、`print`、`export`、`edit`、`import` 或 `config`。
 
 组件 ref 方法：`reload()`、`print()`、`exportAs(format)`、`openPdfWindow()`、`gotoPage(page)`、`setParams(values, { reload? })`。`exportAs` 支持 `html`、`pdf`、`xlsx` / `excel`、`png` / `image`、`word` / `doc`；未知格式会报错。引擎级图片导出另支持 JPEG。
 
+编辑和导入增加 `getPlan(): RenderPlan | null`、`getChanges(): ReportCellEdit[]` 和 `importExcel(input, options?): Promise<ExcelImportResult | null>`。前两者返回独立快照；显式 `importExcel` 不要求打开工具栏入口，失败报告 `error` 并拒绝 Promise。成功导入替换当前预览，发出 `template-import`，不调用业务写接口。导入期间旧任务被隔离，应用仍决定是否持久化模板。详见[单元格编辑](./CELL_EDITING.md)和[Excel 模板导入](./EXCEL_IMPORT.md)。
+
 父页面推荐 `const report = useMachReport()`，模板绑定 `:ref="report.ref"`，控制方法直接从句柄调用。`ready` 是组件已挂载状态；`reload`、`print`、`exportAs`、`setParams` 可等待，但生成错误仍走 `error` 事件。PDF 窗口方法保持同步调用，保留点击事件的弹窗权限。
 
-句柄 `state` 为只读响应式对象，字段包括 `loading`、`hasPlan`、`pageCount`、`currentPage`、`exporting`（显示名称或 `null`）、`printing`、`canExport`、`canPrint`、`error` 和 `pdfFont`。`const { state } = report` 保持响应性，在模板或 `computed` 中读字段即可；无需 `.value`。`error` 含 `code`、`message`、可选 `cause`，新操作清空。原组件 ref / 后代控制器也提供状态；为兼容旧自定义控制器，`MachReportController.state` 与 `checkPdfFont` 可选，而新句柄始终提供两者。
+句柄 `state` 为只读响应式对象，字段包括 `loading`、`hasPlan`、`pageCount`、`currentPage`、`exporting`（显示名称或 `null`）、`printing`、`canExport`、`canPrint`、`error`、`pdfFont`，以及 `editing`、`saving`、`importing`、`dirty`。`dirty` 表示本次计划有成功修改，不表示后台是否已保存。`const { state } = report` 保持响应性，在模板或 `computed` 中读字段即可；无需 `.value`。`error` 含 `code`、`message`、可选 `cause`，新操作清空。旧自定义控制器可不提供新增字段和方法，新句柄为缺失状态提供 false 回退。
 
 `checkPdfFont(): Promise<PdfFontCheckResult>` 用于主动诊断 / 重试；取消时拒绝 `AbortError`。字体状态为 `unchecked`、`checking`、`available`、`disabled`、`unverified` 或 `error`，含 `fontUrl` 和可选 `message` / `cause`。组件有有效页面且 PDF 操作显示时自动检查，诊断错误不触发普通 `error` 事件。详细状态语义、轻量检查与部署见 [PDF 字体指南](./PDF.md)。
 
@@ -230,6 +234,8 @@ const config = defineMachReportConfig({
     gapPx: 18,
     pdfFontUrl: "/fonts/NotoSansSC-Regular.ttf",
     showParams: true,
+    editable: false,
+    excelImport: false,
     preview: { overscanPages: 1, searchDebounceMs: 200 },
     xlsx: { valueMode: "raw", paperSize: "auto" },
     messages: { title: "订单报表" }
@@ -244,15 +250,17 @@ app.use(machReportPlugin, { fetcher, config });
 
 优先级：组件属性 > 路由级 `provideMachReportConfig(overlay)` > preset > 应用 defaults > 内置缺省。中文 PDF 使用前请部署支持所需字符的字体，并设置 `pdfFontUrl`。缺字或 PDF 页面渲染错误会阻止下载残缺文件。
 
+`editable` 和 `excelImport` 也可在 defaults / preset / 路由叠加中配置，默认均为 false。组件可用显式 false 覆盖上层启用状态；配置对象分别对应 `ReportEditingOptions` 与 `ExcelImportOptions`。
+
 `preview`、`xlsx`、`theme`、`messages` 均按字段继承。预览默认正文/缩略图窗口化、搜索分片与取消；`overscanPages` 范围0–10（默认1），`searchDebounceMs` 范围0–2000ms（默认200）。非有限数值回退默认，越界值收敛。窗口化不减少完整计划本身的内存或首次排版量。
 
 ## 框架无关的渲染与导出
 
 | 入口 | 用途 |
 | --- | --- |
-| `@agile-team/mach-report` | 模板、报表数据源、分页、校验、DOM/Canvas 渲染、窗口计算 |
+| `@agile-team/mach-report` | 模板、报表数据源、分页、校验、不可变单元格编辑、DOM/Canvas 渲染、窗口计算 |
 | `@agile-team/mach-report/pdf` | `renderPlanToPdf`、字体加载与缓存 |
-| `@agile-team/mach-report/xlsx` | `renderPlanToXlsx` |
+| `@agile-team/mach-report/xlsx` | `renderPlanToXlsx`、`importExcelTemplate` 与相关类型 |
 | `@agile-team/mach-report/sql` | 动态 SQL 编译与单 SELECT 校验工具 |
 
 PDF 和 XLSX 子路径的发布包声明 Node.js ≥ 18；只导入需要的入口。XLSX 默认 `sheetMode: "auto"`：明确标记的 wide 列表按逻辑表还原连续 Sheet，其余页面仍每页一张。`pages` 强制逐页，`continuous` 要求完整列表元数据，不明布局明确拒绝。wide 默认 raw，其余默认 text；`valueMode` 可覆盖。raw 使用列表保存的原始数值/布尔/文本/空值及数字格式，无元数据的旧计划回退显示文本，日期对象和公式不自动转换。`paperSize` 默认 auto，普通页识别 A3/A4/A5，wide 不强制纸型；显式纸型仅设置打印，不改变列宽。它不做坐标复刻，无法导出的内容返回告警。完整例子见 [Excel 导出指南](./EXCEL.md)。Word 出口生成兼容 HTML `.doc`，不是 `.docx`。

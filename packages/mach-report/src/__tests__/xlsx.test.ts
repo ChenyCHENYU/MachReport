@@ -355,7 +355,7 @@ describe("renderPlanToXlsx（./xlsx 子路径）", () => {
     const sheet = workbook.worksheets[0]!;
     expect(sheet.columnCount).toBe(1);
     expect(sheet.model.merges).toEqual([]);
-    expect(sheet.getColumn(1).width).toBeCloseTo(140 * (96 / 25.4) / 7);
+    expect(sheet.getColumn(1).width).toBeCloseTo((140 * (96 / 25.4) - 5) / 7);
     expect(sheet.getCell("A1").value).toBe("标题");
     expect(sheet.getCell("A2").value).toBe("正文");
   });

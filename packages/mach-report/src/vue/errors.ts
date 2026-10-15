@@ -10,6 +10,8 @@ export type MachReportErrorCode =
   | "pdf" // PDF 导出
   | "print" // 打印
   | "export" // 图片 / Word / Excel 等导出
+  | "edit" // 单元格校验 / 保存
+  | "import" // Excel 模板导入
   | "config"; // 配置缺失
 
 export class MachReportError extends Error {

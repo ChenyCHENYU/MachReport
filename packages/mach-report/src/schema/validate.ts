@@ -1,4 +1,5 @@
 import type { PlanComponent, PlanPage } from "./render-plan";
+import { validateGridCellEditingMetadata } from "./cell-edit-validation";
 
 export interface ValidationError {
   path: string;
@@ -64,7 +65,13 @@ function validateGrid(grid: unknown, path: string, errors: ValidationError[], wa
         }
         row.forEach((cell, ci) => {
           if (cell === undefined || cell === null) return;
-          if (isObj(cell) && Array.isArray(cell["children"])) {
+          const here = `${path}.grid.cells.${ri}.${ci}`;
+          if (!isObj(cell)) {
+            errors.push({ path: here, message: "网格单元格应为对象或 null" });
+            return;
+          }
+          validateGridCellEditingMetadata(cell, here, errors);
+          if (Array.isArray(cell["children"])) {
             (cell["children"] as unknown[]).forEach((child, ki) => {
               validateComponent(child, `${path}.grid.cells.${ri}.${ci}.children.${ki}`, errors, warnings);
             });

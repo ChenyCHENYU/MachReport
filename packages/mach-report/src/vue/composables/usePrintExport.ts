@@ -183,12 +183,15 @@ export function usePrintExport(
     }
   }
 
-  const stopPlanWatch = watch(plan, () => {
+  /** A replacement can begin before a new plan exists (for example a fallible Excel import). */
+  function invalidatePending(): void {
     planEpoch++;
     releasePrintFrame();
     syncBusy();
     closePendingWindows();
-  }, { flush: "sync" });
+  }
+
+  const stopPlanWatch = watch(plan, invalidatePending, { flush: "sync" });
 
   function releasePrintFrame(): void {
     printFrame?.remove();
@@ -438,6 +441,7 @@ export function usePrintExport(
     exportImages,
     exportWord,
     openPdfWindow,
+    invalidatePending,
     releasePrintFrame,
     dispose
   };
