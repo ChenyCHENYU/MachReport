@@ -1,5 +1,5 @@
 import fontkit from "@pdf-lib/fontkit";
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
+import { PDFDocument, PDFName, PDFRawStream, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
 import type { ComponentStyle, PlanComponent, RenderPlan } from "../schema/render-plan";
 import {
   heuristicMeasurer,
@@ -43,6 +43,31 @@ export interface PdfRenderResult {
 const MM_TO_PT = 72 / 25.4;
 /** 分页 mm→PDF pt 的浮点往返误差；小于可见排版差异，不能吞掉真实高度不足。 */
 const TEXT_HEIGHT_EPSILON_PT = 0.01;
+
+function isOpenTypeContainer(input: Uint8Array | ArrayBuffer | undefined): boolean {
+  if (!input) return false;
+  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
+  return bytes[0] === 0x4f && bytes[1] === 0x54 && bytes[2] === 0x54 && bytes[3] === 0x4f;
+}
+
+// pdf-lib 依赖 font.cff，fontkit 当前只暴露 CFF 表；补齐标识，避免把 OTF 当作 TrueType。
+const compatibleFontkit = {
+  create(bytes: Uint8Array, postscriptName?: string) {
+    const font = fontkit.create(bytes, postscriptName);
+    if (isOpenTypeContainer(bytes)) font.cff = true;
+    return font;
+  }
+};
+
+async function preserveOpenTypeContainer(document: PDFDocument): Promise<void> {
+  await document.flush();
+  // 完整 OTF 包含 OTTO 容器，不是裸 CFF 数据；FontFile3 必须声明 OpenType。
+  for (const [, object] of document.context.enumerateIndirectObjects()) {
+    if (object instanceof PDFRawStream && object.dict.get(PDFName.of("Subtype")) === PDFName.of("CIDFontType0C")) {
+      object.dict.set(PDFName.of("Subtype"), PDFName.of("OpenType"));
+    }
+  }
+}
 
 function mmToPt(mm: number): number {
   return (mm || 0) * MM_TO_PT;
@@ -332,7 +357,9 @@ async function drawComponent(renderer: PdfRenderer, page: PDFPage, comp: PlanCom
 
 async function createRenderer(document: PDFDocument, options: PdfRenderOptions): Promise<PdfRenderer> {
   const customFont = options.customFontBytes
-    ? await document.embedFont(options.customFontBytes as unknown as ArrayBuffer, { subset: true })
+    // fontkit 的子集重写可能损坏 CJK 轮廓：字符可提取却在阅读器中不可见。
+    // 完整嵌入优先保证输出可见性；宿主仍可提供预先验证的字体子集来控制体积。
+    ? await document.embedFont(options.customFontBytes as unknown as ArrayBuffer, { subset: false })
     : undefined;
   const [regular, bold, italic, boldItalic] = await Promise.all([
     document.embedFont(StandardFonts.Helvetica), document.embedFont(StandardFonts.HelveticaBold),
@@ -347,7 +374,7 @@ async function createRenderer(document: PDFDocument, options: PdfRenderOptions):
 
 export async function renderPlanToPdf(plan: RenderPlan, options: PdfRenderOptions = {}): Promise<PdfRenderResult> {
   const pdfDoc = await PDFDocument.create();
-  pdfDoc.registerFontkit(fontkit);
+  pdfDoc.registerFontkit(compatibleFontkit);
   const renderer = await createRenderer(pdfDoc, options);
   const pageErrors: string[] = [];
   for (const [pageIndex, planPage] of plan.pages.entries()) {
@@ -366,6 +393,7 @@ export async function renderPlanToPdf(plan: RenderPlan, options: PdfRenderOption
       }
     }
   }
+  if (isOpenTypeContainer(options.customFontBytes)) await preserveOpenTypeContainer(pdfDoc);
   const bytes = await pdfDoc.save();
   return {
     pdfDoc, bytes, pageErrors,

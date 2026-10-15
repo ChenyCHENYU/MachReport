@@ -1,5 +1,11 @@
 # @agile-team/mach-report
 
+## 2.3.2
+
+### Patch Changes
+
+- 修复部分中文 TTF/OTF 字体在 PDF 子集嵌入后出现字形不可见的问题。自定义字体改为完整嵌入提供的字体文件，保留原始字形映射，并修正 OTF 的 PDF 字体类型和 OpenType 流声明；原有字符覆盖检查继续生效。补充真实中文字体与输出字形回归，说明完整嵌入对 PDF 体积的影响。
+
 ## 2.3.1
 
 ### Patch Changes

@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.3.1-2563eb" alt="Source version 2.3.1" />
+  <img src="https://img.shields.io/badge/source-2.3.2-2563eb" alt="Source version 2.3.2" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -307,6 +307,8 @@ app.use(machReportPlugin, { fetcher, config });
 
 优先级为：内置值 → 应用 defaults → 命名 preset → 组件属性；路由级 `provideMachReportConfig` 会叠加应用配置。中文 PDF 需要部署覆盖所用字符的字体并配置 `pdfFontUrl`；Vue 出口遇到缺字或页面渲染错误会阻止下载。`.doc` 出口是 Word 兼容的 HTML 文档，并非 `.docx`。
 
+自定义 PDF 字体完整嵌入提供的字体文件，保留中文字符的字形映射；使用完整字库时，PDF 体积会相应增加。
+
 有效报表显示后，组件对已启用的 PDF 出口自动做轻量 HEAD 字体检查，不下载字库或加载 PDF 引擎。结果通过 `state.pdfFont` 提供，资源异常显示可重试提示；实际导出再验证字体文件及文字覆盖范围。部署、跨域与缓存处理见 [PDF 字体指南](./docs/PDF.md)。
 
 ## 接入项目数据
@@ -411,7 +413,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.3.1`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.3.2`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

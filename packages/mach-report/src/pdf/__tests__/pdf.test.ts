@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { PDFDocument, PDFFont, PDFPage } from "pdf-lib";
+import { PDFDict, PDFDocument, PDFFont, PDFName, PDFPage, PDFRawStream, decodePDFRawStream } from "pdf-lib";
 import { renderPlanToPdf } from "../render-pdf";
 import { paginateTemplate, createTemplate } from "@agile-team/mach-report";
 import type { RenderPlan } from "@agile-team/mach-report";
@@ -31,6 +31,7 @@ function planFixture(): RenderPlan {
 }
 
 const DEMO_FONT = readFileSync(new URL("../../../../../examples/minimal/public/fonts/mach-report-demo.otf", import.meta.url));
+const CJK_TTF = readFileSync(new URL("./fixtures/cjk-outline.ttf", import.meta.url));
 
 function textPlan(lines: string[]): RenderPlan {
   return {
@@ -205,6 +206,27 @@ describe("renderPlanToPdf", () => {
     });
     expect(unsupportedTextCount).toBe(0);
     expect(bytes.length).toBeGreaterThan(2000);
+  });
+
+  it.each([
+    { name: "TrueType", font: CJK_TTF, key: "FontFile2", subtype: undefined },
+    { name: "OpenType CFF", font: DEMO_FONT, key: "FontFile3", subtype: "OpenType" }
+  ])("$name 字体原始轮廓完整嵌入，不让子集重写导致可提取但不可见的字形", async ({ font, key, subtype }) => {
+    const { bytes } = await renderPlanToPdf(textPlan(["报表钢", "ASCII 0123456789"]), {
+      customFontBytes: font
+    });
+    const document = await PDFDocument.load(bytes);
+    const descriptor = document.context.enumerateIndirectObjects().map(([, object]) => object).find((object) =>
+      object instanceof PDFDict && object.get(PDFName.of("Type")) === PDFName.of("FontDescriptor")
+    ) as PDFDict | undefined;
+    expect(descriptor).toBeDefined();
+    const stream = document.context.lookup(descriptor!.get(PDFName.of(key)));
+    if (!(stream instanceof PDFRawStream)) throw new Error("字体流未嵌入");
+    expect(stream.dict.get(PDFName.of("Subtype"))).toBe(subtype ? PDFName.of(subtype) : undefined);
+    // 文本可提取、字符集齐全均不能证明轮廓可见；保留完整字体字节才能绕开 fontkit 子集损坏。
+    const embedded = Buffer.from(decodePDFRawStream(stream).decode());
+    expect(embedded.length).toBe(font.length);
+    expect(embedded.equals(font)).toBe(true);
   });
 
   it("自定义字体缺失的中文和 emoji 按行计数，多个缺字不生成 .notdef", async () => {
