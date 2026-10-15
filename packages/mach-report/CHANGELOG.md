@@ -1,5 +1,13 @@
 # @agile-team/mach-report
 
+## 2.4.1
+
+### Patch Changes
+
+- Preserve number formats on empty and text cells during typed Excel export, including imported blank numeric templates and numeric cells cleared by editing. Add real workbook roundtrip coverage for empty and cleared values.
+
+  Clone Vue report snapshots through their JSON DTO contract, accepting reactive proxy inputs and avoiding a dependency on the browser structured clone API in preview, editing and import paths.
+
 ## 2.4.0
 
 ### Minor Changes

@@ -179,7 +179,7 @@ describe("importExcelTemplate", () => {
     expect(output.workbook.worksheets[0]!.getCell("A2").numFmt).toBe(numberFormat);
   });
 
-  it("keeps numeric-format blanks empty while accepting later numeric editing", async () => {
+  it("preserves blank numeric formats through import, editing, clearing and actual Excel roundtrips", async () => {
     const bytes = await excel((workbook) => {
       const sheet = workbook.addWorksheet("空模板");
       sheet.getCell("A1").value = "数量";
@@ -188,7 +188,19 @@ describe("importExcelTemplate", () => {
     const result = await importExcelTemplate(bytes);
     expect(importedCells(result)[1]).toMatchObject({ value: null, valueType: "number", text: "", editable: true });
     const plan = paginateTemplate(result.template, {}).plan;
+    const blankOutput = await renderPlanToXlsx(plan);
+    const blankWorkbook = new ExcelJSRuntime.Workbook();
+    await blankWorkbook.xlsx.load(blankOutput.buffer);
+    expect(blankWorkbook.worksheets[0]!.getCell("A2").value).toBeNull();
+    expect(blankWorkbook.worksheets[0]!.getCell("A2").numFmt).toBe("0.000");
     const edit = createReportCellEdit(plan, { pageIndex: 0, componentIndex: 1, rowIndex: 0, columnIndex: 0 }, "1.2");
     expect(edit).toMatchObject({ value: 1.2, text: "1.200" });
+    const filled = applyReportCellEdit(plan, edit);
+    const cleared = applyReportCellEdit(filled, createReportCellEdit(filled, edit.address, ""));
+    const clearedOutput = await renderPlanToXlsx(cleared);
+    const clearedWorkbook = new ExcelJSRuntime.Workbook();
+    await clearedWorkbook.xlsx.load(clearedOutput.buffer);
+    expect(clearedWorkbook.worksheets[0]!.getCell("A2").value).toBeNull();
+    expect(clearedWorkbook.worksheets[0]!.getCell("A2").numFmt).toBe("0.000");
   });
 });

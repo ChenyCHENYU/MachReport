@@ -4,6 +4,7 @@ import {
   ReportCellEditError, type RenderPlan, type ReportCellAddress, type ReportCellEdit
 } from "@agile-team/mach-report";
 import type { ReportEditingOptions } from "../editing";
+import { cloneReportSnapshot } from "../snapshot";
 
 interface EditorSession {
   plan: RenderPlan;
@@ -89,18 +90,18 @@ export function useCellEditing(host: CellEditingHost) {
         return true;
       }
       const operation = { signal: session.controller.signal };
-      const message = await session.options.validate?.(structuredClone(edit), operation);
+      const message = await session.options.validate?.(cloneReportSnapshot(edit), operation);
       if (!isCurrent(session)) return false;
       if (message) throw new Error(message);
       assertPermission(session);
-      await session.options.save?.(structuredClone(edit), operation);
+      await session.options.save?.(cloneReportSnapshot(edit), operation);
       if (!isCurrent(session)) return false;
       assertPermission(session);
       const next = applyReportCellEdit(session.plan, edit);
       cancel();
       changes.value = [...changes.value, edit];
       host.plan.value = next;
-      host.onChange(structuredClone(edit));
+      host.onChange(cloneReportSnapshot(edit));
       return true;
     } catch (cause) {
       if (!isCurrent(session)) return false;
@@ -166,6 +167,6 @@ export function useCellEditing(host: CellEditingHost) {
   onScopeDispose(reset);
   return {
     active, saving, changes, cancel, reset, commit, onDoubleClick,
-    getChanges: (): ReportCellEdit[] => structuredClone(changes.value)
+    getChanges: (): ReportCellEdit[] => cloneReportSnapshot(changes.value)
   };
 }

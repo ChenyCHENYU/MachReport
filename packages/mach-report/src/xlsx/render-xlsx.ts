@@ -94,7 +94,7 @@ function setCellValue(cell: ExcelJS.Cell, source: GridCell, mode: XlsxRenderOpti
   if (value === null || typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))) {
     validateCellText(value, cell.address);
     cell.value = value;
-    if (typeof value === "number" && source.numberFormat) cell.numFmt = source.numberFormat;
+    if (source.numberFormat) cell.numFmt = source.numberFormat;
     return;
   }
   validateCellText(text, cell.address);

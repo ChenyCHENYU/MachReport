@@ -61,6 +61,7 @@ import type { MachReportController, MachReportState, MachReportStateError } from
 import type { ReportEditingOptions } from "./editing";
 import type { ExcelImportOptions, ExcelImportResult } from "../xlsx/import-types";
 import { useCellEditing } from "./composables/useCellEditing";
+import { cloneReportSnapshot } from "./snapshot";
 
 const props = defineProps({
   reportId: {
@@ -526,7 +527,7 @@ const controller: MachReportController = {
 provide(MACH_REPORT_CONTROLLER_KEY, controller);
 
 function getPlan(): RenderPlan | null {
-  return plan.value ? structuredClone(plan.value) : null;
+  return plan.value ? cloneReportSnapshot(plan.value) : null;
 }
 
 /** Import is an explicit local replacement; business mapping/storage remains in the host. */
@@ -547,7 +548,7 @@ async function importExcel(input: ArrayBuffer | Uint8Array | Blob, options?: Exc
     const defaults = typeof effectiveExcelImport.value === "object" ? effectiveExcelImport.value : {};
     const result = await importExcelTemplate(input, { ...defaults, ...options, limits: { ...defaults.limits, ...options?.limits } });
     if (seq !== reloadSeq) return null;
-    const next = paginateTemplate(structuredClone(result.template), {}).plan;
+    const next = paginateTemplate(cloneReportSnapshot(result.template), {}).plan;
     const check = validateRenderPlan(next);
     if (!check.ok) throw new Error(check.errors.map((error) => error.message).slice(0, 3).join("; "));
     for (const message of result.warnings) {
