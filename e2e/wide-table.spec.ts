@@ -89,7 +89,7 @@ test("82列×2000行：实际字号、左右端可达、连续分段、远右搜
   await root.getByRole("button", { name: "100%", exact: true }).click();
 
   // 同页两处命中分别滚到左侧和第82列。
-  await root.getByRole("button", { name: "🔍" }).click();
+  await root.getByRole("button", { name: "内容搜索" }).click();
   await root.locator(".mrp-search-input").fill("同页目标");
   await expect(root.locator(".mrp-search-count")).toHaveText("1/2");
   expect(await viewport.evaluate((element) => element.scrollLeft)).toBeLessThan(100);

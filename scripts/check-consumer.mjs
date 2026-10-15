@@ -78,7 +78,7 @@ if (typeof vue.useMachReport !== "function" || typeof vue.createTableTemplate !=
 import { renderPlanToXlsx } from "@agile-team/mach-report/xlsx";
 import { renderPlanToPdf } from "@agile-team/mach-report/pdf";
 import { compileDynamicSql } from "@agile-team/mach-report/sql";
-import { machReportPlugin, createTemplate as createVueTemplate, createTableTemplate, createReportSource, defineReport, defineReportTemplate, parseReportTemplate, serializeReportTemplate, createTemplateRegistry, defineMachReportConfig, useMachReport, type PdfFontCheckResult } from "@agile-team/mach-report/vue";
+import { machReportPlugin, ReportPreview, createTemplate as createVueTemplate, createTableTemplate, createReportSource, defineReport, defineReportTemplate, parseReportTemplate, serializeReportTemplate, createTemplateRegistry, defineMachReportConfig, useMachReport, type PdfFontCheckResult, type MachReportToolbarOptions, type ReportEmptyState, type ReportPreviewPreferences } from "@agile-team/mach-report/vue";
 import { preloadMachReport } from "@agile-team/mach-report/vue/async";
 async function consume() {
   const builder: ReturnType<typeof createTemplate> = createVueTemplate();
@@ -89,7 +89,10 @@ async function consume() {
   });
   const source = createReportSource({ sample: definition });
   await source({ reportIds: ["sample"], params: {} });
-  const config = defineMachReportConfig({ defaults: { pdfFontUrl: "/report.otf", preview: { overscanPages: 1 }, xlsx: { valueMode: "raw", sheetMode: "auto", paperSize: "auto" } } });
+  const toolbar: MachReportToolbarOptions = { editing: false, excelImport: false, exportFormats: ["xlsx", "pdf"] };
+  const emptyState: ReportEmptyState = { title: "No rows", description: "Change the query" };
+  const previewProps: InstanceType<typeof ReportPreview>["$props"] = { showSettings: true, toolbar, emptyState, "onPreferences-change": (preferences: Readonly<ReportPreviewPreferences>) => { void preferences.search; } };
+  const config = defineMachReportConfig({ defaults: { pdfFontUrl: "/report.otf", showSettings: true, toolbar, preview: { overscanPages: 1 }, xlsx: { valueMode: "raw", sheetMode: "auto", paperSize: "auto" } } });
   const report = useMachReport();
   const { state } = report;
   const loading: boolean = state.loading;
@@ -101,7 +104,7 @@ async function consume() {
   const templates = createTemplateRegistry([parseReportTemplate(serializeReportTemplate(document))]);
   const dynamic = createReportSource({ managed: { template: async () => templates.get("managed")!.template } });
   await dynamic({ reportIds: ["managed"], params: {} });
-  void [loading, fontResult, simple];
+  void [loading, fontResult, simple, previewProps];
   const exportJob: Promise<void> = report.exportAs("xlsx");
   void exportJob;
   const { plan } = paginateTemplate(createTemplate().page("a4").build(), {});

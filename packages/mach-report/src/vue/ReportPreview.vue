@@ -42,6 +42,8 @@ import {
   useThumbs
 } from "./composables/useReportSearch";
 import ReportToolbar from "./ReportToolbar.vue";
+import ReportSettings from "./ReportSettings.vue";
+import ReportEmpty from "./ReportEmpty.vue";
 import ReportParamPanel from "./ReportParamPanel.vue";
 import type { ReportParamDef } from "@agile-team/mach-report";
 import {
@@ -62,6 +64,8 @@ import type { ReportEditingOptions } from "./editing";
 import type { ExcelImportOptions, ExcelImportResult } from "../xlsx/import-types";
 import { useCellEditing } from "./composables/useCellEditing";
 import { cloneReportSnapshot } from "./snapshot";
+import { usePreviewTools } from "./composables/usePreviewTools";
+import { REPORT_EXPORT_FORMATS, type MachReportToolbarOptions, type ReportEmptyState, type ReportPreviewPreferences, type ReportPreviewTool } from "./tools";
 
 const props = defineProps({
   reportId: {
@@ -78,6 +82,10 @@ const props = defineProps({
   showExport: { type: Boolean, default: undefined },
   showPrint: { type: Boolean, default: undefined },
   showPdfWindow: { type: Boolean, default: undefined },
+  showSettings: { type: Boolean, default: undefined },
+  toolbar: { type: Object as PropType<MachReportToolbarOptions>, default: undefined },
+  /** 保留表头的零行业务结果；不改变计划和导出内容。 */
+  emptyState: { type: [Boolean, Object] as PropType<boolean | ReportEmptyState>, default: false },
   /** 页间距（px）；不传走配置中心 */
   gapPx: { type: Number, default: undefined },
   /** 工具栏/状态文案覆写（不传走配置中心 messages） */
@@ -107,6 +115,7 @@ const emit = defineEmits<{
   (e: "warning", message: string): void;
   (e: "cell-edit", edit: ReportCellEdit): void;
   (e: "template-import", result: ExcelImportResult): void;
+  (e: "preferences-change", preferences: Readonly<ReportPreviewPreferences>): void;
 }>();
 
 const plan = shallowRef<RenderPlan | null>(null);
@@ -123,6 +132,7 @@ const viewportRef = ref<HTMLElement | null>(null);
 const thumbsRef = ref<HTMLElement | null>(null);
 const showThumbs = ref(false);
 const importing = ref(false);
+const settingsOpen = ref(false);
 const importInputRef = ref<HTMLInputElement | null>(null);
 const timing = useLoadTiming();
 
@@ -172,10 +182,47 @@ const resolvedMessages = computed<MachReportMessages>(() => ({
 const effectiveShowExport = computed(() => props.showExport ?? resolved.value.showExport);
 const effectiveShowPrint = computed(() => props.showPrint ?? resolved.value.showPrint);
 const effectiveShowPdfWindow = computed(() => props.showPdfWindow ?? resolved.value.showPdfWindow);
+const effectiveShowSettings = computed(() => props.showSettings ?? resolved.value.showSettings);
+const toolbarOptions = computed(() => ({ ...resolved.value.toolbar, ...props.toolbar }));
 const effectiveGapPx = computed(() => props.gapPx ?? (wideReport.value ? 0 : resolved.value.gapPx));
 const effectiveShowParams = computed(() => props.showParams ?? resolved.value.showParams);
-const effectiveEditable = computed(() => props.editable ?? resolved.value.editable);
-const effectiveExcelImport = computed(() => props.excelImport ?? resolved.value.excelImport);
+const availableEditable = computed(() => props.editable ?? resolved.value.editable);
+const availableExcelImport = computed(() => props.excelImport ?? resolved.value.excelImport);
+const availableTools = computed<ReportPreviewPreferences>(() => ({
+  search: toolbarOptions.value.search !== false,
+  thumbnails: toolbarOptions.value.thumbnails !== false,
+  zoom: toolbarOptions.value.zoom !== false,
+  ...Object.fromEntries(REPORT_EXPORT_FORMATS.map((format) => [format,
+    effectiveShowExport.value && (toolbarOptions.value.exportFormats?.includes(format) ?? true)
+  ])) as Record<typeof REPORT_EXPORT_FORMATS[number], boolean>,
+  print: effectiveShowPrint.value,
+  pdfWindow: effectiveShowPdfWindow.value,
+  editing: !!availableEditable.value,
+  import: !!availableExcelImport.value
+}));
+const tools = usePreviewTools(availableTools, computed(() => ({
+  editing: toolbarOptions.value.editing,
+  import: toolbarOptions.value.excelImport
+})));
+const toolState = tools.enabled;
+const visibleExportFormats = computed(() => REPORT_EXPORT_FORMATS.filter((format) => toolState.value[format]));
+const effectiveEditable = computed(() => toolState.value.editing ? availableEditable.value : false);
+const effectiveExcelImport = computed(() => toolState.value.import ? availableExcelImport.value : false);
+const persistedEditing = computed(() => typeof availableEditable.value === "object" && typeof availableEditable.value.save === "function");
+const emptyStateContent = computed(() => typeof props.emptyState === "object" ? props.emptyState : {});
+
+async function onToolChange(key: ReportPreviewTool, enabled: boolean): Promise<void> {
+  // 不因隐藏编辑工具丢弃输入；验证或保存失败时保留编辑能力和原值。
+  if (key === "editing" && !enabled && !await editing.commit()) return;
+  tools.setEnabled(key, enabled);
+  emit("preferences-change", Object.freeze({ ...toolState.value }));
+}
+
+async function resetTools(): Promise<void> {
+  if (!await editing.commit()) return;
+  tools.reset();
+  emit("preferences-change", Object.freeze({ ...toolState.value }));
+}
 function editErrorMessage(cause: unknown): string {
   if (cause instanceof ReportCellEditError) {
     const messages: Record<string, string | undefined> = {
@@ -595,16 +642,19 @@ const search = useReportSearch({
   highlight: highlightTextNodes,
   clearHighlights
 });
+watch(() => toolState.value.search, (enabled) => {
+  if (!enabled) { search.reset(); search.visible.value = false; }
+});
 
 function onWheel(e: WheelEvent): void {
-  if (!e.ctrlKey) return;
+  if (!e.ctrlKey || !toolState.value.zoom) return;
   e.preventDefault();
   setZoomRaw(zoom.value * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
 }
 
 function onKeydown(e: KeyboardEvent): void {
   if (e.target instanceof Element && e.target.closest("input,textarea,select,[contenteditable='true']")) return;
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+  if (toolState.value.search && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
     e.preventDefault();
     if (!search.visible.value) search.toggle();
     return;
@@ -629,11 +679,11 @@ function onKeydown(e: KeyboardEvent): void {
     case "+":
     case "=":
       e.preventDefault();
-      setZoomRaw(zoom.value * 1.1);
+      if (toolState.value.zoom) setZoomRaw(zoom.value * 1.1);
       break;
     case "-":
       e.preventDefault();
-      setZoomRaw(zoom.value / 1.1);
+      if (toolState.value.zoom) setZoomRaw(zoom.value / 1.1);
       break;
   }
 }
@@ -822,8 +872,14 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, chec
       :zoom-mode="zoomMode"
       :zoom="zoom"
       :show-export="effectiveShowExport"
-      :show-print="effectiveShowPrint"
-      :show-pdf-window="effectiveShowPdfWindow"
+      :show-print="toolState.print"
+      :show-pdf-window="toolState.pdfWindow"
+      :show-search="toolState.search"
+      :show-thumbnails="toolState.thumbnails"
+      :show-zoom="toolState.zoom"
+      :export-formats="visibleExportFormats"
+      :show-settings="effectiveShowSettings"
+      :settings-open="settingsOpen"
       :messages="resolvedMessages"
       :search="{ visible: search.visible.value, query: search.query.value, matchIndex: search.matchIndex.value, matchCount: search.matchCount.value, searching: search.searching.value }"
       :thumbs-visible="showThumbs"
@@ -839,7 +895,11 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, chec
       @search-toggle="search.toggle"
       @thumbs-toggle="showThumbs = !showThumbs"
       @import-excel="importInputRef?.click()"
+      @settings-toggle="settingsOpen = !settingsOpen"
     />
+    <ReportSettings v-if="settingsOpen && effectiveShowSettings" :available="availableTools" :enabled="toolState" :messages="resolvedMessages" :persisted-editing="persistedEditing" :busy="loading || importing || editing.saving.value || !!exporting || printing" @change="onToolChange" @reset="resetTools" @close="settingsOpen = false">
+      <slot name="settings" />
+    </ReportSettings>
     <input v-if="effectiveExcelImport" ref="importInputRef" class="mrp-import-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden @change="onImportFile" />
     <div v-if="effectiveEditable && pageCount > 0" class="mrp-edit-hint" role="status">{{ editing.saving.value ? resolvedMessages.saving : resolvedMessages.editingHint }}</div>
     <div v-if="exportNotice" class="mrp-export-notice" :class="`mrp-export-${exportNotice.kind}`" role="alert">
@@ -864,7 +924,7 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, chec
           {{ errorMessage }}
           <button class="mrp-retry" type="button" @click="reload">{{ resolvedMessages.retry }}</button>
         </div>
-        <div v-else-if="!plan || pageCount === 0" class="mrp-state">{{ resolvedMessages.empty }}</div>
+        <ReportEmpty v-else-if="!plan || pageCount === 0" :title="resolvedMessages.empty" :description="emptyStateContent.description ?? resolvedMessages.emptyDescription" />
         <div
           v-else
           class="mrp-scale"
@@ -895,8 +955,9 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, chec
             />
           </div>
         </div>
+        <ReportEmpty v-if="!loading && !errorMessage && plan && pageCount > 0 && emptyState" :title="emptyStateContent.title ?? resolvedMessages.empty" :description="emptyStateContent.description ?? resolvedMessages.emptyDescription" />
       </div>
-      <aside v-if="showThumbs && pageCount > 0" ref="thumbsRef" class="mrp-thumbs" @scroll.passive="thumbs.onScroll">
+      <aside v-if="toolState.thumbnails && showThumbs && pageCount > 0" ref="thumbsRef" class="mrp-thumbs" @scroll.passive="thumbs.onScroll">
         <div v-if="thumbs.windowRange.value.padTopPx > 0" class="mrp-thumb-spacer" :style="{ height: `${thumbs.windowRange.value.padTopPx}px` }" aria-hidden="true" />
         <div
           v-for="item in thumbs.visibleThumbs.value"

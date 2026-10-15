@@ -72,7 +72,7 @@ describe("宽表预览", () => {
     const scroll = vi.fn();
     vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(scroll);
     const wrapper = await mountWide();
-    await wrapper.findAll("button").find((button) => button.text().includes("🔍"))!.trigger("click");
+    await wrapper.find('button[aria-label="内容搜索"]').trigger("click");
     await wrapper.find("input.mrp-search-input").setValue("远右命中");
     await vi.waitFor(() => expect(wrapper.find(".mrp-search-count").text()).toBe("1/2"));
     await vi.waitFor(() => expect(scroll).toHaveBeenCalledOnce());

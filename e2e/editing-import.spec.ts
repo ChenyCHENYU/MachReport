@@ -264,7 +264,7 @@ test("Excel 导入保留多 Sheet、合并样式与原始类型，完整宽表�
   await root.locator("td").filter({ hasText: /^00123$/ }).dblclick();
   await expect(root.locator(".mrp-cell-editor")).toHaveCount(0);
   expect(await root.locator("img[src='x']").count()).toBe(0);
-  await root.getByRole("button", { name: "🔍" }).click();
+  await root.getByRole("button", { name: "内容搜索" }).click();
   await root.locator(".mrp-search-input").fill("导入末端目标2001");
   await expect(root.locator(".mrp-search-count")).toHaveText("1/1");
   const hit = root.locator("mark.mrp-hit");
@@ -332,7 +332,7 @@ test("82 列横向滚动与 150% 缩放后编辑框仍贴合真实单元格", as
   await mountImportedWorkbook(page, true);
   const root = page.locator("#import-feature-fixture");
   await root.getByRole("button", { name: "150%", exact: true }).click();
-  await root.getByRole("button", { name: "🔍" }).click();
+  await root.getByRole("button", { name: "内容搜索" }).click();
   await root.locator(".mrp-search-input").fill("导入末端目标2001");
   await expect(root.locator(".mrp-search-count")).toHaveText("1/1");
   const cell = root.locator("td").filter({ hasText: /^导入末端目标2001$/ });

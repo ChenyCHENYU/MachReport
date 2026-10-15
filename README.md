@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.4.1-2563eb" alt="Source version 2.4.1" />
+  <img src="https://img.shields.io/badge/source-2.5.0-2563eb" alt="Source version 2.5.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -343,6 +343,35 @@ app.use(machReportPlugin, { fetcher, config });
 
 自定义 PDF 字体完整嵌入提供的字体文件，保留中文字符的字形映射；使用完整字库时，PDF 体积会相应增加。
 
+### 设置入口与零数据反馈
+
+预览工具栏默认提供「设置」，将搜索、缩略图、缩放、五种导出、打印、PDF 窗口和可选数据操作集中在一个入口。使用方只声明允许的能力；用户在面板中按需启用，偏好限于当前预览实例。设置支持键盘操作、焦点约束和 Esc 关闭，无额外 UI 组件库依赖。
+
+```vue
+<ReportPreview
+  report-id="daily"
+  :toolbar="{ editing: false, excelImport: false }"
+  :editable="editingOptions"
+  :excel-import="true"
+  :empty-state="rows.length === 0 && { title: '暂无实绩明细', description: '请核对厂别和报表日期' }"
+>
+  <template #settings><!-- 可放入宿主的显示版式等模板选项 --></template>
+</ReportPreview>
+```
+
+`toolbar.editing` / `toolbar.excelImport` 设置初始偏好，不授予能力；对应的 `editable` / `excelImport` 仍须明确启用。旧的 `editable: true` 保持直接可编辑；需要按需开启时再设置 `toolbar.editing: false`。未接 `save` 的修改为本地草稿；配置了回调则先保存成功再更新当前计划。关闭编辑或恢复默认前会提交当前输入，校验失败保持编辑器；已确认修改不会因开关消失。Excel 导入生成本地预览，原有业务数据的持久化和权限仍由宿主负责。
+
+| 配置 | 行为 |
+| --- | --- |
+| `showSettings: false` | 隐藏设置入口，保留原有工具与控制器 API |
+| `toolbar: { search: false, thumbnails: false, zoom: false }` | 限制对应阅读工具；设置不能绕过宿主限制 |
+| `toolbar: { exportFormats: ['xlsx', 'pdf'] }` | 仅提供指定出口；省略时提供全部现有格式 |
+| `showExport` / `showPrint` / `showPdfWindow` | 保持原有能力上限；设为 `false` 的工具无法在设置中启用 |
+| `emptyState: true` 或 `{ title, description }` | 有表头、业务行为空时在可见视口内显示 SVG 空态，保留表头；不改变计划或导出内容 |
+| `@preferences-change` | 获得当前实际启用的工具状态，用于宿主联动；不需要自行维护设置面板 |
+
+组件不会根据空白单元格猜测是否无业务数据。由宿主依据成功查询的真实行数传入 `emptyState`；导入本地模板、改变数据来源后应同步更新这一业务状态。导入、编辑后的原生导出均使用当前预览计划。
+
 有效报表显示后，组件对已启用的 PDF 出口自动做轻量 HEAD 字体检查，不下载字库或加载 PDF 引擎。结果通过 `state.pdfFont` 提供，资源异常显示可重试提示；实际导出再验证字体文件及文字覆盖范围。部署、跨域与缓存处理见 [PDF 字体指南](./docs/PDF.md)。
 
 ## 接入项目数据
@@ -448,7 +477,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.4.1`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.5.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

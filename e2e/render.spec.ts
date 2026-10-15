@@ -119,7 +119,7 @@ test.describe("MachReport example 真浏览器渲染", () => {
   test("预览搜索：命中跳页并高亮", async ({ page }) => {
     await page.goto("http://localhost:8610");
     await expect(page.getByText("产品出库单")).toBeVisible({ timeout: 10000 });
-    await page.getByRole("button", { name: "🔍" }).click();
+    await page.getByRole("button", { name: "内容搜索" }).click();
     // 出库单数据里有"钢"字物料；输入后应出现命中计数与高亮标记
     await page.locator(".mrp-search-input").fill("钢");
     await expect(page.locator(".mrp-search-count")).toHaveText(/\d+\/\d+/, { timeout: 5000 });

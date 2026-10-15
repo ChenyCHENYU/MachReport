@@ -3,6 +3,7 @@ import { MACH_REPORT_CONFIG_KEY } from "./injection-keys";
 import type { XlsxRenderOptions } from "../xlsx/render-xlsx";
 import type { ExcelImportOptions } from "../xlsx/import-types";
 import type { ReportEditingOptions } from "./editing";
+import type { MachReportToolbarOptions } from "./tools";
 
 /**
  * 配置中心（对齐 mach-table 的 defineMachTableConfig 体验）：
@@ -60,6 +61,20 @@ export interface MachReportMessages {
   editInvalidNumber?: string;
   editInvalidBoolean?: string;
   editConflict?: string;
+  settings?: string;
+  settingsDisplay?: string;
+  settingsExport?: string;
+  settingsData?: string;
+  settingsUnavailable?: string;
+  settingsReset?: string;
+  settingsClose?: string;
+  search?: string;
+  zoom?: string;
+  settingsLocal?: string;
+  editingLocal?: string;
+  editingSaved?: string;
+  importLocal?: string;
+  emptyDescription?: string;
 }
 
 export const DEFAULT_MESSAGES: MachReportMessages = {
@@ -98,7 +113,21 @@ export const DEFAULT_MESSAGES: MachReportMessages = {
   saving: "正在保存修改…",
   editInvalidNumber: "请输入有效数字；清空表示无值",
   editInvalidBoolean: "请输入 true / false、是 / 否或 1 / 0",
-  editConflict: "该单元格已变化，请重新打开编辑"
+  editConflict: "该单元格已变化，请重新打开编辑",
+  settings: "设置",
+  settingsDisplay: "阅读工具",
+  settingsExport: "导出与打印",
+  settingsData: "数据操作",
+  settingsUnavailable: "需由接入方配置启用",
+  settingsReset: "恢复默认",
+  settingsClose: "关闭设置",
+  search: "内容搜索",
+  zoom: "缩放工具",
+  settingsLocal: "按需启用工具，仅作用于当前预览。",
+  editingLocal: "修改为本地草稿；不会自动写入业务数据库。",
+  editingSaved: "修改将通过接入方配置的保存回调提交。",
+  importLocal: "导入仅生成本地预览，不自动替换业务数据。",
+  emptyDescription: "当前查询没有明细，请调整查询条件后重试。"
 };
 
 /** 主题变量（组件外壳注入的 --mrp-* CSS 自定义属性） */
@@ -144,6 +173,9 @@ export interface MachReportDefaults {
   showExport?: boolean;
   showPrint?: boolean;
   showPdfWindow?: boolean;
+  /** 设置入口默认显示；可在其中按需启用阅读及输出工具。 */
+  showSettings?: boolean;
+  toolbar?: MachReportToolbarOptions;
   /** 参数面板显隐（有参数定义且未显式关闭时显示；缺省 true） */
   showParams?: boolean;
   /** 页间距 px */
@@ -188,7 +220,7 @@ export function defineMachReportPreset(preset: MachReportPreset): MachReportPres
 export type ResolvedConfig = Required<
   Pick<
     MachReportDefaults,
-    "showExport" | "showPrint" | "showPdfWindow" | "showParams" | "gapPx"
+    "showExport" | "showPrint" | "showPdfWindow" | "showSettings" | "showParams" | "gapPx"
   >
 > & {
   pdfFontUrl: string;
@@ -199,12 +231,14 @@ export type ResolvedConfig = Required<
   xlsx: XlsxRenderOptions;
   editable: boolean | ReportEditingOptions;
   excelImport: boolean | ExcelImportOptions;
+  toolbar: MachReportToolbarOptions;
 };
 
 const FALLBACK_CONFIG: ResolvedConfig = {
   showExport: true,
   showPrint: true,
   showPdfWindow: true,
+  showSettings: true,
   showParams: true,
   gapPx: 18,
   pdfFontUrl: "/simhei.ttf",
@@ -214,7 +248,8 @@ const FALLBACK_CONFIG: ResolvedConfig = {
   preview: { overscanPages: 1, searchDebounceMs: 200 },
   xlsx: {},
   editable: false,
-  excelImport: false
+  excelImport: false,
+  toolbar: {}
 };
 
 const SILENT_LOGGER: MachReportLogger = { warn: () => {}, info: () => {} };
@@ -231,7 +266,19 @@ function mergeDefaults(
     theme: { ...base?.theme, ...overlay?.theme },
     messages: { ...base?.messages, ...overlay?.messages },
     preview: { ...base?.preview, ...overlay?.preview },
-    xlsx: { ...base?.xlsx, ...overlay?.xlsx }
+    xlsx: { ...base?.xlsx, ...overlay?.xlsx },
+    toolbar: { ...base?.toolbar, ...overlay?.toolbar }
+  };
+}
+
+function resolveDisplayDefaults(merged: MachReportDefaults) {
+  return {
+    showExport: merged.showExport ?? FALLBACK_CONFIG.showExport,
+    showPrint: merged.showPrint ?? FALLBACK_CONFIG.showPrint,
+    showPdfWindow: merged.showPdfWindow ?? FALLBACK_CONFIG.showPdfWindow,
+    showSettings: merged.showSettings ?? FALLBACK_CONFIG.showSettings,
+    showParams: merged.showParams ?? FALLBACK_CONFIG.showParams,
+    gapPx: merged.gapPx ?? FALLBACK_CONFIG.gapPx
   };
 }
 
@@ -244,11 +291,7 @@ export function resolveConfig(
     : undefined;
   const merged = mergeDefaults(config?.defaults, preset);
   return {
-    showExport: merged.showExport ?? FALLBACK_CONFIG.showExport,
-    showPrint: merged.showPrint ?? FALLBACK_CONFIG.showPrint,
-    showPdfWindow: merged.showPdfWindow ?? FALLBACK_CONFIG.showPdfWindow,
-    showParams: merged.showParams ?? FALLBACK_CONFIG.showParams,
-    gapPx: merged.gapPx ?? FALLBACK_CONFIG.gapPx,
+    ...resolveDisplayDefaults(merged),
     pdfFontUrl: merged.pdfFontUrl ?? FALLBACK_CONFIG.pdfFontUrl,
     theme: { ...DEFAULT_THEME, ...merged.theme },
     messages: { ...DEFAULT_MESSAGES, ...merged.messages },
@@ -259,7 +302,8 @@ export function resolveConfig(
     },
     xlsx: { ...merged.xlsx },
     editable: merged.editable ?? false,
-    excelImport: merged.excelImport ?? false
+    excelImport: merged.excelImport ?? false,
+    toolbar: { ...merged.toolbar }
   };
 }
 

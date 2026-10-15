@@ -77,7 +77,7 @@ test("1000 页预览：正文和缩略图有界、滚动实际渲染、搜索跳
   }
   await root.getByRole("button", { name: /缩略图/ }).click();
   await expect(root.locator(".mrp-thumb-box canvas")).toHaveCount(0);
-  await root.getByRole("button", { name: "🔍" }).click();
+  await root.getByRole("button", { name: "内容搜索" }).click();
   const searchStarted = Date.now();
   await root.locator(".mrp-search-input").fill("末页目标独有");
   await expect(root.locator(".mrp-search-count")).toHaveText("1/1");

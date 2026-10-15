@@ -193,7 +193,7 @@ describe("大计划预览的有界交互", () => {
     });
     wrappers.push(wrapper);
     await vi.waitFor(() => expect(wrapper.find(".mr-page").exists()).toBe(true));
-    await wrapper.findAll("button").find((button) => button.text().includes("🔍"))!.trigger("click");
+    await wrapper.find('button[aria-label="内容搜索"]').trigger("click");
     await wrapper.find("input.mrp-search-input").setValue("不存在");
     await vi.waitFor(() => expect(wrapper.find(".mrp-search-count").text()).toBe("0/0"));
   });

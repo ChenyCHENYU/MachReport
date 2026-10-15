@@ -84,7 +84,7 @@ describe("交互：搜索", () => {
   it("输入关键字 → 命中计数/跳页/高亮 mark", async () => {
     const wrapper = await mounted();
     // 打开搜索并输入
-    const toggle = wrapper.findAll("button").find((b) => b.text().includes("🔍"))!;
+    const toggle = wrapper.find('button[aria-label="内容搜索"]');
     await toggle.trigger("click");
     const input = wrapper.element.querySelector(".mrp-search-input") as HTMLInputElement;
     input.value = "冷轧薄板";
@@ -102,7 +102,7 @@ describe("交互：搜索", () => {
 
   it("清空关键字清除高亮", async () => {
     const wrapper = await mounted();
-    const toggle = wrapper.findAll("button").find((b) => b.text().includes("🔍"))!;
+    const toggle = wrapper.find('button[aria-label="内容搜索"]');
     await toggle.trigger("click");
     const input = wrapper.element.querySelector(".mrp-search-input") as HTMLInputElement;
     input.value = "合金";
@@ -118,7 +118,7 @@ describe("交互：搜索", () => {
     vi.useFakeTimers();
     try {
       const wrapper = await mounted();
-      const toggle = wrapper.findAll("button").find((b) => b.text().includes("🔍"))!;
+      const toggle = wrapper.find('button[aria-label="内容搜索"]');
       await toggle.trigger("click");
       const input = wrapper.element.querySelector(".mrp-search-input") as HTMLInputElement;
       input.value = "合金";

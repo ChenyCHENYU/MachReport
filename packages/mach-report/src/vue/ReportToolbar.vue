@@ -7,6 +7,7 @@
  */
 import { nextTick, ref, watch } from "vue";
 import type { MachReportMessages } from "./config";
+import type { ReportExportFormat } from "./tools";
 
 const props = defineProps<{
   pageCount: number;
@@ -20,6 +21,12 @@ const props = defineProps<{
   search: { visible: boolean; query: string; matchIndex: number; matchCount: number; searching?: boolean };
   thumbsVisible: boolean;
   showImport?: boolean;
+  showSearch?: boolean;
+  showThumbnails?: boolean;
+  showZoom?: boolean;
+  exportFormats?: readonly ReportExportFormat[];
+  showSettings?: boolean;
+  settingsOpen?: boolean;
   busy?: boolean;
 }>();
 
@@ -34,6 +41,7 @@ defineEmits<{
   (e: "search-toggle"): void;
   (e: "thumbs-toggle"): void;
   (e: "import-excel"): void;
+  (e: "settings-toggle"): void;
 }>();
 
 const searchInputRef = ref<HTMLInputElement | null>(null);
@@ -52,7 +60,7 @@ function pageInfo(text: string, cur: number, total: number): string {
 </script>
 
 <template>
-  <div class="mrp-toolbar">
+  <div class="mrp-toolbar" role="toolbar" :aria-label="messages.title">
     <span class="mrp-title">{{ messages.title }}</span>
     <template v-if="pageCount > 0">
       <button
@@ -75,7 +83,7 @@ function pageInfo(text: string, cur: number, total: number): string {
     </template>
     <span class="mrp-spacer" />
     <button v-if="showImport" class="mrp-nav mrp-import-excel" type="button" :disabled="busy" @click="$emit('import-excel')">{{ messages.importExcel ?? "导入 Excel 模板" }}</button>
-    <div v-if="search.visible" class="mrp-search">
+    <div v-if="showSearch !== false && search.visible" class="mrp-search">
       <input
         ref="searchInputRef"
         class="mrp-search-input"
@@ -106,15 +114,18 @@ function pageInfo(text: string, cur: number, total: number): string {
 </button>
     </div>
     <button
+      v-if="showSearch !== false"
       class="mrp-nav"
       :class="{ 'mrp-active': search.visible }"
       type="button"
       title="Ctrl+F"
+      :aria-label="messages.search ?? messages.searchPlaceholder"
       @click="$emit('search-toggle')"
     >
-🔍
+      <svg width="13" height="13" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.6" /><path d="m13 13 4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
 </button>
     <button
+      v-if="showThumbnails !== false"
       class="mrp-nav"
       :class="{ 'mrp-active': thumbsVisible }"
       type="button"
@@ -123,6 +134,7 @@ function pageInfo(text: string, cur: number, total: number): string {
 ▦ {{ messages.thumbnails }}
 </button>
     <button
+      v-if="showZoom !== false"
       class="mrp-nav"
       :class="{ 'mrp-active': zoomMode === 'fit' }"
       type="button"
@@ -131,6 +143,7 @@ function pageInfo(text: string, cur: number, total: number): string {
 {{ messages.fitWidth }}
 </button>
     <button
+      v-if="showZoom !== false"
       class="mrp-nav"
       :class="{ 'mrp-active': zoomMode === 'raw' && Math.round(zoom * 100) === 100 }"
       type="button"
@@ -139,6 +152,7 @@ function pageInfo(text: string, cur: number, total: number): string {
 100%
 </button>
     <button
+      v-if="showZoom !== false"
       class="mrp-nav"
       :class="{ 'mrp-active': zoomMode === 'raw' && Math.round(zoom * 100) === 150 }"
       type="button"
@@ -147,7 +161,7 @@ function pageInfo(text: string, cur: number, total: number): string {
 150%
 </button>
     <button
-      v-if="showExport"
+      v-if="showExport && (!exportFormats || exportFormats.includes('html'))"
       class="mrp-nav"
       type="button"
       :disabled="busy"
@@ -156,7 +170,7 @@ function pageInfo(text: string, cur: number, total: number): string {
 {{ messages.exportHtml }}
 </button>
     <button
-      v-if="showExport"
+      v-if="showExport && (!exportFormats || exportFormats.includes('pdf'))"
       class="mrp-nav"
       type="button"
       :disabled="busy"
@@ -165,7 +179,7 @@ function pageInfo(text: string, cur: number, total: number): string {
 {{ messages.exportPdf }}
 </button>
     <button
-      v-if="showExport"
+      v-if="showExport && (!exportFormats || exportFormats.includes('xlsx'))"
       class="mrp-nav"
       type="button"
       :disabled="busy"
@@ -174,7 +188,7 @@ function pageInfo(text: string, cur: number, total: number): string {
 {{ messages.exportExcel }}
 </button>
     <button
-      v-if="showExport"
+      v-if="showExport && (!exportFormats || exportFormats.includes('png'))"
       class="mrp-nav"
       type="button"
       :disabled="busy"
@@ -183,7 +197,7 @@ function pageInfo(text: string, cur: number, total: number): string {
 {{ messages.exportImage }}
 </button>
     <button
-      v-if="showExport"
+      v-if="showExport && (!exportFormats || exportFormats.includes('word'))"
       class="mrp-nav"
       type="button"
       :disabled="busy"
@@ -193,6 +207,10 @@ function pageInfo(text: string, cur: number, total: number): string {
 </button>
     <button v-if="showPrint" class="mrp-nav" type="button" :disabled="busy" @click="$emit('print')">{{ messages.print }}</button>
     <button v-if="showPdfWindow" class="mrp-nav" type="button" :disabled="busy" @click="$emit('pdf-window')">{{ messages.pdfWindow }}</button>
+    <button v-if="showSettings" class="mrp-nav mrp-settings-toggle" type="button" :aria-label="messages.settings" aria-haspopup="dialog" :aria-expanded="!!settingsOpen" @click="$emit('settings-toggle')">
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /><circle cx="7" cy="5" r="2" fill="var(--mrp-toolbar-bg)" stroke="currentColor" stroke-width="1.5" /><circle cx="13" cy="10" r="2" fill="var(--mrp-toolbar-bg)" stroke="currentColor" stroke-width="1.5" /><circle cx="8" cy="15" r="2" fill="var(--mrp-toolbar-bg)" stroke="currentColor" stroke-width="1.5" /></svg>
+      {{ messages.settings }}
+    </button>
   </div>
 </template>
 
@@ -226,6 +244,7 @@ function pageInfo(text: string, cur: number, total: number): string {
 .mrp-nav:hover:not(:disabled) { background: var(--mrp-btn-hover-bg, #414549); color: var(--mrp-btn-hover-fg, #fff); }
 .mrp-nav:disabled { opacity: 0.4; cursor: not-allowed; }
 .mrp-active { background: var(--mrp-btn-active-bg, #2d5fb8); border-color: var(--mrp-btn-active-bg, #2d5fb8); color: #fff; }
+.mrp-settings-toggle { display: inline-flex; align-items: center; gap: 5px; }
 .mrp-pageinfo { font-size: 12px; min-width: 56px; text-align: center; color: var(--mrp-toolbar-fg, #e8e8e8); }
 .mrp-spacer { flex: 1; }
 .mrp-search { display: flex; align-items: center; gap: 4px; }
