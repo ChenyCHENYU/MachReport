@@ -1,6 +1,7 @@
 import { computed, onScopeDispose, ref, shallowRef, unref, watch, type Ref } from "vue";
 import { createPageWindowIndex } from "../../render/page-window-index";
-import type { PlanComponent, RenderPlan } from "@agile-team/mach-report";
+import type { RenderPlan } from "@agile-team/mach-report";
+import { pageTexts } from "./plan-texts";
 
 /**
  * 预览交互 composables 集合（本文件包含四件）：
@@ -43,46 +44,6 @@ function countOccurrences(text: string, q: string): number {
   let count = 0;
   for (let i = lower.indexOf(q); i >= 0; i = lower.indexOf(q, i + q.length)) count++;
   return count;
-}
-
-/** 与 DOM 实际文本节点一致，包含折行、富文本和单元格子组件。 */
-function* componentTexts(components: PlanComponent[]): Generator<string> {
-  const stack = [...components].reverse();
-  while (stack.length > 0) {
-    const comp = stack.pop()!;
-    if (comp.grid) {
-      for (const row of comp.grid.cells ?? []) {
-        for (const cell of row ?? []) {
-          yield cell?.text ?? "";
-          if (cell?.children) {
-            for (let i = cell.children.length - 1; i >= 0; i--) stack.push(cell.children[i]!);
-          }
-        }
-      }
-    } else if (comp.kind === "text") {
-      if (comp.richParagraphs?.length) {
-        for (const paragraph of comp.richParagraphs) {
-          for (const segment of paragraph.segments ?? []) {
-            yield (segment.kind === "field" ? segment.field : segment.text) ?? "";
-          }
-        }
-      } else if (comp.lines?.length) {
-        yield* comp.lines;
-      } else {
-        yield comp.text ?? "";
-      }
-    }
-    // 非文本组件也计入分片工作量。
-    yield "";
-  }
-}
-
-function* pageTexts(plan: RenderPlan): Generator<{ text: string; pageIndex: number }> {
-  for (let pageIndex = 0; pageIndex < plan.pages.length; pageIndex++) {
-    for (const text of componentTexts(plan.pages[pageIndex]!.components)) yield { text, pageIndex };
-    // 空页也计入工作量，避免稀疏计划在 generator.next() 内遍历所有页。
-    yield { text: "", pageIndex };
-  }
 }
 
 export function useReportSearch(options: ReportSearchOptions): ReportSearchState {
@@ -183,14 +144,8 @@ export function useReportSearch(options: ReportSearchOptions): ReportSearchState
     const total = matchCount.value;
     if (total === 0 || searching.value) return;
     matchIndex.value = (matchIndex.value + dir + total) % total;
-    let lo = 0;
-    let hi = matches.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi) >>> 1;
-      if (matches[mid]!.cumulative <= matchIndex.value) lo = mid + 1;
-      else hi = mid;
-    }
-    gotoPage(matches[lo]!.pageIndex + 1);
+    const target = activeMatch.value;
+    if (target) gotoPage(target.pageIndex + 1);
   }
 
   function reset(): void {

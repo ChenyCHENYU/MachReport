@@ -145,6 +145,8 @@ export function wrapText(
   measurer: TextMeasurer = heuristicMeasurer
 ): string[] {
   if (!text) return [""];
+  // 接口和 Excel 模板可能使用 Windows/旧式换行；测量与各输出统一按一个换行处理。
+  text = text.replace(/\r\n?/g, "\n");
   const lines: string[] = [];
   let current = "";
   let currentWidth = 0;

@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.3.0-2563eb" alt="Source version 2.3.0" />
+  <img src="https://img.shields.io/badge/source-2.3.1-2563eb" alt="Source version 2.3.1" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -216,6 +216,19 @@ const template = createTableTemplate({
 
 `align` 支持 `auto / left / center / right / justify`；`headerAlign` 支持四种明确对齐。`headerStyle` 可独立配置表头字体、底色与垂直对齐。条件规则只覆盖内容；旧低层模板未配置新字段时保留原有行为。DOM、Canvas、PDF 和 Excel 使用同一份解析后的样式。
 
+## 还原一致性与宿主样式
+
+模板的列样式、表头样式和条件规则是报表样式入口；应用主题控制预览外壳。包内隔离普通宿主表格、文本和图片 CSS，并按统一网格坐标绘制单元格，避免全局 padding、行高或边框撑破计划尺寸。列表内距、字号继承和跨单位覆盖统一处理，使用侧保持原来的模板和页面写法。
+
+| 输出 | 验收重点与范围 |
+| --- | --- |
+| DOM / 浏览器打印 | 固定几何、合并格、字体继承、独立边框、普通宿主 CSS 隔离；自定义纸张保留毫米精度 |
+| Canvas / PNG | 文本、表格、基本形状的尺寸与样式；图片型组件、完整富文本与部分高级文字样式仍有限制 |
+| PDF | 网格、内距、行高、垂直对齐、字体与图片输出；缺字、裁切及不支持样式提供诊断 |
+| Excel | 完整行列、原始值、合并、行高、连续表；按工作表语义输出，不复刻自由页面坐标 |
+
+字体可用性、宿主强制 `!important` 或伪元素规则，以及不同出口本身的能力差异，仍需按业务模板验收。详细支持矩阵、真实回归与质量门禁见[质量与还原说明](./docs/QUALITY.md)。
+
 ## 模板配置与管理扩展
 
 模板文档只保存布局与描述，可存为 JSON 文件或交给现有后台。模板 ID、名称、修订号和布局形成明确契约；查询接口、数据与鉴权继续使用项目已有能力。
@@ -369,7 +382,8 @@ pnpm test:e2e
 | `pnpm lint` | ESLint 检查 |
 | `pnpm test` / `pnpm test:coverage` | Vitest 单元测试 / 覆盖率 |
 | `pnpm build` | 引擎、Vue、联邦与示例构建 |
-| `pnpm verify` | 类型、Lint、构建、覆盖率、文档与打包消费端校验 |
+| `pnpm verify` | 类型、Lint、复杂度、构建、覆盖率、文档与打包消费端校验 |
+| `pnpm check:quality` | 生产 TS / Vue 函数圈复杂度上限 20，输出可复核统计 |
 | `pnpm check:consumer` | npm 产物在隔离目录的 ESM / CJS 运行与类型验证 |
 | `pnpm test:e2e` | Playwright 浏览器端到端验证 |
 | `pnpm --filter @agile-team/example-minimal dev` | 启动本地报表示例 |
@@ -389,6 +403,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 | 本地报表 | [最小示例](./examples/minimal)：出库单、工艺卡、多页与多模板预览 |
 | 远程组件 | [模块联邦示例](./examples/fed-host) · [部署包](./packages/federation) |
 | 排版与字体 | [字体测量与校准](./docs/font-calibration.md) |
+| 工程质量与还原 | [质量与还原说明](./docs/QUALITY.md)：复杂度、宿主样式隔离、输出支持矩阵 |
 | 版本记录 | [Changelog](./packages/mach-report/CHANGELOG.md) |
 | 工程协作 | [AGENTS.md](./AGENTS.md) |
 | 产品演进 | [项目评审与优化优先级](./docs/PROJECT_REVIEW.md) |
@@ -396,7 +411,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.3.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.3.1`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

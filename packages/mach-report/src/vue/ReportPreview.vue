@@ -317,6 +317,7 @@ let reloadSeq = 0;
 let loadController: AbortController | null = null;
 
 async function reload(): Promise<void> {
+  if (destroyed) return;
   const seq = ++reloadSeq;
   loadController?.abort();
   loadController = null;
@@ -409,7 +410,7 @@ async function reload(): Promise<void> {
 }
 
 function gotoPage(n: number): void {
-  if (pageCount.value <= 0) return;
+  if (destroyed || pageCount.value <= 0) return;
   const target = Math.max(1, Math.min(pageCount.value, n));
   currentPage.value = target;
   const vp = viewportRef.value;
@@ -460,6 +461,7 @@ function openPdfWindow(): void {
 /** 控制器注入：后代组件 useReportPreview() 免模板 ref 编程式访问（与 expose 同面） */
 /** 编程式设参查询：合并进面板值（面板本地字典经 v-model 同步），可选立即重载 */
 async function setParams(values: Record<string, string>, opts: { reload?: boolean } = {}): Promise<void> {
+  if (destroyed) return;
   paramValues.value = { ...paramValues.value, ...values };
   if (opts.reload !== false) await reload();
 }

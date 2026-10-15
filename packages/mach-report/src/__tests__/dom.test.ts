@@ -116,4 +116,62 @@ describe("dom renderer", () => {
     expect(root.querySelectorAll(".mr-segment")).toHaveLength(2);
     expect(root.textContent).toContain("备注：加急");
   });
+  it("使用共享几何固定合并格、显式padding和单次边线，HTML回读不改变结构", () => {
+    const el = renderPage({ pageWidthMm: 100, pageHeightMm: 100, components: [{
+      kind: "rect", leftMm: 10, topMm: 10, widthMm: 60, heightMm: 20,
+      style: { borderLeft: false, borderBottom: false },
+      grid: { colWidthsMm: [20, 40], rowHeightsMm: [10, 10], paddingMm: 2, cells: [
+        [{ text: "跨行", rowSpan: 2 }, { text: "右上" }], [{ text: "右下" }]
+      ] }
+    }] }, 96, {}, dom());
+    const cells = el.querySelectorAll<HTMLTableCellElement>("td");
+    expect(cells).toHaveLength(3);
+    expect(cells[0]!.rowSpan).toBe(2);
+    expect(cells[0]!.style.height).toBe("75.59px");
+    expect(cells[2]!.style.left).toBe("75.59px");
+    expect(cells[2]!.style.top).toBe("37.8px");
+    expect(cells[0]!.querySelector<HTMLElement>(".mr-cell-content")!.style.left).toBe("7.56px");
+    // One inner vertical, one span-aware horizontal, top and right outer edges.
+    expect(el.querySelectorAll(".mr-grid-edge")).toHaveLength(4);
+    const parsed = new DOMParser().parseFromString(el.outerHTML, "text/html");
+    expect(parsed.querySelectorAll("table > tbody > tr > td")).toHaveLength(3);
+    expect(parsed.querySelector("table .mr-grid-edge")).toBeNull();
+    expect(parsed.querySelectorAll(".mr-grid-edge")).toHaveLength(4);
+  });
+
+  it("单元格继承组件字形，显式pt/px与false声明可分别覆盖", () => {
+    const el = renderPage({ pageWidthMm: 100, pageHeightMm: 100, components: [{
+      kind: "rect", leftMm: 0, topMm: 0, widthMm: 60, heightMm: 20,
+      style: { fontSizePx: 24, bold: true, italic: true, lineHeight: 1.8 },
+      grid: { cells: [[{ text: "继承", style: { color: "#123456" } }, {
+        text: "覆盖", style: { fontSize: 12, bold: false, italic: false }
+      }]] }
+    }] }, 96, {}, dom());
+    const cells = el.querySelectorAll<HTMLTableCellElement>("td");
+    expect(cells[0]!.style.fontSize).toBe("24px");
+    expect(cells[0]!.style.fontWeight).toBe("700");
+    expect(cells[0]!.style.lineHeight).toBe("1.8");
+    expect(cells[1]!.style.fontSize).toBe("16px");
+    expect(cells[1]!.style.fontWeight).toBe("400");
+    expect(cells[1]!.style.fontStyle).toBe("normal");
+  });
+
+  it("文本填满已定位组件，变换/透明度仅应用一次，富文本色彩不重置字号", () => {
+    const el = renderPage({ pageWidthMm: 100, pageHeightMm: 100, components: [{
+      kind: "text", leftMm: 0, topMm: 0, widthMm: 60, heightMm: 20,
+      style: { fontSize: 18, verticalAlign: "middle", opacity: 0.5, rotateDeg: 15 },
+      richParagraphs: [{ segments: [{ text: "强调", style: { color: "#c00" } }] }]
+    }] }, 96, {}, dom());
+    const comp = el.querySelector<HTMLElement>(".mr-comp")!;
+    const text = el.querySelector<HTMLElement>(".mr-text")!;
+    expect(comp.style.opacity).toBe("0.5");
+    expect(comp.style.transform).toBe("rotate(15deg)");
+    expect(text.style.opacity).toBe("");
+    expect(text.style.transform).toBe("");
+    expect(text.style.width).toBe("100%");
+    expect(text.style.height).toBe("100%");
+    expect(text.style.justifyContent).toBe("center");
+    expect(el.querySelector<HTMLElement>(".mr-segment")!.style.fontSize).toBe("");
+  });
+
 });

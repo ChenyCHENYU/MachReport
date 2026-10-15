@@ -22,7 +22,7 @@ function yieldToBrowser(): Promise<void> {
 }
 
 function pageSizeKey(page: PlanPage): string {
-  return `p${Math.round(page.pageWidthMm)}x${Math.round(page.pageHeightMm)}`;
+  return `p${page.pageWidthMm}x${page.pageHeightMm}`.replace(/[.+]/g, "_");
 }
 
 interface PrintHtmlResult {
@@ -38,7 +38,7 @@ function buildPrintHead(p: RenderPlan): string {
   const pageRules = [...sizeKeys.values()]
     .map(
       (page) =>
-        `@page ${pageSizeKey(page)}{size:${Math.round(page.pageWidthMm)}mm ${Math.round(page.pageHeightMm)}mm;margin:0;}`
+        `@page ${pageSizeKey(page)}{size:${page.pageWidthMm}mm ${page.pageHeightMm}mm;margin:0;}`
     )
     .join("\n");
   const css = `.mr-page{margin:0 auto;page-break-after:always;}
@@ -185,6 +185,7 @@ export function usePrintExport(
 
   const stopPlanWatch = watch(plan, () => {
     planEpoch++;
+    releasePrintFrame();
     syncBusy();
     closePendingWindows();
   }, { flush: "sync" });

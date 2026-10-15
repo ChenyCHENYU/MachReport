@@ -77,3 +77,11 @@ export function resolveBoxBorders(
   const left = style?.borderLeft !== false;
   return { top, right, bottom, left, inner: top || right || bottom || left };
 }
+
+/** Merge a declared style layer while keeping its explicit font unit authoritative. */
+export function mergeComponentStyles(base: ComponentStyle | undefined, override: ComponentStyle | undefined): ComponentStyle {
+  const merged = { ...base, ...override };
+  if (override?.fontSize != null && override.fontSizePx == null) delete merged.fontSizePx;
+  if (override?.fontSizePx != null && override.fontSize == null) delete merged.fontSize;
+  return merged;
+}

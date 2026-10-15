@@ -69,6 +69,8 @@ export interface PlanGrid {
   colWidthsMm?: number[];
   rowHeightsMm?: number[];
   gapMm?: number;
+  /** 单元格四边内距；旧静态网格默认 0.5mm，分页列表使用其真实测量内距。 */
+  paddingMm?: number;
 }
 
 /** 列表的逻辑行来源；用于连续 Excel 重组，避免按文本猜测重复表头。 */

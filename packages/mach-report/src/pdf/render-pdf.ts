@@ -1,13 +1,14 @@
 import fontkit from "@pdf-lib/fontkit";
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage } from "pdf-lib";
-import type { GridCell, PlanComponent, PlanGrid, RenderPlan } from "../schema/render-plan";
+import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
+import type { ComponentStyle, PlanComponent, RenderPlan } from "../schema/render-plan";
 import {
   heuristicMeasurer,
   isImageBackedComponent,
   isRichText,
-  LINE_HEIGHT,
+  mergeComponentStyles,
   resolveBoxBorders,
   resolveFontSize,
+  resolveLineHeight,
   resolveStroke,
   resolveGridLayout,
   wrapText,
@@ -40,6 +41,8 @@ export interface PdfRenderResult {
 }
 
 const MM_TO_PT = 72 / 25.4;
+/** 分页 mm→PDF pt 的浮点往返误差；小于可见排版差异，不能吞掉真实高度不足。 */
+const TEXT_HEIGHT_EPSILON_PT = 0.01;
 
 function mmToPt(mm: number): number {
   return (mm || 0) * MM_TO_PT;
@@ -56,14 +59,6 @@ function colorOf(value: string | undefined, fallback: [number, number, number] =
     );
   }
   return rgb(fallback[0], fallback[1], fallback[2]);
-}
-
-function fontSizePtOf(comp: PlanComponent): number {
-  return resolveFontSize(comp.style).fontSizePt;
-}
-
-function cellFontSizePt(style: GridCell["style"]): number {
-  return resolveFontSize(style).fontSizePt;
 }
 
 const fontCharacterSets = new WeakMap<PDFFont, ReadonlySet<number>>();
@@ -86,285 +81,295 @@ function encodeText(font: PDFFont, text: string): { encoded: string; supported: 
   }
 }
 
-interface TextLines {
-  lines: string[];
-  fontSizePt: number;
+interface PdfRenderer {
+  document: PDFDocument;
+  fonts: { regular: PDFFont; bold: PDFFont; italic: PDFFont; boldItalic: PDFFont };
+  customFont?: PDFFont;
+  measurer: TextMeasurer;
+  imageCache: Map<string, Promise<PDFImage | null>>;
+  fidelityWarnings: string[];
+  styleWarnings: Set<string>;
+  unsupportedTextCount: number;
 }
 
-/** 富文本降级：段落 → 纯文本行（保留段落顺序，丢内联样式；计入保真告警） */
+interface TextBox {
+  x: number;
+  yTop: number;
+  width: number;
+  height: number;
+}
+
+function componentBox(comp: PlanComponent, pageHeightPt: number): TextBox {
+  return {
+    x: mmToPt(comp.leftMm),
+    yTop: pageHeightPt - mmToPt(comp.topMm),
+    width: mmToPt(comp.widthMm),
+    height: mmToPt(comp.heightMm)
+  };
+}
+
+/** 富文本降级：保留段落顺序；内联样式通过保真告警明确说明。 */
 function richTextToLines(comp: PlanComponent): string[] {
-  const out: string[] = [];
-  for (const para of comp.richParagraphs ?? []) {
-    const line = (para.segments ?? [])
-      .map((seg) => (seg.kind === "field" ? (seg.field ?? "") : (seg.text ?? "")))
-      .join("");
-    out.push(line);
-  }
-  return out;
+  return (comp.richParagraphs ?? []).map((para) => (para.segments ?? [])
+    .map((seg) => (seg.kind === "field" ? (seg.field ?? "") : (seg.text ?? ""))).join(""));
 }
 
-export async function renderPlanToPdf(
-  plan: RenderPlan,
-  options: PdfRenderOptions = {}
-): Promise<PdfRenderResult> {
+function fontForStyle(renderer: PdfRenderer, style: ComponentStyle): PDFFont {
+  if (renderer.customFont) return renderer.customFont;
+  if (style.bold && style.italic) return renderer.fonts.boldItalic;
+  if (style.bold) return renderer.fonts.bold;
+  if (style.italic) return renderer.fonts.italic;
+  return renderer.fonts.regular;
+}
+
+function warnStyle(renderer: PdfRenderer, key: string, message: string, location: string): void {
+  if (renderer.styleWarnings.has(key)) return;
+  renderer.styleWarnings.add(key);
+  renderer.fidelityWarnings.push(`${location}: ${message}`);
+}
+
+function checkTextStyle(renderer: PdfRenderer, style: ComponentStyle, location: string): void {
+  if (renderer.customFont && (style.bold || style.italic)) {
+    warnStyle(renderer, "custom-font-weight", "自定义 PDF 字体只提供单个字面，粗体/斜体按该字体自身字形导出", location);
+  }
+  if (style.align === "justify") warnStyle(renderer, "justify", "PDF 两端对齐暂按左对齐导出", location);
+  if (style.fontFamily && !renderer.customFont) warnStyle(renderer, "font-family", "PDF 字体族需提供 customFontBytes；当前使用内置 Helvetica", location);
+  if (style.letterSpacing) warnStyle(renderer, "letter-spacing", "PDF 字间距暂未应用", location);
+  if (style.rotateDeg) warnStyle(renderer, "rotate", "PDF 文字旋转暂未应用", location);
+  if (style.opacity !== undefined && style.opacity !== 1) warnStyle(renderer, "opacity", "PDF 透明度暂未应用", location);
+}
+
+function drawTextLine(renderer: PdfRenderer, page: PDFPage, line: string, style: ComponentStyle, box: TextBox, baseline: number): void {
+  const font = fontForStyle(renderer, style);
+  const { encoded, supported } = encodeText(font, line);
+  if (line && !supported) renderer.unsupportedTextCount++;
+  if (!encoded) return;
+  const size = resolveFontSize(style).fontSizePt;
+  const width = font.widthOfTextAtSize(encoded, size);
+  let x = box.x;
+  if (style.align === "center") x += (box.width - width) / 2;
+  else if (style.align === "right") x += box.width - width;
+  const color = colorOf(style.color);
+  page.drawText(encoded, { x, y: baseline, size, font, color });
+  if (style.underline) {
+    page.drawLine({ start: { x, y: baseline - 1 }, end: { x: x + width, y: baseline - 1 }, thickness: Math.max(0.4, size / 20), color });
+  }
+}
+
+function drawTextLines(renderer: PdfRenderer, page: PDFPage, lines: string[], style: ComponentStyle, box: TextBox): void {
+  const allLines = lines.flatMap((line) => line.split(/\r\n|\r|\n/));
+  const fontSize = resolveFontSize(style).fontSizePt;
+  const lineHeight = fontSize * resolveLineHeight(style);
+  const textHeight = allLines.length * lineHeight;
+  let top = box.yTop;
+  if (style.verticalAlign === "middle") top -= (box.height - textHeight) / 2;
+  else if (style.verticalAlign === "bottom") top -= box.height - textHeight;
+  allLines.forEach((line, index) => drawTextLine(renderer, page, line, style, box, top - fontSize - index * lineHeight));
+}
+
+function wrappedLines(renderer: PdfRenderer, text: string, widthMm: number, style: ComponentStyle): string[] {
+  if (!text) return [];
+  return wrapText(text, Math.max(0, widthMm), {
+    fontSizePt: resolveFontSize(style).fontSizePt,
+    bold: style.bold
+  }, renderer.measurer);
+}
+
+function textComponentLines(renderer: PdfRenderer, comp: PlanComponent, location: string): string[] {
+  if (isRichText(comp)) {
+    renderer.fidelityWarnings.push(`${location}: 富文本按纯文本降级导出（内联样式丢失）`);
+    return richTextToLines(comp);
+  }
+  if (Array.isArray(comp.lines) && comp.lines.length) return comp.lines;
+  return wrappedLines(renderer, comp.text ?? "", comp.widthMm, comp.style ?? {});
+}
+
+function drawTextComponent(renderer: PdfRenderer, page: PDFPage, comp: PlanComponent, box: TextBox, location: string): void {
+  const style = comp.style ?? {};
+  checkTextStyle(renderer, style, location);
+  const lines = textComponentLines(renderer, comp, location);
+  const count = lines.reduce((sum, line) => sum + line.split(/\r\n|\r|\n/).length, 0);
+  if (count * resolveFontSize(style).fontSizePt * resolveLineHeight(style) > box.height + TEXT_HEIGHT_EPSILON_PT) {
+    renderer.fidelityWarnings.push(`${location}: 文本行高超出组件高度，文字已保留，可能超出版面`);
+  }
+  drawTextLines(renderer, page, lines, style, box);
+}
+
+function embedImage(renderer: PdfRenderer, dataUrl: string): Promise<PDFImage | null> {
+  const cached = renderer.imageCache.get(dataUrl);
+  if (cached) return cached;
+  const promise = (async (): Promise<PDFImage | null> => {
+    try {
+      const match = /^data:image\/(png|jpe?g);base64,(.*)$/s.exec(dataUrl);
+      if (!match) return null;
+      const bytes = Uint8Array.from(atob(match[2]!), (character) => character.charCodeAt(0));
+      return match[1] === "png" ? await renderer.document.embedPng(bytes) : await renderer.document.embedJpg(bytes);
+    } catch { return null; }
+  })();
+  renderer.imageCache.set(dataUrl, promise);
+  return promise;
+}
+
+function drawBackground(page: PDFPage, box: TextBox, background: string | undefined): void {
+  if (!background) return;
+  page.drawRectangle({
+    x: box.x, y: box.yTop - box.height,
+    width: box.width, height: box.height,
+    color: colorOf(background, [1, 1, 1])
+  });
+}
+
+function drawBorderLine(page: PDFPage, style: ComponentStyle | undefined, start: { x: number; y: number }, end: { x: number; y: number }): void {
+  const stroke = resolveStroke(style);
+  page.drawLine({ start, end, thickness: Math.max(0.1, stroke.widthPt), color: colorOf(stroke.color, [0.2, 0.2, 0.2]) });
+}
+
+function drawBoxBorders(page: PDFPage, style: ComponentStyle | undefined, box: TextBox): void {
+  const borders = resolveBoxBorders(style);
+  const right = box.x + box.width;
+  const bottom = box.yTop - box.height;
+  if (borders.top) drawBorderLine(page, style, { x: box.x, y: box.yTop }, { x: right, y: box.yTop });
+  if (borders.right) drawBorderLine(page, style, { x: right, y: box.yTop }, { x: right, y: bottom });
+  if (borders.bottom) drawBorderLine(page, style, { x: right, y: bottom }, { x: box.x, y: bottom });
+  if (borders.left) drawBorderLine(page, style, { x: box.x, y: bottom }, { x: box.x, y: box.yTop });
+}
+
+function drawGridEdges(page: PDFPage, comp: PlanComponent, box: TextBox, layout: ReturnType<typeof resolveGridLayout>): void {
+  if (!resolveBoxBorders(comp.style).inner) return;
+  for (const edge of layout.edges) {
+    if (edge.kind === "v") {
+      drawBorderLine(page, comp.style,
+        { x: box.x + mmToPt(edge.pos), y: box.yTop - mmToPt(edge.to) },
+        { x: box.x + mmToPt(edge.pos), y: box.yTop - mmToPt(edge.from) });
+    } else {
+      drawBorderLine(page, comp.style,
+        { x: box.x + mmToPt(edge.from), y: box.yTop - mmToPt(edge.pos) },
+        { x: box.x + mmToPt(edge.to), y: box.yTop - mmToPt(edge.pos) });
+    }
+  }
+  drawBoxBorders(page, comp.style, box);
+}
+
+function drawGridCell(
+  renderer: PdfRenderer, page: PDFPage, comp: PlanComponent,
+  cell: ReturnType<typeof resolveGridLayout>["cells"][number], origin: TextBox, location: string
+): void {
+  const style = mergeComponentStyles(comp.style, cell.cell.style);
+  const box = {
+    x: origin.x + mmToPt(cell.xMm), yTop: origin.yTop - mmToPt(cell.yMm),
+    width: mmToPt(cell.widthMm), height: mmToPt(cell.heightMm)
+  };
+  drawBackground(page, box, style.backgroundColor);
+  if (cell.cell.children?.length) renderer.fidelityWarnings.push(`${location}: 嵌套组件暂不支持 PDF 导出，已跳过；单元格文本保留`);
+  if (!cell.cell.text) return;
+  checkTextStyle(renderer, style, location);
+  const paddingMm = comp.grid?.paddingMm ?? 0.5;
+  const padding = mmToPt(paddingMm);
+  const content = {
+    x: box.x + padding, yTop: box.yTop - padding,
+    width: Math.max(0, box.width - 2 * padding), height: Math.max(0, box.height - 2 * padding)
+  };
+  const lines = wrappedLines(renderer, cell.cell.text, cell.widthMm - 2 * paddingMm, style);
+  const lineHeight = resolveFontSize(style).fontSizePt * resolveLineHeight(style);
+  const capacity = Math.floor((content.height + TEXT_HEIGHT_EPSILON_PT) / lineHeight);
+  const maxLines = Math.max(1, capacity);
+  if (lines.length > capacity) {
+    renderer.fidelityWarnings.push(`${location}: 单元格文本超出可用高度，PDF 文本裁切；请增加行高或减少字号（${lines.length} 行，可容纳 ${capacity} 行）`);
+  }
+  drawTextLines(renderer, page, lines.slice(0, maxLines), { verticalAlign: "middle", ...style }, content);
+}
+
+function drawGrid(renderer: PdfRenderer, page: PDFPage, comp: PlanComponent, box: TextBox, location: string): void {
+  const layout = resolveGridLayout(comp.grid!, comp.widthMm, comp.heightMm);
+  drawBackground(page, box, comp.style?.backgroundColor);
+  // 底色先绘制，边框最后一次绘制，避免重复外框与覆盖内部网格线。
+  for (const cell of layout.cells) drawGridCell(renderer, page, comp, cell, box, `${location} cell ${cell.ri + 1}:${cell.ci + 1}`);
+  drawGridEdges(page, comp, box, layout);
+}
+
+function drawShape(page: PDFPage, comp: PlanComponent, box: TextBox): boolean {
+  if (comp.kind === "rect") {
+    drawBackground(page, box, comp.style?.backgroundColor);
+    drawBoxBorders(page, comp.style, box);
+    return true;
+  }
+  if (comp.kind === "line") {
+    const style = { ...comp.style, borderColor: comp.style?.lineColor ?? comp.style?.borderColor };
+    drawBorderLine(page, style,
+      { x: box.x, y: box.yTop - box.height / 2 },
+      { x: box.x + box.width, y: box.yTop - box.height / 2 });
+    return true;
+  }
+  if (comp.kind === "ellipse") {
+    const stroke = resolveStroke(comp.style);
+    page.drawEllipse({
+      x: box.x + box.width / 2, y: box.yTop - box.height / 2,
+      xScale: box.width / 2, yScale: box.height / 2,
+      color: comp.style?.backgroundColor ? colorOf(comp.style.backgroundColor, [1, 1, 1]) : undefined,
+      borderColor: colorOf(stroke.color, [0.2, 0.2, 0.2]),
+      borderWidth: Math.max(0.1, stroke.widthPt)
+    });
+    return true;
+  }
+  return false;
+}
+
+async function drawComponent(renderer: PdfRenderer, page: PDFPage, comp: PlanComponent, pageHeightPt: number, location: string): Promise<void> {
+  const box = componentBox(comp, pageHeightPt);
+  if (isImageBackedComponent(comp)) {
+    const image = await embedImage(renderer, comp.imageData!);
+    if (image) page.drawImage(image, { x: box.x, y: box.yTop - box.height, width: box.width, height: box.height });
+    else renderer.fidelityWarnings.push(`${location}: 图片仅支持 data:image/(png|jpeg) base64，已跳过`);
+  } else if (comp.grid) {
+    drawGrid(renderer, page, comp, box, location);
+  } else if (comp.kind === "text") {
+    drawTextComponent(renderer, page, comp, box, location);
+  } else if (!drawShape(page, comp, box)) {
+    if (comp.text) drawTextComponent(renderer, page, comp, box, location);
+    else renderer.fidelityWarnings.push(`${location}: 组件类型 ${comp.kind} 缺少可导出的图片或文本，已跳过`);
+  }
+}
+
+async function createRenderer(document: PDFDocument, options: PdfRenderOptions): Promise<PdfRenderer> {
+  const customFont = options.customFontBytes
+    ? await document.embedFont(options.customFontBytes as unknown as ArrayBuffer, { subset: true })
+    : undefined;
+  const [regular, bold, italic, boldItalic] = await Promise.all([
+    document.embedFont(StandardFonts.Helvetica), document.embedFont(StandardFonts.HelveticaBold),
+    document.embedFont(StandardFonts.HelveticaOblique), document.embedFont(StandardFonts.HelveticaBoldOblique)
+  ]);
+  return {
+    document, fonts: { regular, bold, italic, boldItalic }, customFont,
+    measurer: options.measurer ?? heuristicMeasurer,
+    imageCache: new Map(), fidelityWarnings: [], styleWarnings: new Set(), unsupportedTextCount: 0
+  };
+}
+
+export async function renderPlanToPdf(plan: RenderPlan, options: PdfRenderOptions = {}): Promise<PdfRenderResult> {
   const pdfDoc = await PDFDocument.create();
   pdfDoc.registerFontkit(fontkit);
+  const renderer = await createRenderer(pdfDoc, options);
   const pageErrors: string[] = [];
-  const fidelityWarnings: string[] = [];
-  let unsupportedTextCount = 0;
-  const measurer = options.measurer ?? heuristicMeasurer;
-  const fallbackFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const customFont = options.customFontBytes
-    ? await pdfDoc.embedFont(options.customFontBytes as unknown as ArrayBuffer, {
-        subset: true
-      })
-    : undefined;
-  const font: PDFFont = customFont ?? fallbackFont;
-  const imageCache = new Map<string, Promise<PDFImage | null>>();
-
-  function wrapLines(text: string, widthMm: number, fontSizePt: number): string[] {
-    if (!text) return [];
-    return wrapText(text, widthMm, { fontSizePt }, measurer);
-  }
-
-  function embedImage(dataUrl: string): Promise<PDFImage | null> {
-    const cached = imageCache.get(dataUrl);
-    if (cached) return cached;
-    const p = (async (): Promise<PDFImage | null> => {
-      try {
-        const match = /^data:image\/(png|jpe?g);base64,(.*)$/s.exec(dataUrl);
-        if (!match) return null;
-        const bytes = Uint8Array.from(atob(match[2]!), (c) => c.charCodeAt(0));
-        if (match[1] === "png") return await pdfDoc.embedPng(bytes);
-        return await pdfDoc.embedJpg(bytes);
-      } catch {
-        return null;
-      }
-    })();
-    imageCache.set(dataUrl, p);
-    return p;
-  }
-
-  function drawTextLines(
-    page: ReturnType<PDFDocument["addPage"]>,
-    spec: TextLines,
-    xPt: number,
-    yTopPt: number,
-    widthPt: number,
-    comp: PlanComponent,
-    cellStyle?: { color?: string; align?: string }
-  ): void {
-    const align = cellStyle?.align ?? comp.style?.align;
-    const lineH = spec.fontSizePt * LINE_HEIGHT;
-    // 兼容直接传入的 lines / 富文本段：换行符用于分行，不参与字形覆盖检查。
-    spec.lines.flatMap((line) => line.split(/\r\n|\r|\n/)).forEach((line, i) => {
-      const { encoded, supported } = encodeText(font, line);
-      if (line && !supported) unsupportedTextCount++;
-      if (!encoded) return;
-      const w = font.widthOfTextAtSize(encoded, spec.fontSizePt);
-      let x = xPt;
-      if (align === "center") x = xPt + (widthPt - w) / 2;
-      else if (align === "right") x = xPt + widthPt - w;
-      page.drawText(encoded, {
-        x,
-        y: yTopPt - spec.fontSizePt - i * lineH,
-        size: spec.fontSizePt,
-        font,
-        color: colorOf(cellStyle?.color ?? comp.style?.color)
-      });
-    });
-  }
-
-  function drawGrid(
-    page: ReturnType<PDFDocument["addPage"]>,
-    grid: PlanGrid,
-    comp: PlanComponent,
-    originXPt: number,
-    originYPt: number
-  ): void {
-    const layout = resolveGridLayout(grid, comp.widthMm, comp.heightMm);
-    const borders = resolveBoxBorders(comp.style);
-    const stroke = resolveStroke(comp.style);
-    const lineColor = colorOf(stroke.color, [0.2, 0.2, 0.2]);
-    const borderWidth = Math.max(0.1, stroke.widthPt);
-
-    // 单元格底色（独立于边框开关）
-    for (const box of layout.cells) {
-      const bg = box.cell.style?.backgroundColor;
-      if (!bg) continue;
-      page.drawRectangle({
-        x: originXPt + mmToPt(box.xMm),
-        y: originYPt - mmToPt(box.yMm) - mmToPt(box.heightMm),
-        width: mmToPt(box.widthMm),
-        height: mmToPt(box.heightMm),
-        color: colorOf(bg, [1, 1, 1])
-      });
-    }
-
-    if (borders.inner) {
-      // 内部线段（span 感知：合并单元格中间无线）+ 外框四边开关
-      for (const e of layout.edges) {
-        if (e.kind === "v") {
-          page.drawLine({
-            start: { x: originXPt + mmToPt(e.pos), y: originYPt - mmToPt(e.to) },
-            end: { x: originXPt + mmToPt(e.pos), y: originYPt - mmToPt(e.from) },
-            thickness: borderWidth,
-            color: lineColor
-          });
-        } else {
-          page.drawLine({
-            start: { x: originXPt + mmToPt(e.from), y: originYPt - mmToPt(e.pos) },
-            end: { x: originXPt + mmToPt(e.to), y: originYPt - mmToPt(e.pos) },
-            thickness: borderWidth,
-            color: lineColor
-          });
-        }
-      }
-      const x0 = originXPt;
-      const y0 = originYPt - mmToPt(comp.heightMm);
-      const x1 = originXPt + mmToPt(comp.widthMm);
-      const y1 = originYPt;
-      const drawEdge = (ax: number, ay: number, bx: number, by: number) =>
-        page.drawLine({
-          start: { x: ax, y: ay },
-          end: { x: bx, y: by },
-          thickness: borderWidth,
-          color: lineColor
-        });
-      if (borders.top) drawEdge(x0, y1, x1, y1);
-      if (borders.right) drawEdge(x1, y1, x1, y0);
-      if (borders.bottom) drawEdge(x1, y0, x0, y0);
-      if (borders.left) drawEdge(x0, y0, x0, y1);
-    }
-
-    for (const box of layout.cells) {
-      const st = box.cell.style;
-      const x = originXPt + mmToPt(box.xMm);
-      const yTop = originYPt - mmToPt(box.yMm);
-      const w = mmToPt(box.widthMm);
-      const h = mmToPt(box.heightMm);
-      const text = typeof box.cell.text === "string" ? box.cell.text : "";
-      if (!text) continue;
-      const fontSizePt = cellFontSizePt(st);
-      const maxLines = Math.max(1, Math.floor(h / (fontSizePt * LINE_HEIGHT)));
-      const lines = wrapLines(text, box.widthMm - 1, fontSizePt).slice(0, maxLines);
-      drawTextLines(
-        page,
-        { lines, fontSizePt },
-        x + 1,
-        yTop - (h - lines.length * fontSizePt * LINE_HEIGHT) / 2,
-        w - 2,
-        comp,
-        { color: st?.color, align: st?.align }
-      );
-    }
-  }
-
-  for (let pageIndex = 0; pageIndex < plan.pages.length; pageIndex++) {
-    const planPage = plan.pages[pageIndex]!;
+  for (const [pageIndex, planPage] of plan.pages.entries()) {
     const widthPt = mmToPt(planPage.pageWidthMm);
     const heightPt = mmToPt(planPage.pageHeightMm);
+    if (widthPt > 14_400 || heightPt > 14_400) {
+      renderer.fidelityWarnings.push(`page ${pageIndex + 1}: PDF 页面超过常规阅读器的 200 英寸尺寸范围，阅读器可能裁切；建议选择标准纸型或分拆宽表`);
+    }
     const page = pdfDoc.addPage([widthPt, heightPt]);
-
     for (const comp of planPage.components) {
-      const x = mmToPt(comp.leftMm);
-      const yTop = heightPt - mmToPt(comp.topMm);
-      const w = mmToPt(comp.widthMm);
-      const h = mmToPt(comp.heightMm);
+      const location = `page ${pageIndex + 1} ${comp.nid ?? comp.kind}`;
       try {
-        if (isImageBackedComponent(comp)) {
-          const img = await embedImage(comp.imageData!);
-          if (img) {
-            page.drawImage(img, { x, y: yTop - h, width: w, height: h });
-          } else {
-            fidelityWarnings.push(
-              `page ${pageIndex + 1} ${comp.nid ?? comp.kind}: 图片仅支持 data:image/(png|jpeg) base64，已跳过`
-            );
-          }
-          continue;
-        }
-        switch (comp.kind) {
-          case "text": {
-            const fontSizePt = fontSizePtOf(comp);
-            const lines = isRichText(comp)
-              ? richTextToLines(comp)
-              : Array.isArray(comp.lines) && comp.lines.length > 0
-                ? comp.lines
-                : wrapLines(comp.text ?? "", comp.widthMm, fontSizePt);
-            if (isRichText(comp)) {
-              fidelityWarnings.push(
-                `page ${pageIndex + 1} ${comp.nid ?? "text"}: 富文本按纯文本降级导出（内联样式丢失）`
-              );
-            }
-            drawTextLines(page, { lines, fontSizePt }, x, yTop, w, comp);
-            break;
-          }
-          case "rect": {
-            const borders = resolveBoxBorders(comp.style);
-            const stroke = resolveStroke(comp.style);
-            if (comp.style?.backgroundColor) {
-              page.drawRectangle({
-                x,
-                y: yTop - h,
-                width: w,
-                height: h,
-                color: colorOf(comp.style.backgroundColor, [1, 1, 1])
-              });
-            }
-            if (borders.inner) {
-              page.drawRectangle({
-                x,
-                y: yTop - h,
-                width: w,
-                height: h,
-                borderColor: colorOf(stroke.color, [0.2, 0.2, 0.2]),
-                borderWidth: Math.max(0.1, stroke.widthPt)
-              });
-            }
-            if (comp.grid) {
-              drawGrid(page, comp.grid, comp, x, yTop);
-            }
-            break;
-          }
-          case "line": {
-            const stroke = resolveStroke({ ...comp.style, borderColor: comp.style?.lineColor ?? comp.style?.borderColor });
-            page.drawLine({
-              start: { x, y: yTop - h / 2 },
-              end: { x: x + w, y: yTop - h / 2 },
-              thickness: Math.max(0.1, stroke.widthPt),
-              color: colorOf(stroke.color, [0.2, 0.2, 0.2])
-            });
-            break;
-          }
-          case "ellipse": {
-            const stroke = resolveStroke(comp.style);
-            page.drawEllipse({
-              x: x + w / 2,
-              y: yTop - h / 2,
-              xScale: w / 2,
-              yScale: h / 2,
-              borderColor: colorOf(stroke.color, [0.2, 0.2, 0.2]),
-              borderWidth: Math.max(0.1, stroke.widthPt)
-            });
-            break;
-          }
-          default: {
-            if (comp.grid) {
-              drawGrid(page, comp.grid, comp, x, yTop);
-            } else if (comp.text) {
-              drawTextLines(page, { lines: [comp.text], fontSizePt: fontSizePtOf(comp) }, x, yTop, w, comp);
-            }
-            break;
-          }
-        }
-      } catch (e) {
-        pageErrors.push(
-          `page ${pageIndex + 1} comp ${comp.nid ?? comp.kind}: ${String(e)}`
-        );
+        await drawComponent(renderer, page, comp, heightPt, location);
+      } catch (error) {
+        pageErrors.push(`page ${pageIndex + 1} comp ${comp.nid ?? comp.kind}: ${String(error)}`);
       }
     }
   }
-
   const bytes = await pdfDoc.save();
-  return { pdfDoc, bytes, pageErrors, unsupportedTextCount, fidelityWarnings };
+  return {
+    pdfDoc, bytes, pageErrors,
+    unsupportedTextCount: renderer.unsupportedTextCount,
+    fidelityWarnings: renderer.fidelityWarnings
+  };
 }

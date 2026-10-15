@@ -33,6 +33,23 @@ describe("buildPrintDocument（named pages 多纸张打印）", () => {
     const { head } = buildPrintDocument(plan);
     expect((head.match(/@page /g) ?? []).length).toBe(1);
   });
+
+  it("相近的自定义尺寸独立命名并保留毫米精度", () => {
+    const plan: RenderPlan = {
+      schemaVersion: "t",
+      pages: [
+        { pageWidthMm: 210.1, pageHeightMm: 297.25, components: [] },
+        { pageWidthMm: 210.4, pageHeightMm: 297.25, components: [] },
+        { pageWidthMm: 210.1, pageHeightMm: 297.25, components: [] }
+      ]
+    };
+    const { head, pageChunks } = buildPrintDocument(plan);
+    expect(head).toContain("@page p210_1x297_25{size:210.1mm 297.25mm;margin:0;}");
+    expect(head).toContain("@page p210_4x297_25{size:210.4mm 297.25mm;margin:0;}");
+    expect(head.match(/@page /g)).toHaveLength(2);
+    expect(pageChunks[0]).toMatch(/page:\s*p210_1x297_25/);
+    expect(pageChunks[1]).toMatch(/page:\s*p210_4x297_25/);
+  });
 });
 
 describe("resolvePaper（builder 纸张预设）", () => {

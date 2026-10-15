@@ -78,8 +78,12 @@ export async function invalidateFontCache(url: string): Promise<void> {
 const memory = new Map<string, Uint8Array>();
 const cacheVersions = new Map<string, number>();
 const cacheWrites = new Map<string, Promise<void>>();
+interface FontData {
+  bytes: Uint8Array;
+  fromCache: boolean;
+}
 /** 并发去重：同一 URL 的并行加载共享同一个 Promise，避免大字体重复拉取 */
-const inFlight = new Map<string, Promise<{ bytes: Uint8Array; fromCache: boolean }>>();
+const inFlight = new Map<string, Promise<FontData>>();
 const fontValidations = new WeakMap<Uint8Array, Promise<void>>();
 
 export interface FontLoadOptions {
@@ -123,6 +127,57 @@ function fontLoadError(url: string, cause: unknown, timedOut = false): Error & {
   return Object.assign(new Error(`PDF 字体 ${JSON.stringify(url)} 加载失败：${detail}`), { cause });
 }
 
+async function fetchFontData(url: string): Promise<FontData> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    // 中文字体体积大（~9MB）；慢网 15s 超时，严格模式保留可操作的失败诊断。
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`字体请求返回 HTTP ${res.status}`);
+    if (/text\/html|application\/xhtml\+xml/i.test(res.headers?.get("content-type") ?? "")) {
+      throw new Error("字体 URL 返回 HTML 页面（可能是 SPA 路由回退），不是字体文件");
+    }
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    validateBytes(bytes);
+    return { bytes, fromCache: false };
+  } catch (cause) {
+    throw fontLoadError(url, cause, controller.signal.aborted);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function readFontData(url: string): Promise<FontData> {
+  const cached = await readCache(url);
+  if (cached) {
+    try {
+      validateBytes(cached);
+      return { bytes: cached, fromCache: true };
+    } catch {
+      // 忽略旧版本写入的空响应或 HTML 缓存，重新获取真实字体。
+    }
+  }
+  return fetchFontData(url);
+}
+
+function sharedFontLoad(url: string): Promise<FontData> {
+  const pending = inFlight.get(url);
+  if (pending) return pending;
+  const task = readFontData(url);
+  inFlight.set(url, task);
+  return task;
+}
+
+async function storeFontBytes(url: string, bytes: Uint8Array, cacheVersion: number): Promise<void> {
+  if ((cacheVersions.get(url) ?? 0) !== cacheVersion) return;
+  memory.set(url, bytes);
+  // 等待写入结束，后续失效操作不会被尚未完成的写入覆盖。
+  const writing = writeCache(url, bytes);
+  cacheWrites.set(url, writing);
+  await writing;
+  if (cacheWrites.get(url) === writing) cacheWrites.delete(url);
+}
+
 /**
  * 字体加载（浏览器：IndexedDB 持久缓存 + 内存缓存；Node/SSR：内存缓存 + fetch）：
  * 中文字体体积大（simhei ~9MB），首次 fetch 后缓存，后续导出零网络等待。
@@ -132,38 +187,7 @@ export async function loadFontWithCache(url: string, options: FontLoadOptions = 
   const cacheVersion = cacheVersions.get(url) ?? 0;
   const memo = memory.get(url);
   if (memo && !options.strict) return memo;
-  let task = inFlight.get(url);
-  if (!memo && !task) {
-    task = (async () => {
-      const cached = await readCache(url);
-      if (cached) {
-        try {
-          validateBytes(cached);
-          return { bytes: cached, fromCache: true };
-        } catch {
-          // 忽略旧版本写入的空响应或 HTML 缓存，重新获取真实字体。
-        }
-      }
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15_000);
-      try {
-        // 中文字体体积大（~9MB）；慢网 15s 超时，严格模式保留可操作的失败诊断。
-        const res = await fetch(url, { signal: controller.signal });
-        if (!res.ok) throw new Error(`字体请求返回 HTTP ${res.status}`);
-        if (/text\/html|application\/xhtml\+xml/i.test(res.headers?.get("content-type") ?? "")) {
-          throw new Error("字体 URL 返回 HTML 页面（可能是 SPA 路由回退），不是字体文件");
-        }
-        const bytes = new Uint8Array(await res.arrayBuffer());
-        validateBytes(bytes);
-        return { bytes, fromCache: false };
-      } catch (cause) {
-        throw fontLoadError(url, cause, controller.signal.aborted);
-      } finally {
-        clearTimeout(timeout);
-      }
-    })();
-    inFlight.set(url, task);
-  }
+  const task = memo ? inFlight.get(url) : sharedFontLoad(url);
   try {
     const data = memo ? { bytes: memo, fromCache: true } : await task!;
     if (options.strict) {
@@ -181,14 +205,7 @@ export async function loadFontWithCache(url: string, options: FontLoadOptions = 
         throw fontLoadError(url, cause);
       }
     }
-    if (!memo && (cacheVersions.get(url) ?? 0) === cacheVersion) {
-      memory.set(url, data.bytes);
-      // 等待写入结束，后续失效操作不会被尚未完成的写入覆盖。
-      const writing = writeCache(url, data.bytes);
-      cacheWrites.set(url, writing);
-      await writing;
-      if (cacheWrites.get(url) === writing) cacheWrites.delete(url);
-    }
+    if (!memo) await storeFontBytes(url, data.bytes, cacheVersion);
     return data.bytes;
   } catch (cause) {
     if (options.strict) throw cause;

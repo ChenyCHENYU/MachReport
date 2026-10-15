@@ -33,6 +33,61 @@ function checkNumber(obj: Record<string, unknown>, key: string, path: string, er
   }
 }
 
+function validateTableSource(table: unknown, path: string, errors: ValidationError[]): void {
+  if (table !== undefined) {
+    const tablePath = `${path}.table`;
+    if (!isObj(table)) errors.push({ path: tablePath, message: "逻辑表来源应为对象" });
+    else {
+      if (typeof table["id"] !== "string" || !table["id"].trim()) errors.push({ path: `${tablePath}.id`, message: "逻辑表 ID 应为非空字符串" });
+      const role = table["role"];
+      if (!["header", "body", "group-header", "subtotal", "grand-total"].includes(role as string)) errors.push({ path: `${tablePath}.role`, message: "未知逻辑表行角色" });
+      const rowIndex = table["rowIndex"];
+      if (typeof rowIndex !== "number" || !Number.isInteger(rowIndex) || (role === "header" ? rowIndex !== -1 : rowIndex < 0)) errors.push({ path: `${tablePath}.rowIndex`, message: "表头索引应为 -1，内容行索引应为非负整数" });
+      if (!Array.isArray(table["columnKeys"]) || table["columnKeys"].some((key) => typeof key !== "string")) errors.push({ path: `${tablePath}.columnKeys`, message: "逻辑列字段应为字符串数组" });
+      if (table["layout"] !== undefined && table["layout"] !== "page" && table["layout"] !== "wide") errors.push({ path: `${tablePath}.layout`, message: "布局应为 page 或 wide" });
+      if (table["title"] !== undefined && typeof table["title"] !== "string") errors.push({ path: `${tablePath}.title`, message: "逻辑表名称应为字符串" });
+    }
+  }
+}
+
+function validateGrid(grid: unknown, path: string, errors: ValidationError[], warnings: ValidationError[]): void {
+  if (grid !== undefined) {
+    if (!isObj(grid) || !Array.isArray(grid["cells"])) {
+      errors.push({ path: `${path}.grid.cells`, message: "grid.cells 应为二维数组" });
+    } else {
+      const padding = grid["paddingMm"];
+      if (padding !== undefined && (typeof padding !== "number" || !Number.isFinite(padding) || padding < 0)) errors.push({ path: `${path}.grid.paddingMm`, message: "单元格内距应为有限非负数" });
+      (grid["cells"] as unknown[]).forEach((row, ri) => {
+        if (!Array.isArray(row)) {
+          errors.push({ path: `${path}.grid.cells.${ri}`, message: "行应为数组" });
+          return;
+        }
+        row.forEach((cell, ci) => {
+          if (cell === undefined || cell === null) return;
+          if (isObj(cell) && Array.isArray(cell["children"])) {
+            (cell["children"] as unknown[]).forEach((child, ki) => {
+              validateComponent(child, `${path}.grid.cells.${ri}.${ci}.children.${ki}`, errors, warnings);
+            });
+          }
+        });
+      });
+    }
+  }
+}
+
+function validateRichText(rich: unknown, path: string, errors: ValidationError[]): void {
+  if (rich !== undefined) {
+    if (!Array.isArray(rich)) {
+      errors.push({ path: `${path}.richParagraphs`, message: "richParagraphs 应为数组" });
+    } else {
+      rich.forEach((para, i) => {
+        if (!isObj(para) || !Array.isArray(para["segments"])) {
+          errors.push({ path: `${path}.richParagraphs.${i}`, message: "段落缺少 segments 数组" });
+        }
+      });
+    }
+  }}
+
 export function validateComponent(
   comp: unknown,
   path: string,
@@ -63,54 +118,9 @@ export function validateComponent(
       errors.push({ path: `${path}.${key}`, message: "组件尺寸不能为负数" });
     }
   }
-  const table = comp["table"];
-  if (table !== undefined) {
-    const tablePath = `${path}.table`;
-    if (!isObj(table)) errors.push({ path: tablePath, message: "逻辑表来源应为对象" });
-    else {
-      if (typeof table["id"] !== "string" || !table["id"].trim()) errors.push({ path: `${tablePath}.id`, message: "逻辑表 ID 应为非空字符串" });
-      const role = table["role"];
-      if (!["header", "body", "group-header", "subtotal", "grand-total"].includes(role as string)) errors.push({ path: `${tablePath}.role`, message: "未知逻辑表行角色" });
-      const rowIndex = table["rowIndex"];
-      if (typeof rowIndex !== "number" || !Number.isInteger(rowIndex) || (role === "header" ? rowIndex !== -1 : rowIndex < 0)) errors.push({ path: `${tablePath}.rowIndex`, message: "表头索引应为 -1，内容行索引应为非负整数" });
-      if (!Array.isArray(table["columnKeys"]) || table["columnKeys"].some((key) => typeof key !== "string")) errors.push({ path: `${tablePath}.columnKeys`, message: "逻辑列字段应为字符串数组" });
-      if (table["layout"] !== undefined && table["layout"] !== "page" && table["layout"] !== "wide") errors.push({ path: `${tablePath}.layout`, message: "布局应为 page 或 wide" });
-      if (table["title"] !== undefined && typeof table["title"] !== "string") errors.push({ path: `${tablePath}.title`, message: "逻辑表名称应为字符串" });
-    }
-  }
-  const grid = comp["grid"];
-  if (grid !== undefined) {
-    if (!isObj(grid) || !Array.isArray(grid["cells"])) {
-      errors.push({ path: `${path}.grid.cells`, message: "grid.cells 应为二维数组" });
-    } else {
-      (grid["cells"] as unknown[]).forEach((row, ri) => {
-        if (!Array.isArray(row)) {
-          errors.push({ path: `${path}.grid.cells.${ri}`, message: "行应为数组" });
-          return;
-        }
-        row.forEach((cell, ci) => {
-          if (cell === undefined || cell === null) return;
-          if (isObj(cell) && Array.isArray(cell["children"])) {
-            (cell["children"] as unknown[]).forEach((child, ki) => {
-              validateComponent(child, `${path}.grid.cells.${ri}.${ci}.children.${ki}`, errors, warnings);
-            });
-          }
-        });
-      });
-    }
-  }
-  const rich = comp["richParagraphs"];
-  if (rich !== undefined) {
-    if (!Array.isArray(rich)) {
-      errors.push({ path: `${path}.richParagraphs`, message: "richParagraphs 应为数组" });
-    } else {
-      rich.forEach((para, i) => {
-        if (!isObj(para) || !Array.isArray(para["segments"])) {
-          errors.push({ path: `${path}.richParagraphs.${i}`, message: "段落缺少 segments 数组" });
-        }
-      });
-    }
-  }
+  validateTableSource(comp["table"], path, errors);
+  validateGrid(comp["grid"], path, errors, warnings);
+  validateRichText(comp["richParagraphs"], path, errors);
 }
 
 export function validatePage(

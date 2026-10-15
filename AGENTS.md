@@ -13,6 +13,7 @@ pnpm test:coverage            # 覆盖率（关注 layout/ render/ format.ts）
 pnpm build                    # 全工作区构建（mach-report 六入口 ESM+CJS + federation + examples）
 pnpm check:docs               # 文档相对链接、README 发布同步与 SVG 资源检查
 pnpm check:consumer           # 实际 npm 包隔离消费，ESM/CJS 运行与严格类型检查
+pnpm check:quality            # 生产代码圈复杂度 ≤20，统计全部 TS / Vue 函数
 pnpm verify                   # 类型 → lint → build → 覆盖率/产物守卫 → 文档 → 消费端
 pnpm test:e2e                 # E2E（真 Chromium；配置自动启动 examples dev server）
 pnpm run version              # 合并 changeset 并同步 README 版本，检查后提交推送
@@ -28,12 +29,14 @@ pnpm release                  # 已提交版本的发版：clean gate → instal
 - 常规接入使用插件 `reports` 或核心 `createReportSource`：宿主只定义模板、取数和字段映射，包内统一分页、参数元数据、校验与页合并。Vue 入口重导出核心 API；保留旧 fetcher 逃生口，signal / onWarning 为可选增强。
 - 父页面控制用 `useMachReport` 的稳定 ref / ready / 方法；重载与卸载必须取消旧取数，导出必须去重并隔离过期结果。同步打开 PDF 窗口，避免丢失浏览器用户手势。
 - **ESLint 边界规则**：引擎核心不得 import 任何子路径域（主入口零重依赖零框架，有产物守卫测试双保险）
+- **复杂度门禁**：所有生产 TS / Vue 函数 complexity ≤20，无文件豁免；按校验、测量、几何、输出职责拆分，禁止为数字删分支或转移到使用侧。
 - 自引用（self-reference）：vue 子路径静态依赖引擎、PDF 懒加载走 `./pdf`，构建时外部化
 
 ## 约定
 
 - 版本：changesets（`.changeset/*.md` → `pnpm run version`，同步 README 源码版本）
 - 测试先行：新能力必须带单测；数据源测试使用真实分页，Vue 测试真实挂载并清理。渲染几何/坐标回归走 E2E 结构化断言（见 `e2e/canvas.spec.ts`）
+- 单测与浏览器测试均零重试；实际失败先定位，不降低既有性能预算来通过门禁。
 - 性能预算：`perf-budget.test.ts` 的阈值改动需在 PR 说明理由
 - 文案/主题：走 `config.ts` 的 messages/theme（不要硬编码）
 - 主分支 main；使用 `git remote -v` 确认已配置远端，仅在用户授权后推送或发布。GitHub clone 默认只有 origin，不假设存在 gitee。

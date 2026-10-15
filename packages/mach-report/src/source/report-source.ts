@@ -115,6 +115,64 @@ function validateDatasets(value: unknown, reportId: string): asserts value is Da
   }
 }
 
+async function loadTemplate(loader: ReportTemplateLoader, context: ReportLoadContext, warnings: string[]): Promise<ReportTemplate> {
+  const { reportId, signal } = context;
+  try {
+    const template = await cancellable(loader(context), signal);
+    checkAbort(signal);
+    const validation = validateReportTemplate(template);
+    if (!validation.ok) {
+      throw new ReportSourceError("validate", `报表 ${reportId} 模板校验失败：${validation.errors.slice(0, 3).map((error) => `${error.path}: ${error.message}`).join("; ")}`);
+    }
+    warnings.push(...validation.warnings.map((warning) => `${reportId}: ${warning.path}: ${warning.message}`));
+    return template;
+  } catch (error) {
+    if (signal?.aborted) throw abortError(signal);
+    if (error instanceof ReportSourceError) throw error;
+    if (error instanceof ReportTemplateError) throw new ReportSourceError("validate", `报表 ${reportId} 模板校验失败：${error.message}`, error);
+    throw new ReportSourceError("fetch", `报表 ${reportId} 模板加载失败：${error instanceof Error ? error.message : String(error)}`, error);
+  }
+}
+
+async function loadDatasets(definition: ReportDefinition, context: ReportLoadContext, reportId: string, signal?: AbortSignal): Promise<DatasetRows> {
+  let data: DatasetRows;
+  try {
+    data = await cancellable(definition.load ? definition.load(context) : definition.datasets ?? {}, signal);
+  } catch (error) {
+    if (signal?.aborted) throw abortError(signal);
+    if (error instanceof ReportSourceError) throw error;
+    throw new ReportSourceError("fetch", `报表 ${reportId} 取数失败：${error instanceof Error ? error.message : String(error)}`, error);
+  }
+  checkAbort(signal);
+  validateDatasets(data, reportId);
+  return data;
+}
+
+function paginateReport(template: ReportTemplate, data: DatasetRows, definition: ReportDefinition, reportId: string): ReturnType<typeof paginateTemplate> {
+  try {
+    return paginateTemplate(template, data, definition.pagination);
+  } catch (error) {
+    throw new ReportSourceError("validate", `报表 ${reportId} 排版失败：${error instanceof Error ? error.message : String(error)}`, error);
+  }
+}
+
+/** 同一模板可被多个报表或重复 ID 使用；只克隆带来源组件，不改宿主模板或数据。 */
+function appendTablePages(pages: RenderPlan["pages"], plan: RenderPlan, reportIndex: number, reportId: string): void {
+  const tableIds = new Map<string, string>();
+  const scopedTableId = (id: string): string => {
+    let scoped = tableIds.get(id);
+    if (scoped === undefined) { scoped = JSON.stringify([reportIndex, reportId, id]); tableIds.set(id, scoped); }
+    return scoped;
+  };
+  for (const page of plan.pages) pages.push({
+    ...page,
+    components: page.components.map((component) => component.table ? {
+      ...component,
+      table: { ...component.table, id: scopedTableId(component.table.id) }
+    } : component)
+  });
+}
+
 /**
  * 框架无关的报表数据源：注册一次模板与取数，包内完成分页、校验、按 ID 顺序合并。
  * 不缓存业务结果、不推断接口包装、不自动重试；鉴权与完整数据范围由宿主决定。
@@ -143,54 +201,13 @@ export function createReportSource(
       checkAbort(signal);
       const reportId = requestedIds[index]!;
       const context: ReportLoadContext = { reportId, params: { ...requestedParams }, signal };
-      let template: ReportTemplate;
-      if (typeof definition.template === "function") {
-        try {
-          template = await cancellable(definition.template(context), signal);
-          checkAbort(signal);
-          const validation = validateReportTemplate(template);
-          if (!validation.ok) {
-            throw new ReportSourceError("validate", `报表 ${reportId} 模板校验失败：${validation.errors.slice(0, 3).map((error) => `${error.path}: ${error.message}`).join("; ")}`);
-          }
-          warnings.push(...validation.warnings.map((warning) => `${reportId}: ${warning.path}: ${warning.message}`));
-        } catch (error) {
-          if (signal?.aborted) throw abortError(signal);
-          if (error instanceof ReportSourceError) throw error;
-          if (error instanceof ReportTemplateError) throw new ReportSourceError("validate", `报表 ${reportId} 模板校验失败：${error.message}`, error);
-          throw new ReportSourceError("fetch", `报表 ${reportId} 模板加载失败：${error instanceof Error ? error.message : String(error)}`, error);
-        }
-      } else template = definition.template;
-      let data: DatasetRows;
-      try {
-        data = await cancellable(definition.load ? definition.load(context) : definition.datasets ?? {}, signal);
-      } catch (error) {
-        if (signal?.aborted) throw abortError(signal);
-        if (error instanceof ReportSourceError) throw error;
-        throw new ReportSourceError("fetch", `报表 ${reportId} 取数失败：${error instanceof Error ? error.message : String(error)}`, error);
-      }
+      const template = typeof definition.template === "function"
+        ? await loadTemplate(definition.template, context, warnings)
+        : definition.template;
+      const data = await loadDatasets(definition, context, reportId, signal);
       checkAbort(signal);
-      validateDatasets(data, reportId);
-      let result;
-      try {
-        result = paginateTemplate(template, data, definition.pagination);
-      } catch (error) {
-        throw new ReportSourceError("validate", `报表 ${reportId} 排版失败：${error instanceof Error ? error.message : String(error)}`, error);
-      }
-      // 同一模板可被多个报表或重复 ID 使用；逻辑表身份仅在本次合并计划内唯一。
-      // 只克隆带来源的组件，不改动宿主模板或数据。
-      const tableIds = new Map<string, string>();
-      const scopedTableId = (id: string): string => {
-        let scoped = tableIds.get(id);
-        if (scoped === undefined) { scoped = JSON.stringify([index, reportId, id]); tableIds.set(id, scoped); }
-        return scoped;
-      };
-      for (const page of result.plan.pages) pages.push({
-        ...page,
-        components: page.components.map((component) => component.table ? {
-          ...component,
-          table: { ...component.table, id: scopedTableId(component.table.id) }
-        } : component)
-      });
+      const result = paginateReport(template, data, definition, reportId);
+      appendTablePages(pages, result.plan, index, reportId);
       warnings.push(...result.warnings.map((message) => `${reportId}: ${message}`));
     }
     checkAbort(signal);

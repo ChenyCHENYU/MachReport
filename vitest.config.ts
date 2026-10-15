@@ -8,8 +8,8 @@ export default defineConfig({
     include: ["packages/*/src/**/*.test.ts", "packages/*/tests/**/*.test.ts"],
     globals: false,
     setupFiles: ["./scripts/test-env.ts"],
-    /** 负载敏感的性能预算/异步挂载用例在并行重载下偶发超阈值：重试一次（CI 标准做法，阈值不放水） */
-    retry: 1,
+    /** 失败直接暴露，发布与 CI 不以重试掩盖时序或性能回归。 */
+    retry: 0,
     coverage: {
       provider: "v8",
       include: [

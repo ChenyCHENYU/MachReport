@@ -46,6 +46,46 @@ function buildPlan(): RenderPlan {
 }
 
 describe("renderPlanToXlsx（./xlsx 子路径）", () => {
+  it("真实回读保留被 rowSpan 覆盖的空白行高度", async () => {
+    const plan: RenderPlan = { schemaVersion: "rowspan-height", pages: [{ pageWidthMm: 210, pageHeightMm: 297, components: [{
+      kind: "rect", leftMm: 10, topMm: 10, widthMm: 80, heightMm: 30,
+      grid: { cells: [[{ text: "merged", rowSpan: 2 }], []], colWidthsMm: [80], rowHeightsMm: [10, 20] }
+    }] }] };
+    const { buffer } = await renderPlanToXlsx(plan);
+    const workbook = new ExcelJSRuntime.Workbook();
+    await workbook.xlsx.load(buffer);
+    const sheet = workbook.worksheets[0]!;
+    expect(sheet.model.merges).toEqual(["A1:A2"]);
+    expect(sheet.getRow(1).height).toBeCloseTo(10 * 72 / 25.4);
+    expect(sheet.getRow(2).height).toBeCloseTo(20 * 72 / 25.4);
+  });
+
+  it("纯文本标题回读保留多行、底色和显式垂直对齐", async () => {
+    const plan: RenderPlan = { schemaVersion: "title-style", pages: [{ pageWidthMm: 210, pageHeightMm: 297, components: [{
+      kind: "text", leftMm: 10, topMm: 10, widthMm: 100, heightMm: 20,
+      lines: ["first", "second"], style: { verticalAlign: "bottom", backgroundColor: "#123456", fontSize: 14 }
+    }] }] };
+    const { buffer } = await renderPlanToXlsx(plan);
+    const workbook = new ExcelJSRuntime.Workbook();
+    await workbook.xlsx.load(buffer);
+    const cell = workbook.worksheets[0]!.getCell("A1");
+    expect(cell.value).toBe("first\nsecond");
+    expect(cell.alignment).toMatchObject({ vertical: "bottom", wrapText: true });
+    expect(cell.fill).toEqual({ type: "pattern", pattern: "solid", fgColor: { argb: "FF123456" } });
+    expect(cell.font.size).toBe(14);
+  });
+
+  it("网格单元格 pt 字号覆盖组件 px 字号并保留继承颜色", async () => {
+    const plan: RenderPlan = { schemaVersion: "font-override", pages: [{ pageWidthMm: 210, pageHeightMm: 297, components: [{
+      kind: "rect", leftMm: 10, topMm: 10, widthMm: 80, heightMm: 20,
+      style: { fontSizePx: 24, color: "#123456" }, grid: { cells: [[{ text: "override", style: { fontSize: 12 } }]] }
+    }] }] };
+    const { buffer } = await renderPlanToXlsx(plan);
+    const workbook = new ExcelJSRuntime.Workbook();
+    await workbook.xlsx.load(buffer);
+    expect(workbook.worksheets[0]!.getCell("A1").font).toMatchObject({ size: 12, color: { argb: "FF123456" } });
+  });
+
   it("raw 模式经真实工作簿回读保留数值、空值、布尔、文本炉号和百分比格式", async () => {
     const template = createTableTemplate({ columns: [
       { header: "炉号", field: "id" },
@@ -215,10 +255,11 @@ describe("renderPlanToXlsx（./xlsx 子路径）", () => {
       }]
     };
     const { workbook, warnings } = await renderPlanToXlsx(plan);
-    expect(warnings).toHaveLength(3);
+    expect(warnings).toHaveLength(4);
     expect(warnings[0]).toContain("rich-only: 富文本内容");
-    expect(warnings[1]).toContain("nested-grid cell 1:1: 嵌套组件内容");
-    expect(warnings[2]).toContain("nested-grid cell 1:2: 嵌套组件内容");
+    expect(warnings[1]).toContain("rich-fallback: 富文本按已有文本回退导出");
+    expect(warnings[2]).toContain("nested-grid cell 1:1: 嵌套组件内容");
+    expect(warnings[3]).toContain("nested-grid cell 1:2: 嵌套组件内容");
     const sheet = workbook.worksheets[0]!;
     expect(sheet.getCell("A1").value).toBe("");
     expect(sheet.getCell("A2").value).toBe("已有文本回退");

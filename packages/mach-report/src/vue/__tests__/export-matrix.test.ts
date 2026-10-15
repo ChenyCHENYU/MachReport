@@ -240,6 +240,34 @@ describe("exportAs 出口矩阵接线", () => {
     }
   });
 
+  it("流式打印换计划会立即释放iframe，不再读取后续旧页", async () => {
+    vi.useFakeTimers();
+    const readLatePage = vi.fn();
+    const current = shallowRef<RenderPlan | null>({
+      schemaVersion: "t",
+      pages: Array.from({ length: 17 }, (_, index) => ({
+        pageWidthMm: 210, pageHeightMm: 297,
+        get components() {
+          if (index >= 8) readLatePage();
+          return [];
+        }
+      }))
+    });
+    const api = usePrintExport(current, { getPdfExporter: () => async () => new Uint8Array(), onError: vi.fn() });
+    try {
+      const pending = api.print();
+      const frame = document.querySelector("iframe")!;
+      current.value = { schemaVersion: "new", pages: [] };
+      expect(frame.isConnected).toBe(false);
+      await vi.runAllTimersAsync();
+      await pending;
+      expect(readLatePage).not.toHaveBeenCalled();
+    } finally {
+      api.dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it("PDF 异步生成期间报告忙碌状态，失败后清除", async () => {
     const onBusy = vi.fn();
     const onError = vi.fn();

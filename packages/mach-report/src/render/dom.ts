@@ -1,15 +1,20 @@
 import type {
+  ComponentStyle,
   PlanComponent,
   PlanGrid,
   PlanPage,
+  RichParagraph,
   RenderPlan
 } from "../schema/render-plan";
 import { isImageBackedComponent, isRichText } from "../schema/render-plan";
 import { mmToPx, round } from "../units";
+import { resolveGridLayout, type GridCellBox, type GridEdge, type GridLayout } from "./grid-geometry";
 import { DEFAULT_TEXT_COLOR } from "../defaults";
 import {
+  mergeComponentStyles,
   resolveBoxBorders,
   resolveFontSize,
+  resolveLineHeight,
   resolveStroke
 } from "./style";
 
@@ -87,20 +92,98 @@ class StyleBag {
   }
 }
 
-function applyComponentStyle(bag: StyleBag, comp: PlanComponent, dpi: number): void {
-  const s = comp.style || {};
+/** Reset only renderer-owned nodes; host element selectors cannot change report geometry. */
+function elementStyle(display: string, reset = "unset"): StyleBag {
+  return new StyleBag().add("all", reset).add("display", display).add("box-sizing", "border-box");
+}
+
+function applyTypography(bag: StyleBag, s: ComponentStyle, dpi: number): void {
   bag
     .add("color", s.color)
-    .add("background-color", s.backgroundColor)
     .add("font-family", s.fontFamily)
-    .add("font-weight", s.bold ? "700" : undefined)
-    .add("font-style", s.italic ? "italic" : undefined)
-    .add("text-decoration", s.underline ? "underline" : undefined)
+    .add("font-weight", s.bold != null ? (s.bold ? "700" : "400") : undefined)
+    .add("font-style", s.italic != null ? (s.italic ? "italic" : "normal") : undefined)
+    .add("text-decoration", s.underline != null ? (s.underline ? "underline" : "none") : undefined)
     .add("letter-spacing", s.letterSpacing != null ? `${s.letterSpacing}pt` : undefined)
-    .add("opacity", s.opacity != null ? String(s.opacity) : undefined)
-    .add("transform", s.rotateDeg ? `rotate(${s.rotateDeg}deg)` : undefined);
+    .add("line-height", String(resolveLineHeight(s)))
+    .add("text-align", s.align);
+
   const font = resolveFontSize(s, dpi);
   bag.add("font-size", `${round(font.fontSizePx, 2)}px`);
+}
+
+function applyComponentStyle(bag: StyleBag, comp: PlanComponent, dpi: number): void {
+  const s = comp.style ?? {};
+  applyTypography(bag, s, dpi);
+  bag.add("background-color", s.backgroundColor)
+    .add("opacity", s.opacity != null ? String(s.opacity) : undefined)
+    .add("transform", s.rotateDeg ? `rotate(${s.rotateDeg}deg)` : undefined);
+}
+
+function renderGridCell(
+  box: GridCellBox,
+  comp: PlanComponent,
+  paddingMm: number,
+  dpi: number,
+  options: RenderOptions,
+  doc: Document
+): HTMLElement {
+  const cell = box.cell;
+  const cellEl = doc.createElement("td");
+  cellEl.className = classOf("cell", options);
+  cellEl.setAttribute("role", comp.table?.role === "header" ? "columnheader" : "cell");
+  if (cell.colSpan) cellEl.colSpan = cell.colSpan;
+  if (cell.rowSpan) cellEl.rowSpan = cell.rowSpan;
+  const style = mergeComponentStyles(comp.style, cell.style);
+  const cellBag = elementStyle("block")
+    .add("position", "absolute")
+    .mm("left", box.xMm, dpi).mm("top", box.yMm, dpi)
+    .mm("width", box.widthMm, dpi).mm("height", box.heightMm, dpi)
+    .add("background-color", style.backgroundColor)
+    .add("vertical-align", style.verticalAlign ?? "middle");
+  applyTypography(cellBag, style, dpi);
+  cellBag.applyTo(cellEl);
+
+  // Content cannot contribute native table min-content sizes and enlarge the planned row.
+  const payload = doc.createElement("div");
+  payload.className = "mr-cell-content";
+  elementStyle("flex").add("position", "absolute")
+    .mm("left", paddingMm, dpi).mm("right", paddingMm, dpi)
+    .mm("top", paddingMm, dpi).mm("bottom", paddingMm, dpi)
+    .add("flex-direction", "column")
+    .add("justify-content", style.verticalAlign === "top" ? "flex-start" : style.verticalAlign === "bottom" ? "flex-end" : "center")
+    .add("overflow-wrap", "anywhere")
+    .add("overflow", "hidden")
+    .applyTo(payload);
+  if (cell.text != null) payload.append(cell.text);
+  for (const child of cell.children ?? []) payload.appendChild(renderComponent(child, dpi, options, doc));
+  cellEl.appendChild(payload);
+  return cellEl;
+}
+
+function renderGridEdges(layout: GridLayout, comp: PlanComponent, dpi: number, doc: Document): HTMLElement[] {
+  const borders = resolveBoxBorders(comp.style);
+  const edges: GridEdge[] = borders.inner ? [...layout.edges] : [];
+  if (borders.top) edges.push({ kind: "h", pos: 0, from: 0, to: comp.widthMm });
+  if (borders.bottom) edges.push({ kind: "h", pos: comp.heightMm, from: 0, to: comp.widthMm });
+  if (borders.left) edges.push({ kind: "v", pos: 0, from: 0, to: comp.heightMm });
+  if (borders.right) edges.push({ kind: "v", pos: comp.widthMm, from: 0, to: comp.heightMm });
+  const stroke = resolveStroke(comp.style);
+  const border = `${round((stroke.widthPt * dpi) / 72, 2)}px solid ${stroke.color}`;
+  return edges.map((edge) => {
+    const line = doc.createElement("div");
+    line.className = "mr-grid-edge";
+    line.setAttribute("aria-hidden", "true");
+    const horizontal = edge.kind === "h";
+    elementStyle("block").add("position", "absolute").add("pointer-events", "none")
+      .mm("left", horizontal ? edge.from : edge.pos, dpi)
+      .mm("top", horizontal ? edge.pos : edge.from, dpi)
+      .mm("width", horizontal ? edge.to - edge.from : 0, dpi)
+      .mm("height", horizontal ? 0 : edge.to - edge.from, dpi)
+      .add(horizontal ? "border-top" : "border-left", border)
+      .applyTo(line);
+    return line;
+  });
 }
 
 function renderGrid(
@@ -112,63 +195,92 @@ function renderGrid(
 ): HTMLElement {
   const table = doc.createElement("table");
   table.className = classOf("grid", options);
-  new StyleBag()
-    .add("width", "100%")
-    .add("height", "100%")
-    .add("border-collapse", "collapse")
-    .add("table-layout", grid.colWidthsMm ? "fixed" : "auto")
+  table.setAttribute("role", "table");
+  elementStyle("block").add("position", "relative")
+    .add("width", "100%").add("height", "100%")
     .applyTo(table);
-  if (grid.colWidthsMm) {
-    const colGroup = doc.createElement("colgroup");
-    for (const w of grid.colWidthsMm) {
-      const col = doc.createElement("col");
-      new StyleBag().mm("width", w, dpi).applyTo(col);
-      colGroup.appendChild(col);
-    }
-    table.appendChild(colGroup);
-  }
-  // 内部网格线由 td 边框承担（border-collapse 下 colSpan/rowSpan 自动正确）
-  const borders = resolveBoxBorders(comp.style);
-  const stroke = resolveStroke(comp.style);
-  const border = borders.inner
-    ? `${round((stroke.widthPt * dpi) / 72, 2)}px solid ${stroke.color}`
-    : "";
-
-  grid.cells.forEach((row, ri) => {
-    const rowEl = doc.createElement("tr");
-    rowEl.className = classOf("row", options);
-    if (grid.rowHeightsMm?.[ri] != null) {
-      new StyleBag().mm("height", grid.rowHeightsMm[ri]!, dpi).applyTo(rowEl);
-    }
-    (row || []).forEach((cell) => {
-      const cellEl = doc.createElement("td");
-      cellEl.className = classOf("cell", options);
-      if (cell?.colSpan) cellEl.colSpan = cell.colSpan;
-      if (cell?.rowSpan) cellEl.rowSpan = cell.rowSpan;
-      const cellBag = new StyleBag();
-      if (border) cellBag.add("border", border);
-      if (cell?.style) {
-        const st = cell.style;
-        cellBag
-          .add("text-align", st.align)
-          .add("vertical-align", st.verticalAlign)
-          .add("background-color", st.backgroundColor)
-          .add("color", st.color)
-          .add("font-weight", st.bold ? "700" : undefined);
-        cellBag.add("font-size", `${round(resolveFontSize(st, dpi).fontSizePx, 2)}px`);
-      }
-      cellBag.applyTo(cellEl);
-      if (cell?.text != null) cellEl.textContent = cell.text;
-      if (cell?.children?.length) {
-        for (const child of cell.children) {
-          cellEl.appendChild(renderComponent(child, dpi, options, doc));
-        }
-      }
-      rowEl.appendChild(cellEl);
-    });
-    table.appendChild(rowEl);
+  const layout = resolveGridLayout(grid, comp.widthMm, comp.heightMm);
+  const body = doc.createElement("tbody");
+  elementStyle("contents").applyTo(body);
+  table.appendChild(body);
+  const rows = grid.cells.map(() => {
+    const row = doc.createElement("tr");
+    row.className = classOf("row", options);
+    row.setAttribute("role", "row");
+    elementStyle("contents").applyTo(row);
+    body.appendChild(row);
+    return row;
   });
-  return table;
+  for (const box of layout.cells) {
+    rows[box.ri]!.appendChild(renderGridCell(box, comp, grid.paddingMm ?? 0.5, dpi, options, doc));
+  }
+  const content = doc.createElement("div");
+  elementStyle("block").add("position", "relative").add("width", "100%").add("height", "100%").applyTo(content);
+  // Keep decorative edges outside table: HTML serialization/printing must not foster-parent invalid children.
+  content.append(table, ...renderGridEdges(layout, comp, dpi, doc));
+  return content;
+}
+
+function renderRichParagraph(
+  para: RichParagraph,
+  dpi: number,
+  options: RenderOptions,
+  doc: Document
+): HTMLElement {
+  const p = doc.createElement("div");
+  p.className = classOf("paragraph", options);
+  elementStyle("block")
+    .add("text-align", para.align)
+    .add("line-height", para.lineHeight != null ? String(para.lineHeight) : undefined)
+    .mm("margin-top", para.spaceBeforeMm ?? 0, dpi)
+    .mm("margin-bottom", para.spaceAfterMm ?? 0, dpi)
+    .mm("text-indent", para.indentMm ?? 0, dpi)
+    .applyTo(p);
+  for (const seg of para.segments || []) {
+    const segEl = doc.createElement("span");
+    segEl.className = classOf("segment", options);
+    segEl.textContent = seg.kind === "field" ? (seg.field ?? "") : (seg.text ?? "");
+    const segBag = elementStyle("inline");
+    // An unstyled run inherits the paragraph's font rather than resetting to the engine default.
+    if (seg.style) {
+      const st = seg.style;
+      segBag.add("color", st.color).add("font-family", st.fontFamily)
+        .add("font-weight", st.bold != null ? (st.bold ? "700" : "400") : undefined)
+        .add("font-style", st.italic != null ? (st.italic ? "italic" : "normal") : undefined)
+        .add("text-decoration", st.underline != null ? (st.underline ? "underline" : "none") : undefined);
+      if (st.fontSize != null || st.fontSizePx != null) {
+        segBag.add("font-size", `${round(resolveFontSize(st, dpi).fontSizePx, 2)}px`);
+      }
+    }
+    segBag.applyTo(segEl);
+    p.appendChild(segEl);
+  }
+  return p;
+}
+
+function renderTextContent(comp: PlanComponent, dpi: number, options: RenderOptions, doc: Document): HTMLElement | string {
+  if (isRichText(comp)) {
+    const richBox = doc.createElement("div");
+    richBox.className = classOf("rich", options);
+    elementStyle("block").applyTo(richBox);
+    for (const para of comp.richParagraphs!) richBox.appendChild(renderRichParagraph(para, dpi, options, doc));
+    return richBox;
+  }
+  if (Array.isArray(comp.lines) && comp.lines.length > 0) {
+    const box = doc.createElement("div");
+    box.className = classOf("lines", options);
+    elementStyle("block").applyTo(box);
+    for (const line of comp.lines) {
+      const lineEl = doc.createElement("div");
+      lineEl.className = classOf("line", options);
+      lineEl.textContent = line;
+      // Precomputed empty lines must keep their line box, and cannot be rewrapped by the browser.
+      elementStyle("block").add("white-space", "pre").add("min-height", "1lh").applyTo(lineEl);
+      box.appendChild(lineEl);
+    }
+    return box;
+  }
+  return comp.text ?? "";
 }
 
 function renderText(
@@ -180,63 +292,15 @@ function renderText(
   const el = doc.createElement("div");
   el.className = classOf("text", options);
   const s = comp.style || {};
-  const bag = new StyleBag()
-    .add("text-align", s.align)
-    .add("display", "flex")
+  elementStyle("flex")
+    .add("width", "100%")
+    .add("height", "100%")
     .add("flex-direction", "column")
-    .add(
-      "justify-content",
-      s.verticalAlign === "middle" ? "center" : s.verticalAlign === "bottom" ? "flex-end" : "flex-start"
-    )
-    .add("overflow", "hidden");
-  applyComponentStyle(bag, comp, dpi);
-  bag.applyTo(el);
-
-  if (isRichText(comp)) {
-    const richBox = doc.createElement("div");
-    richBox.className = classOf("rich", options);
-    for (const para of comp.richParagraphs!) {
-      const p = doc.createElement("div");
-      p.className = classOf("paragraph", options);
-      const pBag = new StyleBag()
-        .add("text-align", para.align)
-        .add("line-height", para.lineHeight != null ? String(para.lineHeight) : undefined)
-        .mm("margin-top", para.spaceBeforeMm ?? 0, dpi)
-        .mm("margin-bottom", para.spaceAfterMm ?? 0, dpi)
-        .mm("text-indent", para.indentMm ?? 0, dpi);
-      pBag.applyTo(p);
-      for (const seg of para.segments || []) {
-        const segEl = doc.createElement("span");
-        segEl.className = classOf("segment", options);
-        segEl.textContent = seg.kind === "field" ? (seg.field ?? "") : (seg.text ?? "");
-        if (seg.style) {
-          const segBag = new StyleBag()
-            .add("color", seg.style.color)
-            .add("font-weight", seg.style.bold ? "700" : undefined);
-          segBag.add("font-size", `${round(resolveFontSize(seg.style, dpi).fontSizePx, 2)}px`);
-          segBag.applyTo(segEl);
-        }
-        p.appendChild(segEl);
-      }
-      richBox.appendChild(p);
-    }
-    el.appendChild(richBox);
-    return el;
-  }
-  if (Array.isArray(comp.lines) && comp.lines.length > 0) {
-    const box = doc.createElement("div");
-    box.className = classOf("lines", options);
-    if (s.lineHeight != null) new StyleBag().add("line-height", String(s.lineHeight)).applyTo(box);
-    for (const line of comp.lines) {
-      const lineEl = doc.createElement("div");
-      lineEl.className = classOf("line", options);
-      lineEl.textContent = line;
-      box.appendChild(lineEl);
-    }
-    el.appendChild(box);
-    return el;
-  }
-  el.textContent = comp.text ?? "";
+    .add("justify-content", s.verticalAlign === "middle" ? "center" : s.verticalAlign === "bottom" ? "flex-end" : "flex-start")
+    .add("overflow-wrap", "anywhere")
+    .add("overflow", "hidden")
+    .applyTo(el);
+  el.append(renderTextContent(comp, dpi, options, doc));
   return el;
 }
 
@@ -244,11 +308,10 @@ function renderImage(comp: PlanComponent, options: RenderOptions, doc: Document)
   const img = doc.createElement("img");
   img.className = classOf("image", options);
   img.src = comp.imageData!;
-  new StyleBag()
+  elementStyle("block")
     .add("width", "100%")
     .add("height", "100%")
     .add("object-fit", "contain")
-    .add("display", "block")
     .applyTo(img);
   img.alt = comp.kind;
   return img;
@@ -266,13 +329,10 @@ function renderShape(
   const stroke = resolveStroke(s);
   const borders = resolveBoxBorders(s);
   const border = `${round((stroke.widthPt * dpi) / 72, 2)}px solid ${stroke.color}`;
-  const bag = new StyleBag();
-  // 含 grid 的 rect：内线由 td 承担，shape 只画外框四边（按开关）
+  const bag = elementStyle("block");
+  // Grid edges are drawn once from shared geometry; CSS borders must not shrink its content box.
   if (comp.grid) {
-    if (borders.top) bag.add("border-top", border);
-    if (borders.right) bag.add("border-right", border);
-    if (borders.bottom) bag.add("border-bottom", border);
-    if (borders.left) bag.add("border-left", border);
+    bag.add("position", "relative");
   } else if (comp.kind === "rect") {
     if (borders.top) bag.add("border-top", border);
     if (borders.right) bag.add("border-right", border);
@@ -297,7 +357,7 @@ export function renderComponent(
 ): HTMLElement {
   const wrap = doc.createElement("div");
   wrap.className = `${classOf("comp", options)} mr-kind-${comp.kind}`;
-  const bag = new StyleBag()
+  const bag = elementStyle("block")
     .add("position", "absolute")
     .mm("left", comp.leftMm, dpi)
     .mm("top", comp.topMm, dpi)
@@ -327,6 +387,7 @@ export function renderComponent(
   }
   const ph = doc.createElement("div");
   ph.className = classOf("unknown", options);
+  elementStyle("block").applyTo(ph);
   ph.textContent = comp.fallbackText ?? "";
   wrap.appendChild(ph);
   return wrap;
@@ -340,8 +401,13 @@ export function renderPage(
 ): HTMLElement {
   const el = doc.createElement("div");
   el.className = classOf("page", options);
-  new StyleBag()
+  elementStyle("block", "initial")
     .add("position", "relative")
+    .add("font-family", '"Microsoft YaHei", sans-serif')
+    .add("font-size", `${round(resolveFontSize(undefined, dpi).fontSizePx, 2)}px`)
+    .add("line-height", String(resolveLineHeight(undefined)))
+    .add("white-space", "pre-wrap")
+    .add("direction", "ltr")
     .mm("width", page.pageWidthMm, dpi)
     .mm("height", page.pageHeightMm, dpi)
     .add("background-color", "#fff")
@@ -363,6 +429,7 @@ export function renderPlan(
   const dpi = options.dpi ?? 96;
   const root = doc.createElement("div");
   root.className = classOf("root", options);
+  elementStyle("block").applyTo(root);
   root.dataset.schemaVersion = plan.schemaVersion;
   plan.pages.forEach((page) => {
     root.appendChild(renderPage(page, dpi, options, doc));

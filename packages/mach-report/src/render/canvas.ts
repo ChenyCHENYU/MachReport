@@ -1,15 +1,14 @@
 import type { PlanComponent, PlanPage, PlanGrid, RenderPlan } from "../schema/render-plan";
 import { isRichText } from "../schema/render-plan";
-import { resolveGridLayout } from "./grid-geometry";
+import { resolveGridLayout, type GridLayout } from "./grid-geometry";
 import { wrapText, type TextMeasurer } from "../layout/textwrap";
 import { heuristicMeasurer } from "../layout/textwrap";
 import { ptToPx } from "../units";
 import {
-  DEFAULT_FONT_PT,
-  DEFAULT_TEXT_COLOR,
-  LINE_HEIGHT
+  DEFAULT_TEXT_COLOR
 } from "../defaults";
 import {
+  mergeComponentStyles,
   resolveBoxBorders,
   resolveFontSize,
   resolveLineHeight,
@@ -78,6 +77,7 @@ interface TextDrawSpec {
   text: string;
   fontSizePx: number;
   bold: boolean;
+  italic?: boolean;
   color: string;
   align: "left" | "center" | "right" | "justify";
   lineHeight: number;
@@ -93,7 +93,7 @@ function drawTextBlock(
   fontFamily: string,
   verticalAlign: "top" | "middle" | "bottom" = "top"
 ): void {
-  ctx.font = `${spec.bold ? "bold " : ""}${spec.fontSizePx}px ${fontFamily}`;
+  ctx.font = `${spec.italic ? "italic " : ""}${spec.bold ? "bold " : ""}${spec.fontSizePx}px ${fontFamily}`;
   ctx.fillStyle = spec.color;
   ctx.textBaseline = "alphabetic";
   const lineH = spec.fontSizePx * spec.lineHeight;
@@ -111,102 +111,96 @@ function drawTextBlock(
   ctx.textAlign = "left";
 }
 
+function drawGridBorders(
+  ctx: CanvasRenderingContext2D,
+  layout: GridLayout,
+  comp: PlanComponent,
+  x: number, y: number, w: number, h: number,
+  pxPerMm: number, dpi: number
+): void {
+  const borders = resolveBoxBorders(comp.style);
+  if (!borders.inner) return;
+  const stroke = resolveStroke(comp.style);
+  ctx.strokeStyle = stroke.color;
+  ctx.lineWidth = ptToPx(stroke.widthPt, dpi);
+  for (const edge of layout.edges) {
+    ctx.beginPath();
+    if (edge.kind === "v") {
+      ctx.moveTo(x + edge.pos * pxPerMm, y + edge.from * pxPerMm);
+      ctx.lineTo(x + edge.pos * pxPerMm, y + edge.to * pxPerMm);
+    } else {
+      ctx.moveTo(x + edge.from * pxPerMm, y + edge.pos * pxPerMm);
+      ctx.lineTo(x + edge.to * pxPerMm, y + edge.pos * pxPerMm);
+    }
+    ctx.stroke();
+  }
+  drawRectangleBorder(ctx, borders, x, y, w, h);
+}
+
+function drawRectangleBorder(
+  ctx: CanvasRenderingContext2D,
+  borders: ReturnType<typeof resolveBoxBorders>,
+  x: number, y: number, w: number, h: number
+): void {
+  ctx.beginPath();
+  if (borders.top) { ctx.moveTo(x, y); ctx.lineTo(x + w, y); }
+  if (borders.right) { ctx.moveTo(x + w, y); ctx.lineTo(x + w, y + h); }
+  if (borders.bottom) { ctx.moveTo(x + w, y + h); ctx.lineTo(x, y + h); }
+  if (borders.left) { ctx.moveTo(x, y + h); ctx.lineTo(x, y); }
+  ctx.stroke();
+}
+
 function drawGrid(
   ctx: CanvasRenderingContext2D,
   grid: PlanGrid,
   comp: PlanComponent,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  pxPerMm: number,
-  dpi: number,
+  x: number, y: number, w: number, h: number,
+  pxPerMm: number, dpi: number,
   fontFamily: string,
   measurer: TextMeasurer
 ): void {
   const layout = resolveGridLayout(grid, w / pxPerMm, h / pxPerMm);
-  const borders = resolveBoxBorders(comp.style);
-  const stroke = resolveStroke(comp.style);
-
-  // 单元格底色（独立于边框开关）
   for (const box of layout.cells) {
-    const bg = box.cell.style?.backgroundColor;
-    if (bg) {
-      ctx.fillStyle = bg;
-      ctx.fillRect(
-        x + box.xMm * pxPerMm,
-        y + box.yMm * pxPerMm,
-        box.widthMm * pxPerMm,
-        box.heightMm * pxPerMm
-      );
-    }
+    const bg = box.cell.style?.backgroundColor ?? comp.style?.backgroundColor;
+    if (!bg) continue;
+    ctx.fillStyle = bg;
+    ctx.fillRect(x + box.xMm * pxPerMm, y + box.yMm * pxPerMm, box.widthMm * pxPerMm, box.heightMm * pxPerMm);
   }
-
-  if (borders.inner) {
-    ctx.strokeStyle = stroke.color;
-    ctx.lineWidth = ptToPx(stroke.widthPt, dpi);
-    // 内部线段（span 感知：合并单元格中间无线）
-    for (const e of layout.edges) {
-      ctx.beginPath();
-      if (e.kind === "v") {
-        ctx.moveTo(x + e.pos * pxPerMm, y + e.from * pxPerMm);
-        ctx.lineTo(x + e.pos * pxPerMm, y + e.to * pxPerMm);
-      } else {
-        ctx.moveTo(x + e.from * pxPerMm, y + e.pos * pxPerMm);
-        ctx.lineTo(x + e.to * pxPerMm, y + e.pos * pxPerMm);
-      }
-      ctx.stroke();
-    }
-    // 外框（四边独立开关）
-    ctx.beginPath();
-    if (borders.top) {
-      ctx.moveTo(x, y);
-      ctx.lineTo(x + w, y);
-    }
-    if (borders.right) {
-      ctx.moveTo(x + w, y);
-      ctx.lineTo(x + w, y + h);
-    }
-    if (borders.bottom) {
-      ctx.moveTo(x + w, y + h);
-      ctx.lineTo(x, y + h);
-    }
-    if (borders.left) {
-      ctx.moveTo(x, y + h);
-      ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-  }
-
+  drawGridBorders(ctx, layout, comp, x, y, w, h, pxPerMm, dpi);
+  const paddingMm = grid.paddingMm ?? 0.5;
   for (const box of layout.cells) {
-    const text = typeof box.cell.text === "string" ? box.cell.text : "";
+    const text = box.cell.text ?? "";
     if (!text) continue;
-    const st = box.cell.style;
-    const fontSizePt = st?.fontSize ?? DEFAULT_FONT_PT;
-    const lines = wrapText(
-      text,
-      box.widthMm - 1,
-      { fontSizePt },
-      measurer
-    ).join("\n");
-    drawTextBlock(
-      ctx,
-      {
-        text: lines,
-        fontSizePx: resolveFontSize(st, dpi).fontSizePx,
-        bold: st?.bold ?? false,
-        color: st?.color ?? resolveTextColor(comp.style, DEFAULT_TEXT_COLOR),
-        align: st?.align ?? "left",
-        lineHeight: LINE_HEIGHT
-      },
-      x + (box.xMm + 0.5) * pxPerMm,
-      y + box.yMm * pxPerMm,
-      Math.max(0, (box.widthMm - 1) * pxPerMm),
-      box.heightMm * pxPerMm,
-      fontFamily,
-      st?.verticalAlign ?? "middle"
-    );
+    const style = mergeComponentStyles(comp.style, box.cell.style);
+    const font = resolveFontSize(style, dpi);
+    const contentWidthMm = Math.max(0, box.widthMm - 2 * paddingMm);
+    const lines = wrapText(text, contentWidthMm, { fontSizePt: font.fontSizePt, bold: style.bold }, measurer).join("\n");
+    drawTextBlock(ctx, {
+      text: lines, fontSizePx: font.fontSizePx,
+      bold: style.bold ?? false, italic: style.italic,
+      color: resolveTextColor(style, DEFAULT_TEXT_COLOR),
+      align: style.align ?? "left", lineHeight: resolveLineHeight(style)
+    }, x + (box.xMm + paddingMm) * pxPerMm, y + (box.yMm + paddingMm) * pxPerMm,
+    contentWidthMm * pxPerMm, Math.max(0, box.heightMm - 2 * paddingMm) * pxPerMm,
+    style.fontFamily ?? fontFamily, style.verticalAlign ?? "middle");
   }
+}
+
+function drawTextComponent(
+  ctx: CanvasRenderingContext2D,
+  comp: PlanComponent,
+  x: number, y: number, w: number, h: number,
+  dpi: number, fontFamily: string, measurer: TextMeasurer
+): void {
+  const style = comp.style ?? {};
+  const font = resolveFontSize(style, dpi);
+  const text = isRichText(comp)
+    ? comp.richParagraphs!.map((paragraph) => paragraph.segments.map((segment) => segment.text ?? segment.field ?? "").join("")).join("\n")
+    : comp.lines?.length ? comp.lines.join("\n") : wrapText(comp.text ?? "", comp.widthMm, { fontSizePt: font.fontSizePt, bold: style.bold }, measurer).join("\n");
+  drawTextBlock(ctx, {
+    text, fontSizePx: font.fontSizePx, bold: style.bold ?? false, italic: style.italic,
+    color: resolveTextColor(style), align: style.align ?? "left", lineHeight: resolveLineHeight(style)
+  }, x, y, w, h, style.fontFamily ?? fontFamily, style.verticalAlign);
 }
 
 function drawComponent(
@@ -229,31 +223,7 @@ function drawComponent(
   }
   switch (comp.kind) {
     case "text": {
-      const fontSizePt = s.fontSize ?? DEFAULT_FONT_PT;
-      const text = isRichText(comp)
-        ? comp.richParagraphs!
-            .map((p) => (p.segments ?? []).map((seg) => seg.text ?? seg.field ?? "").join(""))
-            .join("\n")
-        : Array.isArray(comp.lines) && comp.lines.length > 0
-          ? comp.lines.join("\n")
-          : wrapText(comp.text ?? "", comp.widthMm, { fontSizePt }, measurer).join("\n");
-      drawTextBlock(
-        ctx,
-        {
-          text,
-          fontSizePx: resolveFontSize(s, dpi).fontSizePx,
-          bold: s.bold ?? false,
-          color: resolveTextColor(s),
-          align: s.align ?? "left",
-          lineHeight: resolveLineHeight(s)
-        },
-        x,
-        y,
-        w,
-        h,
-        fontFamily,
-        s.verticalAlign
-      );
+      drawTextComponent(ctx, comp, x, y, w, h, dpi, fontFamily, measurer);
       break;
     }
     case "rect": {
@@ -266,24 +236,7 @@ function drawComponent(
       if (borders.inner) {
         ctx.strokeStyle = stroke.color;
         ctx.lineWidth = ptToPx(stroke.widthPt, dpi);
-        ctx.beginPath();
-        if (borders.top) {
-          ctx.moveTo(x, y);
-          ctx.lineTo(x + w, y);
-        }
-        if (borders.right) {
-          ctx.moveTo(x + w, y);
-          ctx.lineTo(x + w, y + h);
-        }
-        if (borders.bottom) {
-          ctx.moveTo(x + w, y + h);
-          ctx.lineTo(x, y + h);
-        }
-        if (borders.left) {
-          ctx.moveTo(x, y + h);
-          ctx.lineTo(x, y);
-        }
-        ctx.stroke();
+        drawRectangleBorder(ctx, borders, x, y, w, h);
       }
       break;
     }

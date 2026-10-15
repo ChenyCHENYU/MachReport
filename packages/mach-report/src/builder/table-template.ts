@@ -46,17 +46,10 @@ function checkAlignment(value: unknown, name: string, allowAuto: boolean): void 
   }
 }
 
-/**
- * 创建明细模板；分页与格式化继续由 paginateTemplate 处理。
- * page 模式自动列共享纸张余量；wide 模式按自然列宽扩展，不缩小字号或压缩列。
- */
-export function createTableTemplate(options: TableTemplateOptions): ReportTemplate {
-  if (!options || typeof options !== "object") {
-    throw new Error("标准明细模板需要 options 对象");
-  }
-  if (!Array.isArray(options.columns) || options.columns.length === 0) {
-    throw new Error("columns 至少需要一列");
-  }
+type TableLayout = NonNullable<TableTemplateOptions["layout"]>;
+type TableMargins = Required<NonNullable<PageOptions["margins"]>>;
+
+function resolveTableLayout(options: TableTemplateOptions): { layout: TableLayout; columnWidthMm: number } {
   const layout = options.layout ?? "page";
   if (layout !== "page" && layout !== "wide") {
     throw new Error("layout 必须是 page 或 wide");
@@ -69,6 +62,10 @@ export function createTableTemplate(options: TableTemplateOptions): ReportTempla
   }
   const columnWidthMm = options.columnWidthMm ?? 30;
   checkNumber(columnWidthMm, "columnWidthMm");
+  return { layout, columnWidthMm };
+}
+
+function resolveTablePaper(options: TableTemplateOptions): { widthMm: number; heightMm: number } {
   const paper = options.paper === undefined ? "a4" : options.paper;
   if (
     (typeof paper !== "string" && (typeof paper !== "object" || paper === null)) ||
@@ -80,11 +77,15 @@ export function createTableTemplate(options: TableTemplateOptions): ReportTempla
     throw new Error(`未知纸张预设 "${paper}"（可用：${Object.keys(PAPER_SIZES).join("/")}）`);
   }
   const resolvedPaper = resolvePaper(paper, undefined, options.landscape);
-  let widthMm = resolvedPaper.widthMm;
+  const widthMm = resolvedPaper.widthMm;
   const heightMm = resolvedPaper.heightMm;
   checkNumber(widthMm, "纸张 widthMm");
   checkNumber(heightMm, "纸张 heightMm");
 
+  return { widthMm, heightMm };
+}
+
+function resolveTableMargins(options: TableTemplateOptions): TableMargins {
   if (options.margins !== undefined && (!options.margins || typeof options.margins !== "object" || Array.isArray(options.margins))) {
     throw new Error("margins 必须是页边距对象");
   }
@@ -96,12 +97,10 @@ export function createTableTemplate(options: TableTemplateOptions): ReportTempla
     marginRightMm: pageMargins.marginRightMm === undefined ? 10 : pageMargins.marginRightMm
   };
   for (const [name, value] of Object.entries(margins)) checkNumber(value, name, true);
-  let availableWidthMm = widthMm - margins.marginLeftMm - margins.marginRightMm;
-  const availableHeightMm = heightMm - margins.marginTopMm - margins.marginBottomMm;
-  if ((layout === "page" && availableWidthMm <= 0) || availableHeightMm <= 0) {
-    throw new Error("页边距占满纸张，必须保留正的可用宽度和高度");
-  }
+  return margins;
+}
 
+function resolveTableHeading(options: TableTemplateOptions, availableHeightMm: number) {
   const dataset = options.dataset === undefined ? "detail" : options.dataset;
   if (typeof dataset !== "string" || !dataset.trim()) {
     throw new Error("dataset 必须是非空字符串");
@@ -119,6 +118,10 @@ export function createTableTemplate(options: TableTemplateOptions): ReportTempla
     throw new Error("标题高度与间距占满页面，必须为表格保留可用高度");
   }
 
+  return { dataset, titleHeightMm, hasTitle, titleSpaceMm };
+}
+
+function resolveListOptions(options: TableTemplateOptions): TableTemplateListOptions {
   if (options.listOptions !== undefined && (!options.listOptions || typeof options.listOptions !== "object" || Array.isArray(options.listOptions))) {
     throw new Error("listOptions 必须是列表配置对象");
   }
@@ -130,9 +133,13 @@ export function createTableTemplate(options: TableTemplateOptions): ReportTempla
     if (value !== undefined) checkNumber(value, `listOptions.${name}`, name === "paddingMm");
   }
 
+  return listOptions;
+}
+
+function validateTableColumns(columns: readonly TableTemplateColumn[]) {
   let fixedWidthMm = 0;
   let maxFlex = 0;
-  for (const [index, column] of options.columns.entries()) {
+  for (const [index, column] of columns.entries()) {
     if (!column || typeof column.header !== "string" || typeof column.field !== "string" || !column.field.trim()) {
       throw new Error(`columns[${index}] 需要字符串 header 与非空 field`);
     }
@@ -146,6 +153,16 @@ export function createTableTemplate(options: TableTemplateOptions): ReportTempla
       maxFlex = Math.max(maxFlex, column.flex ?? 1);
     }
   }
+  return { fixedWidthMm, maxFlex };
+}
+
+function resolveTableColumns(
+  options: TableTemplateOptions,
+  layout: TableLayout,
+  columnWidthMm: number,
+  availableWidthMm: number
+) {
+  const { fixedWidthMm, maxFlex } = validateTableColumns(options.columns);
   if (layout === "page" && fixedWidthMm > availableWidthMm) {
     throw new Error(`固定列宽 ${fixedWidthMm}mm 超出页面可用宽度 ${availableWidthMm}mm`);
   }
@@ -164,6 +181,33 @@ export function createTableTemplate(options: TableTemplateOptions): ReportTempla
     checkNumber(resolvedWidthMm, `columns[${index}] 分配后的 widthMm`);
     return { ...column, widthMm: resolvedWidthMm };
   });
+  return { columns, fixedWidthMm, maxFlex };
+}
+
+/**
+ * 创建明细模板；校验、列宽分配、标题与页面装配分别处理。
+ * page 自动列共享纸张余量；wide 保留自然列宽，公开配置保持不变。
+ */
+export function createTableTemplate(options: TableTemplateOptions): ReportTemplate {
+  if (!options || typeof options !== "object") {
+    throw new Error("标准明细模板需要 options 对象");
+  }
+  if (!Array.isArray(options.columns) || options.columns.length === 0) {
+    throw new Error("columns 至少需要一列");
+  }
+  const { layout, columnWidthMm } = resolveTableLayout(options);
+  const paper = resolveTablePaper(options);
+  let widthMm = paper.widthMm;
+  const heightMm = paper.heightMm;
+  const margins = resolveTableMargins(options);
+  let availableWidthMm = widthMm - margins.marginLeftMm - margins.marginRightMm;
+  const availableHeightMm = heightMm - margins.marginTopMm - margins.marginBottomMm;
+  if ((layout === "page" && availableWidthMm <= 0) || availableHeightMm <= 0) {
+    throw new Error("页边距占满纸张，必须保留正的可用宽度和高度");
+  }
+  const { dataset, titleHeightMm, hasTitle, titleSpaceMm } = resolveTableHeading(options, availableHeightMm);
+  const listOptions = resolveListOptions(options);
+  const { columns, fixedWidthMm, maxFlex } = resolveTableColumns(options, layout, columnWidthMm, availableWidthMm);
   if (layout === "wide") {
     availableWidthMm = columns.reduce((sum, column) => sum + column.widthMm, 0);
     checkNumber(availableWidthMm, "宽表总列宽");

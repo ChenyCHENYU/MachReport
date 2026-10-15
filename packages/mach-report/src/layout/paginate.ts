@@ -11,7 +11,7 @@ import { RENDER_PLAN_SCHEMA_VERSION } from "../schema/render-plan";
 import { DEFAULT_FONT_PT, LINE_HEIGHT } from "../defaults";
 import { heuristicMeasurer, wrapText, type TextMeasureOptions, type TextMeasurer } from "./textwrap";
 import { evalStyleRule, formatValue, toExcelNumberFormat, type ColumnFormat, type StyleRule } from "../format";
-import { resolveFontSize } from "../render/style";
+import { mergeComponentStyles, resolveFontSize } from "../render/style";
 
 /** auto：真实数字/显式数值格式居右，日期与布尔居中，其他内容居左。 */
 export type ListAlignment = NonNullable<ComponentStyle["align"]> | "auto";
@@ -211,7 +211,7 @@ function cellTextMetrics(inter: ListInterning, style: ComponentStyle): CellTextM
       measureOptions: {
         fontSizePt,
         bold: style.bold,
-        letterSpacingPt: style.letterSpacing === undefined ? undefined : style.letterSpacing * 72 / 96
+        letterSpacingPt: style.letterSpacing
       },
       lineMm: fontSizePt * (style.lineHeight ?? LINE_HEIGHT) * 25.4 / 72
     };
@@ -239,9 +239,10 @@ function interList(list: ListComponent, measurer: TextMeasurer): ListInterning {
   const alignments = list.columns.map((col) => col.align ?? col.style?.align ?? list.align ?? "left");
   // 每列样式驻留：auto 只预建三种对齐，避免每行分配新对象。
   const cellStyles = list.columns.map((col, index): ComponentStyle => ({
-    fontSize: fontSizePt,
-    verticalAlign: "middle",
-    ...col.style,
+    ...mergeComponentStyles({
+      fontSize: fontSizePt,
+      verticalAlign: "middle"
+    }, col.style),
     align: alignments[index] === "auto" ? "left" : alignments[index] as ComponentStyle["align"]
   }));
   const autoStyles = cellStyles.map((style, index) => alignments[index] === "auto"
@@ -250,29 +251,28 @@ function interList(list: ListComponent, measurer: TextMeasurer): ListInterning {
   const ruleStyles = list.columns.map((column, index) => column.rules?.map((rule) => {
     const variants = autoStyles[index];
     if (variants) return {
-      left: { ...variants.left, ...rule.style },
-      center: { ...variants.center, ...rule.style },
-      right: { ...variants.right, ...rule.style }
+      left: mergeComponentStyles(variants.left, rule.style),
+      center: mergeComponentStyles(variants.center, rule.style),
+      right: mergeComponentStyles(variants.right, rule.style)
     };
-    const style = { ...cellStyles[index], ...rule.style } as ComponentStyle;
+    const style = mergeComponentStyles(cellStyles[index], rule.style);
     return { left: style, center: style, right: style };
   }));
 
   // 表头单元格样式（含底色/加粗），同样驻留
-  const headerCellStyles = list.columns.map((col) =>
-    ({
+  const headerCellStyles = list.columns.map((col) => {
+    let style: ComponentStyle = mergeComponentStyles({
       fontSize: fontSizePt,
       bold: list.headerBold ?? true,
       align: "center",
       verticalAlign: "middle",
-      backgroundColor: list.headerBackgroundColor,
-      ...(col.style || {}),
-      ...(list.headerAlign === undefined ? {} : { align: list.headerAlign }),
-      ...list.headerStyle,
-      ...(col.headerAlign === undefined ? {} : { align: col.headerAlign }),
-      ...col.headerStyle
-    }) as ComponentStyle
-  );
+      backgroundColor: list.headerBackgroundColor
+    }, col.style);
+    if (list.headerAlign !== undefined) style.align = list.headerAlign;
+    style = mergeComponentStyles(style, list.headerStyle);
+    if (col.headerAlign !== undefined) style.align = col.headerAlign;
+    return mergeComponentStyles(style, col.headerStyle);
+  });
 
   const headerTexts = list.columns.map((col) => col.header);
   let headerHeight = list.rowHeightMm ?? 0;
@@ -281,7 +281,7 @@ function interList(list: ListComponent, measurer: TextMeasurer): ListInterning {
     const headerFontPt = resolveFontSize(style).fontSizePt;
     const lines = wrapText(
       headerTexts[i]!, list.columns[i]!.widthMm - paddingMm * 2,
-      { fontSizePt: headerFontPt, bold: style.bold }, measurer
+      { fontSizePt: headerFontPt, bold: style.bold, letterSpacingPt: style.letterSpacing }, measurer
     );
     const lineMm = (headerFontPt * (style.lineHeight ?? LINE_HEIGHT) * 25.4) / 72;
     headerHeight = Math.max(headerHeight, Math.max(lines.length, 1) * lineMm + paddingMm * 2);
@@ -312,7 +312,8 @@ function interList(list: ListComponent, measurer: TextMeasurer): ListInterning {
     headerGrid: {
       cells: [headerCells as GridCellCompat[]],
       colWidthsMm,
-      rowHeightsMm: [headerHeight]
+      rowHeightsMm: [headerHeight],
+      paddingMm
     },
     colWidthsMm,
     columns: list.columns
@@ -359,330 +360,268 @@ function buildRowGridFast(
     cells[i] = cell;
   }
   return {
-    grid: { cells: [cells], colWidthsMm: inter.colWidthsMm, rowHeightsMm: [height] },
+    grid: { cells: [cells], colWidthsMm: inter.colWidthsMm, rowHeightsMm: [height], paddingMm: inter.paddingMm },
     heightMm: height
   };
 }
 
-export function paginateTemplate(
-  template: ReportTemplate,
-  datasets: DatasetRows,
-  optionsOrMmPerRow: number | PaginateOptions = {}
-): PaginateResult {
-  // 兼容旧签名 paginateTemplate(tpl, data, mmPerRow: number)
-  const options: PaginateOptions =
-    typeof optionsOrMmPerRow === "number" ? { mmPerRow: optionsOrMmPerRow } : optionsOrMmPerRow;
-  const mmPerRow = options.mmPerRow ?? 0;
-  const measurer = options.measurer ?? heuristicMeasurer;
+interface GridRow {
+  grid: PlanGrid;
+  heightMm: number;
+}
+
+type DataRow = Record<string, unknown>;
+type RowUnit =
+  | { kind: "row"; row: DataRow }
+  | { kind: "groupHeader"; label: string; firstRow: DataRow }
+  | { kind: "subtotal"; label: string; rows: DataRow[] };
+
+/** 只在需要分组时保存组桶；普通明细逐行产生，不再复制完整事件数组。 */
+function* listRowUnits(rows: DataRow[], groupBy?: ListGroupBy): Generator<RowUnit> {
+  if (!groupBy) {
+    for (const row of rows) yield { kind: "row", row };
+    return;
+  }
+  const groups = new Map<string, DataRow[]>();
+  for (const row of rows) {
+    const key = cellText(row[groupBy.field]);
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(row);
+    else groups.set(key, [row]);
+  }
+  for (const [key, bucket] of groups) {
+    yield { kind: "groupHeader", label: (groupBy.headerTemplate ?? "{value}").replace(/\{value\}/g, key), firstRow: bucket[0]! };
+    for (const row of bucket) yield { kind: "row", row };
+    if (groupBy.subtotal?.length) yield { kind: "subtotal", label: groupBy.subtotalLabel ?? "小计", rows: bucket };
+  }
+}
+
+function numericSum(rows: DataRow[], field: string): number {
+  let sum = 0;
+  for (const row of rows) {
+    const number = typeof row[field] === "number" ? row[field] as number : Number(row[field]);
+    if (Number.isFinite(number)) sum += number;
+  }
+  return sum;
+}
+
+function summaryValues(columns: ListColumn[], rows: DataRow[], fields: string[]): Map<string, GridCell> {
+  return new Map(fields.map((field) => {
+    const format = columns.find((column) => column.field === field)?.format ?? { kind: "number" as const, thousands: true };
+    const value = numericSum(rows, field);
+    return [field, { text: formatValue(value, format), value, numberFormat: toExcelNumberFormat(format) }];
+  }));
+}
+
+function labelSpanFor(columns: ListColumn[], fields: string[]): number {
+  const first = columns.findIndex((column) => fields.includes(column.field));
+  return first > 0 ? first : 1;
+}
+
+function buildSpanRow(
+  inter: ListInterningWithFloor,
+  measurer: TextMeasurer,
+  label: string,
+  values: Map<string, GridCell>,
+  style: ComponentStyle,
+  labelSpanTo: number
+): GridRow {
+  const cells: GridCellCompat[] = [];
+  const span = Math.max(1, Math.min(labelSpanTo, inter.columns.length));
+  const summaryStyle = mergeComponentStyles({ fontSize: inter.fontSizePt }, style);
+  cells.push({ text: label, colSpan: span, style: { bold: true, ...summaryStyle } });
+  for (let i = span; i < inter.columns.length; i++) {
+    const col = inter.columns[i]!;
+    const valueCell = values.get(col.field);
+    const columnStyle = inter.autoStyles[i]?.[autoAlignment(valueCell?.value, col.format)] ?? inter.cellStyles[i];
+    cells.push({ ...valueCell, text: valueCell?.text ?? "", style: mergeComponentStyles(columnStyle, style) });
+  }
+  let height = inter.rowHeightFloorMm;
+  let columnIndex = 0;
+  for (const cell of cells) {
+    let widthMm = 0;
+    const endColumn = columnIndex + (cell.colSpan ?? 1);
+    for (; columnIndex < endColumn; columnIndex++) widthMm += inter.colWidthsMm[columnIndex] ?? 0;
+    const metrics = cellTextMetrics(inter, cell.style!);
+    const lines = wrapText(cell.text ?? "", widthMm - inter.paddingMm * 2, metrics.measureOptions, measurer);
+    height = Math.max(height, lines.length * metrics.lineMm + inter.paddingMm * 2);
+  }
+  return {
+    grid: { cells: [cells], colWidthsMm: inter.colWidthsMm, rowHeightsMm: [height], paddingMm: inter.paddingMm },
+    heightMm: height
+  };
+}
+
+interface ListPageContext {
+  templatePage: TemplatePage;
+  current: WorkingPage;
+  warnings: string[];
+  measurer: TextMeasurer;
+  mmPerRow: number;
+  tableId: string;
+  nextId(prefix: string): string;
+  pushCurrent(isFinal?: boolean): void;
+}
+
+interface ListPageWriter {
+  keepTogether(heightMm: number): void;
+  placeGridRow(row: GridRow, prefix: string, role: PlanTableFragment["role"]): void;
+}
+
+/** 仅负责纵向游标、换页与逻辑行来源，不参与分组或汇总计算。 */
+function createListPageWriter(list: ListComponent, inter: ListInterningWithFloor, context: ListPageContext): ListPageWriter {
+  const { templatePage, current, warnings, nextId, pushCurrent } = context;
+  const contentBottom = () => toContentBottom(templatePage, current);
+  const contentTop = current.marginTopMm;
+  const tableBase = {
+    id: context.tableId,
+    columnKeys: list.columns.map((column) => column.field),
+    ...(list.layout === undefined ? {} : { layout: list.layout }),
+    ...(list.title === undefined ? {} : { title: list.title })
+  };
+  let rowIndex = 0;
+  const header: PlanComponent = {
+    kind: "rect", leftMm: list.leftMm, topMm: 0, widthMm: list.widthMm,
+    heightMm: inter.headerHeightMm, grid: inter.headerGrid, nid: nextId("listh"),
+    table: { ...tableBase, role: "header", rowIndex: -1 }, style: inter.borderStyle
+  };
+  const placeHeader = (topMm: number) => current.components.push({ ...header, topMm });
+  let y = list.topMm;
+  placeHeader(y);
+  y += inter.headerHeightMm + context.mmPerRow;
+
+  function freshTop(): number {
+    const top = templatePage.layout === "wide" ? 0 : list.topMm;
+    return list.headerEveryPage !== false ? top + inter.headerHeightMm : (templatePage.layout === "wide" ? 0 : contentTop);
+  }
+
+  function freshCapacity(): number {
+    const marginBottom = templatePage.layout === "wide" ? 0 : current.marginBottomMm;
+    return templatePage.heightMm - marginBottom - freshTop();
+  }
+
+  function ensureSpace(heightMm: number): void {
+    if (y + heightMm <= contentBottom()) return;
+    pushCurrent();
+    current.components = [];
+    current.heightMm = templatePage.heightMm;
+    if (templatePage.layout === "wide") {
+      current.marginTopMm = 0;
+      current.marginBottomMm = 0;
+    }
+    const top = templatePage.layout === "wide" ? 0 : list.topMm;
+    if (list.headerEveryPage !== false) {
+      placeHeader(top);
+      y = top + inter.headerHeightMm;
+    } else y = templatePage.layout === "wide" ? 0 : contentTop;
+  }
+
+  function placeGridRow(row: GridRow, prefix: string, role: PlanTableFragment["role"]): void {
+    const available = freshCapacity();
+    if (row.heightMm > available) warnings.push(`列表 ${list.id ?? list.dataset} 行高 ${row.heightMm.toFixed(2)}mm 超出单页可用高度 ${available.toFixed(2)}mm，预览与打印可能截断内容`);
+    ensureSpace(row.heightMm);
+    current.components.push({
+      kind: "rect", leftMm: list.leftMm, topMm: y, widthMm: list.widthMm,
+      heightMm: row.heightMm, grid: row.grid, nid: nextId(prefix),
+      table: { ...tableBase, role, rowIndex: rowIndex++ }, style: inter.borderStyle
+    });
+    y += row.heightMm;
+  }
+  function keepTogether(heightMm: number): void {
+    // 组合本身放不下新页时，按单行溢出策略处理；不要制造只有表头的额外空页。
+    if (heightMm <= freshCapacity()) ensureSpace(heightMm);
+  }
+  return { keepTogether, placeGridRow };
+}
+
+function placeGrandTotal(list: ListComponent, rows: DataRow[], inter: ListInterningWithFloor, context: ListPageContext, writer: ListPageWriter): void {
+  if (!list.grandTotal) return;
+  const total = typeof list.grandTotal === "object" ? list.grandTotal : undefined;
+  const fields = total?.fields ?? list.groupBy?.subtotal ?? [];
+  if (fields.length === 0) {
+    context.warnings.push(`列表 ${list.id ?? ""} 配置了 grandTotal 但未提供合计字段（groupBy.subtotal 或 grandTotal.fields）`);
+    return;
+  }
+  const row = buildSpanRow(inter, context.measurer, total?.label ?? "合计", summaryValues(list.columns, rows, fields), total?.style ?? {}, labelSpanFor(list.columns, fields));
+  writer.placeGridRow(row, "listgt", "grand-total");
+}
+
+function paginateList(list: ListComponent, rows: DataRow[], context: ListPageContext): void {
+  const width = list.columns.reduce((sum, column) => sum + column.widthMm, 0);
+  const scale = width > list.widthMm ? list.widthMm / width : 1;
+  const scaled = scale === 1 ? list : { ...list, columns: list.columns.map((column) => ({ ...column, widthMm: column.widthMm * scale })) };
+  const inter = { ...interList(scaled, context.measurer), rowHeightFloorMm: scaled.rowHeightMm ?? 0 };
+  const writer = createListPageWriter(scaled, inter, context);
+  let nextRow: GridRow | undefined;
+  for (const unit of listRowUnits(rows, scaled.groupBy)) {
+    if (unit.kind === "row") {
+      writer.placeGridRow(nextRow ?? buildRowGridFast(inter, unit.row, context.measurer), "listr", "body");
+      nextRow = undefined;
+    } else if (unit.kind === "groupHeader") {
+      const row = buildSpanRow(inter, context.measurer, unit.label, new Map(), scaled.groupBy?.headerStyle ?? {}, scaled.columns.length);
+      // 使用真实首行高度，包括条件字号与多行内容；下一轮直接复用测量结果。
+      nextRow = buildRowGridFast(inter, unit.firstRow, context.measurer);
+      if (scaled.groupBy?.keepWithNext !== false) writer.keepTogether(row.heightMm + nextRow.heightMm);
+      writer.placeGridRow(row, "listg", "group-header");
+    } else {
+      const fields = scaled.groupBy?.subtotal ?? [];
+      const row = buildSpanRow(inter, context.measurer, unit.label, summaryValues(scaled.columns, unit.rows, fields), scaled.groupBy?.subtotalStyle ?? {}, labelSpanFor(scaled.columns, fields));
+      writer.placeGridRow(row, "listst", "subtotal");
+    }
+  }
+  placeGrandTotal(scaled, rows, inter, context, writer);
+}
+
+function isPageAnchor(component: TemplateComponent): component is PlanComponent {
+  return component.kind === "text" && typeof component.text === "string" && (component.text.includes("{page}") || component.text.includes("{totalPages}"));
+}
+
+function pushWorkingPage(templatePage: TemplatePage, current: WorkingPage, anchors: PlanComponent[], pages: PlanPage[], placeholders: PlanComponent[], isFinal: boolean): void {
+  const output: PlanPage = {
+    pageWidthMm: current.widthMm, pageHeightMm: current.heightMm,
+    ...(templatePage.layout === undefined ? {} : { layout: templatePage.layout }),
+    marginTopMm: current.marginTopMm, marginBottomMm: current.marginBottomMm,
+    marginLeftMm: current.marginLeftMm, marginRightMm: current.marginRightMm,
+    components: current.components
+  };
+  pages.push(output);
+  for (const anchor of anchors) {
+    const clone = { ...anchor, text: String(anchor.text ?? "").replace(/\{page\}/g, String(pages.length)) };
+    output.components.push(clone);
+    if (clone.text.includes("{totalPages}")) placeholders.push(clone);
+  }
+  if (templatePage.layout === "wide") {
+    const bottom = output.components.reduce((height, component) => Math.max(height, component.topMm + component.heightMm), 0);
+    output.marginBottomMm = isFinal ? (templatePage.marginBottomMm ?? 0) : 0;
+    output.pageHeightMm = Math.max(1, bottom + output.marginBottomMm);
+  }
+}
+
+/** 模板遍历只编排静态组件和列表；行测量、分组、换页与汇总各自独立。 */
+export function paginateTemplate(template: ReportTemplate, datasets: DatasetRows, optionsOrMmPerRow: number | PaginateOptions = {}): PaginateResult {
+  const options = typeof optionsOrMmPerRow === "number" ? { mmPerRow: optionsOrMmPerRow } : optionsOrMmPerRow;
   const warnings: string[] = [];
   const pages: PlanPage[] = [];
-  let seq = 0;
-  const nextId = (prefix: string) => `${prefix}_${(++seq).toString(36)}`;
-  /** 含 {totalPages} 占位符的克隆文本组件（分页结束后统一回填总页数） */
-  const placeholderClones: PlanComponent[] = [];
-
-  for (const [templatePageIndex, tplPage] of template.pages.entries()) {
-    const current = makeWorkingPage(tplPage);
-    const contentBottom = () => toContentBottom(tplPage, current);
-    const contentTop = current.marginTopMm;
-    /** 页锚组件：含 {page}/{totalPages} 占位符的文本，每个输出页克隆注入（页脚场景） */
-    const anchors: PlanComponent[] = [];
-    const pushCurrent = (isFinal = false) => {
-      pages.push({
-        pageWidthMm: current.widthMm,
-        pageHeightMm: current.heightMm,
-        ...(tplPage.layout === undefined ? {} : { layout: tplPage.layout }),
-        marginTopMm: current.marginTopMm,
-        marginBottomMm: current.marginBottomMm,
-        marginLeftMm: current.marginLeftMm,
-        marginRightMm: current.marginRightMm,
-        components: current.components
+  const placeholders: PlanComponent[] = [];
+  let sequence = 0;
+  const nextId = (prefix: string) => `${prefix}_${(++sequence).toString(36)}`;
+  for (const [pageIndex, templatePage] of template.pages.entries()) {
+    const current = makeWorkingPage(templatePage);
+    const anchors = templatePage.components.filter(isPageAnchor);
+    const pushCurrent = (isFinal = false) => pushWorkingPage(templatePage, current, anchors, pages, placeholders, isFinal);
+    for (const [componentIndex, component] of templatePage.components.entries()) {
+      if (isPageAnchor(component)) continue;
+      if (component.kind !== "list") { current.components.push(component); continue; }
+      const rows = datasets[component.dataset];
+      if (!Array.isArray(rows)) warnings.push(`数据集 ${component.dataset} 未提供数据，列表 ${component.id ?? ""} 输出为空`);
+      paginateList(component, Array.isArray(rows) ? rows : [], {
+        templatePage, current, warnings, nextId, pushCurrent,
+        measurer: options.measurer ?? heuristicMeasurer, mmPerRow: options.mmPerRow ?? 0,
+        tableId: `table:${pageIndex}:${componentIndex}`
       });
-      if (anchors.length > 0) {
-        const pageNo = pages.length;
-        for (const anchor of anchors) {
-          const clone = {
-            ...anchor,
-            text: String(anchor.text ?? "").replace(/\{page\}/g, String(pageNo))
-          };
-          pages[pages.length - 1]!.components.push(clone);
-          if (clone.text.includes("{totalPages}")) placeholderClones.push(clone);
-        }
-      }
-      if (tplPage.layout === "wide") {
-        const output = pages[pages.length - 1]!;
-        // 高度只是窗口化分段：中间段紧接内容，不留下整张纸的空白。
-        const contentHeight = output.components.reduce((bottom, component) => Math.max(bottom, component.topMm + component.heightMm), 0);
-        const bottomMargin = isFinal ? (tplPage.marginBottomMm ?? 0) : 0;
-        output.pageHeightMm = Math.max(1, contentHeight + bottomMargin);
-        output.marginBottomMm = bottomMargin;
-      }
-    };
-
-    for (const [componentIndex, comp] of tplPage.components.entries()) {
-      if (comp.kind !== "list") {
-        // 占位符组件转为页锚（每页克隆，模板对象不被污染，可复用分页）
-        if (comp.kind === "text" && typeof (comp as PlanComponent).text === "string") {
-          const text = (comp as PlanComponent).text as string;
-          if (text.includes("{page}") || text.includes("{totalPages}")) {
-            anchors.push(comp as PlanComponent);
-            continue;
-          }
-        }
-        current.components.push(comp as PlanComponent);
-        continue;
-      }
-      const list = comp;
-      const rows = datasets[list.dataset];
-      if (!Array.isArray(rows)) {
-        warnings.push(`数据集 ${list.dataset} 未提供数据，列表 ${list.id ?? ""} 输出为空`);
-      }
-      const dataRows = Array.isArray(rows) ? rows : [];
-
-      const columnsWidth = list.columns.reduce((s, c) => s + c.widthMm, 0);
-      const scale = columnsWidth > list.widthMm ? list.widthMm / columnsWidth : 1;
-      const scaledList: ListComponent =
-        scale === 1 ? list : { ...list, columns: list.columns.map((c) => ({ ...c, widthMm: c.widthMm * scale })) };
-      const tableBase = {
-        id: `table:${templatePageIndex}:${componentIndex}`,
-        columnKeys: list.columns.map((column) => column.field),
-        ...(list.layout === undefined ? {} : { layout: list.layout }),
-        ...(list.title === undefined ? {} : { title: list.title })
-      };
-      let tableRowIndex = 0;
-
-      const inter: ListInterningWithFloor = {
-        ...interList(scaledList, measurer),
-        rowHeightFloorMm: scaledList.rowHeightMm ?? 0
-      };
-
-      const headerComp: PlanComponent = {
-        kind: "rect",
-        leftMm: list.leftMm,
-        topMm: 0,
-        widthMm: list.widthMm,
-        heightMm: inter.headerHeightMm,
-        grid: inter.headerGrid,
-        nid: nextId("listh"),
-        table: { ...tableBase, role: "header", rowIndex: -1 },
-        style: inter.borderStyle
-      };
-
-      let y = list.topMm;
-      const placeHeader = (target: WorkingPage, topMm: number) => {
-        target.components.push({ ...headerComp, topMm });
-      };
-
-      placeHeader(current, y);
-      y += inter.headerHeightMm + mmPerRow;
-
-      /** 溢出换页（表头按 headerEveryPage 重复）后返回新页起始 y */
-      const ensureSpace = (needMm: number): void => {
-        if (y + needMm > contentBottom()) {
-          pushCurrent();
-          const next = makeWorkingPage(tplPage);
-          current.components = next.components;
-          current.heightMm = next.heightMm;
-          if (tplPage.layout === "wide") {
-            current.marginTopMm = 0;
-            current.marginBottomMm = 0;
-          }
-          const continuationTop = tplPage.layout === "wide" ? 0 : list.topMm;
-          if (scaledList.headerEveryPage !== false) {
-            placeHeader(current, continuationTop);
-            y = continuationTop + inter.headerHeightMm;
-          } else {
-            y = tplPage.layout === "wide" ? 0 : contentTop;
-          }
-        }
-      };
-
-      /** 输出一个网格行组件（rect+grid，样式共享 inter.borderStyle） */
-      const placeGridRow = (grid: PlanGrid, heightMm: number, nidPrefix: string, role: PlanTableFragment["role"]): void => {
-        const continuationTop = tplPage.layout === "wide" ? 0 : list.topMm;
-        const freshTop = scaledList.headerEveryPage !== false
-          ? continuationTop + inter.headerHeightMm
-          : (tplPage.layout === "wide" ? 0 : contentTop);
-        const availableHeight = contentBottom() - freshTop;
-        if (heightMm > availableHeight) {
-          warnings.push(
-            `列表 ${list.id ?? list.dataset} 行高 ${heightMm.toFixed(2)}mm 超出单页可用高度 ${availableHeight.toFixed(2)}mm，预览与打印可能截断内容`
-          );
-        }
-        ensureSpace(heightMm);
-        current.components.push({
-          kind: "rect",
-          leftMm: list.leftMm,
-          topMm: y,
-          widthMm: list.widthMm,
-          heightMm,
-          grid,
-          nid: nextId(nidPrefix),
-          table: { ...tableBase, role, rowIndex: tableRowIndex++ },
-          style: inter.borderStyle
-        });
-        y += heightMm;
-      };
-
-      /** 单行高估算（组头防孤行判断用） */
-      const oneRowH = (): number => {
-        const g = buildRowGridFast(inter, {}, measurer);
-        return g.heightMm;
-      };
-
-      /** 构造跨越全部列的单行（组头/小计/合计通用）：label 列 + 各数值列 */
-      const buildSpanRow = (
-        label: string,
-        values: Map<string, GridCell>,
-        style: ComponentStyle,
-        labelSpanTo: number
-      ): { grid: PlanGrid; heightMm: number } => {
-        const cells: GridCellCompat[] = [];
-        const span = Math.max(1, Math.min(labelSpanTo, scaledList.columns.length));
-        const summaryStyle: ComponentStyle = { fontSize: inter.fontSizePt, ...style };
-        cells.push({ text: label, colSpan: span, style: { bold: true, ...summaryStyle } });
-        for (let i = span; i < scaledList.columns.length; i++) {
-          const col = scaledList.columns[i]!;
-          const valueCell = values.get(col.field);
-          const columnStyle = inter.autoStyles[i]?.[autoAlignment(valueCell?.value, col.format)] ?? inter.cellStyles[i];
-          cells.push({ ...valueCell, text: valueCell?.text ?? "", style: { ...columnStyle, ...summaryStyle } });
-        }
-        let height = inter.rowHeightFloorMm;
-        let columnIndex = 0;
-        for (const cell of cells) {
-          let widthMm = 0;
-          const endColumn = columnIndex + (cell.colSpan ?? 1);
-          for (; columnIndex < endColumn; columnIndex++) widthMm += inter.colWidthsMm[columnIndex] ?? 0;
-          const metrics = cellTextMetrics(inter, cell.style!);
-          const lines = wrapText(cell.text ?? "", widthMm - inter.paddingMm * 2, metrics.measureOptions, measurer);
-          height = Math.max(height, lines.length * metrics.lineMm + inter.paddingMm * 2);
-        }
-        return {
-          grid: { cells: [cells], colWidthsMm: inter.colWidthsMm, rowHeightsMm: [height] },
-          heightMm: height
-        };
-      };
-
-      const numericSum = (groupRows: Record<string, unknown>[], field: string): number => {
-        let s = 0;
-        for (const r of groupRows) {
-          const n = typeof r[field] === "number" ? (r[field] as number) : Number(r[field]);
-          if (Number.isFinite(n)) s += n;
-        }
-        return s;
-      };
-      const formatSum = (groupRows: Record<string, unknown>[], field: string): GridCell => {
-        const col = scaledList.columns.find((c) => c.field === field);
-        const format = col?.format ?? { kind: "number" as const, thousands: true };
-        const value = numericSum(groupRows, field);
-        return { text: formatValue(value, format), value, numberFormat: toExcelNumberFormat(format) };
-      };
-
-      // ── 分组装配：组头 → 行 → 组尾小计；末尾可选总合计 ──
-      const groupBy = scaledList.groupBy;
-      const labelSpanFor = (fields: string[]): number => {
-        const firstFieldIdx = scaledList.columns.findIndex((c) => fields.includes(c.field));
-        return firstFieldIdx > 0 ? firstFieldIdx : 1;
-      };
-
-      interface RowUnit {
-        kind: "row" | "groupHeader" | "subtotal" | "grand";
-        row?: Record<string, unknown>;
-        label?: string;
-        rows?: Record<string, unknown>[];
-      }
-      const units: RowUnit[] = [];
-      if (groupBy) {
-        // Map 归组：与数据到达顺序无关（乱序数据集不产生重复组头/分段小计），
-        // 组间顺序保持"首现顺序"
-        const groups = new Map<string, Record<string, unknown>[]>();
-        for (const r of dataRows) {
-          const key = cellText(r[groupBy.field]);
-          const bucket = groups.get(key);
-          if (bucket) bucket.push(r);
-          else groups.set(key, [r]);
-        }
-        for (const [key, bucket] of groups) {
-          units.push({
-            kind: "groupHeader",
-            label: (groupBy.headerTemplate ?? "{value}").replace(/\{value\}/g, key)
-          });
-          for (const r of bucket) units.push({ kind: "row", row: r });
-          if (groupBy.subtotal && groupBy.subtotal.length > 0) {
-            units.push({
-              kind: "subtotal",
-              label: groupBy.subtotalLabel ?? "小计",
-              rows: bucket
-            });
-          }
-        }
-      } else {
-        for (const r of dataRows) units.push({ kind: "row", row: r });
-      }
-
-      const baseRowH = oneRowH();
-      for (const unit of units) {
-        if (unit.kind === "row") {
-          const rowGrid = buildRowGridFast(inter, unit.row!, measurer);
-          placeGridRow(rowGrid.grid, rowGrid.heightMm, "listr", "body");
-        } else if (unit.kind === "groupHeader") {
-          const g = buildSpanRow(
-            unit.label!,
-            new Map(),
-            (groupBy?.headerStyle ?? {}) as ComponentStyle,
-            scaledList.columns.length
-          );
-          // 组头防孤行：页尾放不下"组头+首行"时先换页
-          if (groupBy?.keepWithNext !== false && y + g.heightMm + baseRowH > contentBottom()) {
-            ensureSpace(g.heightMm + baseRowH);
-          }
-          placeGridRow(g.grid, g.heightMm, "listg", "group-header");
-        } else if (unit.kind === "subtotal") {
-          const values = new Map<string, GridCell>();
-          for (const f of groupBy!.subtotal ?? []) values.set(f, formatSum(unit.rows!, f));
-          const g = buildSpanRow(
-            unit.label!,
-            values,
-            (groupBy?.subtotalStyle ?? {}) as ComponentStyle,
-            labelSpanFor(groupBy!.subtotal ?? [])
-          );
-          placeGridRow(g.grid, g.heightMm, "listst", "subtotal");
-        }
-      }
-
-      // 总合计（无分组时需显式 fields 或 grandTotal.fields）
-      if (scaledList.grandTotal) {
-        const gt =
-          typeof scaledList.grandTotal === "object" ? scaledList.grandTotal : undefined;
-        const fields = gt?.fields ?? (groupBy?.subtotal ?? []);
-        if (fields.length > 0) {
-          const values = new Map<string, GridCell>();
-          for (const f of fields) values.set(f, formatSum(dataRows, f));
-          const g = buildSpanRow(
-            gt?.label ?? "合计",
-            values,
-            (gt?.style ?? {}) as ComponentStyle,
-            labelSpanFor(fields)
-          );
-          placeGridRow(g.grid, g.heightMm, "listgt", "grand-total");
-        } else {
-          warnings.push(`列表 ${list.id ?? ""} 配置了 grandTotal 但未提供合计字段（groupBy.subtotal 或 grandTotal.fields）`);
-        }
-      }
     }
     pushCurrent(true);
   }
-
-  // 占位符收尾：回填 {totalPages}（页脚高度固定，回填不影响分页布局）
-  for (const clone of placeholderClones) {
-    const text = (clone as { text?: string }).text;
-    if (typeof text === "string" && text.includes("{totalPages}")) {
-      (clone as { text?: string }).text = text.replace(/\{totalPages\}/g, String(pages.length));
-    }
-  }
-
-  return {
-    plan: { schemaVersion: RENDER_PLAN_SCHEMA_VERSION, pages },
-    warnings
-  };
+  for (const component of placeholders) component.text = component.text!.replace(/\{totalPages\}/g, String(pages.length));
+  return { plan: { schemaVersion: RENDER_PLAN_SCHEMA_VERSION, pages }, warnings };
 }

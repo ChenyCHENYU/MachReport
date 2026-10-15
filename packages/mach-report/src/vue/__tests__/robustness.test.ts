@@ -5,6 +5,23 @@ import type { PlanFetcher } from "../adapters";
 import type { RenderPlan } from "@agile-team/mach-report";
 
 describe("坏数据防御", () => {
+  it("卸载后保留的控制器不能再次取数或发出事件", async () => {
+    const fetcher = vi.fn<PlanFetcher>(async () => ({ schemaVersion: "t", pages: [] }));
+    const onLoaded = vi.fn();
+    const onError = vi.fn();
+    const wrapper = mount(ReportPreview, {
+      props: { reportId: "X", fetcher, autoLoad: false, onLoaded, onError }
+    });
+    const controller = wrapper.vm as unknown as { reload(): Promise<void>; setParams(values: Record<string, string>): Promise<void> };
+    wrapper.unmount();
+    await controller.reload();
+    await controller.setParams({ date: "2026-10-15" });
+    await flushPromises();
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(onLoaded).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it.each(["reportId", "fetcher"] as const)("加载中移除 %s 后显示错误，旧请求不能恢复加载状态", async (field) => {
     let finish!: (plan: RenderPlan) => void;
     const fetcher = vi.fn<PlanFetcher>(() => new Promise((resolve) => { finish = resolve; }));

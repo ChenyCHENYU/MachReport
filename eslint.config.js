@@ -33,6 +33,12 @@ export default tseslint.config(
     }
   },
   {
+    // 生产函数统一预算，测试夹具不参与；新增分支不能绕过包内质量门禁。
+    files: ["packages/mach-report/src/**/*.{ts,vue}"],
+    ignores: ["**/__tests__/**", "**/*.bench.ts"],
+    rules: { complexity: ["error", { max: 20 }] }
+  },
+  {
     // 单包架构边界守护：引擎核心（主入口能力）不得反向依赖 pdf/sql/vue
     // 子路径域——保证主入口产物永远不携带重依赖与框架代码（框架零耦合）。
     files: [

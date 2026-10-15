@@ -42,6 +42,14 @@ function cumulate(sizesMm: number[], totalMm: number): { pos: number; size: numb
   return out;
 }
 
+/** 行、列采用同一套显式尺寸 / 均分规则，避免两条轴的几何处理分叉。 */
+function resolveAxis(sizesMm: number[] | undefined, totalMm: number, count: number) {
+  return sizesMm?.length ? cumulate(sizesMm, totalMm) : Array.from({ length: count }, (_, index) => ({
+    pos: totalMm * index / count,
+    size: totalMm / count
+  }));
+}
+
 /**
  * 网格几何统一解析（DOM/Canvas/PDF 三后端共用，单位真相源）：
  * - 列宽：优先 colWidthsMm（等比缩放至组件宽），否则按列数均分
@@ -62,12 +70,7 @@ export function resolveGridLayout(
     grid.colWidthsMm?.length ??
     Math.max(1, ...rowsRaw.map((r) => (Array.isArray(r) ? r.length : 0)));
 
-  const widths = grid.colWidthsMm?.length
-    ? cumulate(grid.colWidthsMm, compWidthMm)
-    : Array.from({ length: colCount }, (_, i) => ({
-        pos: (compWidthMm * i) / colCount,
-        size: compWidthMm / colCount
-      }));
+  const widths = resolveAxis(grid.colWidthsMm, compWidthMm, colCount);
   const colPos = (ci: number): number =>
     ci <= 0
       ? 0
@@ -75,12 +78,7 @@ export function resolveGridLayout(
         ? widths[widths.length - 1]!.pos + widths[widths.length - 1]!.size
         : widths[ci]!.pos;
 
-  const heights = grid.rowHeightsMm?.length
-    ? cumulate(grid.rowHeightsMm, compHeightMm)
-    : Array.from({ length: rowCount }, (_, i) => ({
-        pos: (compHeightMm * i) / rowCount,
-        size: compHeightMm / rowCount
-      }));
+  const heights = resolveAxis(grid.rowHeightsMm, compHeightMm, rowCount);
   const rowPos = (ri: number): number =>
     ri <= 0
       ? 0

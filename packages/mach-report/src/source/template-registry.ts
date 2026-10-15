@@ -46,6 +46,43 @@ function isObject(value: unknown): value is JsonObject {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+function validateJsonContainer(value: object, path: string, errors: ValidationError[]): boolean {
+  const prototype = Object.getPrototypeOf(value);
+  const array = Array.isArray(value);
+  if (array ? prototype !== Array.prototype : prototype !== Object.prototype && prototype !== null) {
+    errors.push({ path, message: "模板对象必须使用普通 JSON 对象原型" });
+    return false;
+  }
+  if (array) {
+    const keys = Object.keys(value);
+    if (keys.length !== value.length || keys.some((key) => !/^(0|[1-9]\d*)$/.test(key) || Number(key) >= value.length)) {
+      errors.push({ path, message: "模板数组不能包含空位或额外属性" });
+      return false;
+    }
+  }
+  if (Object.getOwnPropertySymbols(value).length > 0) {
+    errors.push({ path, message: "模板不能包含 Symbol 键" });
+    return false;
+  }
+  return true;
+}
+
+function validateJsonDescriptor(key: string, descriptor: PropertyDescriptor, path: string, errors: ValidationError[]): boolean {
+  if (UNSAFE_KEYS.has(key)) {
+    errors.push({ path, message: "模板不能包含可能污染原型的键" });
+    return false;
+  }
+  if (descriptor.get || descriptor.set || !descriptor.enumerable) {
+    errors.push({ path, message: "模板不能包含访问器或不可枚举字段" });
+    return false;
+  }
+  return true;
+}
+
+function isJsonLiteral(value: unknown): boolean {
+  return value === null || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value));
+}
+
 /** 先拒绝函数、访问器、循环、特殊原型与危险键，避免 JSON 导出时静默丢字段。 */
 function validateJson(input: unknown, errors: ValidationError[]): void {
   const ancestors = new Set<object>();
@@ -70,8 +107,7 @@ function validateJson(input: unknown, errors: ValidationError[]): void {
       }
       return;
     }
-    if (value === null || typeof value === "boolean") return;
-    if (typeof value === "number" && Number.isFinite(value)) return;
+    if (isJsonLiteral(value)) return;
     if (!value || typeof value !== "object") {
       errors.push({ path, message: "模板只允许 JSON 值，不允许函数、undefined 或非有限数字" });
       return;
@@ -80,27 +116,12 @@ function validateJson(input: unknown, errors: ValidationError[]): void {
       errors.push({ path, message: "模板不能包含循环引用" });
       return;
     }
-    const prototype = Object.getPrototypeOf(value);
-    if ((Array.isArray(value) && prototype !== Array.prototype) || (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null)) {
-      errors.push({ path, message: "模板对象必须使用普通 JSON 对象原型" });
-      return;
-    }
-    if (Array.isArray(value) && (Object.keys(value).length !== value.length || Object.keys(value).some((key) => !/^(0|[1-9]\d*)$/.test(key) || Number(key) >= value.length))) {
-      errors.push({ path, message: "模板数组不能包含空位或额外属性" });
-      return;
-    }
-    if (Object.getOwnPropertySymbols(value).length > 0) {
-      errors.push({ path, message: "模板不能包含 Symbol 键" });
-      return;
-    }
+    if (!validateJsonContainer(value, path, errors)) return;
     ancestors.add(value);
     for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
       if (Array.isArray(value) && key === "length") continue;
-      if (UNSAFE_KEYS.has(key)) {
-        errors.push({ path: `${path}.${key}`, message: "模板不能包含可能污染原型的键" });
-      } else if (descriptor.get || descriptor.set || !descriptor.enumerable) {
-        errors.push({ path: `${path}.${key}`, message: "模板不能包含访问器或不可枚举字段" });
-      } else visit(descriptor.value, `${path}.${key}`, depth + 1);
+      const here = `${path}.${key}`;
+      if (validateJsonDescriptor(key, descriptor, here, errors)) visit(descriptor.value, here, depth + 1);
       if (count > MAX_JSON_NODES || characterLimitReached) break;
     }
     ancestors.delete(value);
@@ -187,16 +208,13 @@ function validateParams(value: unknown, path: string, errors: ValidationError[])
   });
 }
 
-function validateList(list: JsonObject, path: string, errors: ValidationError[]): void {
-  for (const key of ["leftMm", "topMm"]) numberField(list, key, path, errors, -Infinity, true);
-  numberField(list, "widthMm", path, errors, Number.MIN_VALUE, true);
-  stringField(list, "dataset", path, errors, true);
-  stringField(list, "title", path, errors);
-  if (list.layout !== undefined && list.layout !== "page" && list.layout !== "wide") errors.push({ path: `${path}.layout`, message: "布局应为 page 或 wide" });
-  if (!Array.isArray(list.columns) || list.columns.length === 0) {
-    errors.push({ path: `${path}.columns`, message: "列表至少需要一列" });
-  } else list.columns.forEach((column, index) => {
-    const here = `${path}.columns.${index}`;
+function validateListColumns(columns: unknown, path: string, errors: ValidationError[]): void {
+  if (!Array.isArray(columns) || columns.length === 0) {
+    errors.push({ path, message: "列表至少需要一列" });
+    return;
+  }
+  columns.forEach((column, index) => {
+    const here = `${path}.${index}`;
     if (!isObject(column)) { errors.push({ path: here, message: "列应为对象" }); return; }
     if (typeof column.header !== "string") errors.push({ path: `${here}.header`, message: "表头应为字符串（允许空白表头）" });
     stringField(column, "field", here, errors, true);
@@ -229,6 +247,43 @@ function validateList(list: JsonObject, path: string, errors: ValidationError[])
       });
     }
   });
+}
+
+function validateListGrouping(groupBy: unknown, path: string, errors: ValidationError[]): void {
+  if (groupBy === undefined) return;
+  if (!isObject(groupBy)) {
+    errors.push({ path, message: "分组应为对象" });
+    return;
+  }
+  stringField(groupBy, "field", path, errors, true);
+  for (const key of ["headerTemplate", "subtotalLabel"]) stringField(groupBy, key, path, errors);
+  for (const key of ["headerStyle", "subtotalStyle"]) validateStyle(groupBy[key], `${path}.${key}`, errors);
+  booleanField(groupBy, "keepWithNext", path, errors);
+  if (groupBy.subtotal !== undefined && (!Array.isArray(groupBy.subtotal) || groupBy.subtotal.some((field) => typeof field !== "string"))) {
+    errors.push({ path: `${path}.subtotal`, message: "小计字段应为字符串数组" });
+  }
+}
+
+function validateListTotal(grandTotal: unknown, path: string, errors: ValidationError[]): void {
+  if (grandTotal === undefined || typeof grandTotal === "boolean") return;
+  if (!isObject(grandTotal)) {
+    errors.push({ path, message: "合计应为布尔值或对象" });
+    return;
+  }
+  stringField(grandTotal, "label", path, errors);
+  validateStyle(grandTotal.style, `${path}.style`, errors);
+  if (grandTotal.fields !== undefined && (!Array.isArray(grandTotal.fields) || grandTotal.fields.some((field) => typeof field !== "string"))) {
+    errors.push({ path: `${path}.fields`, message: "合计字段应为字符串数组" });
+  }
+}
+
+function validateList(list: JsonObject, path: string, errors: ValidationError[]): void {
+  for (const key of ["leftMm", "topMm"]) numberField(list, key, path, errors, -Infinity, true);
+  numberField(list, "widthMm", path, errors, Number.MIN_VALUE, true);
+  stringField(list, "dataset", path, errors, true);
+  stringField(list, "title", path, errors);
+  if (list.layout !== undefined && list.layout !== "page" && list.layout !== "wide") errors.push({ path: `${path}.layout`, message: "布局应为 page 或 wide" });
+  validateListColumns(list.columns, `${path}.columns`, errors);
   for (const key of ["fontSizePt", "rowHeightMm"]) numberField(list, key, path, errors, Number.MIN_VALUE);
   numberField(list, "paddingMm", path, errors);
   for (const key of ["headerBold", "headerEveryPage", "border"]) booleanField(list, key, path, errors);
@@ -236,28 +291,8 @@ function validateList(list: JsonObject, path: string, errors: ValidationError[])
   alignment(list.align, `${path}.align`, errors, true);
   alignment(list.headerAlign, `${path}.headerAlign`, errors);
   validateStyle(list.headerStyle, `${path}.headerStyle`, errors);
-  if (list.groupBy !== undefined) {
-    if (!isObject(list.groupBy)) errors.push({ path: `${path}.groupBy`, message: "分组应为对象" });
-    else {
-      stringField(list.groupBy, "field", `${path}.groupBy`, errors, true);
-      for (const key of ["headerTemplate", "subtotalLabel"]) stringField(list.groupBy, key, `${path}.groupBy`, errors);
-      for (const key of ["headerStyle", "subtotalStyle"]) validateStyle(list.groupBy[key], `${path}.groupBy.${key}`, errors);
-      booleanField(list.groupBy, "keepWithNext", `${path}.groupBy`, errors);
-      if (list.groupBy.subtotal !== undefined && (!Array.isArray(list.groupBy.subtotal) || list.groupBy.subtotal.some((field) => typeof field !== "string"))) {
-        errors.push({ path: `${path}.groupBy.subtotal`, message: "小计字段应为字符串数组" });
-      }
-    }
-  }
-  if (list.grandTotal !== undefined && typeof list.grandTotal !== "boolean") {
-    if (!isObject(list.grandTotal)) errors.push({ path: `${path}.grandTotal`, message: "合计应为布尔值或对象" });
-    else {
-      stringField(list.grandTotal, "label", `${path}.grandTotal`, errors);
-      validateStyle(list.grandTotal.style, `${path}.grandTotal.style`, errors);
-      if (list.grandTotal.fields !== undefined && (!Array.isArray(list.grandTotal.fields) || list.grandTotal.fields.some((field) => typeof field !== "string"))) {
-        errors.push({ path: `${path}.grandTotal.fields`, message: "合计字段应为字符串数组" });
-      }
-    }
-  }
+  validateListGrouping(list.groupBy, `${path}.groupBy`, errors);
+  validateListTotal(list.grandTotal, `${path}.grandTotal`, errors);
 }
 
 function validateStaticFields(component: JsonObject, path: string, errors: ValidationError[]): void {
@@ -280,6 +315,7 @@ function validateStaticFields(component: JsonObject, path: string, errors: Valid
   if (!isObject(component.grid)) return;
   const grid = component.grid;
   numberField(grid, "gapMm", `${path}.grid`, errors);
+  numberField(grid, "paddingMm", `${path}.grid`, errors);
   for (const key of ["colWidthsMm", "rowHeightsMm"]) {
     const values = grid[key];
     if (values !== undefined && (!Array.isArray(values) || values.some((value) => typeof value !== "number" || !Number.isFinite(value) || value < 0))) errors.push({ path: `${path}.grid.${key}`, message: "网格尺寸应为有限非负数字数组" });

@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mount, type VueWrapper } from "@vue/test-utils";
 import { effectScope, shallowRef } from "vue";
-import type { RenderPlan } from "@agile-team/mach-report";
+import { renderPage, type PlanComponent, type RenderPlan } from "@agile-team/mach-report";
 import ReportPreview from "../ReportPreview.vue";
 import { useReportSearch } from "../composables/useReportSearch";
+import { highlightTextNodes } from "../composables/useHighlight";
 import { usePageWindow } from "../composables/usePageWindow";
 import { resolveConfig, defineMachReportConfig } from "../config";
 
@@ -129,6 +130,35 @@ describe("大计划预览的有界交互", () => {
     await vi.runAllTimersAsync();
     expect(search.matchCount.value).toBe(0);
     scope.stop();
+  });
+
+  it("图片/文本/网格/未知占位的搜索计数与真实DOM高亮一致", async () => {
+    vi.useFakeTimers();
+    const scope = effectScope();
+    const source = planOf(1);
+    const base = { leftMm: 10, topMm: 10, widthMm: 100, heightMm: 10 };
+    source.pages[0]!.components = [
+      { ...base, kind: "text", text: "钢", grid: { cells: [[{ text: "隐藏钢" }]] } },
+      { ...base, kind: "chart", imageData: "data:image/png;base64,iVBORw0KGgo=", grid: { cells: [[{ text: "隐藏钢" }]] } },
+      { ...base, kind: "rect", grid: { cells: [[{ text: "钢", children: [{ ...base, kind: "text", text: "钢" }] }]] } },
+      { ...base, kind: "custom", fallbackText: "钢" } as unknown as PlanComponent,
+      { ...base, kind: "line", fallbackText: "隐藏钢" }
+    ];
+    const page = renderPage(source.pages[0]!, 96, {}, document);
+    const search = scope.run(() => useReportSearch({
+      plan: shallowRef(source), gotoPage: () => {}, debounceMs: 0, highlight: highlightTextNodes, clearHighlights: () => {}
+    }))!;
+    try {
+      search.onInput("钢");
+      await vi.runAllTimersAsync();
+      expect(search.matchCount.value).toBe(4);
+      expect(highlightTextNodes(page, "钢")).toBe(search.matchCount.value);
+      search.onInput("隐藏");
+      await vi.runAllTimersAsync();
+      expect(search.matchCount.value).toBe(0);
+    } finally {
+      scope.stop();
+    }
   });
 
   it("卸载取消正文 scroll rAF，随后旧回调不触发 DOM 读取或状态变更", () => {

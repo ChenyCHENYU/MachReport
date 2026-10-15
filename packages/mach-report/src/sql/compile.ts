@@ -25,6 +25,11 @@ export class SqlValidationError extends Error {
 
 const FORBIDDEN_TOP_LEVEL = /\b(insert|update|delete|merge|create|alter|drop|truncate|grant|revoke|call|exec|execute)\b/i;
 
+function startsLineComment(sql: string, index: number): boolean {
+  return (sql[index] === "-" && sql[index + 1] === "-" && /\s/.test(sql[index + 2] ?? "")) ||
+    (sql[index] === "#" && sql[index + 1] !== "{");
+}
+
 /** 数据库会执行这些块注释，必须在普通去注释之前拒绝；字符串内容保持字面语义。 */
 function assertNoExecutableComments(sql: string): void {
   // 宿主 SQL mode 未知：默认转义与 NO_BACKSLASH_ESCAPES 任一解释能执行就拒绝。
@@ -49,10 +54,7 @@ function assertNoExecutableComments(sql: string): void {
         const end = sql.indexOf("*/", i + 2);
         if (end < 0) break;
         i = end + 1;
-      } else if (
-        (ch === "-" && sql[i + 1] === "-" && /\s/.test(sql[i + 2] ?? "")) ||
-        (ch === "#" && sql[i + 1] !== "{")
-      ) {
+      } else if (startsLineComment(sql, i)) {
         while (i + 1 < sql.length && sql[i + 1] !== "\n" && sql[i + 1] !== "\r") i++;
       }
     }
