@@ -8,7 +8,7 @@ import type {
   RenderPlan
 } from "../schema/render-plan";
 import { RENDER_PLAN_SCHEMA_VERSION } from "../schema/render-plan";
-import { DEFAULT_FONT_PT, LINE_HEIGHT } from "../defaults";
+import { DEFAULT_FONT_FAMILY, DEFAULT_FONT_PT, LINE_HEIGHT } from "../defaults";
 import { heuristicMeasurer, wrapText, type TextMeasureOptions, type TextMeasurer } from "./textwrap";
 import { evalStyleRule, formatValue, toExcelNumberFormat, type ColumnFormat, type StyleRule } from "../format";
 import { mergeComponentStyles, resolveFontSize } from "../render/style";
@@ -35,6 +35,8 @@ export interface ListColumn {
   editable?: boolean;
   /** 空值列或特殊数据类型可显式声明编辑输入类型。 */
   valueType?: GridCell["valueType"];
+  /** 字段语义用于 auto 对齐；明确声明编号，避免把数字编号当成度量。 */
+  semanticRole?: "identifier" | "dimension" | "measure" | "date" | "text";
 }
 
 /** 分组小计配置（声明式，见 ListComponent.groupBy） */
@@ -72,6 +74,10 @@ export interface ListComponent {
   topMm: number;
   widthMm: number;
   dataset: string;
+  /** 数据集中稳定业务主键的字段名；省略时编辑仅有计划内坐标。 */
+  rowKey?: string;
+  revisionField?: string;
+  sourceTokenField?: string;
   columns: ListColumn[];
   fontSizePt?: number;
   headerBold?: boolean;
@@ -84,6 +90,8 @@ export interface ListComponent {
   /** 表头默认对齐，列配置可覆盖。 */
   headerAlign?: ComponentStyle["align"];
   headerStyle?: ComponentStyle;
+  /** 可选多行合并表头；列宽按列表物理列对齐，供 Excel 业务模板复用。 */
+  headerGrid?: PlanGrid;
   border?: boolean;
   /** 分组小计（组头/组尾小计/组头防孤行） */
   groupBy?: ListGroupBy;
@@ -117,6 +125,11 @@ export interface ReportParamDef {
   defaultValue?: string;
   required?: boolean;
   placeholder?: string;
+  /** 数字上下界；date 参数使用 YYYY-MM-DD 字符串（含边界）。 */
+  min?: number | string;
+  max?: number | string;
+  minLength?: number;
+  maxLength?: number;
 }
 
 export interface ReportTemplate {
@@ -214,6 +227,8 @@ function cellTextMetrics(inter: ListInterning, style: ComponentStyle): CellTextM
     metrics = {
       measureOptions: {
         fontSizePt,
+        fontFamily: style.fontFamily ?? DEFAULT_FONT_FAMILY,
+        italic: style.italic,
         bold: style.bold,
         letterSpacingPt: style.letterSpacing
       },
@@ -224,7 +239,10 @@ function cellTextMetrics(inter: ListInterning, style: ComponentStyle): CellTextM
   return metrics;
 }
 
-function autoAlignment(value: unknown, format?: ColumnFormat): "left" | "center" | "right" {
+function autoAlignment(value: unknown, format?: ColumnFormat, role?: ListColumn["semanticRole"]): "left" | "center" | "right" {
+  if (role === "identifier" || role === "dimension" || role === "date") return "center";
+  if (role === "measure") return "right";
+  if (role === "text") return "left";
   if (format?.kind === "number" || format?.kind === "percent") return "right";
   if (format?.kind === "date" || value instanceof Date || typeof value === "boolean") return "center";
   return typeof value === "number" && Number.isFinite(value) ? "right" : "left";
@@ -285,7 +303,7 @@ function interList(list: ListComponent, measurer: TextMeasurer): ListInterning {
     const headerFontPt = resolveFontSize(style).fontSizePt;
     const lines = wrapText(
       headerTexts[i]!, list.columns[i]!.widthMm - paddingMm * 2,
-      { fontSizePt: headerFontPt, bold: style.bold, letterSpacingPt: style.letterSpacing }, measurer
+      { fontSizePt: headerFontPt, fontFamily: style.fontFamily ?? DEFAULT_FONT_FAMILY, italic: style.italic, bold: style.bold, letterSpacingPt: style.letterSpacing }, measurer
     );
     const lineMm = (headerFontPt * (style.lineHeight ?? LINE_HEIGHT) * 25.4) / 72;
     headerHeight = Math.max(headerHeight, Math.max(lines.length, 1) * lineMm + paddingMm * 2);
@@ -302,6 +320,9 @@ function interList(list: ListComponent, measurer: TextMeasurer): ListInterning {
       ? { borderTop: false, borderRight: false, borderBottom: false, borderLeft: false }
       : { borderBottom: true, borderLeft: true, borderRight: true, borderTop: true };
   const colWidthsMm = list.columns.map((col) => col.widthMm);
+  const headerGrid = resolveListHeader(list.headerGrid, colWidthsMm, {
+    cells: [headerCells], colWidthsMm, rowHeightsMm: [headerHeight], paddingMm
+  });
 
   return {
     fontSizePt,
@@ -312,16 +333,19 @@ function interList(list: ListComponent, measurer: TextMeasurer): ListInterning {
     textMetrics: new WeakMap(),
     numberFormats: list.columns.map((column) => toExcelNumberFormat(column.format)),
     borderStyle,
-    headerHeightMm: headerHeight,
-    headerGrid: {
-      cells: [headerCells as GridCellCompat[]],
-      colWidthsMm,
-      rowHeightsMm: [headerHeight],
-      paddingMm
-    },
+    headerHeightMm: headerGrid.rowHeightsMm!.reduce((sum, height) => sum + height, 0),
+    headerGrid,
     colWidthsMm,
     columns: list.columns
   };
+}
+
+function resolveListHeader(custom: PlanGrid | undefined, widths: number[], fallback: PlanGrid): PlanGrid {
+  if (!custom) return fallback;
+  if (!custom.cells.length) throw new Error("自定义列表表头至少需要一行");
+  const heights = custom.rowHeightsMm ?? custom.cells.map(() => fallback.rowHeightsMm![0]!);
+  if (heights.length !== custom.cells.length || heights.some((height) => !Number.isFinite(height) || height <= 0)) throw new Error("自定义列表表头行高无效");
+  return { ...custom, colWidthsMm: widths, rowHeightsMm: heights };
 }
 
 interface ListInterningWithFloor extends ListInterning {
@@ -348,7 +372,7 @@ function buildRowGridFast(
   for (let i = 0; i < columns.length; i++) {
     const col = columns[i]!;
     const rawValue = row[col.field];
-    const alignment = inter.autoStyles[i] ? autoAlignment(rawValue, col.format) : "left";
+    const alignment = inter.autoStyles[i] ? autoAlignment(rawValue, col.format, col.semanticRole) : "left";
     let style = inter.autoStyles[i]?.[alignment] ?? inter.cellStyles[i]!;
     // 条件格式首个命中生效；所有变体在列表级驻留，热路径不构造样式对象。
     if (col.rules) {
@@ -477,7 +501,7 @@ interface ListPageContext {
 
 interface ListPageWriter {
   keepTogether(heightMm: number): void;
-  placeGridRow(row: GridRow, prefix: string, role: PlanTableFragment["role"]): void;
+  placeGridRow(row: GridRow, prefix: string, role: PlanTableFragment["role"], source?: PlanTableFragment["source"]): void;
 }
 
 /** 仅负责纵向游标、换页与逻辑行来源，不参与分组或汇总计算。 */
@@ -528,14 +552,14 @@ function createListPageWriter(list: ListComponent, inter: ListInterningWithFloor
     } else y = templatePage.layout === "wide" ? 0 : contentTop;
   }
 
-  function placeGridRow(row: GridRow, prefix: string, role: PlanTableFragment["role"]): void {
+  function placeGridRow(row: GridRow, prefix: string, role: PlanTableFragment["role"], source?: PlanTableFragment["source"]): void {
     const available = freshCapacity();
     if (row.heightMm > available) warnings.push(`列表 ${list.id ?? list.dataset} 行高 ${row.heightMm.toFixed(2)}mm 超出单页可用高度 ${available.toFixed(2)}mm，预览与打印可能截断内容`);
     ensureSpace(row.heightMm);
     current.components.push({
       kind: "rect", leftMm: list.leftMm, topMm: y, widthMm: list.widthMm,
       heightMm: row.heightMm, grid: row.grid, nid: nextId(prefix),
-      table: { ...tableBase, role, rowIndex: rowIndex++ }, style: inter.borderStyle
+      table: { ...tableBase, role, rowIndex: rowIndex++, ...(source ? { source } : {}) }, style: inter.borderStyle
     });
     y += row.heightMm;
   }
@@ -544,6 +568,33 @@ function createListPageWriter(list: ListComponent, inter: ListInterningWithFloor
     if (heightMm <= freshCapacity()) ensureSpace(heightMm);
   }
   return { keepTogether, placeGridRow };
+}
+
+function rowSource(list: ListComponent, row: DataRow): PlanTableFragment["source"] {
+  if (!list.rowKey) return undefined;
+  const rowKey = row[list.rowKey];
+  if ((typeof rowKey !== "string" || !rowKey.trim()) && !(typeof rowKey === "number" && Number.isFinite(rowKey))) {
+    throw new Error(`数据集 ${list.dataset} 的 ${list.rowKey} 应为稳定的字符串或有限数字主键`);
+  }
+  const revision = list.revisionField ? row[list.revisionField] : undefined;
+  const sourceToken = list.sourceTokenField ? row[list.sourceTokenField] : undefined;
+  if (revision !== undefined && typeof revision !== "string" && !(typeof revision === "number" && Number.isFinite(revision))) throw new Error("业务修订号应为字符串或有限数字");
+  if (sourceToken !== undefined && typeof sourceToken !== "string") throw new Error("来源令牌应为字符串");
+  return { datasetId: list.dataset, rowKey, ...(revision === undefined ? {} : { revision }), ...(sourceToken === undefined ? {} : { sourceToken }) };
+}
+
+function checkedRowSources(list: ListComponent, rows: DataRow[]): Map<DataRow, PlanTableFragment["source"]> {
+  const result = new Map<DataRow, PlanTableFragment["source"]>();
+  if (!list.rowKey) return result;
+  const keys = new Set<string>();
+  for (const row of rows) {
+    const source = rowSource(list, row)!;
+    const key = JSON.stringify(source.rowKey);
+    if (keys.has(key)) throw new Error(`数据集 ${list.dataset} 的业务主键重复：${String(source.rowKey)}`);
+    keys.add(key);
+    result.set(row, source);
+  }
+  return result;
 }
 
 function placeGrandTotal(list: ListComponent, rows: DataRow[], inter: ListInterningWithFloor, context: ListPageContext, writer: ListPageWriter): void {
@@ -559,6 +610,7 @@ function placeGrandTotal(list: ListComponent, rows: DataRow[], inter: ListIntern
 }
 
 function paginateList(list: ListComponent, rows: DataRow[], context: ListPageContext): void {
+  const sources = checkedRowSources(list, rows);
   const width = list.columns.reduce((sum, column) => sum + column.widthMm, 0);
   const scale = width > list.widthMm ? list.widthMm / width : 1;
   const scaled = scale === 1 ? list : { ...list, columns: list.columns.map((column) => ({ ...column, widthMm: column.widthMm * scale })) };
@@ -567,7 +619,7 @@ function paginateList(list: ListComponent, rows: DataRow[], context: ListPageCon
   let nextRow: GridRow | undefined;
   for (const unit of listRowUnits(rows, scaled.groupBy)) {
     if (unit.kind === "row") {
-      writer.placeGridRow(nextRow ?? buildRowGridFast(inter, unit.row, context.measurer), "listr", "body");
+      writer.placeGridRow(nextRow ?? buildRowGridFast(inter, unit.row, context.measurer), "listr", "body", sources.get(unit.row));
       nextRow = undefined;
     } else if (unit.kind === "groupHeader") {
       const row = buildSpanRow(inter, context.measurer, unit.label, new Map(), scaled.groupBy?.headerStyle ?? {}, scaled.columns.length);

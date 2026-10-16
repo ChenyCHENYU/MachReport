@@ -43,16 +43,16 @@ export default tseslint.config(
     // 子路径域——保证主入口产物永远不携带重依赖与框架代码（框架零耦合）。
     files: [
       "packages/mach-report/src/index.ts",
-      "packages/mach-report/src/{defaults,units,pdf,sql}.ts",
-      "packages/mach-report/src/{layout,render,schema,builder,source,editing}/**/*.ts"
+      "packages/mach-report/src/{defaults,units,format}.ts",
+      "packages/mach-report/src/{layout,render,schema,builder,source,editing,output,analytics}/**/*.ts"
     ],
     rules: {
       "no-restricted-imports": [
         "error",
         {
           patterns: [
-            { group: ["../pdf/*", "../pdf", "../sql/*", "../sql", "../xlsx/*", "../xlsx", "../vue/*", "../vue"], message: "Engine core must not depend on subpath domains (pdf/sql/xlsx/vue)." },
-            { group: ["@agile-team/mach-report/pdf", "@agile-team/mach-report/sql", "@agile-team/mach-report/xlsx", "@agile-team/mach-report/vue", "@agile-team/mach-report/vue/*"], message: "Engine core must not depend on subpath domains (pdf/sql/xlsx/vue)." }
+            { group: ["../pdf/*", "../pdf", "../sql/*", "../sql", "../xlsx/*", "../xlsx", "../vue/*", "../vue", "./pdf/*", "./sql/*", "./xlsx/*", "./vue/*", "../designer/*", "./designer/*"], message: "Engine core must not depend on optional output/framework domains." },
+            { group: ["@agile-team/mach-report/pdf", "@agile-team/mach-report/sql", "@agile-team/mach-report/xlsx", "@agile-team/mach-report/xlsx/*", "@agile-team/mach-report/vue", "@agile-team/mach-report/vue/*", "@agile-team/mach-report/designer", "node:*", "vue", "exceljs", "pdf-lib", "node-sql-parser"], message: "Engine core must remain browser-safe and framework-independent." }
           ]
         }
       ]

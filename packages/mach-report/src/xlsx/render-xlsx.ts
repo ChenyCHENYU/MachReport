@@ -5,6 +5,7 @@ import type { ComponentStyle, GridCell, PlanComponent, PlanPage } from "../schem
 import { resolveGridLayout, type GridLayout } from "../render/grid-geometry";
 import { mergeComponentStyles, resolveFontSize } from "../render/style";
 import { mmToExcelColumnWidth } from "./column-width";
+import { reportOutputDiagnostics, type OutputDiagnostic, type OutputDiagnosticOptions } from "../output/capabilities";
 
 /**
  * RenderPlan → xlsx 导出（B 端第二出口，对齐家族 @agile-team/mach-table-xlsx 路线）：
@@ -15,7 +16,7 @@ import { mmToExcelColumnWidth } from "./column-width";
  * - 未支持组件、富文本专有内容与单元格嵌套组件跳过并计入 warnings
  */
 
-export interface XlsxRenderOptions {
+export interface XlsxRenderOptions extends OutputDiagnosticOptions {
   /** 工作表命名（连续表默认使用标题，其余默认 "Sheet1" 起序）。 */
   sheetName?: (sheetIndex: number) => string;
   /** auto 默认将 wide 逻辑表合并为连续 Sheet；pages 保留逐页；continuous 要求明确的表来源。 */
@@ -30,6 +31,7 @@ export interface XlsxRenderResult {
   workbook: ExcelJS.Workbook;
   buffer: ExcelJS.Buffer;
   warnings: string[];
+  diagnostics?: OutputDiagnostic[];
 }
 
 const MM_TO_PT = 72 / 25.4;
@@ -416,6 +418,7 @@ function validateOptions(options: XlsxRenderOptions): void {
 
 export async function renderPlanToXlsx(plan: RenderPlan, options: XlsxRenderOptions = {}): Promise<XlsxRenderResult> {
   validateOptions(options);
+  const diagnostics = reportOutputDiagnostics(plan, "xlsx", options);
   const workbook = new ExcelJSRuntime.Workbook();
   const warnings: string[] = [];
   const limits = dimensionLimits(warnings);
@@ -432,5 +435,5 @@ export async function renderPlanToXlsx(plan: RenderPlan, options: XlsxRenderOpti
     writeSheet({ sheet, warnings, limits, valueMode }, contents, unit.continuous);
   }
   const buffer = await workbook.xlsx.writeBuffer();
-  return { workbook, buffer, warnings };
+  return { workbook, buffer, warnings, diagnostics };
 }

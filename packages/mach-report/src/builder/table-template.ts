@@ -2,6 +2,7 @@ import type { ListColumn, ListComponent, ReportTemplate, TemplatePage } from "..
 import type { ComponentStyle } from "../schema/render-plan";
 import { PAPER_SIZES } from "../units";
 import { resolvePaper, type PageOptions, type PaperName } from "./template-builder";
+import { validateDatasetRows, type DatasetContract } from "../schema/dataset";
 
 /** 明细列：显式 widthMm 优先；纸张模式按 flex 分余量，宽表模式按 flex 放大基准列宽。 */
 export type TableTemplateColumn = Omit<ListColumn, "widthMm"> & {
@@ -9,6 +10,17 @@ export type TableTemplateColumn = Omit<ListColumn, "widthMm"> & {
   /** 自动列的宽度权重，默认 1（有 widthMm 时不参与分配）。 */
   flex?: number;
 };
+
+/** 同一字段契约生成列语义和表头，业务侧无需复制另一份字段清单。 */
+export function columnsFromContract(contract: DatasetContract, overrides: Record<string, Partial<TableTemplateColumn>> = {}): TableTemplateColumn[] {
+  validateDatasetRows([], contract);
+  return contract.fields.map((field) => ({
+    field: field.field,
+    header: `${field.label ?? field.field}${field.unit ? ` (${field.unit})` : ""}`,
+    semanticRole: field.semanticRole ?? (field.type === "number" || field.type === "decimal" ? "measure" : field.type === "date" ? "date" : field.enum ? "dimension" : "text"),
+    ...overrides[field.field]
+  }));
+}
 
 export type TableTemplateListOptions = Partial<
   Omit<ListComponent, "kind" | "leftMm" | "topMm" | "widthMm" | "dataset" | "columns" | "layout" | "title">

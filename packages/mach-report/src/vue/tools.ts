@@ -21,5 +21,35 @@ export interface ReportEmptyState {
 
 export const REPORT_EXPORT_FORMATS: readonly ReportExportFormat[] = ["html", "pdf", "xlsx", "png", "word"];
 export const REPORT_PREVIEW_TOOLS = ["search", "thumbnails", "zoom", ...REPORT_EXPORT_FORMATS, "print", "pdfWindow", "editing", "import"] as const;
-export type ReportPreviewTool = typeof REPORT_PREVIEW_TOOLS[number];
+export type ReportPreviewTool = "search" | "thumbnails" | "zoom" | ReportExportFormat | "print" | "pdfWindow" | "editing" | "import";
 export type ReportPreviewPreferences = Record<ReportPreviewTool, boolean>;
+
+export interface ReportInteractionOptions {
+  /** Screen-only frozen panes; exported geometry is unchanged. */
+  freezeHeaders?: boolean;
+  /** Leading identity columns, from 0 to 20. */
+  frozenColumns?: number;
+  /** Show workbook sheets / report sections when available. Default true. */
+  navigation?: boolean;
+}
+export interface ReportSection { label: string; pageIndex: number }
+
+export interface ReportPreferencesAdapter {
+  load(key: string): Partial<ReportPreviewPreferences> | null | Promise<Partial<ReportPreviewPreferences> | null>;
+  save(key: string, value: Readonly<Partial<ReportPreviewPreferences>>): void | Promise<void>;
+  remove?(key: string): void | Promise<void>;
+}
+export interface ReportPreferencesOptions {
+  /** Host-scoped key; do not share one key between unrelated users/tenants. */
+  key: string;
+  adapter: ReportPreferencesAdapter;
+}
+
+/** Optional browser convenience adapter. Access errors are handled by the preview. */
+export function createReportStoragePreferences(storage: Pick<Storage, "getItem" | "setItem" | "removeItem">): ReportPreferencesAdapter {
+  return {
+    load: (key) => JSON.parse(storage.getItem(key) ?? "null") as Partial<ReportPreviewPreferences> | null,
+    save: (key, value) => storage.setItem(key, JSON.stringify(value)),
+    remove: (key) => storage.removeItem(key)
+  };
+}

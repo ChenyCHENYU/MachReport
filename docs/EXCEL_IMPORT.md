@@ -4,6 +4,31 @@
 
 ## 最小接入
 
+只查看工作簿时直接导入；将业务原型变成接口驱动模板时，导入后调用 `bindExcelTemplate`。二者分开，避免误把样例行当作真实业务数据。
+
+### 显式业务区域绑定
+
+```ts
+import { importExcelTemplate, bindExcelTemplate } from "@agile-team/mach-report/xlsx";
+
+const imported = await importExcelTemplate(file);
+const bound = bindExcelTemplate(imported, [{
+  sheet: "电炉日报", dataset: "heats",
+  header: "A3:C4", detail: "A5:C5",
+  columns: [
+    { field: "heat", semanticRole: "identifier" },
+    { field: "shift", semanticRole: "dimension" },
+    { field: "weight", semanticRole: "measure", format: { kind: "number", digits: 3 } }
+  ],
+  rowKey: "heat", revisionField: "revision", sourceTokenField: "sourceToken"
+}]);
+// 注册bound.template，数据源返回 { heats: [...] }。
+```
+
+`sheet` 必须存在且每次只绑定一次；`header` 是完整列范围的A1坐标，可含多层合并表头；`columns` 按物理列逐项对应，可简写为字段名。`detail` 可选，省略则使用表头以下所有行；有显式末端时，后续静态页脚保留为独立页并返回告警。请按真实工作簿替换示例范围。
+
+包内保留表头上方标题、合并表头与明细原型的基础样式，剔除样例数据，生成重复表头的普通列表；大批业务行走既有分页、连续Excel和编辑协议。跨区域合并、明细原型合并、不连续列或数量不匹配明确拒绝，不推断业务字段或默默截断结构。绑定后的空数据集仍保持表头；业务空态由预览的`emptyState`决定。
+
 ```ts
 import { paginateTemplate } from "@agile-team/mach-report";
 import { importExcelTemplate } from "@agile-team/mach-report/xlsx";

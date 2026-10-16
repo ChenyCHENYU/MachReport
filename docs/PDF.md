@@ -62,4 +62,50 @@ await invalidateFontCache("/fonts/report.otf");
 
 引擎调用 `loadFontWithCache(url)` 默认保留旧的 `Uint8Array | null` 兼容行为；需要提前失败时使用 `{ strict: true }`。直接调用 `renderPlanToPdf` 应检查结果的 `unsupportedTextCount`、`pageErrors` 和 `fidelityWarnings`，并由应用决定是否接受输出。Vue 默认导出器已包含这些判定。
 
+## 前后端共用字体度量
+
+`TextMeasureOptions` 同时包含字号、字体族、粗体、斜体和字距。浏览器可用 `createCanvasMeasurer`，Node 可从 `/pdf` 使用 `createFontBytesMeasurer`；后者按实际字体 advance 度量，不依赖 DOM。分页和输出应传入同一实例：
+
+```ts
+import { paginateTemplate } from "@agile-team/mach-report";
+import { createFontBytesMeasurer, renderPlanToPdf } from "@agile-team/mach-report/pdf";
+
+const faces = { regular: regularBytes, bold: boldBytes }; // 已取得的字体字节
+const measurer = createFontBytesMeasurer(faces);
+const { plan } = paginateTemplate(template, datasets, { measurer });
+const result = await renderPlanToPdf(plan, {
+  customFontFaces: faces,
+  measurer,
+  signal
+});
+```
+
+`customFontFaces` 支持 `regular / bold / italic / boldItalic`。缺少的字面回退 regular 并返回保真告警，不合成粗斜字体；旧 `customFontBytes` 保持兼容。相同字节对象的解析采用弱引用缓存，同一 PDF 内重复字面不重复嵌入；传入后不要修改字节内容。字体度量器可选 `fontFamily` 作为匹配保护，其他字体族走指定 `fallback`；多字体报表仍需按实际字体配置和验收。
+
+PDF 与 Canvas 已应用 `letterSpacing`，按 Unicode 码点之间的间隔计算，末字后不附加字距。复杂脚本、组合字符、浏览器字体回退仍可能受实际字体排版影响；共享字库和测量器可减少折行差异，不能保证任意字体环境下像素一致。
+
+## 可选图片、二维码与图表适配器
+
+原生图片、已有二维码或外部图表渲染结果均通过 `imageData` 输出。PDF 接受 PNG / JPEG 的 base64 data URL，SVG 或远程 URL 应先由适配器转换，不能直接承诺保真。高级图表或条码库按需接入，无需进入主入口依赖：
+
+```ts
+const result = await renderPlanToPdf(plan, {
+  customFontFaces: faces,
+  assetRenderers: {
+    qrcode: async ({ component, signal }) => {
+      return qrRenderer.toPngDataUrl(component.meta, { signal });
+    }
+  },
+  assetBudget: { maxAssets: 500, maxDurationMs: 30_000 },
+  onDiagnostic: (diagnostic) => reportDiagnostic(diagnostic),
+  signal
+});
+```
+
+也可在任何输出前调用核心 `resolvePlanAssets(plan, options)`，随后把返回的 `plan` 交给各渲染器。已有 `imageData` 不重复生成；未变页和组件保留引用，输入计划不被修改。网格子组件递归准备资产，但 PDF / Canvas 当前仍明确告警省略子组件，资产准备本身不会使原先未支持的布局自动获得支持。
+
+适配器默认失败即拒绝导出，错误为带 `diagnostic` 的 `OutputAssetError`；只有显式 `assetFailure: "placeholder"` 才保留占位组件并返回告警。默认预算为 1000 个新资产、每个 32 MiB 图像负载、合计 128 MiB、30 秒；`signal` 可取消等待，即使适配器忽略取消，也不会把迟到结果写回原计划。适配器自身资源仍应响应传入的 signal。
+
+结果新增结构化 `diagnostics`，包含格式、页号索引、组件索引、类型及错误码；`fidelityWarnings` 继续兼容。`inspectOutputCapabilities(plan, "pdf")` 可在加载 PDF 引擎前检查静态能力，图片解码和字体覆盖仍由实际导出核实。PDF 页面、字体和最终字节仍在内存中生成，取消在异步准备及组件 / 页面边界生效，不能中断底层库正在执行的同步操作。
+
 PDF / XLSX 为独立按需入口；只读状态、HEAD 诊断和普通预览不会提前加载两种导出引擎。接口取数和组件接入见 [项目接入指南](./INTEGRATION.md)。

@@ -276,10 +276,11 @@ const app = createApp({
           h("button", { onClick: () => void showCanvas(report.getPlan()) }, "Canvas 位图渲染"),
           h("button", { onClick: () => void showCanvasCalibration() }, "Canvas 校准渲染"),
           h("button", { onClick: () => void showCanvasPager(report.getPlan()) }, "Canvas 窗口化（大报表）"),
+          h("a", { href: "/designer.html", style: "display:block;margin:14px 0;color:#9ed8ff;font-size:12px" }, "模板属性工作台 ↗"),
           h("div", { class: "info" }, [
             h("div", { class: "report-status", role: "status", "aria-live": "polite" },
               report.state.loading ? "加载中…" : `共 ${report.state.pageCount} 页`),
-            h("div", null, "可从工具栏导入 .xlsx，直接预览工作表；勾选上方开关后双击数据格编辑。示例修改仅保存在当前预览。"),
+            h("div", null, "设置内可启用冻结窗格。单击选区、Shift扩选；勾选编辑后可双击或粘贴，支持撤销、重做和修改清单。导入.xlsx可切换工作表；示例修改仅保存在当前预览。"),
             report.state.dirty ? h("div", null, "当前报表已有修改，导出包含修改后的值。") : null,
             h("div", null, `sql-engine 演示渲染结果：`),
             h("div", { style: "word-break:break-all" }, sqlDemo.sql)

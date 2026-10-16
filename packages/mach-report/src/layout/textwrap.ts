@@ -1,3 +1,5 @@
+import { DEFAULT_FONT_FAMILY } from "../defaults";
+
 /**
  * 文本测量与折行（分页/Canvas/PDF 共用的唯一折行真相源）。
  *
@@ -8,7 +10,9 @@
 
 export interface TextMeasureOptions {
   fontSizePt: number;
+  fontFamily?: string;
   bold?: boolean;
+  italic?: boolean;
   letterSpacingPt?: number;
 }
 
@@ -54,7 +58,7 @@ export const heuristicMeasurer: TextMeasurer = {
       units += charWidthEm(ch);
     }
     if (bold) units *= 1.04;
-    return (units * fontSizePt + letterSpacingPt * text.length) * ptToMm;
+    return (units * fontSizePt + letterSpacingPt * Math.max(0, Array.from(text).length - 1)) * ptToMm;
   }
 };
 
@@ -80,9 +84,12 @@ export function createCanvasMeasurer(
       if (ctx === undefined) ctx = getCtx2d();
       if (!ctx) return heuristicMeasurer.measureMm(text, options);
       const px = (options.fontSizePt * 96) / 72;
-      ctx.font = `${options.bold ? "bold " : ""}${px}px sans-serif`;
+      ctx.font = `${options.italic ? "italic " : ""}${options.bold ? "bold " : ""}${px}px ${options.fontFamily ?? DEFAULT_FONT_FAMILY}`;
+      // Measurement must not inherit spacing configured by a previous canvas consumer.
+      if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
       // px → mm（96dpi 基准）
-      return (ctx.measureText(text).width * 25.4) / 96;
+      const spacing = (options.letterSpacingPt ?? 0) * Math.max(0, Array.from(text).length - 1);
+      return (ctx.measureText(text).width * 25.4) / 96 + spacing * 25.4 / 72;
     }
   };
 }
@@ -99,12 +106,10 @@ interface Atom {
 function tokenize(text: string, options: TextMeasureOptions, measurer: TextMeasurer): Atom[] {
   const atoms: Atom[] = [];
   let word = "";
-  let wordWidth = 0;
   const flush = () => {
     if (word) {
-      atoms.push({ text: word, widthMm: wordWidth, cjk: false });
+      atoms.push({ text: word, widthMm: measurer.measureMm(word, options), cjk: false });
       word = "";
-      wordWidth = 0;
     }
   };
   for (const ch of text) {
@@ -124,7 +129,6 @@ function tokenize(text: string, options: TextMeasureOptions, measurer: TextMeasu
       continue;
     }
     word += ch;
-    wordWidth += measurer.measureMm(ch, options);
   }
   flush();
   return atoms;
@@ -150,6 +154,7 @@ export function wrapText(
   const lines: string[] = [];
   let current = "";
   let currentWidth = 0;
+  const spacingMm = (options.letterSpacingPt ?? 0) * 25.4 / 72;
   const pushLine = () => {
     lines.push(current);
     current = "";
@@ -160,9 +165,10 @@ export function wrapText(
       pushLine();
       continue;
     }
-    if (currentWidth + atom.widthMm <= maxWidthMm) {
+    const separatorWidth = current.length > 0 ? spacingMm : 0;
+    if (currentWidth + separatorWidth + atom.widthMm <= maxWidthMm) {
       current += atom.text;
-      currentWidth += atom.widthMm;
+      currentWidth += separatorWidth + atom.widthMm;
       continue;
     }
     if (atom.space) {
@@ -184,12 +190,12 @@ export function wrapText(
       continue;
     }
     for (const ch of atom.text) {
-      const chWidth = measurer.measureMm(ch, options);
-      if (currentWidth + chWidth > maxWidthMm && current.length > 0) {
+      const candidateWidth = measurer.measureMm(current + ch, options);
+      if (candidateWidth > maxWidthMm && current.length > 0) {
         pushLine();
       }
       current += ch;
-      currentWidth += chWidth;
+      currentWidth = measurer.measureMm(current, options);
     }
   }
   pushLine();

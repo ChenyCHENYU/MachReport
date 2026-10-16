@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import type { MachReportMessages } from "./config";
-import type { ReportPreviewPreferences, ReportPreviewTool } from "./tools";
+import type { ReportInteractionOptions, ReportPreviewPreferences, ReportPreviewTool } from "./tools";
 
 const props = defineProps<{
   available: ReportPreviewPreferences;
@@ -9,11 +9,13 @@ const props = defineProps<{
   messages: MachReportMessages;
   persistedEditing: boolean;
   busy?: boolean;
+  interaction?: ReportInteractionOptions;
 }>();
 const emit = defineEmits<{
   (e: "change", key: ReportPreviewTool, enabled: boolean): void;
   (e: "reset"): void;
   (e: "close"): void;
+  (e: "interaction", value: ReportInteractionOptions): void;
 }>();
 const panel = ref<HTMLElement | null>(null);
 const closeButton = ref<HTMLButtonElement | null>(null);
@@ -66,6 +68,11 @@ onUnmounted(() => previousFocus?.focus());
       </header>
       <div class="mrp-settings-content">
         <slot />
+        <fieldset v-if="interaction">
+          <legend>{{ messages.settingsPanes }}</legend>
+          <label class="mrp-settings-option"><span>{{ messages.freezeHeaders }}</span><input type="checkbox" :checked="interaction.freezeHeaders" :disabled="busy" @change="$emit('interaction', { freezeHeaders: ($event.target as HTMLInputElement).checked })" /></label>
+          <label class="mrp-settings-option"><span>{{ messages.frozenColumns }}</span><input class="mrp-frozen-count" type="number" min="0" max="20" :value="interaction.frozenColumns ?? 0" :disabled="busy" @change="$emit('interaction', { frozenColumns: Math.max(0, Math.min(20, Number(($event.target as HTMLInputElement).value) || 0)) })" /></label>
+        </fieldset>
         <fieldset v-for="group in groups" :key="group.label">
           <legend>{{ group.label }}</legend>
           <label v-for="tool in group.tools" :key="tool.key" class="mrp-settings-option" :class="{ 'mrp-settings-unavailable': !available[tool.key] }">
@@ -95,6 +102,7 @@ onUnmounted(() => previousFocus?.focus());
 .mrp-settings-content legend { font-weight: 600; padding-right: 10px; }
 .mrp-settings-option { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; cursor: pointer; }
 .mrp-settings-option input { accent-color: var(--mrp-btn-active-bg); width: 15px; height: 15px; margin: 0; flex: none; }
+.mrp-settings-option input.mrp-frozen-count { width: 54px; height: 24px; color: inherit; background: transparent; border: 1px solid var(--mrp-btn-border); border-radius: 4px; }
 .mrp-settings-option small { display: block; font-size: 11px; margin-top: 3px; opacity: .75; }
 .mrp-settings-unavailable { opacity: .5; cursor: default; }
 .mrp-settings-note { font-size: 11px; line-height: 1.6; opacity: .75; }

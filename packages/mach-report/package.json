@@ -1,6 +1,6 @@
 {
   "name": "@agile-team/mach-report",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "description": "独立的 TypeScript 报表引擎：模板分页、DOM/Canvas/PDF/Excel 输出与 Vue 3 预览组件",
   "type": "module",
   "sideEffects": [
@@ -16,7 +16,13 @@
     "./vue": "./src/vue/index.ts",
     "./vue/async": "./src/vue/async.ts",
     "./vue/style.css": "./src/vue/style.css",
-    "./xlsx": "./src/xlsx.ts"
+    "./xlsx": "./src/xlsx.ts",
+    "./server": "./src/server.ts",
+    "./designer": "./src/designer.ts",
+    "./xlsx/node": "./src/xlsx/node.ts",
+    "./analytics": "./src/analytics.ts",
+    "./worker": "./src/worker.ts",
+    "./server/node": "./src/server/node.ts"
   },
   "publishConfig": {
     "access": "public",
@@ -85,6 +91,66 @@
           "types": "./dist/xlsx.d.cts",
           "default": "./dist/xlsx.cjs"
         }
+      },
+      "./server": {
+        "import": {
+          "types": "./dist/server.d.ts",
+          "default": "./dist/server.js"
+        },
+        "require": {
+          "types": "./dist/server.d.cts",
+          "default": "./dist/server.cjs"
+        }
+      },
+      "./designer": {
+        "import": {
+          "types": "./dist/designer.d.ts",
+          "default": "./dist/designer.js"
+        },
+        "require": {
+          "types": "./dist/designer.d.cts",
+          "default": "./dist/designer.cjs"
+        }
+      },
+      "./xlsx/node": {
+        "import": {
+          "types": "./dist/xlsx/node.d.ts",
+          "default": "./dist/xlsx-node.js"
+        },
+        "require": {
+          "types": "./dist/xlsx/node.d.cts",
+          "default": "./dist/xlsx-node.cjs"
+        }
+      },
+      "./analytics": {
+        "import": {
+          "types": "./dist/analytics.d.ts",
+          "default": "./dist/analytics.js"
+        },
+        "require": {
+          "types": "./dist/analytics.d.cts",
+          "default": "./dist/analytics.cjs"
+        }
+      },
+      "./worker": {
+        "import": {
+          "types": "./dist/worker.d.ts",
+          "default": "./dist/worker.js"
+        },
+        "require": {
+          "types": "./dist/worker.d.cts",
+          "default": "./dist/worker.cjs"
+        }
+      },
+      "./server/node": {
+        "import": {
+          "types": "./dist/server/node.d.ts",
+          "default": "./dist/server-node.js"
+        },
+        "require": {
+          "types": "./dist/server/node.d.cts",
+          "default": "./dist/server-node.cjs"
+        }
       }
     }
   },
@@ -96,7 +162,7 @@
     "LICENSING.md"
   ],
   "scripts": {
-    "build": "vite build && node scripts/copy-dcts.mjs",
+    "build": "vite build && vite build --config vite.node.config.ts && node scripts/copy-dcts.mjs",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "prepack": "node scripts/sync-readme.mjs"
   },

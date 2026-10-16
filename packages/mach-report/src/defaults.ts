@@ -16,6 +16,9 @@ export const LINE_HEIGHT = 1.35;
 /** 默认字号（pt） */
 export const DEFAULT_FONT_PT = 10.5;
 
+/** Browser preview, Canvas metrics and pagination use the same fallback font stack. */
+export const DEFAULT_FONT_FAMILY = '"Microsoft YaHei", sans-serif';
+
 /** 默认边框线宽（pt） */
 export const DEFAULT_BORDER_PT = 0.75;
 

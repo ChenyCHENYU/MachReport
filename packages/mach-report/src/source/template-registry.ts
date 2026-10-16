@@ -2,13 +2,14 @@ import type { ReportTemplate } from "../layout/paginate";
 import { RENDER_PLAN_SCHEMA_VERSION } from "../schema/render-plan";
 import { validateComponent, type ValidationError, type ValidationResult } from "../schema/validate";
 import { validateEditableMetadata } from "../schema/cell-edit-validation";
+import { isReportDate, validateReportParamDefinitions } from "./param-validation";
 
 /** 模板存储文档版本；与渲染计划版本独立演进。 */
-export const REPORT_TEMPLATE_DOCUMENT_VERSION = "1.0" as const;
+export const REPORT_TEMPLATE_DOCUMENT_VERSION = "1.0";
 
 /** 可存入数据库/文件的纯 JSON 模板；数据、接口与鉴权仍由宿主提供。 */
 export interface ReportTemplateDocument {
-  schemaVersion: typeof REPORT_TEMPLATE_DOCUMENT_VERSION;
+  schemaVersion: "1.0";
   id: string;
   name: string;
   /** 宿主的发布版本/乐观锁标识，不由引擎自动递增。 */
@@ -183,6 +184,7 @@ function validateParams(value: unknown, path: string, errors: ValidationError[])
     return;
   }
   const fields = new Set<string>();
+  const startingErrors = errors.length;
   value.forEach((param, index) => {
     const here = `${path}.${index}`;
     if (!isObject(param)) { errors.push({ path: here, message: "参数定义应为对象" }); return; }
@@ -196,6 +198,11 @@ function validateParams(value: unknown, path: string, errors: ValidationError[])
     }
     for (const key of ["label", "defaultValue", "placeholder"]) stringField(param, key, here, errors);
     booleanField(param, "required", here, errors);
+    for (const key of ["minLength", "maxLength"]) {
+      const bound = param[key];
+      if (bound !== undefined && (typeof bound !== "number" || !Number.isSafeInteger(bound) || bound < 0)) errors.push({ path: `${here}.${key}`, message: "长度边界应为非负整数" });
+    }
+    validateParamBounds(param, here, errors);
     if (param.options !== undefined) {
       if (!Array.isArray(param.options)) errors.push({ path: `${here}.options`, message: "选项应为数组" });
       else param.options.forEach((option, optionIndex) => {
@@ -207,6 +214,22 @@ function validateParams(value: unknown, path: string, errors: ValidationError[])
       });
     }
   });
+  if (errors.length === startingErrors) {
+    errors.push(...validateReportParamDefinitions(value as import("../layout/paginate").ReportParamDef[]).map((issue) => ({ path: issue.path.replace("$.paramDefs", path), message: issue.message })));
+  }
+}
+
+function validateParamBounds(param: JsonObject, path: string, errors: ValidationError[]): void {
+  for (const key of ["min", "max"]) {
+    const value = param[key];
+    if (value === undefined) continue;
+    const valid = param.type === "date" ? typeof value === "string" && isReportDate(value) : param.type === "number" && typeof value === "number" && Number.isFinite(value);
+    if (!valid) errors.push({ path: `${path}.${key}`, message: "number 使用有限数字边界，date 使用有效 YYYY-MM-DD 日期边界" });
+  }
+  const reversedNumber = typeof param.min === "number" && typeof param.max === "number" && param.min > param.max;
+  const reversedDate = typeof param.min === "string" && typeof param.max === "string" && param.min > param.max;
+  if (reversedNumber || reversedDate) errors.push({ path, message: "最小边界不能大于最大边界" });
+  if (typeof param.minLength === "number" && typeof param.maxLength === "number" && param.minLength > param.maxLength) errors.push({ path, message: "最小长度不能大于最大长度" });
 }
 
 function validateListColumns(columns: unknown, path: string, errors: ValidationError[]): void {
@@ -225,6 +248,7 @@ function validateListColumns(columns: unknown, path: string, errors: ValidationE
     validateStyle(column.headerStyle, `${here}.headerStyle`, errors);
     alignment(column.align, `${here}.align`, errors, true);
     alignment(column.headerAlign, `${here}.headerAlign`, errors);
+    if (column.semanticRole !== undefined && !["identifier", "dimension", "measure", "date", "text"].includes(column.semanticRole as string)) errors.push({ path: `${here}.semanticRole`, message: "未知列语义" });
     if (column.format !== undefined) {
       if (!isObject(column.format) || !["number", "percent", "date"].includes(column.format.kind as string)) {
         errors.push({ path: `${here}.format`, message: "未知列格式" });
@@ -279,11 +303,51 @@ function validateListTotal(grandTotal: unknown, path: string, errors: Validation
   }
 }
 
+function validateListHeaderGrid(grid: unknown, columns: unknown, path: string, errors: ValidationError[]): void {
+  const component = { kind: "rect", leftMm: 0, topMm: 0, widthMm: 1, heightMm: 1, grid };
+  validateComponent(component, path, errors, []);
+  validateStaticFields(component, path, errors);
+  if (!isObject(grid) || !Array.isArray(grid.cells)) return;
+  const headerRows = grid.cells;
+  const count = Array.isArray(columns) ? columns.length : 0;
+  if (headerRows.length * count > MAX_JSON_NODES) {
+    errors.push({ path, message: "表头逻辑网格超过 20 万格安全上限" });
+    return;
+  }
+  if (!grid.cells.length) errors.push({ path: `${path}.cells`, message: "表头至少需要一行" });
+  if (Array.isArray(grid.colWidthsMm) && grid.colWidthsMm.length !== count) errors.push({ path: `${path}.colWidthsMm`, message: "表头列宽数量应与列表列数一致" });
+  if (Array.isArray(grid.rowHeightsMm) && grid.rowHeightsMm.length !== grid.cells.length) errors.push({ path: `${path}.rowHeightsMm`, message: "表头行高数量应与行数一致" });
+  validateHeaderSpans(headerRows, count, path, errors);
+}
+
+function validateHeaderSpans(headerRows: unknown[], count: number, path: string, errors: ValidationError[]): void {
+  const occupied = new Set<string>();
+  headerRows.forEach((row, ri) => {
+    if (!Array.isArray(row)) return;
+    let column = 0;
+    row.forEach((cell, ci) => {
+      while (occupied.has(`${ri}:${column}`)) column++;
+      const span = isObject(cell) && typeof cell.colSpan === "number" ? cell.colSpan : 1;
+      const rows = isObject(cell) && typeof cell.rowSpan === "number" ? cell.rowSpan : 1;
+      if (column + span > count || ri + rows > headerRows.length) errors.push({ path: `${path}.cells.${ri}.${ci}`, message: "表头合并区域超出表头边界" });
+      for (let r = ri; r < Math.min(headerRows.length, ri + rows); r++) {
+        for (let c = column; c < Math.min(count, column + span); c++) {
+          if (occupied.has(`${r}:${c}`)) errors.push({ path: `${path}.cells.${ri}.${ci}`, message: "表头合并区域重叠" });
+          occupied.add(`${r}:${c}`);
+        }
+      }
+      column += span;
+    });
+  });
+}
+
 function validateList(list: JsonObject, path: string, errors: ValidationError[]): void {
   for (const key of ["leftMm", "topMm"]) numberField(list, key, path, errors, -Infinity, true);
   numberField(list, "widthMm", path, errors, Number.MIN_VALUE, true);
   stringField(list, "dataset", path, errors, true);
   stringField(list, "title", path, errors);
+  for (const key of ["rowKey", "revisionField", "sourceTokenField"]) stringField(list, key, path, errors, list[key] !== undefined);
+  if (list.headerGrid !== undefined) validateListHeaderGrid(list.headerGrid, list.columns, `${path}.headerGrid`, errors);
   if (list.layout !== undefined && list.layout !== "page" && list.layout !== "wide") errors.push({ path: `${path}.layout`, message: "布局应为 page 或 wide" });
   validateListColumns(list.columns, `${path}.columns`, errors);
   for (const key of ["fontSizePt", "rowHeightMm"]) numberField(list, key, path, errors, Number.MIN_VALUE);

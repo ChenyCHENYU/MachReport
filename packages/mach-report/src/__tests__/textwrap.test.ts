@@ -1,8 +1,27 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { wrapText, measureTextMm } from "../layout/textwrap";
+import { createCanvasMeasurer, wrapText, measureTextMm } from "../layout/textwrap";
 
 describe("textwrap", () => {
+  it("letter spacing is applied between characters, never after the final character", () => {
+    const plain = measureTextMm("钢报", { fontSizePt: 12 });
+    expect(measureTextMm("钢报", { fontSizePt: 12, letterSpacingPt: 3 }) - plain).toBeCloseTo(3 * 25.4 / 72);
+    expect(measureTextMm("钢", { fontSizePt: 12, letterSpacingPt: 3 })).toBeCloseTo(plain / 2);
+    expect(wrapText("钢报表", plain + 3 * 25.4 / 72 + 0.01, { fontSizePt: 12, letterSpacingPt: 3 })).toEqual(["钢报", "表"]);
+  });
+
+  it("Canvas metrics use the requested font face and reset inherited spacing", () => {
+    const context = { font: "", letterSpacing: "20px", measureText: () => ({ width: 96 }) };
+    const measure = createCanvasMeasurer(() => context as unknown as CanvasRenderingContext2D);
+    expect(measure.measureMm("AB", { fontSizePt: 12, fontFamily: '"Report Face"', italic: true, bold: true, letterSpacingPt: 2 })).toBeCloseTo(25.4 + 2 * 25.4 / 72);
+    expect(context.font).toBe('italic bold 16px "Report Face"');
+    expect(context.letterSpacing).toBe("0px");
+  });
+
+  it("word widths retain font kerning rather than summing individual glyph estimates", () => {
+    const measure = { measureMm: (text: string) => text === "AV" ? 5 : text.length * 3 };
+    expect(wrapText("AV", 5, { fontSizePt: 12 }, measure)).toEqual(["AV"]);
+  });
   it("空文本返回单空行", () => {
     expect(wrapText("", 50, { fontSizePt: 10.5 })).toEqual([""]);
   });

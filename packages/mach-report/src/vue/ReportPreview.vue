@@ -21,12 +21,11 @@ import {
   watchEffect
 } from "vue";
 import type { PropType } from "vue";
-import type { RenderPlan, PlanPage, ReportCellEdit } from "@agile-team/mach-report";
+import type { RenderPlan, PlanPage, ReportCellEdit, AssetRenderOptions } from "@agile-team/mach-report";
 import {
   renderPage as renderPageToDom,
   renderPlanToCanvas,
   paginateTemplate,
-  ReportSourceError,
   ReportCellEditError,
   validateRenderPlan
 } from "@agile-team/mach-report";
@@ -45,6 +44,9 @@ import ReportToolbar from "./ReportToolbar.vue";
 import ReportSettings from "./ReportSettings.vue";
 import ReportEmpty from "./ReportEmpty.vue";
 import ReportParamPanel from "./ReportParamPanel.vue";
+import ReportEditBar from "./ReportEditBar.vue";
+import ReportNavigation from "./ReportNavigation.vue";
+import ReportImportSummary from "./ReportImportSummary.vue";
 import type { ReportParamDef } from "@agile-team/mach-report";
 import {
   MACH_REPORT_CONTROLLER_KEY,
@@ -58,14 +60,17 @@ import {
   type MachReportMessages
 } from "./config";
 import { createDefaultPdfExporter, type PdfExporter, type PdfFontCheckResult } from "./pdf-exporter";
-import { MachReportError, toErrorDetail, type MachReportErrorCode } from "./errors";
+import { MachReportError, normalizeReportLoadError, toErrorDetail, type MachReportErrorCode } from "./errors";
 import type { MachReportController, MachReportState, MachReportStateError } from "./controller";
 import type { ReportEditingOptions } from "./editing";
 import type { ExcelImportOptions, ExcelImportResult } from "../xlsx/import-types";
 import { useCellEditing } from "./composables/useCellEditing";
 import { cloneReportSnapshot } from "./snapshot";
 import { usePreviewTools } from "./composables/usePreviewTools";
-import { REPORT_EXPORT_FORMATS, type MachReportToolbarOptions, type ReportEmptyState, type ReportPreviewPreferences, type ReportPreviewTool } from "./tools";
+import { useCellSelection } from "./composables/useCellSelection";
+import { useFrozenPanes } from "./composables/useFrozenPanes";
+import { prepareReportAssets } from "./assets";
+import { REPORT_EXPORT_FORMATS, type MachReportToolbarOptions, type ReportEmptyState, type ReportPreviewPreferences, type ReportPreviewTool, type ReportInteractionOptions, type ReportPreferencesOptions, type ReportSection } from "./tools";
 
 const props = defineProps({
   reportId: {
@@ -84,6 +89,9 @@ const props = defineProps({
   showPdfWindow: { type: Boolean, default: undefined },
   showSettings: { type: Boolean, default: undefined },
   toolbar: { type: Object as PropType<MachReportToolbarOptions>, default: undefined },
+  interaction: { type: Object as PropType<ReportInteractionOptions>, default: undefined },
+  preferences: { type: Object as PropType<ReportPreferencesOptions>, default: undefined },
+  assets: { type: Object as PropType<AssetRenderOptions>, default: undefined },
   /** 保留表头的零行业务结果；不改变计划和导出内容。 */
   emptyState: { type: [Boolean, Object] as PropType<boolean | ReportEmptyState>, default: false },
   /** 页间距（px）；不传走配置中心 */
@@ -133,6 +141,8 @@ const thumbsRef = ref<HTMLElement | null>(null);
 const showThumbs = ref(false);
 const importing = ref(false);
 const settingsOpen = ref(false);
+const importedResult = shallowRef<Pick<ExcelImportResult, "sheets" | "warnings"> | null>(null);
+const sessionInteraction = ref<ReportInteractionOptions>({});
 const importInputRef = ref<HTMLInputElement | null>(null);
 const timing = useLoadTiming();
 
@@ -163,7 +173,11 @@ const state = computed<MachReportState>(() => Object.freeze({
   editing: editing.active.value !== null,
   saving: editing.saving.value,
   importing: importing.value,
-  dirty: editing.changes.value.length > 0
+  dirty: editing.differences.value.length > 0,
+  canUndo: editing.canUndo.value,
+  canRedo: editing.canRedo.value,
+  changeCount: editing.differences.value.length,
+  selection: cells.selection.value ? cloneReportSnapshot(cells.selection.value) : null
 }));
 
 function reportError(message: string, code: MachReportErrorCode, cause?: unknown): void {
@@ -184,6 +198,9 @@ const effectiveShowPrint = computed(() => props.showPrint ?? resolved.value.show
 const effectiveShowPdfWindow = computed(() => props.showPdfWindow ?? resolved.value.showPdfWindow);
 const effectiveShowSettings = computed(() => props.showSettings ?? resolved.value.showSettings);
 const toolbarOptions = computed(() => ({ ...resolved.value.toolbar, ...props.toolbar }));
+const effectiveInteraction = computed(() => ({ ...resolved.value.interaction, ...props.interaction, ...sessionInteraction.value }));
+const effectivePreferences = computed(() => props.preferences ?? resolved.value.preferences);
+const effectiveAssets = computed(() => props.assets ?? resolved.value.assets);
 const effectiveGapPx = computed(() => props.gapPx ?? (wideReport.value ? 0 : resolved.value.gapPx));
 const effectiveShowParams = computed(() => props.showParams ?? resolved.value.showParams);
 const availableEditable = computed(() => props.editable ?? resolved.value.editable);
@@ -203,12 +220,12 @@ const availableTools = computed<ReportPreviewPreferences>(() => ({
 const tools = usePreviewTools(availableTools, computed(() => ({
   editing: toolbarOptions.value.editing,
   import: toolbarOptions.value.excelImport
-})));
+})), effectivePreferences, () => emit("warning", resolvedMessages.value.preferencesError ?? "Preferences storage unavailable"));
 const toolState = tools.enabled;
 const visibleExportFormats = computed(() => REPORT_EXPORT_FORMATS.filter((format) => toolState.value[format]));
 const effectiveEditable = computed(() => toolState.value.editing ? availableEditable.value : false);
 const effectiveExcelImport = computed(() => toolState.value.import ? availableExcelImport.value : false);
-const persistedEditing = computed(() => typeof availableEditable.value === "object" && typeof availableEditable.value.save === "function");
+const persistedEditing = computed(() => typeof availableEditable.value === "object" && (typeof availableEditable.value.save === "function" || typeof availableEditable.value.saveBatch === "function"));
 const emptyStateContent = computed(() => typeof props.emptyState === "object" ? props.emptyState : {});
 
 async function onToolChange(key: ReportPreviewTool, enabled: boolean): Promise<void> {
@@ -221,6 +238,7 @@ async function onToolChange(key: ReportPreviewTool, enabled: boolean): Promise<v
 async function resetTools(): Promise<void> {
   if (!await editing.commit()) return;
   tools.reset();
+  sessionInteraction.value = {};
   emit("preferences-change", Object.freeze({ ...toolState.value }));
 }
 function editErrorMessage(cause: unknown): string {
@@ -228,7 +246,13 @@ function editErrorMessage(cause: unknown): string {
     const messages: Record<string, string | undefined> = {
       number: resolvedMessages.value.editInvalidNumber,
       boolean: resolvedMessages.value.editInvalidBoolean,
-      conflict: resolvedMessages.value.editConflict
+      conflict: resolvedMessages.value.editConflict,
+      atomic: resolvedMessages.value.editAtomicRequired,
+      limit: resolvedMessages.value.clipboardLimit,
+      readonly: resolvedMessages.value.editReadOnly,
+      missing: resolvedMessages.value.editMissing,
+      duplicate: resolvedMessages.value.editDuplicate,
+      clipboard: resolvedMessages.value.clipboardInvalid
     };
     return messages[cause.code] ?? cause.message;
   }
@@ -244,8 +268,29 @@ const editing = useCellEditing({
   onError: (message, cause) => {
     exportNotice.value = { kind: "error", message };
     reportError(message, "edit", cause);
-  }
+  },
+  onNavigate: (address, key, backwards) => cells.navigate(address, key, backwards)
 });
+const cells = useCellSelection({
+  plan, root: containerRef,
+  enabled: () => !!effectiveEditable.value,
+  busy: () => loading.value || importing.value || editing.saving.value || !!exporting.value || printing.value,
+  differences: () => editing.differences.value,
+  gotoPage, edit: editing.editCell, apply: editing.apply, undo: editing.undo, redo: editing.redo,
+  error: (cause) => { const message = editErrorMessage(cause); exportNotice.value = { kind: "error", message }; reportError(message, "edit", cause); }
+});
+const sections = computed<ReportSection[]>(() => {
+  if (importedResult.value) return importedResult.value.sheets.map((sheet) => ({ label: sheet.name, pageIndex: sheet.pageStart }));
+  const seen = new Set<string>();
+  return plan.value?.pages.flatMap((page, pageIndex) => page.components.flatMap((component) => {
+    const table = component.table;
+    if (!table?.title || seen.has(table.id)) return [];
+    seen.add(table.id); return [{ label: table.title, pageIndex }];
+  })) ?? [];
+});
+async function locateField(field: string): Promise<void> {
+  if (field && !await cells.focusField({ field })) exportNotice.value = { kind: "warning", message: resolvedMessages.value.locateFieldMissing ?? "Field not found" };
+}
 let cachedPdfFontUrl: string | null = null;
 let cachedPdfExporter: PdfExporter | null = null;
 function getPdfExporter(): PdfExporter {
@@ -388,6 +433,8 @@ const pageWindow = usePageWindow(plan, zoom, {
 });
 const { contentSize, windowRange, visiblePages, makeScrollHandler, refreshViewport } = pageWindow;
 const onViewportScroll = makeScrollHandler(currentPage, pageCount);
+const frozenPanes = useFrozenPanes({ root: containerRef, viewport: viewportRef, plan, zoom, options: () => effectiveInteraction.value });
+watch([effectiveInteraction, zoom], () => frozenPanes.schedule(), { flush: "post" });
 
 /** 缩放原始值（Ctrl+滚轮/键盘 ± 用）：clamp 30%~300% */
 function setZoomRaw(next: number): void {
@@ -397,6 +444,8 @@ function setZoomRaw(next: number): void {
 function invalidate(): void {
   importing.value = false;
   editing.reset();
+  cells.reset();
+  importedResult.value = null;
   releasePrintFrame();
   plan.value = null;
   currentPage.value = 1;
@@ -444,7 +493,7 @@ async function reload(): Promise<void> {
     emit("warning", message);
   }
   try {
-    const next = await fetcher({
+    let next = await fetcher({
       reportIds: reportIds.value,
       params: { ...effectiveParams.value },
       signal: controller.signal,
@@ -465,6 +514,8 @@ async function reload(): Promise<void> {
     check.warnings.forEach((warning) => reportWarning(`${warning.path}: ${warning.message}`));
     // warning 处理器可能同步发起下一次查询；回到本次调用时必须重新核对代际。
     if (seq !== reloadSeq || controller.signal.aborted) return;
+    next = await prepareReportAssets(next, effectiveAssets.value, controller.signal, reportWarning);
+    if (seq !== reloadSeq || controller.signal.aborted) return;
     plan.value = next;
     currentPage.value = 1;
     timing.end(t0);
@@ -482,16 +533,7 @@ async function reload(): Promise<void> {
     emit("loaded", next.pages.length);
   } catch (error) {
     if (seq !== reloadSeq) return;
-    const normalized =
-      error instanceof MachReportError
-        ? error
-        : error instanceof ReportSourceError
-          ? new MachReportError(error.code, error.message, error.cause)
-        : new MachReportError(
-            "fetch",
-            error instanceof Error ? error.message : "预览加载失败",
-            error
-          );
+    const normalized = normalizeReportLoadError(error);
     errorMessage.value = normalized.message;
     const detail = toErrorDetail(normalized);
     reportError(normalized.message, detail.code, detail.cause);
@@ -569,12 +611,22 @@ async function setParams(values: Record<string, string>, opts: { reload?: boolea
 const controller: MachReportController = {
   reload, print, exportAs, openPdfWindow, gotoPage, setParams, checkPdfFont, importExcel, getPlan,
   getChanges: editing.getChanges,
+  undo: editing.undo, redo: editing.redo, restoreChanges: editing.restore,
+  getDifferences: () => cloneReportSnapshot(editing.differences.value),
+  getSelection: () => cells.selection.value ? cloneReportSnapshot(cells.selection.value) : null,
+  focusCell: cells.focusCell, focusField: cells.focusField,
+  copySelection: cells.copySelection, pasteSelection: cells.pasteSelection,
   get state() { return state.value; }
 };
 provide(MACH_REPORT_CONTROLLER_KEY, controller);
 
 function getPlan(): RenderPlan | null {
   return plan.value ? cloneReportSnapshot(plan.value) : null;
+}
+
+function mergeExcelImportOptions(options?: ExcelImportOptions): ExcelImportOptions {
+  const defaults = typeof effectiveExcelImport.value === "object" ? effectiveExcelImport.value : {};
+  return { ...defaults, ...options, limits: { ...defaults.limits, ...options?.limits } };
 }
 
 /** Import is an explicit local replacement; business mapping/storage remains in the host. */
@@ -587,26 +639,30 @@ async function importExcel(input: ArrayBuffer | Uint8Array | Blob, options?: Exc
   editing.cancel();
   exportApi.invalidatePending();
   importing.value = true;
+  const controller = new AbortController();
+  loadController = controller;
   lastError.value = null;
   exportNotice.value = { kind: "progress", message: resolvedMessages.value.importing ?? "正在导入 Excel…" };
   try {
     const { importExcelTemplate } = await import("@agile-team/mach-report/xlsx");
     if (seq !== reloadSeq) return null;
-    const defaults = typeof effectiveExcelImport.value === "object" ? effectiveExcelImport.value : {};
-    const result = await importExcelTemplate(input, { ...defaults, ...options, limits: { ...defaults.limits, ...options?.limits } });
+    const result = await importExcelTemplate(input, mergeExcelImportOptions(options));
     if (seq !== reloadSeq) return null;
-    const next = paginateTemplate(cloneReportSnapshot(result.template), {}).plan;
+    let next = paginateTemplate(cloneReportSnapshot(result.template), {}).plan;
     const check = validateRenderPlan(next);
     if (!check.ok) throw new Error(check.errors.map((error) => error.message).slice(0, 3).join("; "));
+    next = await prepareReportAssets(next, effectiveAssets.value, controller.signal, (message) => { if (seq === reloadSeq) emit("warning", message); });
     for (const message of result.warnings) {
       if (seq !== reloadSeq) return null;
       emit("warning", message);
     }
     if (seq !== reloadSeq) return null;
     editing.reset();
+    cells.reset();
     releasePrintFrame();
     search.reset();
     plan.value = next;
+    importedResult.value = { sheets: cloneReportSnapshot(result.sheets), warnings: [...result.warnings] };
     currentPage.value = 1;
     errorMessage.value = "";
     exportNotice.value = result.warnings.length ? { kind: "warning", message: result.warnings.join("；") } : null;
@@ -624,6 +680,7 @@ async function importExcel(input: ArrayBuffer | Uint8Array | Blob, options?: Exc
     throw error;
   } finally {
     if (seq === reloadSeq) importing.value = false;
+    if (loadController === controller) loadController = null;
   }
 }
 
@@ -653,6 +710,7 @@ function onWheel(e: WheelEvent): void {
 }
 
 function onKeydown(e: KeyboardEvent): void {
+  if (cells.onKeydown(e)) return;
   if (e.target instanceof Element && e.target.closest("input,textarea,select,[contenteditable='true']")) return;
   if (toolState.value.search && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
     e.preventDefault();
@@ -716,7 +774,7 @@ function revealSearchMatch(force = false): void {
     lastFocusedMatch = matchKey;
   }
 }
-watchEffect(() => {
+watch([plan, () => search.activeMatch.value, () => search.matchIndex.value, () => search.query.value, visiblePages, containerRef], () => {
   const current = plan.value;
   if (!current) return;
   const activeMatch = search.activeMatch.value;
@@ -746,6 +804,14 @@ watchEffect(() => {
     renderedPages.set(holder, page);
   });
   revealSearchMatch();
+  cells.refresh();
+  frozenPanes.refresh();
+}, { flush: "post", immediate: true });
+
+// Selection must not become a dependency of page rendering: recreating search <mark>
+// nodes between two pointer clicks prevents the browser from dispatching dblclick.
+watch(() => cells.selection.value, () => {
+  cells.refresh();
 }, { flush: "post" });
 
 /** 查询清空时移除全部高亮标记 */
@@ -852,7 +918,7 @@ watch(
   }
 );
 
-defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, checkPdfFont, importExcel, getPlan, getChanges: editing.getChanges, state });
+defineExpose({ ...controller, state });
 </script>
 
 <template>
@@ -897,9 +963,12 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, chec
       @import-excel="importInputRef?.click()"
       @settings-toggle="settingsOpen = !settingsOpen"
     />
-    <ReportSettings v-if="settingsOpen && effectiveShowSettings" :available="availableTools" :enabled="toolState" :messages="resolvedMessages" :persisted-editing="persistedEditing" :busy="loading || importing || editing.saving.value || !!exporting || printing" @change="onToolChange" @reset="resetTools" @close="settingsOpen = false">
+    <ReportSettings v-if="settingsOpen && effectiveShowSettings" :available="availableTools" :enabled="toolState" :messages="resolvedMessages" :persisted-editing="persistedEditing" :interaction="effectiveInteraction" :busy="loading || importing || editing.saving.value || !!exporting || printing" @interaction="sessionInteraction = { ...sessionInteraction, ...$event }" @change="onToolChange" @reset="resetTools" @close="settingsOpen = false">
       <slot name="settings" />
     </ReportSettings>
+    <ReportNavigation v-if="pageCount > 0 && effectiveInteraction.navigation !== false" :sections="sections" :current-page="currentPage" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @goto="gotoPage" @locate="locateField" />
+    <ReportImportSummary v-if="importedResult" :result="importedResult" :messages="resolvedMessages" />
+    <ReportEditBar v-if="effectiveEditable && pageCount > 0" :differences="editing.differences.value" :conflicts="editing.conflicts.value" :messages="resolvedMessages" :saving="editing.saving.value" :can-undo="editing.canUndo.value" :can-redo="editing.canRedo.value" :persisted="persistedEditing" :busy="!!exporting || printing" @undo="editing.undo" @redo="editing.redo" @restore="editing.restore" @locate="cells.focusCell($event.address)" />
     <input v-if="effectiveExcelImport" ref="importInputRef" class="mrp-import-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden @change="onImportFile" />
     <div v-if="effectiveEditable && pageCount > 0" class="mrp-edit-hint" role="status">{{ editing.saving.value ? resolvedMessages.saving : resolvedMessages.editingHint }}</div>
     <div v-if="exportNotice" class="mrp-export-notice" :class="`mrp-export-${exportNotice.kind}`" role="alert">
@@ -917,7 +986,10 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, chec
         @wheel="onWheel"
         @keydown="onKeydown"
         @dblclick="editing.onDoubleClick"
-        @scroll.passive="onViewportScroll($event.target as HTMLElement)"
+        @click="cells.onClick"
+        @copy="cells.onCopy"
+        @paste="cells.onPaste"
+        @scroll.passive="onViewportScroll($event.target as HTMLElement); frozenPanes.schedule()"
       >
         <div v-if="loading" class="mrp-state">{{ resolvedMessages.loading }}</div>
         <div v-else-if="errorMessage" class="mrp-state mrp-error">
@@ -1038,6 +1110,10 @@ defineExpose({ reload, print, exportAs, openPdfWindow, gotoPage, setParams, chec
 }
 .mrp-error { color: #ff9d9d; }
 .mrp-edit-hint { padding: 5px 12px; font-size: 12px; color: var(--mrp-shell-fg); }
+.mrp-body :deep(.mrp-cell-selected) { background-image: linear-gradient(#2563eb12, #2563eb12); }
+.mrp-body :deep(.mrp-cell-focus) { outline: 2px solid #2563eb; outline-offset: -2px; z-index: 8 !important; }
+.mrp-body :deep(.mrp-cell-modified)::after { content: ""; position: absolute; right: 0; top: 0; border-top: 6px solid #d58916; border-left: 6px solid transparent; }
+.mrp-body :deep(.mrp-cell-frozen) { background-color: #fff; box-shadow: 1px 0 0 #aeb8c6, 0 1px 0 #aeb8c6; }
 .mrp-export-notice { padding: 7px 12px; font-size: 12px; background: #fff0c2; color: #613c00; }
 .mrp-export-error { background: #ffe0df; color: #8e1f1f; }
 .mrp-export-progress { background: #e7f0ff; color: #1a4d86; }

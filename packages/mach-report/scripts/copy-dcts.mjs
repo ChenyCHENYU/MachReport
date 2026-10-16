@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, renameSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, renameSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 /**
@@ -7,18 +7,27 @@ import { dirname } from "node:path";
  */
 for (const [from, to] of [
   ["dist/vue.d.ts", "dist/vue/index.d.ts"],
-  ["dist/vue-async.d.ts", "dist/vue/async.d.ts"]
+  ["dist/vue-async.d.ts", "dist/vue/async.d.ts"],
+  ["dist/.node-types/xlsx-node.d.ts", "dist/xlsx/node.d.ts"],
+  ["dist/.node-types/server-node.d.ts", "dist/server/node.d.ts"]
 ]) {
   if (!existsSync(from)) throw new Error(`Missing rolled declaration: ${from}`);
   mkdirSync(dirname(to), { recursive: true });
   renameSync(from, to);
 }
+rmSync("dist/.node-types", { recursive: true, force: true });
 
 const entries = [
   "dist/index.d.ts",
   "dist/pdf.d.ts",
   "dist/sql.d.ts",
   "dist/xlsx.d.ts",
+  "dist/xlsx/node.d.ts",
+  "dist/server.d.ts",
+  "dist/designer.d.ts",
+  "dist/analytics.d.ts",
+  "dist/worker.d.ts",
+  "dist/server/node.d.ts",
   "dist/vue/index.d.ts",
   "dist/vue/async.d.ts"
 ];

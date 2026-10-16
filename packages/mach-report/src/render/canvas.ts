@@ -1,10 +1,14 @@
 import type { PlanComponent, PlanPage, PlanGrid, RenderPlan } from "../schema/render-plan";
-import { isRichText } from "../schema/render-plan";
+import { isImageBackedComponent, isRichText } from "../schema/render-plan";
+import { reportOutputDiagnostics, type OutputDiagnostic, type OutputDiagnosticOptions } from "../output/capabilities";
+import { resolvePlanAssets, type AssetRenderOptions } from "../output/assets";
+import { drawCanvasImage, loadCanvasImage, loadPageImages, throwIfAborted, type CanvasImageLoader } from "./canvas-images";
 import { resolveGridLayout, type GridLayout } from "./grid-geometry";
 import { wrapText, type TextMeasurer } from "../layout/textwrap";
 import { heuristicMeasurer } from "../layout/textwrap";
 import { ptToPx } from "../units";
 import {
+  DEFAULT_FONT_FAMILY,
   DEFAULT_TEXT_COLOR
 } from "../defaults";
 import {
@@ -17,10 +21,12 @@ import {
 } from "./style";
 import { computePageWindow } from "./window";
 
-export interface CanvasRenderOptions {
+export interface CanvasRenderOptions extends OutputDiagnosticOptions {
   /** 设备像素比，默认取运行环境 devicePixelRatio */
   dpr?: number;
   dpi?: number;
+  /** Per-page bitmap allocation guard; default 64 million pixels (about 256 MB RGBA). */
+  maxCanvasPixels?: number;
   /** 文本默认字体族 */
   fontFamily?: string;
   /** 文本测量器（默认启发式） */
@@ -48,11 +54,22 @@ export function measurePageSizePx(
   };
 }
 
-function createPageCanvas(page: PlanPage, dpr: number, dpi: number): Ctx2D {
+function canvasPixelSize(page: PlanPage, dpr: number, dpi: number, maximum = 64_000_000): { width: number; height: number } {
+  if (!Number.isFinite(dpr) || dpr <= 0 || !Number.isFinite(dpi) || dpi <= 0) throw new RangeError("Canvas dpr and dpi must be positive finite numbers.");
+  if (!Number.isFinite(maximum) || maximum <= 0) throw new RangeError("maxCanvasPixels must be positive and finite.");
+  const size = measurePageSizePx(page, dpi);
+  const width = Math.round(size.widthPx * dpr);
+  const height = Math.round(size.heightPx * dpr);
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width * height > maximum) throw new RangeError("Canvas page exceeds maxCanvasPixels; reduce resolution or split the report.");
+  return { width, height };
+}
+
+function createPageCanvas(page: PlanPage, dpr: number, dpi: number, maximum?: number): Ctx2D {
   const canvas = document.createElement("canvas");
   const { widthPx: w, heightPx: h } = measurePageSizePx(page, dpi);
-  canvas.width = Math.round(w * dpr);
-  canvas.height = Math.round(h * dpr);
+  const pixels = canvasPixelSize(page, dpr, dpi, maximum);
+  canvas.width = pixels.width;
+  canvas.height = pixels.height;
   canvas.style.width = `${w}px`;
   canvas.style.height = `${h}px`;
   const ctx = canvas.getContext("2d");
@@ -81,6 +98,7 @@ interface TextDrawSpec {
   color: string;
   align: "left" | "center" | "right" | "justify";
   lineHeight: number;
+  letterSpacingPx?: number;
 }
 
 function drawTextBlock(
@@ -94,6 +112,7 @@ function drawTextBlock(
   verticalAlign: "top" | "middle" | "bottom" = "top"
 ): void {
   ctx.font = `${spec.italic ? "italic " : ""}${spec.bold ? "bold " : ""}${spec.fontSizePx}px ${fontFamily}`;
+  if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
   ctx.fillStyle = spec.color;
   ctx.textBaseline = "alphabetic";
   const lineH = spec.fontSizePx * spec.lineHeight;
@@ -103,12 +122,30 @@ function drawTextBlock(
   if (verticalAlign === "middle") topY = y + (h - totalH) / 2;
   else if (verticalAlign === "bottom") topY = y + h - totalH;
   lines.forEach((line, i) => {
-    ctx.textAlign = spec.align === "center" ? "center" : spec.align === "right" ? "right" : "left";
-    const tx =
-      spec.align === "center" ? x + w / 2 : spec.align === "right" ? x + w : x;
-    ctx.fillText(line, tx, topY + i * lineH + spec.fontSizePx * 0.8, w);
+    drawSpacedLine(ctx, line, spec, x, topY + i * lineH + spec.fontSizePx * 0.8, w);
   });
   ctx.textAlign = "left";
+}
+
+function drawSpacedLine(ctx: CanvasRenderingContext2D, line: string, spec: TextDrawSpec, x: number, baseline: number, width: number): void {
+  const letters = Array.from(line);
+  const spacing = spec.letterSpacingPx ?? 0;
+  // Preserve native anchors when no spacing is requested; measurement and painting share kerning.
+  if (!spacing) {
+    ctx.textAlign = spec.align === "center" ? "center" : spec.align === "right" ? "right" : "left";
+    const anchor = spec.align === "center" ? x + width / 2 : spec.align === "right" ? x + width : x;
+    ctx.fillText(line, anchor, baseline);
+    return;
+  }
+  const textWidth = ctx.measureText(line).width + Math.max(0, letters.length - 1) * spacing;
+  const left = spec.align === "center" ? x + (width - textWidth) / 2 : spec.align === "right" ? x + width - textWidth : x;
+  ctx.textAlign = "left";
+  // Do not use fillText(maxWidth): it silently compresses text and differs from DOM/PDF geometry.
+  let prefix = "";
+  letters.forEach((letter, index) => {
+    ctx.fillText(letter, left + ctx.measureText(prefix).width + index * spacing, baseline);
+    prefix += letter;
+  });
 }
 
 function drawGridBorders(
@@ -174,12 +211,12 @@ function drawGrid(
     const style = mergeComponentStyles(comp.style, box.cell.style);
     const font = resolveFontSize(style, dpi);
     const contentWidthMm = Math.max(0, box.widthMm - 2 * paddingMm);
-    const lines = wrapText(text, contentWidthMm, { fontSizePt: font.fontSizePt, bold: style.bold }, measurer).join("\n");
+    const lines = wrapText(text, contentWidthMm, { fontSizePt: font.fontSizePt, bold: style.bold, italic: style.italic, fontFamily: style.fontFamily ?? fontFamily, letterSpacingPt: style.letterSpacing }, measurer).join("\n");
     drawTextBlock(ctx, {
       text: lines, fontSizePx: font.fontSizePx,
       bold: style.bold ?? false, italic: style.italic,
       color: resolveTextColor(style, DEFAULT_TEXT_COLOR),
-      align: style.align ?? "left", lineHeight: resolveLineHeight(style)
+      align: style.align ?? "left", lineHeight: resolveLineHeight(style), letterSpacingPx: ptToPx(style.letterSpacing ?? 0, dpi)
     }, x + (box.xMm + paddingMm) * pxPerMm, y + (box.yMm + paddingMm) * pxPerMm,
     contentWidthMm * pxPerMm, Math.max(0, box.heightMm - 2 * paddingMm) * pxPerMm,
     style.fontFamily ?? fontFamily, style.verticalAlign ?? "middle");
@@ -196,10 +233,10 @@ function drawTextComponent(
   const font = resolveFontSize(style, dpi);
   const text = isRichText(comp)
     ? comp.richParagraphs!.map((paragraph) => paragraph.segments.map((segment) => segment.text ?? segment.field ?? "").join("")).join("\n")
-    : comp.lines?.length ? comp.lines.join("\n") : wrapText(comp.text ?? "", comp.widthMm, { fontSizePt: font.fontSizePt, bold: style.bold }, measurer).join("\n");
+    : comp.lines?.length ? comp.lines.join("\n") : wrapText(comp.text ?? "", comp.widthMm, { fontSizePt: font.fontSizePt, bold: style.bold, italic: style.italic, fontFamily: style.fontFamily ?? fontFamily, letterSpacingPt: style.letterSpacing }, measurer).join("\n");
   drawTextBlock(ctx, {
     text, fontSizePx: font.fontSizePx, bold: style.bold ?? false, italic: style.italic,
-    color: resolveTextColor(style), align: style.align ?? "left", lineHeight: resolveLineHeight(style)
+    color: resolveTextColor(style), align: style.align ?? "left", lineHeight: resolveLineHeight(style), letterSpacingPx: ptToPx(style.letterSpacing ?? 0, dpi)
   }, x, y, w, h, style.fontFamily ?? fontFamily, style.verticalAlign);
 }
 
@@ -209,13 +246,21 @@ function drawComponent(
   pxPerMm: number,
   dpi: number,
   fontFamily: string,
-  measurer: TextMeasurer
+  measurer: TextMeasurer,
+  images?: Map<string, CanvasImageSource>
 ): void {
   const x = comp.leftMm * pxPerMm;
   const y = comp.topMm * pxPerMm;
   const w = comp.widthMm * pxPerMm;
   const h = comp.heightMm * pxPerMm;
   const s = comp.style ?? {};
+
+  if (isImageBackedComponent(comp)) {
+    const image = images?.get(comp.imageData!);
+    if (image) drawCanvasImage(ctx, image, x, y, w, h);
+    else drawMissingComponent(ctx, comp, x, y, w, h);
+    return;
+  }
 
   if (comp.grid) {
     drawGrid(ctx, comp.grid, comp, x, y, w, h, pxPerMm, dpi, fontFamily, measurer);
@@ -245,8 +290,10 @@ function drawComponent(
       ctx.strokeStyle = stroke.color;
       ctx.lineWidth = ptToPx(stroke.widthPt, dpi);
       ctx.beginPath();
-      ctx.moveTo(x, y + h / 2);
-      ctx.lineTo(x + w, y + h / 2);
+      const startY = comp.lineDirection === "up" ? y + h : comp.lineDirection === "down" ? y : y + h / 2;
+      const endY = comp.lineDirection === "up" ? y : comp.lineDirection === "down" ? y + h : y + h / 2;
+      ctx.moveTo(x, startY);
+      ctx.lineTo(x + w, endY);
       ctx.stroke();
       break;
     }
@@ -266,15 +313,32 @@ function drawComponent(
       break;
     }
     default:
+      drawMissingComponent(ctx, comp, x, y, w, h);
       break;
   }
 }
 
-export interface CanvasRenderResult {
-  canvases: HTMLCanvasElement[];
+function drawMissingComponent(ctx: CanvasRenderingContext2D, comp: PlanComponent, x: number, y: number, width: number, height: number): void {
+  ctx.save();
+  ctx.strokeStyle = "#94a3b8";
+  ctx.strokeRect(x, y, width, height);
+  ctx.fillStyle = "#64748b";
+  ctx.font = "12px sans-serif";
+  ctx.fillText(comp.fallbackText ?? `[${comp.kind}]`, x + 3, y + 14);
+  ctx.restore();
 }
 
-export interface ImageRenderOptions extends CanvasRenderOptions {
+export interface CanvasRenderResult {
+  canvases: HTMLCanvasElement[];
+  diagnostics: OutputDiagnostic[];
+}
+
+export interface AsyncCanvasRenderOptions extends CanvasRenderOptions, AssetRenderOptions {
+  /** Optional image decoder for CORS-aware URLs or custom assets. Browser default supports image data URLs. */
+  imageLoader?: CanvasImageLoader;
+}
+
+export interface ImageRenderOptions extends AsyncCanvasRenderOptions {
   /** 图片格式（默认 png；jpeg 体积更小但无透明） */
   format?: "png" | "jpeg";
   /** jpeg 质量 0-1（默认 0.92，仅 jpeg 生效） */
@@ -283,6 +347,7 @@ export interface ImageRenderOptions extends CanvasRenderOptions {
 
 export interface ImageRenderResult {
   blobs: Blob[];
+  diagnostics: OutputDiagnostic[];
 }
 
 /**
@@ -298,17 +363,38 @@ export async function renderPlanToImages(
     throw new Error("renderPlanToImages 需要浏览器环境（SSR/Node 请在客户端钩子中调用）");
   }
   const { format = "png", quality = 0.92, ...canvasOptions } = options;
-  const { canvases } = renderPlanToCanvas(plan, canvasOptions);
+  if (format !== "png" && format !== "jpeg") throw new TypeError("Image format must be png or jpeg.");
+  if (!Number.isFinite(quality) || quality < 0 || quality > 1) throw new RangeError("Image quality must be between 0 and 1.");
+  throwIfAborted(options.signal);
+  const prepared = await resolvePlanAssets(plan, { ...options, format: "canvas" });
+  plan = prepared.plan;
+  const diagnostics = [...prepared.diagnostics, ...reportOutputDiagnostics(plan, "canvas", options)];
   const mime = format === "jpeg" ? "image/jpeg" : "image/png";
   const blobs: Blob[] = [];
-  for (const canvas of canvases) {
-    blobs.push(
-      await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob((b) => resolve(b), mime, quality)
-      ) ?? new Blob([], { type: mime })
-    );
+  const end = Math.min(plan.pages.length - 1, options.end ?? plan.pages.length - 1);
+  for (let index = Math.max(0, options.start ?? 0); index <= end; index++) {
+    throwIfAborted(options.signal);
+    const canvas = await drawAsyncPage(plan.pages[index]!, index, canvasOptions, diagnostics);
+    try { blobs.push(await encodeCanvas(canvas, mime, quality, options.signal)); }
+    finally { canvas.width = 0; canvas.height = 0; }
   }
-  return { blobs };
+  throwIfAborted(options.signal);
+  return { blobs, diagnostics };
+}
+
+function encodeCanvas(canvas: HTMLCanvasElement, mime: string, quality: number, signal?: AbortSignal): Promise<Blob> {
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal?.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+    signal?.addEventListener("abort", abort, { once: true });
+    try {
+      canvas.toBlob((blob) => {
+        signal?.removeEventListener("abort", abort);
+        if (blob) resolve(blob);
+        else reject(new Error("Canvas encoding failed; no empty image was emitted."));
+      }, mime, quality);
+    } catch (error) { signal?.removeEventListener("abort", abort); reject(error); }
+  });
 }
 
 /**
@@ -328,23 +414,71 @@ export function renderPlanToCanvas(
   const dpr = options.dpr ?? (typeof devicePixelRatio === "number" ? devicePixelRatio : 1);
   const dpi = options.dpi ?? 96;
   const pxPerMm = (dpi / 96) * PX_PER_MM_BASE;
-  const fontFamily = options.fontFamily ?? '"Microsoft YaHei", sans-serif';
+  const fontFamily = options.fontFamily ?? DEFAULT_FONT_FAMILY;
   const measurer = options.measurer ?? heuristicMeasurer;
   const start = Math.max(0, options.start ?? 0);
   const end = Math.min(plan.pages.length - 1, options.end ?? plan.pages.length - 1);
   const canvases: HTMLCanvasElement[] = [];
+  const diagnostics = reportOutputDiagnostics(plan, "canvas", options);
   for (let i = start; i <= end; i++) {
     const page = plan.pages[i]!;
-    const { canvas, ctx } = createPageCanvas(page, dpr, dpi);
+    const { canvas, ctx } = createPageCanvas(page, dpr, dpi, options.maxCanvasPixels);
     for (const comp of page.components) {
+      if (isImageBackedComponent(comp)) {
+        const entry: OutputDiagnostic = { code: "async-image-required", severity: "warning", format: "canvas", pageIndex: i, componentIndex: page.components.indexOf(comp), kind: comp.kind, nid: comp.nid, message: "Use renderPlanToCanvasAsync or renderPlanToImages to decode and include images." };
+        diagnostics.push(entry);
+        options.onDiagnostic?.(entry);
+      }
       drawComponent(ctx, comp, pxPerMm, dpi, fontFamily, measurer);
     }
     canvases.push(canvas);
   }
-  return { canvases };
+  return { canvases, diagnostics };
 }
 
-export interface CanvasPagerOptions extends CanvasRenderOptions {
+/** Browser async raster output: waits for every image and preserves component paint order. */
+export async function renderPlanToCanvasAsync(plan: RenderPlan, options: AsyncCanvasRenderOptions = {}): Promise<CanvasRenderResult> {
+  if (typeof document === "undefined") throw new Error("renderPlanToCanvasAsync 需要浏览器环境（Node 请使用 PDF 或 XLSX 输出）");
+  throwIfAborted(options.signal);
+  const prepared = await resolvePlanAssets(plan, { ...options, format: "canvas" });
+  plan = prepared.plan;
+  const diagnostics = [...prepared.diagnostics, ...reportOutputDiagnostics(plan, "canvas", options)];
+  const canvases: HTMLCanvasElement[] = [];
+  const end = Math.min(plan.pages.length - 1, options.end ?? plan.pages.length - 1);
+  for (let index = Math.max(0, options.start ?? 0); index <= end; index++) {
+    canvases.push(await drawAsyncPage(plan.pages[index]!, index, options, diagnostics));
+  }
+  return { canvases, diagnostics };
+}
+
+async function drawAsyncPage(page: PlanPage, pageIndex: number, options: AsyncCanvasRenderOptions, diagnostics: OutputDiagnostic[]): Promise<HTMLCanvasElement> {
+  const dpr = options.dpr ?? (typeof devicePixelRatio === "number" ? devicePixelRatio : 1);
+  const dpi = options.dpi ?? 96;
+  const fontFamily = options.fontFamily ?? DEFAULT_FONT_FAMILY;
+  const images = await imagesForOutput(page, pageIndex, options, diagnostics);
+  throwIfAborted(options.signal);
+  const { canvas, ctx } = createPageCanvas(page, dpr, dpi, options.maxCanvasPixels);
+  for (const comp of page.components) drawComponent(ctx, comp, dpi / 25.4, dpi, fontFamily, options.measurer ?? heuristicMeasurer, images);
+  return canvas;
+}
+
+async function imagesForOutput(page: PlanPage, pageIndex: number, options: AsyncCanvasRenderOptions, diagnostics: OutputDiagnostic[]): Promise<Map<string, CanvasImageSource>> {
+  const loader = options.imageLoader ?? loadCanvasImage;
+  return loadPageImages(page, async (source, signal) => {
+    try { return await loader(source, signal); }
+    catch (error) {
+      if (signal?.aborted) throw error;
+      const componentIndex = page.components.findIndex((comp) => comp.imageData === source);
+      const comp = page.components[componentIndex]!;
+      const entry: OutputDiagnostic = { code: "image-decode-failed", severity: "warning", format: "canvas", pageIndex, componentIndex, kind: comp.kind, nid: comp.nid, message: "Image decoding failed; raster output was cancelled instead of omitting the image." };
+      diagnostics.push(entry);
+      options.onDiagnostic?.(entry);
+      throw error;
+    }
+  }, options.signal);
+}
+
+export interface CanvasPagerOptions extends AsyncCanvasRenderOptions {
   /** 预渲染页数缓冲（窗口两侧各加 N 页），默认 1 */
   overscan?: number;
   /** 页间距 px，默认 18 */
@@ -376,7 +510,7 @@ export function createCanvasPager(
   const dpr = options.dpr ?? (typeof devicePixelRatio === "number" ? devicePixelRatio : 1);
   const dpi = options.dpi ?? 96;
   const pxPerMm = (dpi / 96) * PX_PER_MM_BASE;
-  const fontFamily = options.fontFamily ?? '"Microsoft YaHei", sans-serif';
+  const fontFamily = options.fontFamily ?? DEFAULT_FONT_FAMILY;
   const measurer = options.measurer ?? heuristicMeasurer;
   const overscan = options.overscan ?? 1;
   const gapPx = options.gapPx ?? 18;
@@ -394,6 +528,9 @@ export function createCanvasPager(
   let slots: HTMLElement[] = [];
   let raf = 0;
   let queued: number[] = [];
+  let generation = 0;
+  let imageController = new AbortController();
+  const diagnostics: OutputDiagnostic[] = [];
 
   function ensureLayout(): void {
     const vp = viewport!;
@@ -415,8 +552,13 @@ export function createCanvasPager(
     vp.appendChild(contentEl);
   }
 
-  function drawPageInto(slot: HTMLElement, pageIndex: number): void {
-    const page = plan.pages[pageIndex]!;
+  async function drawPageInto(slot: HTMLElement, pageIndex: number): Promise<void> {
+    const version = generation;
+    const prepared = await resolvePlanAssets(plan, { ...options, signal: imageController.signal, format: "canvas", start: pageIndex, end: pageIndex });
+    diagnostics.push(...prepared.diagnostics);
+    const page = prepared.plan.pages[pageIndex]!;
+    const images = await imagesForOutput(page, pageIndex, { ...options, signal: imageController.signal }, diagnostics);
+    if (version !== generation || !viewport) return;
     const { widthPx: w, heightPx: h } = measurePageSizePx(page, dpi);
     // 画布池：槽位内已有 canvas 则复用（重设尺寸即清空位图，避免重复分配大块内存）
     let canvas = slot.firstElementChild as HTMLCanvasElement | null;
@@ -425,8 +567,9 @@ export function createCanvasPager(
       slot.innerHTML = "";
       slot.appendChild(canvas);
     }
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
+    const pixels = canvasPixelSize(page, dpr, dpi, options.maxCanvasPixels);
+    canvas.width = pixels.width;
+    canvas.height = pixels.height;
     canvas.style.width = `${w}px`;
     canvas.style.height = `${h}px`;
     const ctx = canvas.getContext("2d");
@@ -436,7 +579,7 @@ export function createCanvasPager(
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, w, h);
     for (const comp of page.components) {
-      drawComponent(ctx, comp, pxPerMm, dpi, fontFamily, measurer);
+      drawComponent(ctx, comp, pxPerMm, dpi, fontFamily, measurer, images);
     }
     canvas.dataset.canvasPage = String(pageIndex);
     slot.style.height = `${h}px`;
@@ -444,6 +587,7 @@ export function createCanvasPager(
   }
 
   function applyWindow(win: { start: number; end: number }): void {
+    generation++;
     windowState.start = win.start;
     windowState.end = win.end;
     topSpacer!.style.height = `${win.start * gapPx + pageHeightsPx.slice(0, win.start).reduce((s, h) => s + h, 0)}px`;
@@ -480,7 +624,7 @@ export function createCanvasPager(
       while (queued.length > 0 && budget-- > 0) {
         const pageIndex = queued.shift()!;
         const slot = slots[pageIndex - windowState.start];
-        if (slot) drawPageInto(slot, pageIndex);
+        if (slot) void drawPageInto(slot, pageIndex).catch(() => { /* imagesForOutput reports decode failures; aborts are expected on detach. */ });
       }
       if (queued.length > 0) scheduleFrame();
     });
@@ -514,6 +658,10 @@ export function createCanvasPager(
       if (typeof document === "undefined") {
         throw new Error("createCanvasPager 需要浏览器环境（SSR 请在客户端钩子中调用 attach）");
       }
+      throwIfAborted(options.signal);
+      imageController = new AbortController();
+      options.signal?.addEventListener("abort", abortImages, { once: true });
+      reportOutputDiagnostics(plan, "canvas", options);
       viewport = vp;
       ensureLayout();
       vp.addEventListener("scroll", onScroll, { passive: true });
@@ -525,6 +673,9 @@ export function createCanvasPager(
       onScroll();
     },
     destroy() {
+      generation++;
+      imageController.abort();
+      options.signal?.removeEventListener("abort", abortImages);
       if (raf) cancelAnimationFrame(raf);
       raf = 0;
       resizeObserver?.disconnect();
@@ -538,4 +689,6 @@ export function createCanvasPager(
       return { ...windowState };
     }
   };
+
+  function abortImages(): void { imageController.abort(options.signal?.reason); }
 }

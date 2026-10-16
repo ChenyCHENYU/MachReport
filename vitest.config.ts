@@ -12,12 +12,8 @@ export default defineConfig({
     retry: 0,
     coverage: {
       provider: "v8",
-      include: [
-        "packages/mach-report/src/layout/**",
-        "packages/mach-report/src/source/**",
-        "packages/mach-report/src/render/**",
-        "packages/mach-report/src/format.ts"
-      ],
+      include: ["packages/mach-report/src/**/*.{ts,vue}"],
+      exclude: ["**/__tests__/**", "**/*.d.ts"],
       reporter: ["text", "html"],
       reportsDirectory: "coverage"
     }

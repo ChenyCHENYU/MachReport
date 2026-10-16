@@ -15,7 +15,7 @@ MachReport 支持生成真正的 `.xlsx` 工作簿。入口是 `@agile-team/mach
 | 单元格值 | text 模式写显示文本；raw 模式写原始 primitive 和数字格式 | Date/对象回退显示文本，不猜数字字符串 |
 | 图片与复杂内容 | 返回跳过告警 | 图片、条码、二维码、图表、嵌套组件、无文本回退的富文本等未导出 |
 | 打印配置 | 普通页 auto 识别 A3/A4/A5；wide 默认不强制纸型，可显式 paperSize | 纸型仅影响打印；不是 PDF 坐标复刻 |
-| 运行环境 | 浏览器、Node.js | 整本工作簿在内存中生成，暂无流式输出或取消接口 |
+| 运行环境 | `/xlsx` 支持浏览器、Node.js；`/xlsx/node` 提供 Node 流式数据导出 | `/xlsx` 的计划、工作簿与 buffer 仍在内存中；流式入口直接消费数据行，不复刻页面布局 |
 
 `/xlsx` 同时提供 `importExcelTemplate()`，可将 `.xlsx` 的多工作表、合并、尺寸、基础样式与已有内容转换为可复用模板，详见[Excel 模板导入](./EXCEL_IMPORT.md)。预览可按需开启[单元格编辑](./CELL_EDITING.md)；完整工作簿编辑器、透视表交互和公式计算不在当前 API 范围。主入口不加载 ExcelJS；实现与类型随 `/xlsx` 子入口发布。公开 `workbook` 保留 ExcelJS API，Node 类型依赖用于其 stream 签名。
 
@@ -129,4 +129,35 @@ await writeFile("report-with-data.xlsx", new Uint8Array(updatedBuffer));
 
 连续列表已由逻辑表元数据支持。Excel 每张表最多 16,384 列、1,048,576 行，单元格最多 32,767 字符及 253 个换行；超过时明确报错，不截断数据。超过 Excel 最大列宽（255 字符单位）或行高（409 pt）时，保留完整值、适配显示尺寸并返回告警。这些是 [Excel 自身的规格](https://support.microsoft.com/en-us/excel/excel-specifications-and-limits)，不限制宽表预览的总列宽。
 
-严格坐标保真与大数据流式输出仍可独立扩展；整本工作簿与完整计划仍占内存，预览窗口化不代表导出恒定内存。页面展示值与原始数值已经分开，公式、工作簿编辑和原生日期仍由业务明确提供。具体优先级见[项目评审](./PROJECT_REVIEW.md)。
+严格坐标保真仍有格式边界；`renderPlanToXlsx` 的整本工作簿与完整计划仍占内存，预览窗口化不代表导出恒定内存。数据量较大且需要数据工作表时，使用下面的 Node 入口；页面展示值与原始数值已经分开，公式与工作簿编辑仍由业务明确提供。具体优先级见[项目评审](./PROJECT_REVIEW.md)。
+
+## Node 真正逐行写出
+
+`@agile-team/mach-report/xlsx/node` 独立使用 Node 的 ExcelJS `WorkbookWriter`。它消费 `AsyncIterable` / `Iterable`，每行立即 commit，不创建 `RenderPlan`、完整 `Workbook` 或结果 `Buffer`；不会把浏览器 `/xlsx` 的全内存导出包装成“流式”。主入口和浏览器入口均不加载 Node I/O。
+
+```ts
+import { writeRowsToXlsx } from "@agile-team/mach-report/xlsx/node";
+
+await writeRowsToXlsx(queryRows({ signal }), {
+  filename: "/exports/steel-daily.xlsx", // 显式输出位置；也可传 stream，二者只能选一个
+  columns: [
+    { key: "heatNo", header: "炉号", width: 18 },
+    { key: "weight", header: "钢水量", numberFormat: "0.000" }
+  ],
+  maxRows: 500_000,
+  maxDurationMs: 120_000,
+  batchSize: 256,
+  signal,
+  onProgress: ({ rowsWritten, elapsedMs }) => updateJob({ rowsWritten, elapsedMs })
+});
+```
+
+列的 `value(row, rowIndex)` 可选处理单列投影。首行为表头并冻结，支持列宽、列数字格式，保留字符串、有限数值、安全整数、布尔、合法 `Date` 和 null；长 ID 应提供字符串，`"00123"` 和以等号开头的字符串不会被转换为数字或公式。公式对象、不安全整数、非法日期和超限文本直接报错，不裁剪。
+
+`maxRows` 不含表头，Excel 硬上限为 1,048,575 条数据行；即使未配置预算也会执行硬限制。每批让出 I/O 并检查下游背压；进度与结束结果为 `{ rowsWritten, elapsedMs }`。未配置时没有时长预算，已配置的时长预算包括等待上游数据。查询自身仍应使用游标 / 分页并响应 signal，不能先把全量业务数据读入数组再声称整条链路恒定内存。
+
+目标流由写入器结束。取消或异常会销毁目标流，并请求关闭上游迭代器；已有内容是不可用的部分 XLSX，应由任务适配层删除临时文件或按未完成任务处理。此入口不保留任意页面几何、图片、合并、富文本或公式，也不提供修改后的 Workbook 句柄；需要这些能力时继续使用 `/xlsx`。压缩和输出流仍有内部缓冲，不能把逐行 commit 表述为所有环境下严格恒定内存。
+
+## 结构化输出诊断
+
+`renderPlanToXlsx` 保留原有 `warnings`，并返回 `diagnostics`；可传 `onDiagnostic` 接收格式、页 / 组件索引及稳定错误码。核心 `inspectOutputCapabilities(plan, "xlsx")` 可提前列出图片、图表、形状、富文本和嵌套组件的降级范围；预检不会创建工作簿，也不会把未支持组件变成已支持。

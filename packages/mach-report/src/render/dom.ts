@@ -9,7 +9,8 @@ import type {
 import { isImageBackedComponent, isRichText } from "../schema/render-plan";
 import { mmToPx, round } from "../units";
 import { resolveGridLayout, type GridCellBox, type GridEdge, type GridLayout } from "./grid-geometry";
-import { DEFAULT_TEXT_COLOR } from "../defaults";
+import { DEFAULT_FONT_FAMILY, DEFAULT_TEXT_COLOR } from "../defaults";
+import { reportOutputDiagnostics, type OutputDiagnosticOptions } from "../output/capabilities";
 import {
   mergeComponentStyles,
   resolveBoxBorders,
@@ -18,7 +19,7 @@ import {
   resolveStroke
 } from "./style";
 
-export interface RenderOptions {
+export interface RenderOptions extends OutputDiagnosticOptions {
   dpi?: number;
   classNames?: Partial<Record<ClassKey, string>>;
 }
@@ -351,6 +352,27 @@ function renderShape(
   return el;
 }
 
+function renderDirectedLine(comp: PlanComponent, dpi: number, doc: Document): SVGSVGElement {
+  const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
+  const width = mmToPx(comp.widthMm, dpi);
+  const height = mmToPx(comp.heightMm, dpi);
+  svg.setAttribute("width", String(Math.max(1, width)));
+  svg.setAttribute("height", String(Math.max(1, height)));
+  svg.setAttribute("aria-hidden", "true");
+  svg.style.overflow = "visible";
+  svg.style.display = "block";
+  const line = doc.createElementNS("http://www.w3.org/2000/svg", "line");
+  line.setAttribute("x1", "0");
+  line.setAttribute("x2", String(width));
+  line.setAttribute("y1", comp.lineDirection === "up" ? String(height) : "0");
+  line.setAttribute("y2", comp.lineDirection === "up" ? "0" : String(height));
+  const stroke = resolveStroke({ ...comp.style, borderColor: comp.style?.lineColor ?? comp.style?.borderColor });
+  line.setAttribute("stroke", stroke.color);
+  line.setAttribute("stroke-width", String(stroke.widthPt * dpi / 72));
+  svg.appendChild(line);
+  return svg;
+}
+
 export function renderComponent(
   comp: PlanComponent,
   dpi: number,
@@ -383,14 +405,20 @@ export function renderComponent(
     wrap.appendChild(shape);
     return wrap;
   }
-  if (comp.kind === "line" || comp.kind === "rect" || comp.kind === "ellipse" || comp.kind === "chart") {
+  if (comp.kind === "line" && comp.lineDirection) {
+    wrap.appendChild(renderDirectedLine(comp, dpi, doc));
+    return wrap;
+  }
+  if (comp.kind === "line" || comp.kind === "rect" || comp.kind === "ellipse") {
     wrap.appendChild(renderShape(comp, dpi, options, doc));
     return wrap;
   }
   const ph = doc.createElement("div");
   ph.className = classOf("unknown", options);
   elementStyle("block").applyTo(ph);
-  ph.textContent = comp.fallbackText ?? "";
+  ph.textContent = comp.fallbackText ?? `[${comp.kind}]`;
+  ph.dataset.mrUnsupported = comp.kind;
+  ph.setAttribute("role", "note");
   wrap.appendChild(ph);
   return wrap;
 }
@@ -405,7 +433,7 @@ export function renderPage(
   el.className = classOf("page", options);
   elementStyle("block", "initial")
     .add("position", "relative")
-    .add("font-family", '"Microsoft YaHei", sans-serif')
+    .add("font-family", DEFAULT_FONT_FAMILY)
     .add("font-size", `${round(resolveFontSize(undefined, dpi).fontSizePx, 2)}px`)
     .add("line-height", String(resolveLineHeight(undefined)))
     .add("white-space", "pre-wrap")
@@ -431,6 +459,7 @@ export function renderPlan(
   options: RenderOptions = {}
 ): HTMLElement {
   const dpi = options.dpi ?? 96;
+  reportOutputDiagnostics(plan, "dom", options);
   const root = doc.createElement("div");
   root.className = classOf("root", options);
   elementStyle("block").applyTo(root);

@@ -34,6 +34,11 @@ try {
   symlinkSync(nodeTypes, resolve(scratch, "node_modules/@types/node"), "dir");
   const nodeTypesRequire = createRequire(resolve(nodeTypes, "package.json"));
   symlinkSync(dirname(nodeTypesRequire.resolve("undici-types/package.json")), resolve(scratch, "node_modules/undici-types"), "dir");
+  const frameworkFreeEntries = ["", "/pdf", "/xlsx", "/sql", "/server", "/server/node", "/worker", "/analytics", "/xlsx/node"];
+  writeFileSync(resolve(scratch, "without-vue.mjs"), frameworkFreeEntries.map((path) => `await import("@agile-team/mach-report${path}");`).join("\n"));
+  writeFileSync(resolve(scratch, "without-vue.cjs"), frameworkFreeEntries.map((path) => `require("@agile-team/mach-report${path}");`).join("\n"));
+  run(process.execPath, ["without-vue.mjs"]);
+  run(process.execPath, ["without-vue.cjs"]);
   symlinkSync(dirname(packageRequire.resolve("vue/package.json")), resolve(scratch, "node_modules/vue"), "dir");
 
   const runtime = `
@@ -67,10 +72,34 @@ const xlsxResult = await xlsx.renderPlanToXlsx(plan);
 if (new TextDecoder().decode(pdfResult.bytes.slice(0, 5)) !== "%PDF-") throw new Error("Invalid PDF");
 if (new Uint8Array(xlsxResult.buffer)[0] !== 0x50) throw new Error("Invalid XLSX");
 if (typeof sql.compileDynamicSql !== "function") throw new Error("Missing SQL API");
-if (typeof vue.useMachReport !== "function" || typeof vue.createTableTemplate !== "function" || typeof asyncVue.preloadMachReport !== "function") throw new Error("Missing Vue runtime API");
+if (typeof vue.useMachReport !== "function" || typeof vue.createTableTemplate !== "function" || typeof vue.createProviderEditing !== "function" || typeof asyncVue.preloadMachReport !== "function") throw new Error("Missing Vue runtime API");
+const contract = { rowKey: "id", fields: [{ field: "id", type: "text", semanticRole: "identifier" }, { field: "qty", type: "number", required: true }] };
+if (!core.validateDatasetRows([{ id: "0001", qty: 0 }], contract).ok || core.columnsFromContract(contract)[0].semanticRole !== "identifier") throw new Error("Invalid data contract runtime");
+const runtime = server.createReportRuntime({ reports: { sample: { template: tableTemplate, datasets: { detail: [{ name: "0001", qty: 0 }] } } } });
+const prepared = await runtime.prepare({ reportIds: ["sample"] });
+const remoteExcel = await runtime.export({ reportIds: ["sample"], format: "xlsx" });
+if (!prepared.stats.pages || remoteExcel.bytes[0] !== 0x50 || remoteExcel.stats.outputBytes !== remoteExcel.bytes.byteLength) throw new Error("Invalid Node runtime/export");
+const collected = [];
+const destination = new nodeStream.Writable({ write(chunk, _encoding, done) { collected.push(Buffer.from(chunk)); done(); } });
+await nodeXlsx.writeRowsToXlsx((async function* () { yield { id: "0001", qty: 0 }; yield { id: "0002", qty: 2 }; })(), { stream: destination, columns: [{ key: "id" }, { key: "qty" }], batchSize: 1 });
+if (Buffer.concat(collected).subarray(0, 2).toString() !== "PK") throw new Error("Node streaming entry resolved the browser ExcelJS build");
+const manager = core.createTemplateManager(core.createMemoryTemplateStore());
+const draft = await manager.saveDraft(document, { expectedRevision: null });
+const published = await manager.publish(document.id, { expectedRevision: draft.revision });
+if ((await manager.get(document.id)).revision !== published.revision || (await manager.history(document.id)).length !== 1) throw new Error("Invalid template manager");
+if (typeof designer.ReportTemplateEditor !== "object" || typeof worker.createBrowserReportExecutor !== "function") throw new Error("Missing optional UI/Worker entry");
+const calculated = analytics.computeDataset([{ qty: 2 }], { fields: [{ field: "amount", expression: { op: "multiply", args: [{ field: "qty" }, { value: 3 }] } }] });
+if (calculated.rows[0].amount !== 6) throw new Error("Invalid analytics entry");
+const executor = nodeServer.createNodeReportExecutor({ filename: new URL("./worker-fixture.mjs", import.meta.url) });
+const isolated = await executor.prepare({ reportIds: ["worker"] });
+if (!isolated.plan.pages.length) throw new Error("Packed Node Worker did not return a plan");
 `;
-  writeFileSync(resolve(scratch, "smoke.mjs"), `import * as core from "@agile-team/mach-report";\nimport * as pdf from "@agile-team/mach-report/pdf";\nimport * as xlsx from "@agile-team/mach-report/xlsx";\nimport * as sql from "@agile-team/mach-report/sql";\nimport * as vue from "@agile-team/mach-report/vue";\nimport * as asyncVue from "@agile-team/mach-report/vue/async";\n${runtime}`);
-  writeFileSync(resolve(scratch, "smoke.cjs"), `const core = require("@agile-team/mach-report");\nconst pdf = require("@agile-team/mach-report/pdf");\nconst xlsx = require("@agile-team/mach-report/xlsx");\nconst sql = require("@agile-team/mach-report/sql");\nconst vue = require("@agile-team/mach-report/vue");\nconst asyncVue = require("@agile-team/mach-report/vue/async");\n(async () => {${runtime}})().catch(error => { console.error(error); process.exitCode = 1; });`);
+  const entries = { core: "", pdf: "/pdf", xlsx: "/xlsx", sql: "/sql", vue: "/vue", asyncVue: "/vue/async", server: "/server", nodeServer: "/server/node", nodeXlsx: "/xlsx/node", worker: "/worker", designer: "/designer", analytics: "/analytics" };
+  const esmImports = Object.entries(entries).map(([name, path]) => `import * as ${name} from "@agile-team/mach-report${path}";`).join("\n");
+  const cjsImports = Object.entries(entries).map(([name, path]) => `const ${name} = require("@agile-team/mach-report${path}");`).join("\n");
+  writeFileSync(resolve(scratch, "worker-fixture.mjs"), `import { createTableTemplate } from "@agile-team/mach-report"; import { createReportRuntime } from "@agile-team/mach-report/server"; import { serveNodeReportWorker } from "@agile-team/mach-report/server/node"; serveNodeReportWorker(createReportRuntime({ reports: { worker: { template: createTableTemplate({ columns: [{ header: "ID", field: "id" }] }), datasets: { detail: [{ id: "0001" }] } } } }));`);
+  writeFileSync(resolve(scratch, "smoke.mjs"), `${esmImports}\nimport * as nodeStream from "node:stream";\n${runtime}`);
+  writeFileSync(resolve(scratch, "smoke.cjs"), `${cjsImports}\nconst nodeStream = require("node:stream");\n(async () => {${runtime.replace('new URL("./worker-fixture.mjs", import.meta.url)', 'require("node:path").resolve(__dirname, "worker-fixture.mjs")')}})().catch(error => { console.error(error); process.exitCode = 1; });`);
   run(process.execPath, ["smoke.mjs"]);
   run(process.execPath, ["smoke.cjs"]);
 
@@ -80,6 +109,13 @@ import { renderPlanToPdf } from "@agile-team/mach-report/pdf";
 import { compileDynamicSql } from "@agile-team/mach-report/sql";
 import { machReportPlugin, ReportPreview, createTemplate as createVueTemplate, createTableTemplate, createReportSource, defineReport, defineReportTemplate, parseReportTemplate, serializeReportTemplate, createTemplateRegistry, defineMachReportConfig, useMachReport, type PdfFontCheckResult, type MachReportToolbarOptions, type ReportEmptyState, type ReportPreviewPreferences } from "@agile-team/mach-report/vue";
 import { preloadMachReport } from "@agile-team/mach-report/vue/async";
+import { createReportRuntime, createReportTaskQueue } from "@agile-team/mach-report/server";
+import { createNodeReportExecutor } from "@agile-team/mach-report/server/node";
+import { createBrowserReportExecutor } from "@agile-team/mach-report/worker";
+import { writeRowsToXlsx } from "@agile-team/mach-report/xlsx/node";
+import { ReportTemplateEditor, type TemplateEditorOptions } from "@agile-team/mach-report/designer";
+import { computeDataset, createCrossTable, createChartComponents } from "@agile-team/mach-report/analytics";
+import { Writable } from "node:stream";
 async function consume() {
   const builder: ReturnType<typeof createTemplate> = createVueTemplate();
   const definition = defineReport({
@@ -115,6 +151,19 @@ async function consume() {
   const bytes: ArrayBuffer = result.buffer;
   await renderPlanToPdf(plan);
   compileDynamicSql("select 1");
+  const runtime = createReportRuntime({ reports: { sample: definition }, budget: { maxPages: 100 } });
+  await runtime.prepare({ reportIds: ["sample"], params: {} });
+  const queue = createReportTaskQueue({ concurrency: 2, maxQueued: 4 });
+  void queue;
+  createNodeReportExecutor({ filename: "/worker.mjs" });
+  createBrowserReportExecutor(() => new Worker("/worker.js"));
+  await writeRowsToXlsx([{ id: "0001" }], { columns: [{ key: "id" }], stream: new Writable({ write(_chunk, _encoding, done) { done(); } }) });
+  const editorOptions: TemplateEditorOptions = { modelValue: document, datasets: { detail: [] }, preview: { showExport: false, theme: { shellBg: "#fff" }, assets: { assetRenderers: { qrcode: ({ component }) => component.imageData ?? "data:image/png;base64," } } }, save: async (draft, context) => ({ ...draft, revision: context.expectedRevision }) };
+  const editorProps: InstanceType<typeof ReportTemplateEditor>["$props"] = editorOptions;
+  const computed = computeDataset([{ value: 1 }], { fields: [{ field: "copy", expression: { field: "value" } }] });
+  createCrossTable(computed.rows, { rowField: "value", columnField: "copy", aggregate: "count" });
+  createChartComponents({ type: "bar", categories: ["A"], series: [{ name: "Q", values: [0] }], leftMm: 0, topMm: 0, widthMm: 100, heightMm: 50 });
+  void editorProps;
   return { bytes, machReportPlugin, preloadMachReport, config, report };
 }
 void consume;
@@ -126,7 +175,7 @@ void consume;
     writeFileSync(resolve(scratch, config), JSON.stringify({ compilerOptions: { target: "ES2020", module, moduleResolution, strict: true, noEmit: true, skipLibCheck: false, esModuleInterop: true, types: [], lib: ["ES2020", "DOM", "DOM.Iterable"] }, files: [file] }));
     run(process.execPath, [resolve(root, "node_modules/typescript/bin/tsc"), "-p", config]);
   }
-  console.log("Packed npm consumer checked: ESM/CJS runtime, XLSX/PDF bytes, all public TypeScript entries, licensing and README");
+  console.log("Packed npm consumer checked: Vue-free core/Node entries, ESM/CJS runtime, real Worker/streaming XLSX/PDF bytes, all public TypeScript entries, licensing and README");
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }

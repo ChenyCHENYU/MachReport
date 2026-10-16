@@ -4,11 +4,11 @@
 
 <p align="center">
   <strong>面向业务宽表、明细台账与标准打印的 TypeScript 报表引擎</strong><br />
-  完整列宽预览 · Excel 模板导入 · 可选单元格编辑 · A3 / A4 选配
+  完整宽表 · Excel 模板绑定 · 批量编辑 · 前后端共用契约 · 受控服务端输出
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.5.0-2563eb" alt="Source version 2.5.0" />
+  <img src="https://img.shields.io/badge/source-2.6.0-2563eb" alt="Source version 2.6.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -24,6 +24,7 @@
   <a href="#对齐与可读性">对齐配置</a> ·
   <a href="#模板配置与管理扩展">模板管理</a> ·
   <a href="#接入项目数据">数据接入</a> ·
+  <a href="#前后端共用能力">前后端复用</a> ·
   <a href="#按需加载与包边界">按需入口</a> ·
   <a href="./docs/API.md">API</a> ·
   <a href="./examples">示例</a> ·
@@ -42,15 +43,16 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 完整宽表 | 自然列宽、横向滚动、默认 100% 预览；纵向分段窗口化，Excel 自动合并连续 Sheet |
 | 明细与汇总 | 自动折行与分页、重复表头、连续分组小计、末尾总计、页码占位符 |
 | 数据呈现 | 表头与内容独立对齐、类型自动对齐、数值 / 百分比 / 日期格式化、条件格式 |
-| 预览交互 | 正文与缩略图双窗口渲染、缩放与适宽、可取消分片搜索、参数面板 |
-| 内容编辑 | 默认只读，按需开启双击编辑；类型校验、异步保存、失败保留原值与输出同步 |
+| 预览交互 | 双窗口渲染、冻结表头 / 前列、区域选取与复制、Sheet 导航、可选偏好存储 |
+| 内容编辑 | 默认只读；双击与批量粘贴、原子保存、撤销 / 重做、恢复与变更清单 |
 | Excel 导入 | 多 Sheet、完整宽表、合并单元格、基础样式与缓存公式值转换为可复用模板 |
-| 模板配置 | 版本化 JSON 文档、导入导出校验、模板目录、异步加载与取消 |
+| 模板配置 | 轻量属性编辑器、草稿 / 发布 / 历史 / 回滚、CAS 存储适配器、Excel 区域绑定 |
 | 输出 | 浏览器打印、HTML、PDF、真正的 `.xlsx`、逐页 PNG、Word 兼容 HTML `.doc` |
 | 工程接入 | 局部组件、全局插件、异步入口、分层配置、结构化错误与导出告警 |
-| 引擎复用 | 框架无关的分页与校验、DOM / Canvas 渲染；PDF / XLSX 可用于 Node.js |
+| 引擎复用 | 数据 / 参数 JSON Schema、统一 Provider、Node Runtime、浏览器 / Node Worker、流式 Excel |
+| 分析扩展 | 交叉汇总、声明式计算、柱图 / 折线图基础图元；其他图表与二维码通过资源适配器接入 |
 
-数据接口、鉴权、查询与业务规则由宿主应用决定。模板管理提供可直接连接文件或后台接口的文档与目录 API；可视化设计器、管理页面、审批与持久化由宿主扩展。
+数据接口、鉴权与业务规则由宿主应用决定。包内统一校验、分页、编辑事务和版本流程；宿主提供请求与存储适配器。轻量属性编辑器可直接使用；拖拽画布、审批与数据库部署仍由项目按需建设。
 
 ## 安装：一个包，按需入口
 
@@ -196,6 +198,8 @@ await writeFile("report.xlsx", new Uint8Array(buffer));
 
 完整示例、类型保留策略和注意事项见 [Excel 导出指南](./docs/EXCEL.md)。
 
+后端全量明细导出可使用 `/xlsx/node` 的 `writeRowsToXlsx(asyncRows, { columns, stream })`：直接消费异步行迭代器，逐行提交并处理背压、进度、取消与预算，避免先构造整本 `RenderPlan`。这是数据工作表出口；需要复杂打印布局时仍使用模板分页出口。
+
 ### 导入 Excel，直接生成报表
 
 Vue 组件默认关闭导入入口，增加一个配置即可选择本机文件：
@@ -216,6 +220,21 @@ const { plan } = paginateTemplate(template, {});
 
 默认导入全部可见 Sheet，以自然列宽生成 wide 报表，也支持 `layout: "a3" / "a4"`、选择 Sheet 和范围。保留已有内容，公式使用 Excel 保存的缓存结果并保持只读；不会执行公式或推断后端字段。未支持内容通过告警报告。资源预算和接入细节见 [Excel 模板导入](./docs/EXCEL_IMPORT.md)。
 
+业务 Excel 模板需要反复填充接口数据时，增加显式区域映射即可，包内保留标题与合并表头、剔除样例明细并生成可分页列表：
+
+```ts
+import { importExcelTemplate, bindExcelTemplate } from "@agile-team/mach-report/xlsx";
+
+const imported = await importExcelTemplate(file);
+const { template, warnings } = bindExcelTemplate(imported, [{
+  sheet: "电炉日报", header: "A3:C4", detail: "A5:C5",
+  columns: ["heat", "grade", "weight"], rowKey: "heat"
+}]);
+// 注册 template，接口返回 { detail: [...] }；映射不猜测字段或业务数据。
+```
+
+示例范围需替换为实际模板坐标。跨区域合并、明细原型合并等无法安全重复的结构明确拒绝；保留页脚时返回版式告警，详见导入指南。
+
 ## 单元格编辑
 
 报表默认只读。需要修改时开启 `editable`，双击单元格输入，Enter 提交，Esc 取消；打印与导出使用同一份更新后的计划。
@@ -224,7 +243,7 @@ const { plan } = paginateTemplate(template, {});
 <MachReportPreview report-id="production" editable />
 ```
 
-本地修改不会写入后台。需要校验、持久化和封月权限时，将 `editable` 改为 `{ canEdit, validate, save }`；包内等待保存成功后再更新，失败保留原值，过期保存不会覆盖新报表。文本编号保持字符串、数值 0 保持数字；表头、汇总和公式默认只读。详细配置与框架无关 API 见 [单元格编辑](./docs/CELL_EDITING.md)。
+本地修改不会写入后台。持久化可配置 `{ canEdit, validate, save, saveBatch }`，或使用 `createProviderEditing` 桥接统一 Provider。包内先验证并原子保存，再更新计划；失败保留原值。已保存数据的撤销 / 重做也经过保存回调。`listOptions.rowKey` 声明稳定业务主键，修订号与来源令牌随编辑传递；屏幕行号不会被当作数据库身份。文本编号与真实 0 保留原始类型；表头、汇总和公式默认只读。详见 [编辑指南](./docs/CELL_EDITING.md)与[交互指南](./docs/INTERACTION.md)。
 
 ## 对齐与可读性
 
@@ -235,7 +254,7 @@ const { plan } = paginateTemplate(template, {});
 | 表头 | 标准明细默认居中；长说明列可单独居左 |
 | 名称、描述、文本编号 | 居左；编码不会因长得像数字而自动变成数值 |
 | 数量、金额、百分比 | 真实数字或明确指定数字格式时居右，便于比较位数 |
-| 日期、布尔值 | 自动模式居中；字符串状态可显式设置 `align: "center"` |
+| 日期、班组、分类、布尔值 | 自动模式日期 / 布尔居中；列 `semanticRole: "dimension"` 使业务分类居中 |
 | 统一业务要求 | `listOptions.align` / `headerAlign` 设置整表，列级配置优先 |
 
 ```ts
@@ -257,7 +276,7 @@ const template = createTableTemplate({
 | 输出 | 验收重点与范围 |
 | --- | --- |
 | DOM / 浏览器打印 | 固定几何、合并格、字体继承、独立边框、普通宿主 CSS 隔离；自定义纸张保留毫米精度 |
-| Canvas / PNG | 文本、表格、基本形状的尺寸与样式；图片型组件、完整富文本与部分高级文字样式仍有限制 |
+| Canvas / PNG | 文本、表格、基础形状、真实斜线；异步等待图片解码并逐页编码，完整富文本仍有限制 |
 | PDF | 网格、内距、行高、垂直对齐、字体与图片输出；缺字、裁切及不支持样式提供诊断 |
 | Excel | 完整行列、原始值、合并、行高、连续表；按工作表语义输出，不复刻自由页面坐标 |
 
@@ -298,7 +317,50 @@ app.use(machReportPlugin, {
 });
 ```
 
-动态模板不隐式缓存，每次重载读取当前版本；需要自动查询面板时，在报表定义中声明 `params`。管理后台可接入草稿、发布、版本历史与回滚，服务端负责权限和修订号冲突检查。完整方案见[模板管理扩展指南](./docs/TEMPLATE_MANAGEMENT.md)。
+动态模板不隐式缓存，每次重载读取当前版本；需要自动查询面板时，在报表定义中声明 `params`。包内 `createTemplateManager(store)` 统一草稿、发布、不可变历史与回滚，宿主存储器提供原子 CAS；回滚产生新修订，保留原历史。默认内存适配器适合示例，生产接入现有数据库事务。完整方案见[模板管理扩展指南](./docs/TEMPLATE_MANAGEMENT.md)。
+
+可选 `/designer` 提供 `ReportTemplateEditor`：名称、字段映射、列宽、语义、正文 / 表头对齐、可编辑范围与高级 JSON；校验和实时预览在包内完成，宿主仅传文档、预览数据和 `save(document, { expectedRevision, signal })`。`v-model` 回显保留未保存状态，保存冲突保留草稿。运行示例后访问 `/designer.html`；接入见[模板编辑器](./docs/DESIGNER.md)。
+
+## 前后端共用能力
+
+字段契约可以同时生成数据校验、JSON Schema 与列定义，避免前后端和模板各维护一套类型规则：
+
+```ts
+import { columnsFromContract, createTableTemplate, type DatasetContract } from "@agile-team/mach-report";
+
+export const contract: DatasetContract = { rowKey: "heat", fields: [
+  { field: "heat", label: "炉号", type: "text", semanticRole: "identifier" },
+  { field: "shift", label: "班组", type: "text", semanticRole: "dimension" },
+  { field: "weight", label: "钢水重量", type: "number", required: true, min: 0, unit: "kg" }
+] };
+export const template = createTableTemplate({
+  layout: "wide", columns: columnsFromContract(contract), listOptions: { rowKey: "heat" }
+});
+const reports = { daily: {
+  template, dataSchema: { detail: contract },
+  load: ({ params, signal }) => reportApi.query(params, { signal })
+} };
+```
+
+示例 `reportApi` 使用宿主已有请求客户端。定义加入 `reports` 后，必填参数在请求前校验，数据结构在分页前校验；不合法响应返回具体路径，不以空数组掩盖。字符串编号保留前导零，精确小数可声明 `decimal` 并保持文本。
+
+Node.js 可复用同一 `reports`，无需实现另一套分页与导出：
+
+```ts
+import { createReportRuntime } from "@agile-team/mach-report/server";
+
+const runtime = createReportRuntime({ reports, budget: { maxRows: 50_000, maxPages: 2_000 } });
+const metadata = runtime.describe(); // 参数、数据 JSON Schema 与能力描述
+const { bytes, contentType, diagnostics, stats } = await runtime.export({
+  reportIds: ["daily"], params: { date: "2026-10-16" }, format: "xlsx"
+});
+```
+
+统一 `ReportProvider` 规范 query / save / export / templates 可选能力；旧 `load/mapData/fetcher` 继续支持。Node 直接运行本包，Java 等后端可消费 JSON Schema 与 JSON 协议，通过独立 Node 服务复用引擎；npm 包不直接运行在 JVM 内。
+
+`/worker` 与 `/server/node` 提供真实浏览器 Worker / worker_threads 适配器，运行同步分页时可硬取消；有界队列限制并发和排队。默认同步执行仅在阶段边界检查取消，不宣称阻塞期间可抢占。接入与预算详见[服务端与 Worker](./docs/SERVER.md)。
+
+交叉汇总、声明式计算和基础柱图 / 折线图位于可选 `/analytics`。图形展开成共享基础图元；公式字符串需显式引擎适配器，不执行 `eval`，不重算导入 Excel 的公式。其他二维码、条码与图表可配置 `assets.assetRenderers`，异步准备一次后供预览和导出共用，并返回缺失 / 不支持的结构化诊断。用法见[分析与资源适配](./docs/ANALYTICS.md)。
 
 ## 大报表预览与性能
 
@@ -345,7 +407,7 @@ app.use(machReportPlugin, { fetcher, config });
 
 ### 设置入口与零数据反馈
 
-预览工具栏默认提供「设置」，将搜索、缩略图、缩放、五种导出、打印、PDF 窗口和可选数据操作集中在一个入口。使用方只声明允许的能力；用户在面板中按需启用，偏好限于当前预览实例。设置支持键盘操作、焦点约束和 Esc 关闭，无额外 UI 组件库依赖。
+预览工具栏默认提供「设置」，将阅读、冻结窗格、导出、打印与可选数据操作集中在一个入口。使用方声明允许的能力；用户在面板中按需启用。默认偏好仅在当前实例，可显式提供 `preferences` 存储适配器。设置支持键盘操作、焦点约束和 Esc 关闭，无额外 UI 组件库依赖。
 
 ```vue
 <ReportPreview
@@ -424,10 +486,16 @@ const fetcher: PlanFetcher = async ({ reportIds, params, signal }) => {
 | `@agile-team/mach-report/pdf` | `renderPlanToPdf`、字体加载与缓存 |
 | `@agile-team/mach-report/xlsx` | `renderPlanToXlsx`、工作簿与导出告警 |
 | `@agile-team/mach-report/sql` | 动态 SQL 编译与单 SELECT 校验工具 |
+| `@agile-team/mach-report/server` | Runtime、预算、有界任务队列、元数据与共用导出 |
+| `@agile-team/mach-report/worker` | 浏览器 Worker 执行与消息桥接 |
+| `@agile-team/mach-report/server/node` | Node worker_threads 执行与硬取消 |
+| `@agile-team/mach-report/xlsx/node` | AsyncIterable 行数据流式输出，仅 Node |
+| `@agile-team/mach-report/designer` | 可选 Vue 模板属性编辑器 |
+| `@agile-team/mach-report/analytics` | 交叉表、受控计算、柱图 / 折线图基础图元 |
 
 内核保持零运行时依赖；ExcelJS、pdf-lib / fontkit、SQL parser 分别内联于对应构建入口。导入 `/xlsx` 才使用 Excel 能力，导入 `/pdf` 才使用 PDF 能力；Vue 不进入引擎主入口。npm 构建提供 ESM、CommonJS 与类型声明。
 
-XLSX 的完整 Workbook 类型随声明打包，`@types/node` 为其 stream API 提供类型。Canvas / PNG 当前适合文本、表格和基础形状，图片型组件的绘制仍待完善；对输出保真度敏感时，请按具体组件验证 DOM 与 PDF 结果。
+XLSX 的完整 Workbook 类型随声明打包，`@types/node` 为其 stream API 提供类型。Node I/O 独立构建，浏览器入口不引入 worker_threads 或文件系统。Canvas / PNG 的图片输出使用异步 API，遇到资源失败默认阻止不完整文件；对输出保真度敏感时仍需按具体模板验收。
 
 需要远程加载组件的项目，可部署 `packages/federation`，参考[模块联邦示例](./examples/fed-host)。普通 Vue 项目直接使用 npm 子入口。
 
@@ -464,12 +532,17 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 | 接入与 API | [API 速查](./docs/API.md)：数据模型、模板、Vue 属性 / 事件、配置与导出 |
 | Excel | [导出指南](./docs/EXCEL.md)与[模板导入](./docs/EXCEL_IMPORT.md)：原始类型、宽表与工作簿转换 |
 | 单元格编辑 | [编辑指南](./docs/CELL_EDITING.md)：开关、类型、权限校验、异步保存与输出同步 |
+| 交互配置 | [交互指南](./docs/INTERACTION.md)：选区、键盘、冻结、导航、偏好与导入摘要 |
 | 模板管理 | [扩展指南](./docs/TEMPLATE_MANAGEMENT.md)：JSON 文档、目录、动态版本与后台接入 |
+| 模板属性 | [编辑器指南](./docs/DESIGNER.md)：实时预览、版本保存与属性面板 |
+| 服务端 | [Runtime / Worker](./docs/SERVER.md)：统一契约、受控执行、流式输出 |
+| 分析扩展 | [分析与资源](./docs/ANALYTICS.md)：交叉表、计算、基础图表与资源适配 |
 | PDF | [字体与导出指南](./docs/PDF.md)：首次诊断、字库部署、缺字与缓存 |
 | 本地报表 | [最小示例](./examples/minimal)：出库单、工艺卡、多页与多模板预览 |
 | 远程组件 | [模块联邦示例](./examples/fed-host) · [部署包](./packages/federation) |
 | 排版与字体 | [字体测量与校准](./docs/font-calibration.md) |
 | 工程质量与还原 | [质量与还原说明](./docs/QUALITY.md)：复杂度、宿主样式隔离、输出支持矩阵 |
+| 源码分层 | [架构说明](./docs/ARCHITECTURE.md)：目录职责、hooks、适配器与性能边界 |
 | 版本记录 | [Changelog](./packages/mach-report/CHANGELOG.md) |
 | 工程协作 | [AGENTS.md](./AGENTS.md) |
 | 产品演进 | [项目评审与优化优先级](./docs/PROJECT_REVIEW.md) |
@@ -477,7 +550,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.5.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.6.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

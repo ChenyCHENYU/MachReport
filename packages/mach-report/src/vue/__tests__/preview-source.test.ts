@@ -272,18 +272,22 @@ describe("报表元数据与参数面板", () => {
     expect(wrapper.findComponent(ReportParamPanel).exists()).toBe(false);
   });
 
-  it("保留缺必填参数也首载的行为；用户查询时才拦截缺失值", async () => {
+  it("缺必填参数首载即拦截取数，补全后可查询恢复", async () => {
     const load = vi.fn().mockResolvedValue({});
     const onError = vi.fn();
     const fetcher = createReportSource({ A: { template: templateOf("首载结果"), load } });
     const wrapper = track(mount(ReportPreview, { props: { reportId: "A", fetcher, onError } }));
-    await vi.waitFor(() => expect(wrapper.text()).toContain("首载结果"));
-    expect(load).toHaveBeenCalledOnce();
-    expect(onError).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    expect(load).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining("keyword"), expect.objectContaining({ code: "param" }));
     const query = wrapper.findComponent(ReportParamPanel).findAll("button").find((button) => button.text().includes("查"))!;
     await query.trigger("click");
-    expect(load).toHaveBeenCalledOnce();
+    expect(load).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledWith(expect.stringContaining("关键字"), { code: "param" });
+    await wrapper.find('input[placeholder="输入关键字"]').setValue("有效参数");
+    await query.trigger("click");
+    await vi.waitFor(() => expect(wrapper.text()).toContain("首载结果"));
+    expect(load).toHaveBeenCalledOnce();
   });
 });
 
@@ -299,7 +303,7 @@ describe("数据源结构化错误", () => {
     };
     const onError = vi.fn();
     const wrapper = track(mount(ReportPreview, {
-      props: { reportId: "A", fetcher: createReportSource(reports), onError }
+      props: { reportId: "A", fetcher: createReportSource(reports), params: { keyword: "有效参数" }, onError }
     }));
     await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
     expect(onError.mock.calls[0]![1]).toMatchObject({ code });

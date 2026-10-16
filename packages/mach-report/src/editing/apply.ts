@@ -1,4 +1,4 @@
-import type { GridCell, PlanComponent, RenderPlan } from "../schema/render-plan";
+import type { GridCell, PlanComponent, RenderPlan, ReportCellSource } from "../schema/render-plan";
 import {
   getReportCellContext, locateReportGridCell,
   type ReportCellAddress, type ReportCellContext, type ReportCellTableIdentity, type ReportCellValue
@@ -8,6 +8,7 @@ import { formatReportCellEdit, parseReportCellInput, ReportCellEditError } from 
 export interface ReportCellEdit {
   address: ReportCellAddress;
   table?: ReportCellTableIdentity;
+  source?: Readonly<ReportCellSource>;
   previousValue: ReportCellValue;
   previousText: string;
   value: ReportCellValue;
@@ -18,10 +19,14 @@ export interface ReportCellEdit {
 export function createReportCellEdit(plan: RenderPlan, address: ReportCellAddress, input: ReportCellValue): ReportCellEdit {
   const context = getReportCellContext(plan, address);
   if (!context) throw new ReportCellEditError("missing");
+  return editFromContext(context, input);
+}
+
+export function editFromContext(context: ReportCellContext, input: ReportCellValue): ReportCellEdit {
   if (!context.editable) throw new ReportCellEditError("readonly");
   const value = parseReportCellInput(context, input);
   return {
-    address: { ...address }, table: context.table,
+    address: { ...context.address }, table: context.table, source: context.source,
     previousValue: context.value, previousText: context.cell.text ?? "",
     value, text: formatReportCellEdit(context, value)
   };
@@ -80,11 +85,19 @@ function updatePlanComponent(
   return component;
 }
 
+export function sourceChanged(context: ReportCellContext, edit: ReportCellEdit): boolean {
+  const source = edit.source;
+  if (!source) return false;
+  const current = context.source;
+  return !current || ["datasetId", "rowKey", "field", "revision", "sourceToken"].some((key) => !Object.is(current[key as keyof ReportCellSource], source[key as keyof ReportCellSource]));
+}
+
 /** 复制发生变化的页/组件/行；原计划保持不变，并拒绝覆盖已改变的单元格。 */
 export function applyReportCellEdit(plan: RenderPlan, edit: ReportCellEdit): RenderPlan {
   const context = getReportCellContext(plan, edit.address);
   if (!context) throw new ReportCellEditError("missing");
   if (!context.editable) throw new ReportCellEditError("readonly");
+  if (sourceChanged(context, edit)) throw new ReportCellEditError("conflict");
   if (!Object.is(context.value, edit.previousValue) || (context.cell.text ?? "") !== edit.previousText) throw new ReportCellEditError("conflict");
   const value = parseReportCellInput(context, edit.value);
   const normalized = { ...edit, value, text: formatReportCellEdit(context, value) };

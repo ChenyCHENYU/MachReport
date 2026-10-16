@@ -1,7 +1,7 @@
 import type { ReportCellContext, ReportCellValue } from "./context";
 import { formatExcelNumber, isExcelPercentageFormat } from "./number-format";
 
-export type ReportCellEditErrorCode = "missing" | "readonly" | "number" | "boolean" | "conflict";
+export type ReportCellEditErrorCode = "missing" | "readonly" | "number" | "boolean" | "conflict" | "duplicate" | "limit" | "atomic" | "clipboard";
 
 export class ReportCellEditError extends Error {
   constructor(public readonly code: ReportCellEditErrorCode) {

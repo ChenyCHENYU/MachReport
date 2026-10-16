@@ -3,6 +3,9 @@ import { RENDER_PLAN_SCHEMA_VERSION, type RenderPlan } from "../schema/render-pl
 import { validateRenderPlan } from "../schema/validate";
 import { getReportParamDefs } from "./report-params";
 import { ReportTemplateError, validateReportTemplate } from "./template-registry";
+import { assertReportParams } from "./param-validation";
+import type { ReportProvider, ReportQueryResult } from "./provider";
+import { validateDatasetRows, type DatasetContract, type DatasetValidationOptions } from "../schema/dataset";
 
 /** 取数与排版共同使用的请求上下文；取消只影响本次调用。 */
 export interface ReportLoadContext {
@@ -17,6 +20,7 @@ export interface ReportFetchInput {
   signal?: AbortSignal;
   /** 本次分页与计划告警；未提供时使用数据源配置的告警通道。 */
   onWarning?: (message: string) => void;
+  onQueryResult?: (reportId: string, result: ReportQueryResult) => void;
 }
 
 /** 保持 Promise<RenderPlan> 契约；元数据为可选，旧业务 fetcher 无需改造。 */
@@ -37,6 +41,11 @@ export interface ReportDefinition {
   /** 静态数据；load 存在时优先使用 load 的结果。 */
   datasets?: DatasetRows;
   load?: (context: ReportLoadContext) => DatasetRows | Promise<DatasetRows>;
+  /** 可选统一适配器；load 存在时仍优先 load，兼容已有定义。 */
+  provider?: ReportProvider;
+  /** 可选业务数据契约；声明的数据集缺失或字段不合法时，在分页前给出结构化错误。 */
+  dataSchema?: Record<string, DatasetContract>;
+  dataValidation?: Pick<DatasetValidationOptions, "maxRows" | "maxCells" | "maxIssues">;
   /** 覆盖模板参数定义；动态模板应在此声明查询面板元数据，避免查询前先请求模板。 */
   params?: ReportParamDef[];
   pagination?: PaginateOptions;
@@ -134,10 +143,18 @@ async function loadTemplate(loader: ReportTemplateLoader, context: ReportLoadCon
   }
 }
 
-async function loadDatasets(definition: ReportDefinition, context: ReportLoadContext, reportId: string, signal?: AbortSignal): Promise<DatasetRows> {
+async function loadDatasets(definition: ReportDefinition, context: ReportLoadContext, reportId: string, onResult?: ReportFetchInput["onQueryResult"], onDatasets?: (reportId: string, datasets: DatasetRows) => void): Promise<DatasetRows> {
+  const signal = context.signal;
   let data: DatasetRows;
   try {
-    data = await cancellable(definition.load ? definition.load(context) : definition.datasets ?? {}, signal);
+    if (definition.load) data = await cancellable(definition.load(context), signal);
+    else if (definition.provider) {
+      const result = await cancellable(definition.provider.query(context), signal);
+      checkAbort(signal);
+      validateProviderResult(result, reportId);
+      data = result.datasets;
+      onResult?.(reportId, result);
+    } else data = definition.datasets ?? {};
   } catch (error) {
     if (signal?.aborted) throw abortError(signal);
     if (error instanceof ReportSourceError) throw error;
@@ -145,7 +162,28 @@ async function loadDatasets(definition: ReportDefinition, context: ReportLoadCon
   }
   checkAbort(signal);
   validateDatasets(data, reportId);
+  onDatasets?.(reportId, data);
+  validateDataContract(definition, data, reportId);
   return data;
+}
+
+function validateProviderResult(result: ReportQueryResult, reportId: string): void {
+  if (!result || typeof result !== "object" || Array.isArray(result)) throw new ReportSourceError("validate", `报表 ${reportId} Provider 应返回 datasets 结果对象`);
+  for (const key of ["revision", "sourceToken"] as const) {
+    if (result[key] !== undefined && typeof result[key] !== "string") throw new ReportSourceError("validate", `报表 ${reportId} Provider ${key} 应为字符串`);
+  }
+  if (result.diagnostics !== undefined && (!Array.isArray(result.diagnostics) || result.diagnostics.some((entry) => !entry || typeof entry.code !== "string" || typeof entry.message !== "string" || !["info", "warning", "error"].includes(entry.severity)))) {
+    throw new ReportSourceError("validate", `报表 ${reportId} Provider diagnostics 不符合结构化诊断契约`);
+  }
+}
+
+function validateDataContract(definition: ReportDefinition, data: DatasetRows, reportId: string): void {
+  for (const [name, contract] of Object.entries(definition.dataSchema ?? {})) {
+    let validation: ReturnType<typeof validateDatasetRows>;
+    try { validation = validateDatasetRows(Object.prototype.hasOwnProperty.call(data, name) ? data[name] : undefined, contract, { ...definition.dataValidation, path: `$.datasets.${name}` }); }
+    catch (error) { throw new ReportSourceError("config", `报表 ${reportId} 数据集 ${name} 字段契约配置无效`, error); }
+    if (!validation.ok) throw new ReportSourceError("validate", `报表 ${reportId} 数据集 ${name} 不符合字段契约：${validation.issues[0]?.message}`, { issues: validation.issues });
+  }
 }
 
 function paginateReport(template: ReportTemplate, data: DatasetRows, definition: ReportDefinition, reportId: string): ReturnType<typeof paginateTemplate> {
@@ -179,7 +217,7 @@ function appendTablePages(pages: RenderPlan["pages"], plan: RenderPlan, reportIn
  */
 export function createReportSource(
   reports: ReportRegistry,
-  options: { onWarning?: (message: string) => void } = {}
+  options: { onWarning?: (message: string) => void; onDatasets?: (reportId: string, datasets: DatasetRows, template: ReportTemplate) => void } = {}
 ): ReportSource {
   function definitionFor(id: string): ReportDefinition {
     const definition = Object.prototype.hasOwnProperty.call(reports, id) ? reports[id] : undefined;
@@ -187,7 +225,7 @@ export function createReportSource(
     return definition;
   }
 
-  const source: ReportFetcher = async ({ reportIds, params, signal, onWarning }) => {
+  const source: ReportFetcher = async ({ reportIds, params, signal, onWarning, onQueryResult }) => {
     checkAbort(signal);
     // 请求发起时锁定 IDs 与参数，异步加载期间宿主的响应式对象变化不改变本次报表口径。
     const requestedIds = [...reportIds];
@@ -195,16 +233,21 @@ export function createReportSource(
     if (requestedIds.length === 0) throw new ReportSourceError("config", "缺少报表 ID");
     // 先检查所有 ID，避免到中途才发现未注册而发出不必要的业务请求。
     const definitions = requestedIds.map(definitionFor);
+    // 所有静态参数先校验；后一个报表参数非法时，也不会发出前一个数据请求。
+    const declaredParams = definitions.map((definition) => assertReportParams(
+      definition.params ?? (typeof definition.template === "function" ? [] : definition.template.params) ?? [], requestedParams
+    ));
     const pages: RenderPlan["pages"] = [];
     const warnings: string[] = [];
     for (const [index, definition] of definitions.entries()) {
       checkAbort(signal);
       const reportId = requestedIds[index]!;
-      const context: ReportLoadContext = { reportId, params: { ...requestedParams }, signal };
+      const context: ReportLoadContext = { reportId, params: declaredParams[index]!, signal };
       const template = typeof definition.template === "function"
         ? await loadTemplate(definition.template, context, warnings)
         : definition.template;
-      const data = await loadDatasets(definition, context, reportId, signal);
+      context.params = assertReportParams(definition.params ?? template.params ?? [], context.params);
+      const data = await loadDatasets(definition, context, reportId, onQueryResult, options.onDatasets ? (id, datasets) => options.onDatasets!(id, datasets, template) : undefined);
       checkAbort(signal);
       const result = paginateReport(template, data, definition, reportId);
       appendTablePages(pages, result.plan, index, reportId);

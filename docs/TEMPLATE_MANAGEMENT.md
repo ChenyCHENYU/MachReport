@@ -1,6 +1,6 @@
 # 模板配置与管理扩展
 
-MachReport 提供模板文档、校验、导入导出、内存目录和动态加载。业务应用可以连接已有后台或文件存储，预览页面继续只传报表 ID 与参数；保存、发布和权限放在宿主的业务流程中。
+MachReport 提供模板文档、校验、导入导出、轻量目录、草稿发布管理器和存储适配协议。业务应用连接已有后台或文件存储，预览页面继续只传报表 ID 与参数；包内处理版本和冲突流程，宿主处理权限、审批和持久化事务。
 
 ## 最小接入
 
@@ -42,7 +42,7 @@ app.use(machReportPlugin, {
 | --- | --- |
 | `schemaVersion` | 模板文档协议版本，当前 `1.0`；`defineReportTemplate` 自动填写 |
 | `id` / `name` | 必填的稳定模板标识与显示名称 |
-| `revision` | 可选字符串，由宿主管理发布版本或乐观锁标识 |
+| `revision` | 可选字符串；轻量目录由宿主管理，使用 Manager 时由管理器生成修订 token |
 | `description` | 可选描述 |
 | `template` | 普通 `ReportTemplate`：页面、参数、组件与列配置 |
 
@@ -77,22 +77,82 @@ reports: {
 
 参数面板需要同步元数据，因此动态模板把可查询的 `params` 放在报表定义；异步返回模板里的参数不会自动改写已经显示的查询面板。具体发布版本、厂别/租户选择及读取权限由后台校验；不要使用不含权限上下文的全局结果缓存。
 
-## 后台功能如何逐步增加
+## 草稿、发布与历史管理器
+
+需要版本管理时，使用同一核心入口的 `createTemplateManager`；普通静态目录继续使用 `createTemplateRegistry`，无需为简单报表引入发布流程。
+
+```ts
+import {
+  createMemoryTemplateStore, createTemplateManager,
+  createTableTemplate, defineReportTemplate
+} from "@agile-team/mach-report";
+
+const manager = createTemplateManager(createMemoryTemplateStore());
+const document = defineReportTemplate({
+  id: "sales", name: "销售明细",
+  template: createTableTemplate({ columns: [{ header: "商品", field: "name" }] })
+});
+const draft = await manager.saveDraft(document, { expectedRevision: null });
+const published = await manager.publish("sales", { expectedRevision: draft.revision });
+const active = await manager.get("sales");
+const history = await manager.history("sales");
+// 恢复历史内容为新发布修订，旧历史保持不变。
+const restored = await manager.rollback("sales", published.revision, {
+  expectedRevision: published.revision
+});
+```
+
+`saveDraft/publish/rollback` 返回当前状态 `{ id, revision, draft?, publishedRevision?, published? }`。新建的 `expectedRevision` 必须是 `null`；后续修改必须提供刚读取的状态修订。冲突抛 `ReportTemplateStoreError`，`code="conflict"`，不能自动覆盖或重试成最后写入者胜出。
+
+`manager.get(id)` 默认只返回已发布文档；`get(id,{draft:true})` 返回草稿。修改草稿不会改变线上版本。每次草稿写入和发布都会增加状态修订；发布历史只记录发布动作，因此发布修订不保证连续。发布和回滚会清除该状态的草稿；回滚记录 `restoredFrom`，产生新修订，不重写旧版。
+
+历史版本包含 `{ revision, publishedAt, document, restoredFrom? }`。读取文档、状态与历史都返回独立快照，调用方修改返回对象不会污染存储。取消在原子写入前检查；CAS 已成功时不会因迟到的取消误报“没有保存”。
+
+## 持久化适配器与 CAS
+
+内存存储是单进程参考实现，重启后数据消失。生产实现 `ReportTemplateStore` 即可接现有数据库或文件服务，不绑定 ORM、HTTP 框架或表名：
+
+| 适配方法 | 要求 |
+| --- | --- |
+| `read(id,signal?)` | 读取当前状态，不带完整历史数组 |
+| `list(signal?)` | 只返回 `id/revision/publishedRevision` 目录元数据 |
+| `history(id,signal?)` | 显式读取该模板的发布历史 |
+| `getVersion(id,revision,signal?)` | 读取单个不可变历史版本，供回滚使用 |
+| `compareAndSwap(id,expectedRevision,next,{publication?,signal?})` | 原子比较修订、写当前状态，并在有 `publication` 时追加历史；竞争失败返回 `false` |
+
+状态与历史分离：保存草稿和发布不读取全量历史，回滚只读取所选版本。数据库适配器可以把状态和历史放在各自的表中，在同一事务中完成“更新状态 + 插入发布历史”。首次创建依赖唯一 ID 约束；更新依赖 `WHERE revision = expectedRevision` 或等价原子操作；历史修订禁止覆盖。不能用“先 SELECT，再无条件 UPDATE”代替 CAS。
+
+存储适配器负责事务和原子性，管理器负责状态转换与模板校验；租户隔离、权限、审批和审计人员信息仍由宿主业务层提供。模板修订不是数据库主键，也不能代替业务数据的 `revision/sourceToken`。
+
+## 显式文档迁移
+
+未知文档版本默认拒绝。存在受控的历史格式时，注册显式迁移 Hook；迁移后的结果仍经过完整文档校验：
+
+```ts
+const manager = createTemplateManager(store, {
+  migrate: async (input) => migrateKnownTemplateVersions(input)
+});
+await manager.saveDraft(oldDocument, { expectedRevision: null });
+```
+
+`store`、`migrateKnownTemplateVersions` 由宿主提供；只迁移明确支持的旧格式，不执行模板中携带的脚本。迁移 Hook 作用于 `saveDraft`，不会自动修改已发布历史。`now` 可注入发布时钟，便于可复现测试。
+
+## 管理页面与可选能力
 
 | 阶段 | 宿主能力 | 插件承接 |
 | --- | --- | --- |
 | 文件与配置 | 模板 JSON 导入、下载、选择 | parse/serialize、目录、结构校验 |
 | 管理页面 | 查询、编辑草稿、保存、预览 | 结构化错误路径、模板预览、目录快照 |
-| 发布管理 | 草稿与已发布版本分离、审批、审计 | 稳定 ID/revision、动态模板加载 |
-| 历史与回滚 | 不可变历史版本、恢复旧版为新修订 | 相同报表入口重新加载所选版本 |
+| 发布管理 | 审批、审计、持久化事务 | Manager 的草稿/发布状态与 CAS |
+| 历史与回滚 | 历史选择与恢复确认 | 不可变发布版本、恢复旧版为新修订 |
 | 多租户 | 模板范围、读写权限、版本冲突 | 宿主客户端提供权限上下文，引擎无数据库绑定 |
 
-以上管理页面和服务由宿主实施；本包不内置管理控制台、数据库表或自动写库行为。可视化拖拽设计器仍是独立能力，JSON 模板接口可以作为后续设计器的输出协议。
+完整管理控制台和数据库表由宿主实施；本包不会自动写库。可选 `/designer` 提供模板属性编辑器，维护列名、字段映射、列宽、语义、对齐、编辑开关和 JSON，使用保存回调连接 Manager 或现有版本服务；它不包含自由拖拽画布。无 Vue 的后台仍可直接使用核心 Manager。服务端与 Worker 接入见 [SERVER.md](./SERVER.md)。
 
 ## 校验与兼容
 
 `validateReportTemplate` 和 `validateReportTemplateDocument` 返回 `{ ok, errors, warnings }`；错误含字段路径，适合管理页面定位。创建、解析和注册失败抛 `ReportTemplateError`，原数据不会被替换。
 
-导入接受 JSON 文本或普通 JSON 对象；拒绝未知文档版本、未知文档根字段、函数、访问器、循环、危险键、特殊原型和稀疏数组。文档限制为1000万字符、20万 JSON 节点、64层嵌套。对象会完整校验后再复制，不执行模板脚本。网络响应大小和业务数据范围仍由宿主控制。
+导入接受 JSON 文本或普通 JSON 对象；拒绝未知文档版本、未知文档根字段、函数、访问器、循环、危险键、特殊原型和稀疏数组。文档限制为1000万字符、20万 JSON 节点、64层嵌套；多行合并表头还限制逻辑网格不超过20万格，避免小 JSON 通过巨大跨度放大校验成本。对象会完整校验后再复制，不执行模板脚本。网络响应大小和业务数据范围仍由宿主控制。
 
 原有静态 `ReportDefinition.template` 保持2.1兼容，包括显式 undefined 的可选属性；新导入/动态文档遵循纯 JSON 契约。导出前如果静态模板带 undefined，应用应去掉未配置字段；序列化不会静默丢弃非法值。

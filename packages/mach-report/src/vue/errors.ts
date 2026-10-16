@@ -1,3 +1,5 @@
+import { ReportParamValidationError, ReportSourceError } from "@agile-team/mach-report";
+
 /**
  * 结构化错误（code 分类，宿主可按码决定 UX：重试 / 提示 / 降级）。
  * error 事件契约保持 `(message: string)` 不变，新增第二参数 detail（可选）。
@@ -37,4 +39,17 @@ export function toErrorDetail(error: unknown): MachReportErrorDetail {
     return { code: error.code, cause: error.cause };
   }
   return { code: "render", cause: error };
+}
+
+/** Workers preserve stable error codes, not JavaScript class identity. Only known codes cross the UI boundary. */
+export function normalizeReportLoadError(error: unknown): MachReportError {
+  if (error instanceof MachReportError) return error;
+  if (error instanceof ReportParamValidationError) return new MachReportError("param", error.message, error);
+  if (error instanceof ReportSourceError) return new MachReportError(error.code, error.message, error.cause);
+  if (error instanceof Error) {
+    const known: Record<string, MachReportErrorCode> = { params: "param", config: "config", validate: "validate", fetch: "fetch" };
+    const code = (error as Error & { code?: unknown }).code;
+    if (typeof code === "string" && Object.prototype.hasOwnProperty.call(known, code)) return new MachReportError(known[code]!, error.message, error);
+  }
+  return new MachReportError("fetch", error instanceof Error ? error.message : "预览加载失败", error);
 }

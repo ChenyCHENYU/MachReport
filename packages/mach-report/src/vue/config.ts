@@ -3,7 +3,8 @@ import { MACH_REPORT_CONFIG_KEY } from "./injection-keys";
 import type { XlsxRenderOptions } from "../xlsx/render-xlsx";
 import type { ExcelImportOptions } from "../xlsx/import-types";
 import type { ReportEditingOptions } from "./editing";
-import type { MachReportToolbarOptions } from "./tools";
+import type { MachReportToolbarOptions, ReportInteractionOptions, ReportPreferencesOptions } from "./tools";
+import type { AssetRenderOptions } from "@agile-team/mach-report";
 
 /**
  * 配置中心（对齐 mach-table 的 defineMachTableConfig 体验）：
@@ -75,6 +76,34 @@ export interface MachReportMessages {
   editingSaved?: string;
   importLocal?: string;
   emptyDescription?: string;
+  undo?: string;
+  redo?: string;
+  restoreChanges?: string;
+  changes?: string;
+  changesCount?: string;
+  changesEmpty?: string;
+  changesBefore?: string;
+  changesAfter?: string;
+  editAtomicRequired?: string;
+  clipboardLimit?: string;
+  preferencesError?: string;
+  freezeHeaders?: string;
+  frozenColumns?: string;
+  sections?: string;
+  locateField?: string;
+  locateFieldPlaceholder?: string;
+  locateFieldMissing?: string;
+  importSummary?: string;
+  importPreserved?: string;
+  importWarnings?: string;
+  importReadOnly?: string;
+  conflicts?: string;
+  editReadOnly?: string;
+  editMissing?: string;
+  editDuplicate?: string;
+  clipboardInvalid?: string;
+  editSaved?: string;
+  settingsPanes?: string;
 }
 
 export const DEFAULT_MESSAGES: MachReportMessages = {
@@ -127,7 +156,23 @@ export const DEFAULT_MESSAGES: MachReportMessages = {
   editingLocal: "修改为本地草稿；不会自动写入业务数据库。",
   editingSaved: "修改将通过接入方配置的保存回调提交。",
   importLocal: "导入仅生成本地预览，不自动替换业务数据。",
-  emptyDescription: "当前查询没有明细，请调整查询条件后重试。"
+  emptyDescription: "当前查询没有明细，请调整查询条件后重试。",
+  undo: "撤销", redo: "重做", restoreChanges: "恢复来源值", changes: "修改明细", changesCount: "{count} 处修改",
+  changesEmpty: "尚无修改", changesBefore: "来源值", changesAfter: "当前值",
+  editAtomicRequired: "批量保存需要接入方提供原子 saveBatch 回调；本次未写入任何单元格。",
+  clipboardLimit: "单次最多粘贴 10000 个单元格，请分批处理。",
+  preferencesError: "偏好存储不可用，设置仍在当前预览中生效。",
+  freezeHeaders: "冻结表头", frozenColumns: "冻结前列", sections: "工作表与章节",
+  locateField: "定位字段", locateFieldPlaceholder: "输入字段标识，Enter 定位", locateFieldMissing: "未找到该字段，请核对字段标识。",
+  importSummary: "Excel 导入摘要", importPreserved: "已导入 {sheets} 个工作表，保留内容、合并和样式。",
+  importWarnings: "兼容性提示", importReadOnly: "公式、日期及受保护单元格保持只读；公式不重算。",
+  conflicts: "保存冲突",
+  editReadOnly: "选区包含只读或无权限单元格，本次修改未应用。",
+  editMissing: "选区超出报表范围或缺少业务来源，请重新选择。",
+  editDuplicate: "选区包含同一业务字段的重复单元格，请缩小选区。",
+  clipboardInvalid: "剪贴板内容无法识别，请使用矩形表格文本重新粘贴。",
+  editSaved: "修改已通过保存回调确认",
+  settingsPanes: "冻结窗格"
 };
 
 /** 主题变量（组件外壳注入的 --mrp-* CSS 自定义属性） */
@@ -176,6 +221,10 @@ export interface MachReportDefaults {
   /** 设置入口默认显示；可在其中按需启用阅读及输出工具。 */
   showSettings?: boolean;
   toolbar?: MachReportToolbarOptions;
+  interaction?: ReportInteractionOptions;
+  preferences?: ReportPreferencesOptions;
+  /** Prepare optional image/chart/QR/barcode adapters once for preview and all outputs. */
+  assets?: AssetRenderOptions;
   /** 参数面板显隐（有参数定义且未显式关闭时显示；缺省 true） */
   showParams?: boolean;
   /** 页间距 px */
@@ -232,6 +281,9 @@ export type ResolvedConfig = Required<
   editable: boolean | ReportEditingOptions;
   excelImport: boolean | ExcelImportOptions;
   toolbar: MachReportToolbarOptions;
+  interaction: ReportInteractionOptions;
+  preferences?: ReportPreferencesOptions;
+  assets?: AssetRenderOptions;
 };
 
 const FALLBACK_CONFIG: ResolvedConfig = {
@@ -249,7 +301,8 @@ const FALLBACK_CONFIG: ResolvedConfig = {
   xlsx: {},
   editable: false,
   excelImport: false,
-  toolbar: {}
+  toolbar: {},
+  interaction: {}
 };
 
 const SILENT_LOGGER: MachReportLogger = { warn: () => {}, info: () => {} };
@@ -267,7 +320,8 @@ function mergeDefaults(
     messages: { ...base?.messages, ...overlay?.messages },
     preview: { ...base?.preview, ...overlay?.preview },
     xlsx: { ...base?.xlsx, ...overlay?.xlsx },
-    toolbar: { ...base?.toolbar, ...overlay?.toolbar }
+    toolbar: { ...base?.toolbar, ...overlay?.toolbar },
+    interaction: { ...base?.interaction, ...overlay?.interaction }
   };
 }
 
@@ -303,7 +357,10 @@ export function resolveConfig(
     xlsx: { ...merged.xlsx },
     editable: merged.editable ?? false,
     excelImport: merged.excelImport ?? false,
-    toolbar: { ...merged.toolbar }
+    toolbar: { ...merged.toolbar },
+    interaction: { ...merged.interaction },
+    preferences: merged.preferences,
+    assets: merged.assets
   };
 }
 

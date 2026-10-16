@@ -3,8 +3,9 @@ import { MACH_REPORT_CONTROLLER_KEY } from "./injection-keys";
 import { MachReportError } from "./errors";
 import type { MachReportErrorCode } from "./errors";
 import type { PdfFontCheckResult } from "./pdf-exporter";
-import type { RenderPlan, ReportCellEdit } from "@agile-team/mach-report";
+import type { RenderPlan, ReportCellEdit, ReportCellAddress } from "@agile-team/mach-report";
 import type { ExcelImportOptions, ExcelImportResult } from "../xlsx/import-types";
+import type { ReportCellSelection, ReportFieldTarget } from "./composables/useCellSelection";
 
 export interface MachReportStateError {
   message: string;
@@ -29,6 +30,10 @@ export interface MachReportState {
   readonly saving?: boolean;
   readonly importing?: boolean;
   readonly dirty?: boolean;
+  readonly canUndo?: boolean;
+  readonly canRedo?: boolean;
+  readonly changeCount?: number;
+  readonly selection?: Readonly<ReportCellSelection> | null;
 }
 
 const EMPTY_STATE: MachReportState = Object.freeze({
@@ -58,6 +63,15 @@ export interface MachReportController {
   /** Copies prevent consumers from mutating the preview's current snapshot. */
   getPlan?(): RenderPlan | null;
   getChanges?(): ReportCellEdit[];
+  getDifferences?(): ReportCellEdit[];
+  undo?(): Promise<boolean>;
+  redo?(): Promise<boolean>;
+  restoreChanges?(): Promise<boolean>;
+  getSelection?(): ReportCellSelection | null;
+  focusCell?(address: ReportCellAddress, extend?: boolean): Promise<boolean>;
+  focusField?(target: ReportFieldTarget): Promise<boolean>;
+  copySelection?(): string;
+  pasteSelection?(text: string): Promise<boolean>;
 }
 
 /** 父组件使用的稳定句柄；ref 回调直接绑定到预览组件。 */
@@ -71,6 +85,15 @@ export interface MachReportHandle extends MachReportController {
   importExcel(input: ArrayBuffer | Uint8Array | Blob, options?: ExcelImportOptions): Promise<ExcelImportResult | null>;
   getPlan(): RenderPlan | null;
   getChanges(): ReportCellEdit[];
+  getDifferences(): ReportCellEdit[];
+  undo(): Promise<boolean>;
+  redo(): Promise<boolean>;
+  restoreChanges(): Promise<boolean>;
+  getSelection(): ReportCellSelection | null;
+  focusCell(address: ReportCellAddress, extend?: boolean): Promise<boolean>;
+  focusField(target: ReportFieldTarget): Promise<boolean>;
+  copySelection(): string;
+  pasteSelection(text: string): Promise<boolean>;
 }
 
 /**
@@ -96,7 +119,11 @@ export function useMachReport(): MachReportHandle {
     get editing() { return currentState().editing ?? false; },
     get saving() { return currentState().saving ?? false; },
     get importing() { return currentState().importing ?? false; },
-    get dirty() { return currentState().dirty ?? false; }
+    get dirty() { return currentState().dirty ?? false; },
+    get canUndo() { return currentState().canUndo ?? false; },
+    get canRedo() { return currentState().canRedo ?? false; },
+    get changeCount() { return currentState().changeCount ?? 0; },
+    get selection() { return currentState().selection ?? null; }
   });
   function getController(): MachReportController {
     if (!instance.value) {
@@ -142,7 +169,16 @@ export function useMachReport(): MachReportHandle {
     },
     getChanges(): ReportCellEdit[] {
       return getController().getChanges?.() ?? [];
-    }
+    },
+    getDifferences: () => getController().getDifferences?.() ?? [],
+    undo: async () => await getController().undo?.() ?? false,
+    redo: async () => await getController().redo?.() ?? false,
+    restoreChanges: async () => await getController().restoreChanges?.() ?? false,
+    getSelection: () => getController().getSelection?.() ?? null,
+    focusCell: async (address, extend) => await getController().focusCell?.(address, extend) ?? false,
+    focusField: async (target) => await getController().focusField?.(target) ?? false,
+    copySelection: () => getController().copySelection?.() ?? "",
+    pasteSelection: async (text) => await getController().pasteSelection?.(text) ?? false
   };
 }
 

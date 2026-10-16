@@ -121,7 +121,7 @@ async function exportExcel() {
 </template>
 ```
 
-句柄提供 `reload()`、`print()`、`exportAs()`、`openPdfWindow()`、`gotoPage()` 和 `setParams()`。`ready` 表示组件控制器已挂载，不代表数据加载完成；未挂载调用明确报 `config` 错误。组件未加载有效页面时打印和导出保持空操作。
+句柄提供 `reload()`、`print()`、`exportAs()`、`openPdfWindow()`、`gotoPage()` 和 `setParams()`；按需可用 `undo()`、`redo()`、`restoreChanges()`、`focusField()`、`focusCell()`、`getSelection()`、`copySelection()` 和 `pasteSelection()`，无需页面再实现一套交互状态。`ready` 表示组件控制器已挂载，不代表数据加载完成；未挂载调用明确报 `config` 错误。组件未加载有效页面时打印和导出保持空操作。
 
 `state` 是稳定的只读对象，支持如上解构并响应更新；读取字段无需 `.value`。在 Vue 模板或 `computed` 中读取字段即可跟踪变化，单独解构 `const { loading } = state` 只会得到当时的值。组件 ref 和后代控制器也提供只读状态。
 
@@ -133,6 +133,9 @@ async function exportExcel() {
 | `canExport` / `canPrint` | 已有页面且未加载，并且对应操作空闲；不代表特定出口能保留全部内容 |
 | `error` | 最近一次操作错误 `{ code, message, cause? }`，新操作清空；字体预检异常单独记录 |
 | `pdfFont` | 字体预检状态、URL 与诊断信息；不阻塞预览、打印或 Excel |
+| `editing` / `saving` / `importing` | 当前输入、业务保存和 Excel 导入状态 |
+| `dirty` / `changeCount` | 相对本次查询来源仍有净差异 / 差异单元格数；不代表数据库未保存 |
+| `canUndo` / `canRedo` / `selection` | 撤销/重做是否可用，以及当前物理选区 |
 
 卸载时句柄回到空状态。旧自定义控制器没有 `state` 时也使用空状态，旧六个方法继续可用；需要外部按钮状态的自定义控制器应实现新字段。
 
@@ -155,11 +158,40 @@ async function exportExcel() {
 />
 ```
 
-双击编辑后，预览和各输出使用同一份新计划；导入 `.xlsx` 会把各 Sheet 的内容、合并、尺寸和基础样式转换为普通模板并替换当前预览。默认 wide 保持完整列宽，A3/A4 是选配。显式 `report.importExcel(file, options)` 可用于宿主已有的上传控件，不必显示包内按钮。
+单击和键盘可选择、定位及复制单元格，双击或 F2 开始编辑；开启编辑后提供原子矩形粘贴、撤销/重做、修改角标、差异审阅和恢复来源值。预览和各输出使用同一份新计划。导入 `.xlsx` 会把各 Sheet 的内容、合并、尺寸和基础样式转换为普通模板并替换当前预览，同时显示 Sheet 导航与兼容性摘要。默认 wide 保持完整列宽，A3/A4 是选配。显式 `report.importExcel(file, options)` 可用于宿主已有的上传控件，不必显示包内按钮。
 
-业务持久化只需给 `editable` 提供 `{ canEdit, validate, save }`。包内先校验和保存，成功后更新计划，失败保留原值；保存函数应消费传入的 `signal`，并将逻辑表/字段身份映射到明确业务键。`getChanges()` 和 `getPlan()` 返回独立快照，可用于批量保存。具体配置见[单元格编辑](./CELL_EDITING.md)。
+业务持久化给 `editable` 提供 `{ requireSource: true, canEdit, validate, saveBatch }`；列表通过 `listOptions.rowKey`、`revisionField`、`sourceTokenField` 声明稳定业务来源，自动生成 `datasetId / rowKey / field`。包内先校验整批再保存，成功后更新计划，失败保留原值；保存函数应消费 `signal`，服务端按 `requestId` 幂等并在事务内校验版本。旧单格 `save` 仍兼容，没有原子 `saveBatch` 时不提交多格写入；撤销、重做和恢复也会调用真实保存回调。`getChanges()`、`getDifferences()` 和 `getPlan()` 返回独立快照。具体契约见[单元格编辑](./CELL_EDITING.md)。
+
+已注册 `ReportProvider` 时，再用 `createProviderEditing(provider, { reportId: "production", params: () => executedQuery.value })` 显式连接同一保存能力即可，包内转接单格、批量、来源版本及逐格冲突。页面不需要复制 Provider 保存逻辑；查询适配器仍不会隐式开启业务写入。
 
 导入不执行 Excel 公式、宏或外部链接，也不猜测模板与后端字段之间的关系。公式单元格使用缓存结果并保持只读，缺少缓存时空值告警。宿主继续负责模板版本、业务数据绑定、权限和审批；资源预算与转换边界见[Excel 模板导入](./EXCEL_IMPORT.md)。
+
+### 设置、冻结与用户偏好
+
+```ts
+// 注册一次的默认配置；组件 props 可按页面覆盖。
+defineMachReportConfig({ defaults: {
+  interaction: { freezeHeaders: true, frozenColumns: 1 },
+  toolbar: { editing: false, excelImport: false }
+} });
+```
+
+设置入口默认可见，按能力启用搜索、缩略图、缩放、导出、打印、编辑及导入；宿主未授权的能力保留禁用原因。冻结仅影响屏幕，不改变 PDF、Excel 和打印尺寸。工具偏好默认实例内，用户级持久化只需可选 `preferences: { key, adapter }`，不需要页面逐项维护。完整示例与范围见[预览交互](./INTERACTION.md)。
+
+### 图片、图表与二维码适配器统一配置
+
+已有二维码、条码或图表库时，注册生成图片的函数即可复用到预览与各视觉出口：
+
+```ts
+defineMachReportConfig({ defaults: {
+  assets: {
+    assetRenderers: { qrcode: ({ component, signal }) => renderQrDataUrl(component.text ?? "", { signal }) },
+    assetFailure: "throw"
+  }
+} });
+```
+
+`renderQrDataUrl` 为应用选择的编码库适配函数，返回图片 data URL；PDF 兼容的 PNG/JPEG 最便于跨端共用。包内在加载计划后准备一次，后续预览、Canvas、PDF、PNG 使用同一份 `imageData`，不用页面包装每种导出。可配置 `assetBudget` 和 `onDiagnostic`，准备任务随报表切换取消。无配置时保留原来的占位与诊断；适配器失败默认阻止本次新计划，可显式选择 `assetFailure: "placeholder"` 并通过 `warning` 观察降级。Excel 数据出口仍有图片与几何边界，以输出支持矩阵为准。
 
 ## 不使用 Vue：同一数据源
 
@@ -183,7 +215,7 @@ const plan = await source({
 document.querySelector("#report")!.replaceChildren(renderPlan(plan, document));
 ```
 
-`createReportSource` 不依赖 Vue，可在其他前端框架或 Node.js 中用于取数与排版。DOM 渲染需要浏览器；Node.js 可以将得到的计划交给 `/pdf` 或 `/xlsx`。直接使用数据源时，宿主负责 UI、调用取消、输入参数默认值及资源生命周期。
+`createReportSource` 不依赖 Vue，可在其他前端框架或 Node.js 中用于取数与排版。DOM 渲染需要浏览器；Node.js 可以将计划交给 `/pdf` 或 `/xlsx`，也可使用[统一Runtime](./SERVER.md)。参数默认值与校验在包内执行，宿主负责UI、请求客户端消费取消及资源生命周期。
 
 ## 高级接入与兼容
 

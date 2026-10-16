@@ -1,5 +1,5 @@
 import type { PlanComponent, PlanPage } from "./render-plan";
-import { validateGridCellEditingMetadata } from "./cell-edit-validation";
+import { validateBusinessSource, validateGridCellEditingMetadata } from "./cell-edit-validation";
 
 export interface ValidationError {
   path: string;
@@ -39,6 +39,7 @@ function validateTableSource(table: unknown, path: string, errors: ValidationErr
     const tablePath = `${path}.table`;
     if (!isObj(table)) errors.push({ path: tablePath, message: "逻辑表来源应为对象" });
     else {
+      validateBusinessSource(table["source"], `${tablePath}.source`, errors);
       if (typeof table["id"] !== "string" || !table["id"].trim()) errors.push({ path: `${tablePath}.id`, message: "逻辑表 ID 应为非空字符串" });
       const role = table["role"];
       if (!["header", "body", "group-header", "subtotal", "grand-total"].includes(role as string)) errors.push({ path: `${tablePath}.role`, message: "未知逻辑表行角色" });
@@ -126,6 +127,7 @@ export function validateComponent(
     }
   }
   validateTableSource(comp["table"], path, errors);
+  if (comp["lineDirection"] !== undefined && !["down", "up"].includes(comp["lineDirection"] as string)) errors.push({ path: `${path}.lineDirection`, message: "线段方向应为 down 或 up" });
   validateGrid(comp["grid"], path, errors, warnings);
   validateRichText(comp["richParagraphs"], path, errors);
 }

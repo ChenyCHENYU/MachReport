@@ -202,7 +202,7 @@ describe("动态模板接入统一数据源", () => {
     if (title.kind === "list") throw new Error("expected text title");
     title.style = { color: undefined };
     const source = createReportSource({ sales: { template: value, datasets: { detail: [] } } });
-    expect((await source({ reportIds: ["sales"], params: {} })).pages[0]!.components[0]!.text).toBe("销售明细");
+    expect((await source({ reportIds: ["sales"], params: { date: "2026-10-16" } })).pages[0]!.components[0]!.text).toBe("销售明细");
     expect(validateReportTemplateDocument({ ...document(), template: value }).ok).toBe(false);
   });
   it("模板加载与取数共用上下文，仍支持 defineReport 字段映射和声明式参数", async () => {
@@ -229,9 +229,9 @@ describe("动态模板接入统一数据源", () => {
     const load = vi.fn(() => ({ detail: [{ id: "1", amount: 20 }] }));
     const dynamic = vi.fn(() => registry.get("sales")!.template);
     const source = createReportSource({ sales: { template: dynamic, load } });
-    const first = await source({ reportIds: ["sales"], params: {} });
+    const first = await source({ reportIds: ["sales"], params: { date: "2026-10-16" } });
     registry.register(defineReportTemplate({ id: "sales", name: "新版", revision: "v2", template: template("新版标题") }), { replace: true });
-    const second = await source({ reportIds: ["sales"], params: {} });
+    const second = await source({ reportIds: ["sales"], params: { date: "2026-10-16" } });
     expect(first.pages[0]!.components[0]!.text).toBe("销售明细");
     expect(second.pages[0]!.components[0]!.text).toBe("新版标题");
     expect(dynamic).toHaveBeenCalledTimes(2);

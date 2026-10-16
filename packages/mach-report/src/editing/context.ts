@@ -1,5 +1,5 @@
 import { resolveGridLayout } from "../render/grid-geometry";
-import type { GridCell, PlanComponent, PlanTableFragment, RenderPlan } from "../schema/render-plan";
+import type { GridCell, PlanComponent, PlanTableFragment, RenderPlan, ReportCellSource } from "../schema/render-plan";
 
 export type ReportCellValue = string | number | boolean | null;
 export type ReportCellValueType = NonNullable<GridCell["valueType"]>;
@@ -29,6 +29,8 @@ export interface ReportCellContext {
   value: ReportCellValue;
   valueType: ReportCellValueType;
   table?: ReportCellTableIdentity;
+  /** Stable business identity. Physical row indices must never be used as database keys. */
+  source?: Readonly<ReportCellSource>;
   editable: boolean;
   readOnlyReason?: ReportCellReadOnlyReason;
 }
@@ -40,6 +42,7 @@ interface LocatedCell {
 }
 
 function validAddress(address: ReportCellAddress): boolean {
+  if (!address || typeof address !== "object") return false;
   return [address.pageIndex, address.componentIndex, address.rowIndex, address.columnIndex]
     .every((index) => Number.isInteger(index) && index >= 0);
 }
@@ -87,21 +90,56 @@ function tableIdentity(component: PlanComponent, address: ReportCellAddress): Re
   };
 }
 
+function sourceIdentity(cell: GridCell, component: PlanComponent, address: ReportCellAddress): ReportCellSource | undefined {
+  if (cell.source) return { ...cell.source };
+  const source = component.table?.source;
+  const field = component.table?.columnKeys[address.columnIndex];
+  if (!source || source.rowKey === undefined || field === undefined) return undefined;
+  return { ...source, rowKey: source.rowKey, field };
+}
+
 /** 缺失、被合并覆盖、显式 null 占位不生成编辑目标。 */
-export function getReportCellContext(plan: RenderPlan, address: ReportCellAddress): ReportCellContext | null {
-  if (!validAddress(address)) return null;
-  const component = plan.pages[address.pageIndex]?.components[address.componentIndex];
-  if (!component) return null;
-  const located = locateReportGridCell(component, address.rowIndex, address.columnIndex);
-  if (!located) return null;
-  const { cell } = located;
+function cellContext(component: PlanComponent, address: ReportCellAddress, cell: GridCell): ReportCellContext {
   const value = currentValue(cell);
   const reason = readOnlyReason(cell, component);
   return {
     address: { ...address }, cell, component, value,
     valueType: inferValueType(cell, value),
     table: tableIdentity(component, address),
+    source: sourceIdentity(cell, component, address),
     editable: reason === undefined,
     readOnlyReason: reason
+  };
+}
+
+export function getReportCellContext(plan: RenderPlan, address: ReportCellAddress): ReportCellContext | null {
+  if (!validAddress(address)) return null;
+  const component = plan.pages[address.pageIndex]?.components[address.componentIndex];
+  if (!component) return null;
+  const located = locateReportGridCell(component, address.rowIndex, address.columnIndex);
+  return located ? cellContext(component, address, located.cell) : null;
+}
+
+/** Operation-scoped index: avoids repeated geometry work without caching mutable plans globally. */
+export function createReportCellResolver(plan: RenderPlan): (address: ReportCellAddress) => ReportCellContext | null {
+  const components = new Map<PlanComponent, Map<string, GridCell>>();
+  return (address) => {
+    if (!validAddress(address)) return null;
+    const component = plan.pages[address.pageIndex]?.components[address.componentIndex];
+    if (!component?.grid) return null;
+    let index = components.get(component);
+    if (!index) {
+      const sourceColumns = new Map<number, number>();
+      index = new Map();
+      for (const box of resolveGridLayout(component.grid, component.widthMm, component.heightMm).cells) {
+        const sourceColumn = sourceColumns.get(box.ri) ?? 0;
+        sourceColumns.set(box.ri, sourceColumn + 1);
+        const cell = component.grid.cells[box.ri]?.[sourceColumn];
+        if (cell) index.set(`${box.ri}:${box.ci}`, cell);
+      }
+      components.set(component, index);
+    }
+    const cell = index.get(`${address.rowIndex}:${address.columnIndex}`);
+    return cell ? cellContext(component, address, cell) : null;
   };
 }

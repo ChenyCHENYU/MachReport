@@ -1,6 +1,28 @@
 # MachReport API 速查
 
-MachReport 是独立报表引擎。数据来源由应用决定，组件只接收 `RenderPlan`；没有内置网关地址或鉴权逻辑。
+MachReport 是独立报表引擎。应用提供模板和业务数据，或直接返回 `RenderPlan`；包内统一校验、分页、预览与输出，没有内置网关地址或鉴权逻辑。
+
+## 能力入口速查
+
+| 入口 | 主要 API |
+| --- | --- |
+| 核心 | `createTableTemplate / columnsFromContract / createReportSource / createProviderReport`；参数 / 数据校验与JSON Schema；`createTemplateManager / createMemoryTemplateStore`；编辑事务、资源准备、分页与DOM/Canvas |
+| `/vue` | 预览、插件、配置、控制器、`createProviderEditing`；详情见[交互](./INTERACTION.md)和[编辑](./CELL_EDITING.md) |
+| `/server` | `createReportRuntime / createReportTaskQueue / ReportRuntimeError`；见[服务端](./SERVER.md) |
+| `/worker`、`/server/node` | `createBrowserReportExecutor / serveReportWorker`、`createNodeReportExecutor / serveNodeReportWorker` |
+| `/xlsx`、`/xlsx/node` | 导入、`bindExcelTemplate`、计划导出；Node `writeRowsToXlsx` 流式数据导出 |
+| `/designer` | `ReportTemplateEditor`；见[模板属性](./DESIGNER.md) |
+| `/analytics` | `createCrossTable / computeDataset / createChartComponents`；见[分析与资源](./ANALYTICS.md) |
+
+所有代码入口提供 ESM / CJS 与对应类型声明。仅 Node 入口可引用线程 / 文件系统；普通Vue项目无需导入它们。
+
+### 共用数据契约
+
+`ReportDefinition.dataSchema` 按数据集名接收 `DatasetContract`。字段支持 `text / number / boolean / date / decimal`、必填、可空、枚举、数值 / 长度范围、语义与单位；`rowKey` 验证非空且唯一的业务主键。`decimal` 保留精确小数文本，数值字符串不自动转换。`dataValidation` 可配置校验预算。
+
+`columnsFromContract(contract, overrides?)` 生成表头 / 语义，`datasetJsonSchema(contract)` 生成 JSON Schema；唯一主键、权限和事务仍需服务端执行。参数同样可由 `reportParamsJsonSchema` 导出，`validateReportParams` 返回规范字符串 `values` 与适用于Schema的 `typedValues`。必填参数在取数前验证，不再依赖后端报错。
+
+`ReportProvider.query(context)` 返回 `{ datasets, revision?, sourceToken?, diagnostics? }`，可选 `save / export / templates`。旧 `load` 优先并继续支持。显式 `createProviderEditing` 才连接远程编辑；仅注册Provider不自动开放保存权限。
 
 ## 核心数据模型
 
@@ -85,6 +107,9 @@ const detailTemplate = createTableTemplate({
 | 列 / `listOptions.align` | `auto/left/center/right/justify`；标准明细默认 auto，真实数字居右，日期/布尔居中，文本居左 |
 | 列 / `listOptions.headerAlign` | 表头独立对齐；标准明细默认 center，不随内容自动对齐 |
 | 列 / `listOptions.headerStyle` | 表头独立样式，列级覆盖整表；表头字号参与真实折行与行高测量 |
+| 列 `semanticRole` | auto模式中 identifier/text居左、dimension/date居中、measure居右；显式align优先 |
+| `listOptions.rowKey / revisionField / sourceTokenField` | 来源字段，随生成单元格的 `source` 传递；不得使用显示行号替代 |
+| `listOptions.headerGrid` | 重复多层合并表头，通常由Excel绑定生成；列数与列宽须一致 |
 
 输入不被修改；非法尺寸、无可用空间或 page 固定列溢出同步抛错。标题只在首段显示。wide 默认以 100% 预览，横向滚动查看完整列，纵向分段保持窗口化；普通 page 沿用纸张分页与重复表头策略。自由布局继续用 `createTemplate()`。
 

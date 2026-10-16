@@ -50,6 +50,15 @@ export interface RichSegment {
   style?: ComponentStyle;
 }
 
+/** 可持久化的业务身份与计划坐标独立；权限及并发校验仍由业务服务器执行。 */
+export interface ReportCellSource {
+  datasetId: string;
+  rowKey: string | number;
+  field: string;
+  revision?: string | number;
+  sourceToken?: string;
+}
+
 export interface GridCell {
   text?: string;
   rawText?: string;
@@ -61,6 +70,7 @@ export interface GridCell {
   valueType?: "text" | "number" | "boolean";
   /** 单元格级编辑控制；预览仍需显式开启 editing。 */
   editable?: boolean;
+  source?: ReportCellSource;
   /** Excel 公式保留元数据；当前引擎不计算公式，公式格始终只读。 */
   formula?: string;
   children?: PlanComponent[];
@@ -90,6 +100,8 @@ export interface PlanTableFragment {
   columnKeys: string[];
   layout?: "page" | "wide";
   title?: string;
+  /** 只有宿主声明稳定 rowKey 时生成，不能用显示顺序替代业务主键。 */
+  source?: Omit<ReportCellSource, "field" | "rowKey"> & { rowKey?: string | number };
 }
 
 export interface PlanComponent {
@@ -105,6 +117,8 @@ export interface PlanComponent {
   lines?: string[];
   richParagraphs?: RichParagraph[];
   imageData?: string;
+  /** 明确指定线段方向；省略保持历史水平线行为。 */
+  lineDirection?: "down" | "up";
   grid?: PlanGrid;
   table?: PlanTableFragment;
   style?: ComponentStyle;

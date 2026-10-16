@@ -3,7 +3,7 @@ import vue from "@vitejs/plugin-vue";
 import dts from "vite-plugin-dts";
 
 /**
- * 单包发布构建（六入口 × ESM/CJS 双格式）：
+ * 浏览器/共用入口构建（十入口 × ESM/CJS 双格式；另两个Node入口独立构建）：
  *
  * - index/pdf/sql/xlsx：框架无关引擎与重依赖子路径（pdf-lib/fontkit 内联进
  *   pdf 入口、node-sql-parser 内联进 sql 入口——不导入即不进依赖图）
@@ -11,7 +11,8 @@ import dts from "vite-plugin-dts";
  * - 外部化：vue（optional peer）与包自身子路径（自引用 self-reference：
  *   vue 入口静态依赖引擎主入口、pdf 懒加载走 ./pdf 子路径——运行时经本包
  *   exports 解析，引擎代码全局单份）
- * - dts：聚合六入口声明，内联 ExcelJS 类型；构建脚本对齐 Vue 声明路径并复制 .d.cts
+ * - server/worker/analytics：按需引入的共用运行时与扩展；designer为可选Vue属性面板
+ * - dts：聚合入口声明，内联 ExcelJS 类型；构建脚本对齐子路径并复制 .d.cts
  */
 export default defineConfig({
   plugins: [
@@ -52,6 +53,10 @@ export default defineConfig({
         pdf: "src/pdf.ts",
         sql: "src/sql.ts",
         xlsx: "src/xlsx.ts",
+        server: "src/server.ts",
+        designer: "src/designer.ts",
+        analytics: "src/analytics.ts",
+        worker: "src/worker.ts",
         vue: "src/vue/index.ts",
         "vue-async": "src/vue/async.ts"
       },

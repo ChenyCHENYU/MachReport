@@ -1,6 +1,8 @@
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, PDFName, PDFRawStream, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
 import type { ComponentStyle, PlanComponent, RenderPlan } from "../schema/render-plan";
+import { reportOutputDiagnostics, type OutputDiagnostic } from "../output/capabilities";
+import { resolvePlanAssets, type AssetRenderOptions } from "../output/assets";
 import {
   heuristicMeasurer,
   isImageBackedComponent,
@@ -15,10 +17,17 @@ import {
   type TextMeasurer
 } from "../index";
 
-export interface PdfRenderOptions {
+export interface PdfRenderOptions extends AssetRenderOptions {
   /** 嵌入字体字节（TTF，如黑体）；缺省用 Helvetica（不支持 CJK） */
   customFontBytes?: Uint8Array | ArrayBuffer;
   customFontName?: string;
+  /** Explicit faces preserve bold/italic; missing faces fall back to regular and emit a fidelity warning. */
+  customFontFaces?: {
+    regular: Uint8Array | ArrayBuffer;
+    bold?: Uint8Array | ArrayBuffer;
+    italic?: Uint8Array | ArrayBuffer;
+    boldItalic?: Uint8Array | ArrayBuffer;
+  };
   /** 文本测量器（默认启发式；与分页/Canvas 注入同一实例可消除折行差异） */
   measurer?: TextMeasurer;
 }
@@ -38,6 +47,7 @@ export interface PdfRenderResult {
   unsupportedTextCount: number;
   /** 保真度降级清单（富文本转纯文本、图片格式不支持等），供上层提示 */
   fidelityWarnings: string[];
+  diagnostics: OutputDiagnostic[];
 }
 
 const MM_TO_PT = 72 / 25.4;
@@ -110,6 +120,7 @@ interface PdfRenderer {
   document: PDFDocument;
   fonts: { regular: PDFFont; bold: PDFFont; italic: PDFFont; boldItalic: PDFFont };
   customFont?: PDFFont;
+  customFontFaces?: PdfRenderOptions["customFontFaces"];
   measurer: TextMeasurer;
   imageCache: Map<string, Promise<PDFImage | null>>;
   fidelityWarnings: string[];
@@ -140,7 +151,6 @@ function richTextToLines(comp: PlanComponent): string[] {
 }
 
 function fontForStyle(renderer: PdfRenderer, style: ComponentStyle): PDFFont {
-  if (renderer.customFont) return renderer.customFont;
   if (style.bold && style.italic) return renderer.fonts.boldItalic;
   if (style.bold) return renderer.fonts.bold;
   if (style.italic) return renderer.fonts.italic;
@@ -154,12 +164,13 @@ function warnStyle(renderer: PdfRenderer, key: string, message: string, location
 }
 
 function checkTextStyle(renderer: PdfRenderer, style: ComponentStyle, location: string): void {
-  if (renderer.customFont && (style.bold || style.italic)) {
+  const faces = renderer.customFontFaces;
+  const missingFace = style.bold && style.italic ? !faces?.boldItalic : style.bold ? !faces?.bold : style.italic ? !faces?.italic : false;
+  if (renderer.customFont && missingFace) {
     warnStyle(renderer, "custom-font-weight", "自定义 PDF 字体只提供单个字面，粗体/斜体按该字体自身字形导出", location);
   }
   if (style.align === "justify") warnStyle(renderer, "justify", "PDF 两端对齐暂按左对齐导出", location);
   if (style.fontFamily && !renderer.customFont) warnStyle(renderer, "font-family", "PDF 字体族需提供 customFontBytes；当前使用内置 Helvetica", location);
-  if (style.letterSpacing) warnStyle(renderer, "letter-spacing", "PDF 字间距暂未应用", location);
   if (style.rotateDeg) warnStyle(renderer, "rotate", "PDF 文字旋转暂未应用", location);
   if (style.opacity !== undefined && style.opacity !== 1) warnStyle(renderer, "opacity", "PDF 透明度暂未应用", location);
 }
@@ -170,12 +181,20 @@ function drawTextLine(renderer: PdfRenderer, page: PDFPage, line: string, style:
   if (line && !supported) renderer.unsupportedTextCount++;
   if (!encoded) return;
   const size = resolveFontSize(style).fontSizePt;
-  const width = font.widthOfTextAtSize(encoded, size);
+  const characters = Array.from(encoded);
+  const spacing = style.letterSpacing ?? 0;
+  const width = font.widthOfTextAtSize(encoded, size) + Math.max(0, characters.length - 1) * spacing;
   let x = box.x;
   if (style.align === "center") x += (box.width - width) / 2;
   else if (style.align === "right") x += box.width - width;
   const color = colorOf(style.color);
-  page.drawText(encoded, { x, y: baseline, size, font, color });
+  if (spacing) {
+    let prefix = "";
+    characters.forEach((character, index) => {
+      page.drawText(character, { x: x + font.widthOfTextAtSize(prefix, size) + index * spacing, y: baseline, size, font, color });
+      prefix += character;
+    });
+  } else page.drawText(encoded, { x, y: baseline, size, font, color });
   if (style.underline) {
     page.drawLine({ start: { x, y: baseline - 1 }, end: { x: x + width, y: baseline - 1 }, thickness: Math.max(0.4, size / 20), color });
   }
@@ -196,7 +215,10 @@ function wrappedLines(renderer: PdfRenderer, text: string, widthMm: number, styl
   if (!text) return [];
   return wrapText(text, Math.max(0, widthMm), {
     fontSizePt: resolveFontSize(style).fontSizePt,
-    bold: style.bold
+    bold: style.bold,
+    italic: style.italic,
+    fontFamily: style.fontFamily,
+    letterSpacingPt: style.letterSpacing
   }, renderer.measurer);
 }
 
@@ -320,9 +342,11 @@ function drawShape(page: PDFPage, comp: PlanComponent, box: TextBox): boolean {
   }
   if (comp.kind === "line") {
     const style = { ...comp.style, borderColor: comp.style?.lineColor ?? comp.style?.borderColor };
+    const startY = comp.lineDirection === "up" ? box.yTop - box.height : comp.lineDirection === "down" ? box.yTop : box.yTop - box.height / 2;
+    const endY = comp.lineDirection === "up" ? box.yTop : comp.lineDirection === "down" ? box.yTop - box.height : box.yTop - box.height / 2;
     drawBorderLine(page, style,
-      { x: box.x, y: box.yTop - box.height / 2 },
-      { x: box.x + box.width, y: box.yTop - box.height / 2 });
+      { x: box.x, y: startY },
+      { x: box.x + box.width, y: endY });
     return true;
   }
   if (comp.kind === "ellipse") {
@@ -356,28 +380,50 @@ async function drawComponent(renderer: PdfRenderer, page: PDFPage, comp: PlanCom
 }
 
 async function createRenderer(document: PDFDocument, options: PdfRenderOptions): Promise<PdfRenderer> {
-  const customFont = options.customFontBytes
+  const regularBytes = options.customFontFaces?.regular ?? options.customFontBytes;
+  const fontCache = new Map<Uint8Array | ArrayBuffer, Promise<PDFFont>>();
+  const customFont = regularBytes
     // fontkit 的子集重写可能损坏 CJK 轮廓：字符可提取却在阅读器中不可见。
     // 完整嵌入优先保证输出可见性；宿主仍可提供预先验证的字体子集来控制体积。
-    ? await document.embedFont(options.customFontBytes as unknown as ArrayBuffer, { subset: false })
+    ? await embedFontBytes(document, regularBytes, fontCache)
     : undefined;
   const [regular, bold, italic, boldItalic] = await Promise.all([
     document.embedFont(StandardFonts.Helvetica), document.embedFont(StandardFonts.HelveticaBold),
     document.embedFont(StandardFonts.HelveticaOblique), document.embedFont(StandardFonts.HelveticaBoldOblique)
   ]);
+  const fonts = customFont ? {
+    regular: customFont,
+    bold: await embedFace(document, options.customFontFaces?.bold, customFont, fontCache),
+    italic: await embedFace(document, options.customFontFaces?.italic, customFont, fontCache),
+    boldItalic: await embedFace(document, options.customFontFaces?.boldItalic, customFont, fontCache)
+  } : { regular, bold, italic, boldItalic };
   return {
-    document, fonts: { regular, bold, italic, boldItalic }, customFont,
+    document, fonts, customFont, customFontFaces: options.customFontFaces,
     measurer: options.measurer ?? heuristicMeasurer,
     imageCache: new Map(), fidelityWarnings: [], styleWarnings: new Set(), unsupportedTextCount: 0
   };
 }
 
+async function embedFace(document: PDFDocument, bytes: Uint8Array | ArrayBuffer | undefined, fallback: PDFFont, cache: Map<Uint8Array | ArrayBuffer, Promise<PDFFont>>): Promise<PDFFont> {
+  return bytes ? embedFontBytes(document, bytes, cache) : fallback;
+}
+
+function embedFontBytes(document: PDFDocument, bytes: Uint8Array | ArrayBuffer, cache: Map<Uint8Array | ArrayBuffer, Promise<PDFFont>>): Promise<PDFFont> {
+  let font = cache.get(bytes);
+  if (!font) { font = document.embedFont(bytes as unknown as ArrayBuffer, { subset: false }); cache.set(bytes, font); }
+  return font;
+}
+
 export async function renderPlanToPdf(plan: RenderPlan, options: PdfRenderOptions = {}): Promise<PdfRenderResult> {
+  const prepared = await resolvePlanAssets(plan, { ...options, format: "pdf" });
+  plan = prepared.plan;
+  const diagnostics = [...prepared.diagnostics, ...reportOutputDiagnostics(plan, "pdf", options)];
   const pdfDoc = await PDFDocument.create();
   pdfDoc.registerFontkit(compatibleFontkit);
   const renderer = await createRenderer(pdfDoc, options);
   const pageErrors: string[] = [];
   for (const [pageIndex, planPage] of plan.pages.entries()) {
+    checkCancelled(options.signal);
     const widthPt = mmToPt(planPage.pageWidthMm);
     const heightPt = mmToPt(planPage.pageHeightMm);
     if (widthPt > 14_400 || heightPt > 14_400) {
@@ -385,6 +431,7 @@ export async function renderPlanToPdf(plan: RenderPlan, options: PdfRenderOption
     }
     const page = pdfDoc.addPage([widthPt, heightPt]);
     for (const comp of planPage.components) {
+      checkCancelled(options.signal);
       const location = `page ${pageIndex + 1} ${comp.nid ?? comp.kind}`;
       try {
         await drawComponent(renderer, page, comp, heightPt, location);
@@ -393,11 +440,19 @@ export async function renderPlanToPdf(plan: RenderPlan, options: PdfRenderOption
       }
     }
   }
-  if (isOpenTypeContainer(options.customFontBytes)) await preserveOpenTypeContainer(pdfDoc);
+  const fontBytes = [options.customFontBytes, ...Object.values(options.customFontFaces ?? {})];
+  checkCancelled(options.signal);
+  if (fontBytes.some(isOpenTypeContainer)) await preserveOpenTypeContainer(pdfDoc);
   const bytes = await pdfDoc.save();
+  checkCancelled(options.signal);
   return {
     pdfDoc, bytes, pageErrors,
     unsupportedTextCount: renderer.unsupportedTextCount,
-    fidelityWarnings: renderer.fidelityWarnings
+    fidelityWarnings: renderer.fidelityWarnings,
+    diagnostics
   };
+}
+
+function checkCancelled(signal?: AbortSignal): void {
+  if (signal?.aborted) throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
 }
