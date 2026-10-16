@@ -1,3 +1,4 @@
+import { outputCheckpoint, type OutputTaskOptions } from "../output/progress";
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, PDFName, PDFRawStream, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
 import type { ComponentStyle, PlanComponent, RenderPlan } from "../schema/render-plan";
@@ -18,7 +19,7 @@ import {
   type TextMeasurer
 } from "../index";
 
-export interface PdfRenderOptions extends AssetRenderOptions {
+export interface PdfRenderOptions extends AssetRenderOptions, OutputTaskOptions {
   /** 嵌入字体字节（TTF，如黑体）；缺省用 Helvetica（不支持 CJK） */
   customFontBytes?: Uint8Array | ArrayBuffer;
   customFontName?: string;
@@ -439,6 +440,7 @@ export async function renderPlanToPdf(plan: RenderPlan, options: PdfRenderOption
         pageErrors.push(`page ${pageIndex + 1} comp ${comp.nid ?? comp.kind}: ${String(error)}`);
       }
     }
+    await outputCheckpoint(options, pageIndex + 1, plan.pages.length);
   }
   const fontBytes = [options.customFontBytes, ...Object.values(options.customFontFaces ?? {})];
   checkCancelled(options.signal);

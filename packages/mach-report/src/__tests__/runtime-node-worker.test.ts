@@ -1,11 +1,15 @@
 // @vitest-environment node
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { Worker } from "node:worker_threads";
+import { createReportWorkerExecutor } from "../worker/client";
+import { createReportTaskQueue } from "../server/task-queue";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, extname, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
+import type { ReportTaskEvent } from "../source/task-events";
 import { createNodeReportExecutor, serveNodeReportWorker } from "../server/node";
 
 let directory: string;
@@ -66,7 +70,10 @@ afterAll(async () => { if (directory) await rm(directory, { recursive: true, for
 describe("真实 Node Worker 适配器", () => {
   it("真实线程运行同一 runtime，隔离过期消息，并序列化参数错误", async () => {
     const executor = createNodeReportExecutor({ filename });
-    const result = await executor.prepare({ reportIds: ["sales"], params: { plant: "A" } });
+    const events: ReportTaskEvent[] = [];
+    const result = await executor.prepare({ reportIds: ["sales"], params: { plant: "A" }, taskId: "real-worker", correlationId: "trace" }, undefined, (event) => events.push(event));
+    expect(events.some((event) => event.stage === "query" && event.status === "completed")).toBe(true);
+    expect(events.every((event) => event.taskId === "real-worker" && event.correlationId === "trace")).toBe(true);
     expect(result).toMatchObject({ stats: { rows: 1, cells: 2 }, revisions: { sales: { revision: "worker-r1" } } });
     expect(result.plan.pages[0]?.components.some((component) => component.grid?.cells[0]?.[0]?.text === "A")).toBe(true);
     await expect(executor.prepare({ reportIds: ["sales"] })).rejects.toMatchObject({ name: "ReportParamValidationError", code: "params", issues: [expect.objectContaining({ code: "required", field: "plant" })] });
@@ -84,6 +91,29 @@ describe("真实 Node Worker 适配器", () => {
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
     expect(Date.now() - cancelled).toBeLessThan(1000);
     expect((await executor.prepare({ reportIds: ["sales"], params: { plant: "B" } })).stats.rows).toBe(1);
+  });
+  it("多轮并发运行后所有真实线程已终止，队列资源归零且下一批仍能正常执行", async () => {
+    const workers: Worker[] = [];
+    const executor = createReportWorkerExecutor(() => {
+      const worker = new Worker(filename); workers.push(worker);
+      return {
+        postMessage: (request) => worker.postMessage(request), terminate: () => worker.terminate(),
+        subscribe: (message, error) => {
+          worker.on("message", message); worker.on("error", error);
+          return () => { worker.off("message", message); worker.off("error", error); };
+        }
+      };
+    });
+    const queue = createReportTaskQueue({ concurrency: 2, maxQueued: 4 });
+    for (let batch = 0; batch < 3; batch++) {
+      const tasks = Array.from({ length: 3 }, () => queue.enqueue(({ signal, taskId, onEvent }) => executor.prepare({ reportIds: ["sales"], params: { plant: "A" }, taskId }, signal, onEvent)));
+      const results = await Promise.all(tasks.map((task) => task.result));
+      expect(results.every((result) => result.stats.rows === 1)).toBe(true);
+      expect(workers.every((worker) => worker.threadId === -1)).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(queue.active).toBe(0); expect(queue.pending).toBe(0);
+    }
+    expect(workers).toHaveLength(9); queue.close();
   });
   it("未返回结果的 worker 超时或提前退出均拒绝并终止", async () => {
     const stalled = resolve(directory, "stalled.mjs");

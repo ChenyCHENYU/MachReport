@@ -1,3 +1,4 @@
+import type { OutputTaskOptions } from "../output/progress";
 import type { ReportTemplate } from "../layout/paginate";
 
 /** Limits apply to the selected rectangular ranges, including their empty cells. */
@@ -16,7 +17,7 @@ export interface ExcelImportLimits {
   maxSheets?: number;
 }
 
-export interface ExcelImportOptions {
+export interface ExcelImportOptions extends OutputTaskOptions {
   /** Sheet names or one-based workbook positions. Default: all visible sheets. */
   sheets?: Array<string | number>;
   /** A1 range for every sheet, or ranges keyed by exact sheet name. */

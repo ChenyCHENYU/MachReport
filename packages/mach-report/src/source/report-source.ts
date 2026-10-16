@@ -4,6 +4,7 @@ import { validateRenderPlan } from "../schema/validate";
 import { getReportParamDefs } from "./report-params";
 import { ReportTemplateError, validateReportTemplate } from "./template-registry";
 import { assertReportParams } from "./param-validation";
+import { createReportTaskReporter, type ReportTaskMonitoring } from "./task-events";
 import type { ReportProvider, ReportQueryResult } from "./provider";
 import { validateDatasetRows, type DatasetContract, type DatasetValidationOptions } from "../schema/dataset";
 
@@ -14,7 +15,7 @@ export interface ReportLoadContext {
   signal?: AbortSignal;
 }
 
-export interface ReportFetchInput {
+export interface ReportFetchInput extends ReportTaskMonitoring {
   reportIds: string[];
   params: Record<string, string>;
   signal?: AbortSignal;
@@ -143,7 +144,7 @@ async function loadTemplate(loader: ReportTemplateLoader, context: ReportLoadCon
   }
 }
 
-async function loadDatasets(definition: ReportDefinition, context: ReportLoadContext, reportId: string, onResult?: ReportFetchInput["onQueryResult"], onDatasets?: (reportId: string, datasets: DatasetRows) => void): Promise<DatasetRows> {
+async function loadDatasets(definition: ReportDefinition, context: ReportLoadContext, reportId: string, onResult?: ReportFetchInput["onQueryResult"]): Promise<DatasetRows> {
   const signal = context.signal;
   let data: DatasetRows;
   try {
@@ -161,9 +162,6 @@ async function loadDatasets(definition: ReportDefinition, context: ReportLoadCon
     throw new ReportSourceError("fetch", `报表 ${reportId} 取数失败：${error instanceof Error ? error.message : String(error)}`, error);
   }
   checkAbort(signal);
-  validateDatasets(data, reportId);
-  onDatasets?.(reportId, data);
-  validateDataContract(definition, data, reportId);
   return data;
 }
 
@@ -232,8 +230,9 @@ export function createReportSource(
     return definition;
   }
 
-  const source: ReportFetcher = async ({ reportIds, params, signal, onWarning, onQueryResult }) => {
+  const source: ReportFetcher = async ({ reportIds, params, signal, onWarning, onQueryResult, ...monitoring }) => {
     checkAbort(signal);
+    const reporter = createReportTaskReporter({ ...monitoring, signal });
     // 请求发起时锁定 IDs 与参数，异步加载期间宿主的响应式对象变化不改变本次报表口径。
     const requestedIds = [...reportIds];
     const requestedParams = { ...params };
@@ -241,9 +240,9 @@ export function createReportSource(
     // 先检查所有 ID，避免到中途才发现未注册而发出不必要的业务请求。
     const definitions = requestedIds.map(definitionFor);
     // 所有静态参数先校验；后一个报表参数非法时，也不会发出前一个数据请求。
-    const declaredParams = definitions.map((definition) => assertReportParams(
+    const declaredParams = reporter.runSync("validate", () => definitions.map((definition) => assertReportParams(
       definition.params ?? (typeof definition.template === "function" ? [] : definition.template.params) ?? [], requestedParams
-    ));
+    )));
     const pages: RenderPlan["pages"] = [];
     const warnings: string[] = [];
     for (const [index, definition] of definitions.entries()) {
@@ -251,21 +250,27 @@ export function createReportSource(
       const reportId = requestedIds[index]!;
       const context: ReportLoadContext = { reportId, params: declaredParams[index]!, signal };
       const template = typeof definition.template === "function"
-        ? await loadTemplate(definition.template, context, warnings)
+        ? await reporter.run("query", () => loadTemplate(definition.template as ReportTemplateLoader, context, warnings), reportId)
         : definition.template;
-      context.params = assertReportParams(definition.params ?? template.params ?? [], context.params);
-      const data = await loadDatasets(definition, context, reportId, onQueryResult, options.onDatasets ? (id, datasets) => options.onDatasets!(id, datasets, template) : undefined);
+      context.params = reporter.runSync("validate", () => assertReportParams(definition.params ?? template.params ?? [], context.params), reportId);
+      const data = await reporter.run("query", () => loadDatasets(definition, context, reportId, onQueryResult), reportId);
+      reporter.runSync("validate", () => {
+        validateDatasets(data, reportId);
+        options.onDatasets?.(reportId, data, template);
+        validateDataContract(definition, data, reportId);
+      }, reportId);
       checkAbort(signal);
-      const result = paginateReport(template, data, definition, reportId, options.maxPages === undefined ? undefined : { maxPages: options.maxPages, usedPages: pages.length });
+      const result = reporter.runSync("layout", () => paginateReport(template, data, definition, reportId, options.maxPages === undefined ? undefined : { maxPages: options.maxPages, usedPages: pages.length }), reportId);
       appendTablePages(pages, result.plan, index, reportId);
       warnings.push(...result.warnings.map((message) => `${reportId}: ${message}`));
     }
     checkAbort(signal);
     const plan: RenderPlan = { schemaVersion: RENDER_PLAN_SCHEMA_VERSION, pages };
-    const validation = validateRenderPlan(plan);
-    if (!validation.ok) {
-      throw new ReportSourceError("validate", `渲染计划校验失败：${validation.errors.slice(0, 3).map((error) => `${error.path}: ${error.message}`).join("; ")}`);
-    }
+    const validation = reporter.runSync("validate", () => {
+      const result = validateRenderPlan(plan);
+      if (!result.ok) throw new ReportSourceError("validate", `渲染计划校验失败：${result.errors.slice(0, 3).map((error) => `${error.path}: ${error.message}`).join("; ")}`);
+      return result;
+    });
     warnings.push(...validation.warnings.map((warning) => `${warning.path}: ${warning.message}`));
     const warn = onWarning ?? options.onWarning ?? ((message: string) => console.warn("[mach-report]", message));
     for (const message of warnings) {

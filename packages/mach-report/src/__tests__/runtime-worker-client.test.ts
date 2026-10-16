@@ -47,6 +47,13 @@ describe("共享 Worker RPC 生命周期", () => {
     expect(result.error).toEqual({ name: "Error", message: "bad input", code: "params", issues: [{ code: "invalid", path: "$.params.date", message: "bad date" }] });
     expect(() => JSON.stringify(result)).not.toThrow();
   });
+  it("严格输出的诊断位置可跨RPC返回，剔除宿主私有字段", async () => {
+    const error = Object.assign(new Error("fidelity"), { code: "output-fidelity", diagnostics: [{ code: "missing-image", format: "pdf", severity: "warning", pageIndex: 2, componentIndex: 3, componentPath: [0, 1, 0], kind: "image", message: "missing", secret: "private" }] });
+    const runtime = { export: () => { throw error; } } as unknown as ReportRuntime;
+    const response = await runReportWorkerRequest(runtime, { protocol: REPORT_WORKER_PROTOCOL, id: "strict", operation: "export", input: { reportIds: ["a"], format: "pdf", fidelity: "strict" } });
+    expect(response.error).toMatchObject({ code: "output-fidelity", diagnostics: [{ code: "missing-image", pageIndex: 2, componentIndex: 3, componentPath: [0, 1, 0] }] });
+    expect(JSON.stringify(response)).not.toContain("private");
+  });
   it("匹配任务ID但响应契约错误时明确拒绝并清理线程", async () => {
     let message!: (value: unknown) => void;
     const terminate = vi.fn();

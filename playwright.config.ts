@@ -6,6 +6,8 @@ export default defineConfig({
   retries: 0,
   use: {
     headless: true,
+    // Local fixtures must not depend on the developer's macOS/system proxy.
+    launchOptions: { firefoxUserPrefs: { "network.proxy.type": 0 } },
     viewport: { width: 1440, height: 900 }
   },
   webServer: [

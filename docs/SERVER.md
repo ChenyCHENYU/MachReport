@@ -134,6 +134,8 @@ const file = await runtime.export({ reportIds: ["sales"], params: { date: "2026-
 
 每个调用创建独立线程；完成、错误、超时、取消都会清理监听并终止线程。RPC 校验协议与任务 ID，过期消息不会覆盖新结果。导出字节通过所有权转移返回，不额外复制整个文件；输入字体不会被转移或失效。`timeoutMs` 可设置执行器超时，`workerOptions` 透传受控的 Node Worker 配置。服务端应结合有界队列使用，避免无限创建线程；进程/容器内存限制仍由部署环境设置。
 
+使用自定义执行器或 Worker 时，外层与执行端 Runtime 应配置相同的 `budget`。外层可以核对返回结果，执行端的预算才会在取数和分页过程中提前阻止超限；只调小外层额度不能代替执行端的资源保护。
+
 ## 浏览器 Worker
 
 ```ts
@@ -151,14 +153,65 @@ import type { ReportFetcher } from "@agile-team/mach-report";
 const executor = createBrowserReportExecutor(() =>
   new Worker(new URL("./report.worker.ts", import.meta.url), { type: "module" })
 );
-const fetcher: ReportFetcher = async ({ reportIds, params, signal }) =>
-  (await executor.prepare({ reportIds, params }, signal)).plan;
+const fetcher: ReportFetcher = async ({ reportIds, params, signal, taskId, correlationId, onEvent }) =>
+  (await executor.prepare({ reportIds, params, taskId, correlationId }, signal, onEvent)).plan;
 ```
 
-把 `fetcher` 传给预览组件即可沿用取消与过期结果保护。Worker 中的 Provider 应使用 Worker 可用的客户端，例如 `fetch`；依赖 DOM 的宿主代码留在主线程。浏览器入口不会导入 `node:worker_threads`。
+把 `fetcher` 传给预览组件即可沿用阶段反馈、取消与过期结果保护。Worker 中的 Provider 应使用 Worker 可用的客户端，例如 `fetch`；依赖 DOM 的宿主代码留在主线程。浏览器入口不会导入 `node:worker_threads`。
 
 ## 大批量数据 Excel
 
 当目标是连续数据导出时，可直接使用独立的 [`/xlsx/node` 流式适配器](../packages/mach-report/src/xlsx/node.ts)，消费 `AsyncIterable` 并处理背压、进度和取消，无需先生成完整 RenderPlan。它输出数据工作表；PDF 或固定版式继续走运行时布局出口。详细区别见 [Excel 文档](./EXCEL.md)。
 
 权限始终由宿主校验：报表 ID、租户、数据范围、编辑字段、冻结状态、来源修订、幂等请求以及数据库事务，都不由模板、客户端或 Worker 的参数验证代替。
+
+## 阶段事件与关联请求
+
+查询、字段/计划校验、分页排版和文件编码使用同一可选观察契约。普通接入保持原有参数；需要任务反馈时添加 `taskId`、`correlationId` 和 `onEvent`：
+
+```ts
+const file = await runtime.export({
+  reportIds: ["sales"], params: { plant: "YTS0" }, format: "xlsx",
+  taskId: "export-42", correlationId: "request-42", signal,
+  onEvent(event) {
+    // event.stage: query | validate | layout | encode
+    // event.status: started | completed | failed
+    // reportId（报表阶段）、completed/total（有明确单位时）均为可选。
+    taskStore.update(event);
+  }
+});
+```
+
+`taskId` 未传时由包内生成；同一 Runtime 调用贯穿全部阶段。阶段可以重复，例如多张报表各有 query/validate/layout，最后还会校验合并计划；不要把事件数换算成估算百分比。编码器仅在有准确单位时提供计数，最终文件封装仍可能暂时无法确定进度。
+
+`onEvent` 是同步观察器：异常被隔离，不影响报表结果；不用于校验、授权或事务决策。事件不包含数据行、鉴权或文件内容。取消/超时后不再通知，忽略 signal 的上游即便迟到也不会更新任务。Worker 使用独立事件帧转发并校验任务身份、阶段、计数，不把函数传给 `structuredClone`。自定义 executor 的第三个可选参数接收观察器，原有两个参数实现继续兼容。
+
+队列可直接转交任务上下文，调用侧无需自己合并生命周期：
+
+```ts
+const task = queue.enqueue(
+  ({ taskId, signal, onEvent }) => runtime.export({
+    reportIds: ["sales"], params: { plant: "YTS0" }, format: "pdf",
+    taskId, signal, onEvent, correlationId: "request-42"
+  }),
+  { id: "export-42", onEvent: event => taskStore.update(event) }
+);
+// task.status / task.event（最新阶段）/ task.progress / task.cancel()
+const result = await task.result;
+```
+
+顶层 `fidelity: "strict"` 可让 Runtime 在编码前拒绝已识别的保真度问题，抛 `OutputFidelityError`（`code="output-fidelity"`、`diagnostics`）。默认 `warn` 保留诊断并输出文件。strict 保证已识别的能力边界，不承诺与任意 Excel/Office 渲染逐像素一致；模板、字体和各出口的验收仍需真实样本。
+
+## 可运行的 Java → Node 参考闭环
+
+[标准库参考服务与 Java 客户端](../examples/server-java-node/README.md) 共用 JSON fixture，演示参数 JSON Schema、错误映射、高精度值、超时/取消与二进制下载。`node scripts/check-server-example.mjs` 使用实际打包产物启动临时服务，真实编译 Java 17 目标并执行 HTTP 验证；同时跑 24 次并发查询、8 次并发导出并检查任务槽位释放。
+
+高精度十进制、超安全整数范围和带前导零编号使用 JSON 字符串传输；Java 端按业务契约使用 `BigDecimal`，不要先转换成 `double` 再恢复。Node SDK 不替 Java 执行数据库权限或事务。
+
+## 消费端兼容门禁
+
+`node scripts/check-compat.mjs` 对本机实际 Node/Vue 组合检查打包产物的十二入口、ESM/CJS、Runtime、PDF/XLSX 和 Vue SSR。可传 `--node=/path/to/node --vue=3.2.47`；只为真正执行过的组合输出版本，不把矩阵配置当验证通过。
+
+CI 追加 Node 18/20/22/24 × Vue 3.2.47/3.5 的独立消费矩阵，复用主门禁产出的同一 tarball，不在旧 Node 上运行开发构建链。Firefox/WebKit 运行真实渲染、参数、Excel边框和宽表流程；完整 Chromium 门禁保持零重试。它们的运行结果以 CI 回执为准。
+
+性能回归继续使用原有首屏、DOM窗口与翻页门禁；服务端重复查询/导出报告堆样本，并以队列活动数、排队数和已终止 Worker 等确定性资源释放为门禁。堆曲线需要在固定环境长期采样，单次 GC 波动不能用于承诺无泄漏或修改阈值。

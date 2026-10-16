@@ -51,7 +51,7 @@ describe("exportAs 出口矩阵接线", () => {
       options.valueMode = "text";
       options.paperSize = "a4";
       await pending;
-      expect(renderExcel).toHaveBeenCalledWith(plan, { valueMode: "raw", paperSize: "a3" });
+      expect(renderExcel).toHaveBeenCalledWith(plan, expect.objectContaining({ valueMode: "raw", paperSize: "a3", signal: expect.any(AbortSignal), onProgress: expect.any(Function) }));
       expect(createUrl).toHaveBeenCalledOnce();
     } finally {
       api.dispose(); renderExcel.mockRestore(); createUrl.mockRestore(); revokeUrl.mockRestore();

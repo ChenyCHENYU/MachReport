@@ -4,6 +4,7 @@ import type { XlsxRenderOptions } from "../xlsx/render-xlsx";
 import type { ExcelImportOptions } from "../xlsx/import-types";
 import type { ReportEditingOptions } from "./editing";
 import type { MachReportToolbarOptions, ReportInteractionOptions, ReportPreferencesOptions } from "./tools";
+import type { ReportBeforeDiscard, ReportOutputOptions } from "./guards";
 import type { AssetRenderOptions } from "@agile-team/mach-report";
 
 /**
@@ -112,6 +113,41 @@ export interface MachReportMessages {
   clipboardInvalid?: string;
   editSaved?: string;
   settingsPanes?: string;
+  columnDirectory?: string;
+  columnSearch?: string;
+  columnNoMatches?: string;
+  columnResults?: string;
+  columnGroup?: string;
+  discardTitle?: string;
+  discardDescription?: string;
+  discardKeep?: string;
+  discardProceed?: string;
+  taskQuery?: string;
+  taskValidate?: string;
+  taskLayout?: string;
+  taskAssets?: string;
+  taskEncode?: string;
+  taskDownload?: string;
+  taskPrint?: string;
+  taskCancel?: string;
+  taskCancelled?: string;
+  diagnosticsTitle?: string;
+  diagnosticsSearch?: string;
+  diagnosticsMore?: string;
+  diagnosticsLocate?: string;
+  diagnosticsLocation?: string;
+  diagnosticsStrict?: string;
+  diagnosticsDetails?: string;
+  diagnosticMissingImage?: string;
+  diagnosticUnsupported?: string;
+  diagnosticUnsupportedStyle?: string;
+  diagnosticImageFormat?: string;
+  diagnosticRichText?: string;
+  diagnosticNested?: string;
+  diagnosticImageAsync?: string;
+  diagnosticImageDecode?: string;
+  diagnosticAssetFailed?: string;
+  diagnosticAssetBudget?: string;
 }
 
 export const DEFAULT_MESSAGES: MachReportMessages = {
@@ -188,7 +224,13 @@ export const DEFAULT_MESSAGES: MachReportMessages = {
   editDuplicate: "选区包含同一业务字段的重复单元格，请缩小选区。",
   clipboardInvalid: "剪贴板内容无法识别，请使用矩形表格文本重新粘贴。",
   editSaved: "修改已通过保存回调确认",
-  settingsPanes: "冻结窗格"
+  settingsPanes: "冻结窗格",
+  columnDirectory: "字段目录", columnSearch: "搜索列名或字段", columnNoMatches: "未找到匹配字段", columnResults: "匹配字段", columnGroup: "明细区域",
+  discardTitle: "保留当前修改？", discardDescription: "当前报表有尚未保存的输入或本地草稿，继续操作将替换这些内容。", discardKeep: "继续编辑", discardProceed: "放弃修改并继续",
+  taskQuery: "正在获取数据…", taskValidate: "正在校验数据…", taskLayout: "正在生成版式…", taskAssets: "正在准备图片和字体…", taskEncode: "正在生成文件…", taskDownload: "正在准备下载…", taskPrint: "正在准备打印…", taskCancel: "取消任务", taskCancelled: "任务已取消，可重新操作。",
+  diagnosticsSearch: "搜索提示、错误码或位置", diagnosticsMore: "共 {count} 条匹配，当前展示前 100 条；请搜索缩小范围。",
+  diagnosticsTitle: "输出兼容性提示", diagnosticsLocate: "定位", diagnosticsLocation: "第 {page} 页 · 组件 {component}", diagnosticsStrict: "当前格式存在已知内容降级，请查看兼容性提示或选择其他输出格式。",
+  diagnosticsDetails: "查看技术详情", diagnosticMissingImage: "图片或图表资源尚未准备完成，请重试或联系管理员。", diagnosticUnsupported: "当前输出格式会省略此内容，建议选择 PDF 或图片格式。", diagnosticUnsupportedStyle: "当前格式无法保留部分样式，请查看位置并选择适合的输出格式。", diagnosticImageFormat: "当前图片格式无法直接导出，请转换资源后重试。", diagnosticRichText: "文字内容会保留，部分字体与段落样式将简化。", diagnosticNested: "单元格中的嵌套内容会省略，单元格文字会保留。", diagnosticImageAsync: "图片需要完成加载后才能输出。", diagnosticImageDecode: "图片加载失败，请检查资源后重试。", diagnosticAssetFailed: "图表或图片生成失败，请重试或联系管理员。", diagnosticAssetBudget: "图片资源超出处理范围，请减少资源或缩小报表范围。"
 };
 
 /** 主题变量（组件外壳注入的 --mrp-* CSS 自定义属性） */
@@ -239,6 +281,10 @@ export interface MachReportDefaults {
   toolbar?: MachReportToolbarOptions;
   interaction?: ReportInteractionOptions;
   preferences?: ReportPreferencesOptions;
+  /** Protect local input and drafts before replacing a report. Default true. */
+  guardChanges?: boolean;
+  beforeDiscard?: ReportBeforeDiscard;
+  output?: ReportOutputOptions;
   /** Prepare optional image/chart/QR/barcode adapters once for preview and all outputs. */
   assets?: AssetRenderOptions;
   /** 参数面板显隐（有参数定义且未显式关闭时显示；缺省 true） */
@@ -300,6 +346,9 @@ export type ResolvedConfig = Required<
   interaction: ReportInteractionOptions;
   preferences?: ReportPreferencesOptions;
   assets?: AssetRenderOptions;
+  guardChanges: boolean;
+  beforeDiscard?: ReportBeforeDiscard;
+  output: ReportOutputOptions;
 };
 
 const FALLBACK_CONFIG: ResolvedConfig = {
@@ -318,7 +367,9 @@ const FALLBACK_CONFIG: ResolvedConfig = {
   editable: false,
   excelImport: false,
   toolbar: {},
-  interaction: {}
+  interaction: {},
+  guardChanges: true,
+  output: {}
 };
 
 const SILENT_LOGGER: MachReportLogger = { warn: () => {}, info: () => {} };
@@ -337,7 +388,8 @@ function mergeDefaults(
     preview: { ...base?.preview, ...overlay?.preview },
     xlsx: { ...base?.xlsx, ...overlay?.xlsx },
     toolbar: { ...base?.toolbar, ...overlay?.toolbar },
-    interaction: { ...base?.interaction, ...overlay?.interaction }
+    interaction: { ...base?.interaction, ...overlay?.interaction },
+    output: { ...base?.output, ...overlay?.output }
   };
 }
 
@@ -376,7 +428,10 @@ export function resolveConfig(
     toolbar: { ...merged.toolbar },
     interaction: { ...merged.interaction },
     preferences: merged.preferences,
-    assets: merged.assets
+    assets: merged.assets,
+    guardChanges: merged.guardChanges ?? true,
+    beforeDiscard: merged.beforeDiscard,
+    output: { ...merged.output }
   };
 }
 

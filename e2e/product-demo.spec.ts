@@ -1,0 +1,54 @@
+import { expect, test } from "@playwright/test";
+
+test("复杂体验页使用原生设置/目录/类型编辑与草稿保护切换版式", async ({ page }) => {
+  const errors: string[] = []; page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("http://localhost:8610/product.html");
+  await expect(page.getByText("本地演示数据", { exact: false })).toBeVisible();
+  const report = page.locator(".product-preview");
+  await expect(report.getByText("000001", { exact: true })).toBeVisible();
+  await expect(report.locator(".mach-report-preview")).toHaveClass(/mrp-wide-report/);
+  await expect(report.getByText("Identity & workflow", { exact: true }).first()).toBeVisible();
+  await page.screenshot({ path: "/private/tmp/mach-report-product-2.7.png", fullPage: true });
+  await report.getByRole("button", { name: "设置", exact: true }).click();
+  await expect(report.getByRole("dialog")).toBeVisible();
+  await report.getByRole("button", { name: "关闭设置", exact: true }).click();
+  await report.getByRole("searchbox", { name: "定位字段", exact: true }).fill("Target");
+  await report.locator(".mrp-column-directory section button").click();
+  const target = report.locator("tr").filter({ has: page.getByRole("gridcell", { name: "000001", exact: true }) }).locator('td[data-mr-column-index="5"]');
+  await expect(target).toHaveText("0.00");
+  await target.dblclick();
+  const input = report.getByRole("textbox", { name: "Target", exact: true });
+  await expect(input).toHaveAttribute("inputmode", "decimal");
+  await input.fill("12.5"); await input.press("Enter");
+  await expect(target).toHaveText("12.50");
+  await page.getByRole("button", { name: "A3 横向 标准纸型", exact: true }).click();
+  const confirmation = report.getByRole("alertdialog");
+  await expect(confirmation).toBeVisible();
+  await confirmation.getByRole("button").first().click();
+  await expect(page.getByRole("button", { name: "完整宽表 44 列自然宽度", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "A3 横向 标准纸型", exact: true }).click();
+  await confirmation.getByRole("button").last().click();
+  await expect(report.getByText("000001", { exact: true })).toBeVisible();
+  await expect(report.locator(".mach-report-preview")).not.toHaveClass(/mrp-wide-report/);
+  await expect.poll(() => report.locator(".mrp-page-holder").first().evaluate((element) => Math.round(Number.parseFloat((element as HTMLElement).style.width) / (96 / 25.4)))).toBe(420);
+  await page.getByRole("button", { name: "A4 横向 标准纸型", exact: true }).click();
+  await expect(report.getByText("000001", { exact: true })).toBeVisible();
+  await expect.poll(() => report.locator(".mrp-page-holder").first().evaluate((element) => Math.round(Number.parseFloat((element as HTMLElement).style.width) / (96 / 25.4)))).toBe(297);
+  expect(errors).toEqual([]);
+});
+
+test("诊断样例明确呈现降级并拒绝严格输出，正常复杂报表可导出Excel", async ({ page }) => {
+  await page.goto("http://localhost:8610/product.html");
+  const report = page.locator(".product-preview");
+  await expect(report.getByText("000001", { exact: true })).toBeVisible();
+  const download = page.waitForEvent("download");
+  await expect(report.getByRole("button", { name: "导出 PDF", exact: true })).toHaveCount(0);
+  await report.getByRole("button", { name: "导出 Excel", exact: true }).click();
+  expect((await download).suggestedFilename()).toBe("mach-report.xlsx");
+  await page.getByRole("button", { name: "诊断样例 明确展示已知降级", exact: true }).click();
+  await expect(report.locator(".mrp-diagnostics")).toBeVisible();
+  await report.locator(".mrp-diagnostics > summary").click();
+  await expect(report.locator(".mrp-diagnostics")).toContainText("missing-image");
+  await report.getByRole("button", { name: "导出 Excel", exact: true }).click();
+  await expect(report.locator(".mrp-export-error")).toContainText(/已知.*降级/);
+});

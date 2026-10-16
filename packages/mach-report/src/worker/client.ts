@@ -1,5 +1,6 @@
 import type { ReportRuntimeExecutor } from "../server/types";
-import { REPORT_WORKER_PROTOCOL, ReportWorkerError, validReportWorkerResult, type ReportWorkerRequest, type ReportWorkerResponse } from "./protocol";
+import { notifyReportTaskEvent, type ReportTaskObserver } from "../source/task-events";
+import { REPORT_WORKER_PROTOCOL, ReportWorkerError, validReportWorkerEvent, validReportWorkerResult, type ReportWorkerRequest, type ReportWorkerResponse } from "./protocol";
 
 export interface ReportWorkerConnection {
   postMessage(value: ReportWorkerRequest): void;
@@ -22,7 +23,7 @@ function matchingResponse(value: unknown, id: string): ReportWorkerResponse | un
 export function createReportWorkerExecutor(factory: () => ReportWorkerConnection, options: ReportWorkerOptions = {}): ReportRuntimeExecutor {
   const timeoutMs = options.timeoutMs ?? 120_000;
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647) throw new RangeError("Worker timeoutMs 应为正有限数字，且不能超过 2147483647");
-  const execute = <T>(operation: ReportWorkerRequest["operation"], input: ReportWorkerRequest["input"], signal?: AbortSignal): Promise<T> => {
+  const execute = <T>(operation: ReportWorkerRequest["operation"], input: ReportWorkerRequest["input"], signal?: AbortSignal, onEvent?: ReportTaskObserver): Promise<T> => {
     if (signal?.aborted) return Promise.reject(abortError(signal.reason));
     return new Promise<T>((resolve, reject) => {
       let connection: ReportWorkerConnection;
@@ -43,7 +44,13 @@ export function createReportWorkerExecutor(factory: () => ReportWorkerConnection
       const onAbort = () => finish(abortError(signal?.reason));
       const onMessage = (value: unknown) => {
         const response = matchingResponse(value, id);
-        if (!response) return;
+        if (!response || settled) return;
+        if ("type" in response && response.type === "event") {
+          const event = "event" in response ? response.event : undefined;
+          if (validReportWorkerEvent(event, input)) notifyReportTaskEvent(onEvent, event, signal);
+          else finish(new Error("报表 Worker 返回无效阶段事件"));
+          return;
+        }
         if (response.error && typeof response.error.name === "string" && typeof response.error.message === "string") finish(new ReportWorkerError(response.error));
         else if (validReportWorkerResult(response.result, operation) && (operation !== "export" || "format" in response.result && "format" in input && response.result.format === input.format)) finish(undefined, response.result as T);
         else finish(new Error("报表 Worker 返回无效响应"));
@@ -54,9 +61,12 @@ export function createReportWorkerExecutor(factory: () => ReportWorkerConnection
         signal?.addEventListener("abort", onAbort, { once: true });
         timer = setTimeout(() => finish(new ReportWorkerError({ name: "ReportRuntimeError", code: "timeout", message: `报表 Worker 执行超过 ${timeoutMs}ms` })), timeoutMs);
         if (signal?.aborted) onAbort();
-        else connection.postMessage({ protocol: REPORT_WORKER_PROTOCOL, id, operation, input });
+        else {
+          const { onEvent: _onEvent, signal: _signal, ...serializable } = input as typeof input & { onEvent?: unknown; signal?: unknown };
+          connection.postMessage({ protocol: REPORT_WORKER_PROTOCOL, id, operation, input: serializable });
+        }
       } catch (error) { finish(error); }
     });
   };
-  return { prepare: (input, signal) => execute("prepare", input, signal), export: (input, signal) => execute("export", input, signal) };
+  return { prepare: (input, signal, onEvent) => execute("prepare", input, signal, onEvent), export: (input, signal, onEvent) => execute("export", input, signal, onEvent) };
 }

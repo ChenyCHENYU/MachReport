@@ -1,10 +1,11 @@
+import type { ReportTaskMonitoring, ReportTaskObserver } from "../source/task-events";
 import type { ReportRegistry } from "../source/report-source";
 import type { ReportDiagnostic } from "../source/provider";
 import type { RenderPlan } from "../schema/render-plan";
 import type { ReportParamValidation } from "../source/param-validation";
 import type { PaginateOptions, ReportParamDef } from "../layout/paginate";
 
-export interface ReportRuntimeInput { reportIds: string[]; params?: Record<string, string>; signal?: AbortSignal }
+export interface ReportRuntimeInput extends ReportTaskMonitoring { reportIds: string[]; params?: Record<string, string>; signal?: AbortSignal }
 export interface ReportRuntimeBudget {
   maxRows?: number;
   maxPages?: number;
@@ -21,6 +22,8 @@ export interface PreparedReport {
 }
 export interface ReportRuntimeExportInput extends ReportRuntimeInput {
   format: "pdf" | "xlsx";
+  /** strict 在编码前拒绝已识别的输出降级；默认保留诊断并继续。 */
+  fidelity?: "warn" | "strict";
   /** PDF 中文需宿主显式提供有授权的字体；不隐式下载字体或资源。 */
   pdf?: {
     customFontBytes?: Uint8Array | ArrayBuffer;
@@ -36,8 +39,8 @@ export interface ReportRuntimeExportResult extends Omit<PreparedReport, "plan"> 
 }
 /** 可用 worker_threads/进程/RPC 实现；接收可序列化请求，signal 由桥接层映射为取消消息。 */
 export interface ReportRuntimeExecutor {
-  prepare(input: Omit<ReportRuntimeInput, "signal">, signal?: AbortSignal): Promise<PreparedReport>;
-  export(input: Omit<ReportRuntimeExportInput, "signal">, signal?: AbortSignal): Promise<ReportRuntimeExportResult>;
+  prepare(input: Omit<ReportRuntimeInput, "signal" | "onEvent">, signal?: AbortSignal, onEvent?: ReportTaskObserver): Promise<PreparedReport>;
+  export(input: Omit<ReportRuntimeExportInput, "signal" | "onEvent">, signal?: AbortSignal, onEvent?: ReportTaskObserver): Promise<ReportRuntimeExportResult>;
 }
 export interface ReportRuntimeOptions {
   reports: ReportRegistry;

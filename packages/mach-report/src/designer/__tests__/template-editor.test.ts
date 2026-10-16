@@ -8,7 +8,7 @@ function document() { return defineReportTemplate({ id: "daily", name: "日报",
 function harness(options: TemplateEditorOptions) {
   let editor!: ReturnType<typeof useTemplateEditor>;
   const wrapper = mount(defineComponent({
-    props: { modelValue: { type: Object as PropType<ReportTemplateDocument>, required: true }, readonly: Boolean, save: { type: Function as PropType<TemplateEditorOptions["save"]>, default: undefined }, datasets: { type: Object as PropType<TemplateEditorOptions["datasets"]>, default: undefined } }, emits: ["update:modelValue", "saved"],
+    props: { modelValue: { type: Object as PropType<ReportTemplateDocument>, required: true }, readonly: Boolean, beforeDiscard: { type: Function as PropType<TemplateEditorOptions["beforeDiscard"]>, default: undefined }, save: { type: Function as PropType<TemplateEditorOptions["save"]>, default: undefined }, datasets: { type: Object as PropType<TemplateEditorOptions["datasets"]>, default: undefined } }, emits: ["update:modelValue", "saved"],
     setup(props, { emit }) { editor = useTemplateEditor(props as TemplateEditorOptions, emit); return () => null; }
   }), { props: options });
   return { wrapper, get editor() { return editor; } };
@@ -78,8 +78,8 @@ describe("轻量模板属性编辑器", () => {
     wrapper.unmount();
   });
 
-  it("字段语义/自然列宽变化作用于真实预览，非法值阻止预览和保存", () => {
-    const { wrapper, editor } = harness({ modelValue: document(), datasets: { detail: [{ heat: "00123", weight: 0 }] } });
+  it("字段语义/自然列宽变化作用于真实预览，非法值阻止预览和保存", async () => {
+    const { wrapper, editor } = harness({ modelValue: document(), datasets: { detail: [{ heat: "00123", weight: 0 }] }, beforeDiscard: () => true });
     editor.setColumn(0, "semanticRole", "identifier");
     editor.setColumn(0, "widthMm", "45");
     expect(editor.activeList.value?.widthMm).toBe(75);
@@ -89,17 +89,18 @@ describe("轻量模板属性编辑器", () => {
     editor.setColumn(0, "widthMm", "0");
     expect(editor.validation.value.ok).toBe(false);
     expect(editor.fetcher.value).toBeUndefined();
-    editor.reset();
+    await editor.reset();
     expect(editor.validation.value.ok).toBe(true);
     wrapper.unmount();
   });
 
   it("只读不编辑，JSON不能越权更换ID/修订，外部换模板取消旧保存", async () => {
-    const { wrapper, editor } = harness({ modelValue: document(), readonly: true });
+    const { wrapper, editor } = harness({ modelValue: document(), readonly: true, beforeDiscard: () => true });
     editor.setName("禁止"); expect(editor.draft.value.name).toBe("日报");
     await wrapper.setProps({ readonly: false });
     editor.json.value = JSON.stringify({ ...document(), id: "other" }); editor.applyJson();
     expect(editor.error.value).toContain("不允许更换模板 ID");
+    editor.undo();
     let done!: (document: ReportTemplateDocument) => void;
     const save = vi.fn(() => new Promise<ReportTemplateDocument>((resolve) => { done = resolve; }));
     await wrapper.setProps({ save }); editor.setName("旧草稿"); const pending = editor.save();
@@ -117,5 +118,75 @@ describe("轻量模板属性编辑器", () => {
     expect(plan.pages[0]?.components.some((component) => component.table?.role === "body")).toBe(true);
     expect(editor.draft.value.template.params?.[0]?.required).toBe(true);
     wrapper.unmount();
+  });
+
+  it("默认确认保护恢复及外部替换，未应用 JSON 也属于本地修改", async () => {
+    const { wrapper, editor } = harness({ modelValue: document() });
+    editor.json.value = "{尚未完成";
+    expect(editor.dirty.value).toBe(false); expect(editor.pendingLocalChanges.value).toBe(true);
+    const pending = editor.reset();
+    expect(editor.confirmation.value?.reason).toBe("reset");
+    editor.decideDiscard(false); await pending;
+    expect(editor.json.value).toBe("{尚未完成");
+    const replacement = { ...document(), id: "next", name: "其他模板" };
+    await wrapper.setProps({ modelValue: replacement });
+    expect(editor.confirmation.value?.reason).toBe("replace"); expect(editor.draft.value.id).toBe("daily");
+    editor.decideDiscard(true); await flushPromises();
+    expect(editor.draft.value.id).toBe("next"); expect(editor.pendingLocalChanges.value).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("异步宿主保护只应用最新意图，失败与迟到响应不覆盖草稿", async () => {
+    const resolvers: Array<(allow: boolean) => void> = [];
+    const beforeDiscard = vi.fn(() => new Promise<boolean>((resolve) => resolvers.push(resolve)));
+    const { wrapper, editor } = harness({ modelValue: document(), beforeDiscard });
+    editor.setName("未保存");
+    await wrapper.setProps({ modelValue: { ...document(), id: "one" } });
+    await wrapper.setProps({ modelValue: { ...document(), id: "two" } });
+    resolvers[0]!(true); await flushPromises(); expect(editor.draft.value.id).toBe("daily");
+    resolvers[1]!(true); await flushPromises(); expect(editor.draft.value.id).toBe("two");
+    editor.setName("保留我");
+    await wrapper.setProps({ beforeDiscard: async () => { throw new Error("确认服务不可用"); } });
+    await editor.reset(); expect(editor.draft.value.name).toBe("保留我"); expect(editor.error.value).toBe("确认服务不可用");
+    wrapper.unmount();
+  });
+
+  it("列搜索保留物理索引、批量对齐是一笔撤销，保存后的历史不会回退修订", async () => {
+    const save = vi.fn(async (value: ReportTemplateDocument) => ({ ...value, revision: "2" }));
+    const { wrapper, editor } = harness({ modelValue: document(), save });
+    editor.query.value = "weight";
+    expect(editor.visibleColumns.value.map((item) => item.index)).toEqual([1]);
+    editor.selectVisible(true); editor.alignColumns("align", "right");
+    expect(editor.activeList.value!.columns[1]!.align).toBe("right");
+    expect(editor.activeList.value!.columns[0]!.align).toBeUndefined();
+    editor.undo(); expect(editor.activeList.value!.columns[1]!.align).toBeUndefined();
+    editor.redo(); expect(editor.activeList.value!.columns[1]!.align).toBe("right");
+    await editor.save(); expect(editor.canUndo.value).toBe(false); expect(editor.draft.value.revision).toBe("2");
+    editor.setName("修订 2 修改"); editor.undo(); expect(editor.draft.value.revision).toBe("2"); expect(editor.pendingLocalChanges.value).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("未应用 JSON 阻止保存和属性覆盖，撤销重做可保留该输入", async () => {
+    const save = vi.fn(async (value: ReportTemplateDocument) => value);
+    const { wrapper, editor } = harness({ modelValue: document(), save });
+    editor.json.value = "{working"; editor.setName("不能覆盖"); await editor.save();
+    expect(save).not.toHaveBeenCalled(); expect(editor.draft.value.name).toBe("日报");
+    editor.undo(); expect(editor.jsonPending.value).toBe(false);
+    editor.redo(); expect(editor.json.value).toBe("{working");
+    wrapper.unmount();
+  });
+
+  it("自定义确认忽略取消时，替换决定和卸载仍结束旧 guardChanges 等待", async () => {
+    const answers: Array<(allow: boolean) => void> = [];
+    const { wrapper, editor } = harness({ modelValue: document(), beforeDiscard: () => new Promise<boolean>((resolve) => answers.push(resolve)) });
+    editor.setName("本地草稿");
+    const first = editor.guardChanges(); await flushPromises();
+    const second = editor.guardChanges();
+    await expect(first).resolves.toBe(false);
+    await flushPromises(); expect(answers).toHaveLength(2);
+    wrapper.unmount();
+    await expect(second).resolves.toBe(false); expect(editor.blocked.value).toBe(false);
+    answers.forEach((resolve) => resolve(true)); await flushPromises();
+    expect(editor.draft.value.name).toBe("本地草稿");
   });
 });

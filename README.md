@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.6.1-2563eb" alt="Source version 2.6.1" />
+  <img src="https://img.shields.io/badge/source-2.7.0-2563eb" alt="Source version 2.7.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -60,7 +60,7 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 pnpm add @agile-team/mach-report
 ```
 
-Vue 组件要求 Vue `^3.2.0`；主题样式在应用入口引入一次。只使用引擎、PDF 或 XLSX 时，Vue 是可选的，无需导入 `/vue`。发布包声明的 Node.js 要求为 `>=18.0.0`；仓库开发环境要求见[本地开发与验证](#本地开发与验证)。
+Vue 组件要求 Vue `^3.2.47`，最低补丁版已通过现代 TypeScript 严格声明与实际 SSR 验证；主题样式在应用入口引入一次。只使用引擎、PDF 或 XLSX 时，Vue 是可选的，无需导入 `/vue`。发布包声明的 Node.js 要求为 `>=18.0.0`；仓库开发环境要求见[本地开发与验证](#本地开发与验证)。
 
 ## 60 秒开始
 
@@ -210,7 +210,7 @@ Vue 组件默认关闭导入入口，增加一个配置即可选择本机文件�
 <MachReportPreview report-id="production" excel-import />
 ```
 
-独立引擎或 Node.js 使用同一转换 API：
+独立引擎或 Node.js 使用同一转换 API。导入需要支持 `DecompressionStream("deflate-raw")` 的环境，Node.js 建议使用 22+；Node.js 18 仍支持核心排版与 PDF / XLSX 导出，缺少安全解压能力时导入会明确报错：
 
 ```ts
 import { importExcelTemplate } from "@agile-team/mach-report/xlsx";
@@ -440,6 +440,36 @@ Ctrl/Cmd+F打开或聚焦搜索，Enter / Shift+Enter切换命中，Esc关闭并
 
 有效报表显示后，组件对已启用的 PDF 出口自动做轻量 HEAD 字体检查，不下载字库或加载 PDF 引擎。结果通过 `state.pdfFont` 提供，资源异常显示可重试提示；实际导出再验证字体文件及文字覆盖范围。部署、跨域与缓存处理见 [PDF 字体指南](./docs/PDF.md)。
 
+## 完整的日常操作流程
+
+普通页面继续只传报表 ID 和参数。包内默认保护尚未保存的输入与本地草稿；重新查询、导入替换前提供确认，保留焦点与原内容。`state.pendingLocalChanges` 与已保存的净差异 `state.dirty` 分开，已落库的改动不会反复触发丢弃提示。路由离开可复用 `await report.confirmDiscard("leave")`，宿主已有确认组件可通过 `beforeDiscard` 接入。
+
+查询、校验、排版、资源准备、文件生成提供阶段反馈和取消；PDF / Excel / 图片及 HTML / Word 输出报告真实完成单位，无法估算的编码过程不显示虚假百分比。`report.cancelTask()` 与 `state.task` 复用同一状态；忽略取消的自定义接口或导出器也不能用迟到结果覆盖当前报表。
+
+宽表字段目录直接读取模板中的中文列名、多层表头与数据集，支持搜索和跨表精确定位。可选设计器增加列搜索、批量对齐及撤销重做，无需使用方再维护一份列目录。
+
+大宽表适宽时优先挂载当前页和定位目标，其余页面按帧补齐并显示加载占位；切换或卸载取消旧调度。选区只更新变化的属性，减少大量单元格的属性读写。导出仍使用完整计划，使用方无需维护渲染调度。
+
+```ts
+// 在集中配置中声明业务字段能力，页面无需维护编辑器。
+defineMachReportConfig({ defaults: {
+  editable: {
+    fields: {
+      weight: { type: "number", label: "净重", unit: "kg", min: 0, precision: 3 },
+      shift: { type: "enum", options: [{ value: "A", label: "甲班" }, { value: "B", label: "乙班" }] }
+    },
+    save: saveReportCell // 使用项目已有保存方法；持久化批量编辑另提供原子 saveBatch。
+  },
+  output: { fidelity: "strict" } // 已知内容降级时拒绝文件，可在面板查看位置。
+} });
+```
+
+编辑器类型必须与模板的值类型一致；枚举保留原始业务值。公式、受保护格和导入日期不被字段配置解除只读。输出兼容提示支持搜索与定位；默认 `warn` 保留告警并输出，`strict` 拒绝已识别的内容或样式降级。各阅读器、字体与复杂模板仍按实际文件验收。
+
+运行示例后访问 `/product.html`，可体验复杂宽表、A3/A4、类型编辑与诊断；该页面使用明确标识的本地合成数据。
+
+详细流程与取消边界见[产品操作指南](./docs/PRODUCT_WORKFLOWS.md)。需要复用 Java 后端认证与取数时，可直接运行[Java → Node 参考项目](./examples/server-java-node)，避免各项目重复拼接 HTTP、精度和下载处理。
+
 ## 接入项目数据
 
 **后端可以只提供业务数据。** 宿主定义模板和取数函数，通过插件 `reports` 或核心 `createReportSource()` 注册；包内自动生成用于预览、打印和导出的 `RenderPlan`。后端无需安装 MachReport，也不必实现专用报表服务；模板也可以由后端存储后返回。
@@ -523,6 +553,8 @@ pnpm test:e2e
 | `pnpm check:quality` | 生产 TS / Vue 函数圈复杂度上限 20，输出可复核统计 |
 | `pnpm check:consumer` | npm 产物在隔离目录的 ESM / CJS 运行与类型验证 |
 | `pnpm test:e2e` | Playwright 浏览器端到端验证 |
+| `pnpm check:compat` | 实际包的严格 ESM/CJS 类型、运行、SSR 与输出兼容检查 |
+| `pnpm check:server-example` | Java→Node 真实 HTTP、精度、错误、取消、下载与混合并发 |
 | `pnpm --filter @agile-team/example-minimal dev` | 启动本地报表示例 |
 
 CI 使用同一套校验命令，并在构建后检查实际发布产物。协作边界、Changesets 与发布流程见 [AGENTS.md](./AGENTS.md)。
@@ -545,6 +577,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 | 本地报表 | [最小示例](./examples/minimal)：出库单、工艺卡、多页与多模板预览 |
 | 远程组件 | [模块联邦示例](./examples/fed-host) · [部署包](./packages/federation) |
 | 排版与字体 | [字体测量与校准](./docs/font-calibration.md) |
+| 日常操作与异常恢复 | [产品操作指南](./docs/PRODUCT_WORKFLOWS.md)：修改保护、长任务、严格输出与路由接入 |
 | 工程质量与还原 | [质量与还原说明](./docs/QUALITY.md)：复杂度、宿主样式隔离、输出支持矩阵 |
 | 源码分层 | [架构说明](./docs/ARCHITECTURE.md)：目录职责、hooks、适配器与性能边界 |
 | 版本记录 | [Changelog](./packages/mach-report/CHANGELOG.md) |
@@ -554,7 +587,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.6.1`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.7.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

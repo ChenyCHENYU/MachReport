@@ -2,11 +2,13 @@ import { computed, shallowRef, type Ref } from "vue";
 import {
   applyReportCellEditBatch, applyReportEditResult, createReportCellEditBatch,
   createReportCellResolver, ReportCellEditError, summarizeReportCellEdits,
+  parseReportCellFieldInput, reportCellEditKey,
   type RenderPlan, type ReportCellEdit, type ReportCellInput, type ReportEditBatch,
   type ReportEditConflict, type ReportEditResult
 } from "@agile-team/mach-report";
 import type { ReportEditOperation, ReportEditingOptions } from "../editing";
 import { cloneReportSnapshot } from "../snapshot";
+import { resolveCellField } from "../cell-field";
 
 export interface EditHistoryHost {
   plan: Ref<RenderPlan | null>;
@@ -31,6 +33,9 @@ export function useEditHistory(host: EditHistoryHost) {
   const redoStack = shallowRef<ReportCellEdit[][]>([]);
   const conflicts = shallowRef<readonly ReportEditConflict[]>([]);
   const saving = shallowRef(false);
+  const lastError = shallowRef<string | null>(null);
+  const localDifferences = shallowRef<ReportCellEdit[]>([]);
+  const hasLocalDrafts = computed(() => localDifferences.value.length > 0);
   const differences = computed(() => summarizeReportCellEdits(changes.value));
   const canUndo = computed(() => !!host.options.value && !saving.value && !host.blocked() && undoStack.value.length > 0);
   const canRedo = computed(() => !!host.options.value && !saving.value && !host.blocked() && redoStack.value.length > 0);
@@ -40,7 +45,7 @@ export function useEditHistory(host: EditHistoryHost) {
   let retry: { plan: RenderPlan; signature: string; requestId: string } | null = null;
 
   function cancel(): void { controller?.abort(); controller = null; saving.value = false; pending = null; }
-  function reset(): void { generation++; cancel(); retry = null; changes.value = []; undoStack.value = []; redoStack.value = []; conflicts.value = []; }
+  function reset(): void { generation++; cancel(); retry = null; changes.value = []; undoStack.value = []; redoStack.value = []; conflicts.value = []; localDifferences.value = []; lastError.value = null; }
   function options(): ReportEditingOptions | null {
     const option = host.options.value;
     return option ? typeof option === "object" ? option : {} : null;
@@ -52,6 +57,8 @@ export function useEditHistory(host: EditHistoryHost) {
       const context = resolve(edit.address);
       if (!context?.editable || option.canEdit?.(context) === false) throw new ReportCellEditError("readonly");
       if (option.requireSource && !context.source) throw new ReportCellEditError("missing");
+      const field = resolveCellField(context, option);
+      if (field) parseReportCellFieldInput(context, edit.value, field);
     }
   }
   async function persist(batch: ReportEditBatch, option: ReportEditingOptions, operation: ReportEditOperation): Promise<void | ReportEditResult> {
@@ -66,9 +73,13 @@ export function useEditHistory(host: EditHistoryHost) {
       if (operation.signal.aborted) return;
     }
   }
-  function publish(plan: RenderPlan, batch: ReportEditBatch, result: void | ReportEditResult, action: NonNullable<ReportEditOperation["action"]>): void {
+  function publish(plan: RenderPlan, batch: ReportEditBatch, result: void | ReportEditResult, action: NonNullable<ReportEditOperation["action"]>, persisted: boolean): void {
     host.plan.value = applyReportEditResult(applyReportCellEditBatch(plan, batch), batch, result);
     changes.value = [...changes.value, ...batch.edits];
+    if (persisted) {
+      const committed = new Set(batch.edits.map(reportCellEditKey));
+      localDifferences.value = localDifferences.value.filter((edit) => !committed.has(reportCellEditKey(edit)));
+    } else localDifferences.value = summarizeReportCellEdits([...localDifferences.value, ...batch.edits]);
     if (action === "edit") { undoStack.value = [...undoStack.value, batch.edits]; redoStack.value = []; }
     conflicts.value = [];
     retry = null;
@@ -86,9 +97,11 @@ export function useEditHistory(host: EditHistoryHost) {
     const currentGeneration = generation;
     controller = current;
     saving.value = true;
+    lastError.value = null;
     const isCurrent = () => controller === current && !current.signal.aborted && host.plan.value === plan && host.options.value !== false;
     try {
       const batch = createReportCellEditBatch(plan, inputs, newRequestId());
+      allowed(plan, batch, option);
       batch.edits = batch.edits.filter((edit) => !Object.is(edit.previousValue, edit.value));
       if (!batch.edits.length) return true;
       const signature = JSON.stringify([action, batch.edits]);
@@ -103,11 +116,12 @@ export function useEditHistory(host: EditHistoryHost) {
       if (!isCurrent()) return false;
       if (result?.conflicts?.length) { conflicts.value = cloneReportSnapshot(result.conflicts); throw new ReportEditConflictError(result.conflicts); }
       allowed(plan, batch, option);
-      publish(plan, batch, result, action);
+      publish(plan, batch, result, action, !!(option.save || option.saveBatch));
       return currentGeneration === generation;
     } catch (cause) {
       if (!isCurrent()) return false;
-      host.onError(host.errorMessage?.(cause) ?? (cause instanceof Error ? cause.message : "Cell edit failed"), cause);
+      lastError.value = host.errorMessage?.(cause) ?? (cause instanceof Error ? cause.message : "Cell edit failed");
+      host.onError(lastError.value, cause);
       return false;
     } finally { if (controller === current) { controller = null; saving.value = false; } }
   }
@@ -145,5 +159,5 @@ export function useEditHistory(host: EditHistoryHost) {
     undoStack.value = []; redoStack.value = [];
     return true;
   }
-  return { changes, differences, conflicts, saving, canUndo, canRedo, apply, undo, redo, restore, cancel, reset };
+  return { changes, differences, localDifferences, hasLocalDrafts, lastError, conflicts, saving, canUndo, canRedo, apply, undo, redo, restore, cancel, reset };
 }

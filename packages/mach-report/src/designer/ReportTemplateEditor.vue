@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ReportPreview } from "@agile-team/mach-report/vue";
 import type { ReportTemplateDocument } from "@agile-team/mach-report";
+import { nextTick, ref, watch } from "vue";
 import { useTemplateEditor, type TemplateEditorOptions } from "./useTemplateEditor";
 
 const props = defineProps<TemplateEditorOptions>();
@@ -12,25 +13,46 @@ const editor = useTemplateEditor(props, (event, document) => {
   if (event === "saved") emit("saved", document);
   else emit("update:modelValue", document);
 });
-const { draft, json, selected, error, saving, dirty, validation, lists, activeList, fetcher, messages: m } = editor;
+const { draft, json, selected, error, saving, pendingLocalChanges, jsonPending, blocked, confirmation, canUndo, canRedo, validation, lists, activeList, visibleColumns, query, selectedColumns, fetcher, messages: m } = editor;
+const keepButton = ref<HTMLButtonElement | null>(null);
+let previousFocus: HTMLElement | null = null;
+watch(confirmation, async (value) => {
+  if (value) { previousFocus = document.activeElement as HTMLElement | null; await nextTick(); keepButton.value?.focus(); }
+  else { await nextTick(); if (previousFocus?.isConnected) previousFocus.focus(); previousFocus = null; }
+});
+defineExpose({ get pendingLocalChanges() { return pendingLocalChanges.value; }, guardChanges: editor.guardChanges, reset: editor.reset, save: editor.save });
 function value(event: Event): string { return (event.target as HTMLInputElement).value; }
 function checked(event: Event): boolean { return (event.target as HTMLInputElement).checked; }
+function batch(event: Event, target: "align" | "headerAlign"): void {
+  const select = event.target as HTMLSelectElement;
+  editor.alignColumns(target, select.value as "left" | "center" | "right" | "justify" | "auto"); select.value = "";
+}
 </script>
 
 <template>
   <section class="mr-designer" :aria-label="m.title">
     <header class="mr-designer-bar">
-      <div><strong>{{ m.heading }}</strong><span>{{ draft.id }} · {{ draft.revision || m.unpublished }}<b v-if="dirty"> · {{ m.dirty }}</b></span></div>
-      <div><button type="button" :disabled="readonly || saving || !dirty" @click="editor.reset">{{ m.reset }}</button><button v-if="save" type="button" :disabled="readonly || saving || !validation.ok || !dirty" @click="editor.save">{{ saving ? m.saving : m.save }}</button></div>
+      <div><strong>{{ m.heading }}</strong><span>{{ draft.id }} · {{ draft.revision || m.unpublished }}<b v-if="pendingLocalChanges"> · {{ m.dirty }}</b></span></div>
+      <div><button type="button" :disabled="readonly || blocked || !canUndo" @click="editor.undo">{{ m.undo }}</button><button type="button" :disabled="readonly || blocked || !canRedo" @click="editor.redo">{{ m.redo }}</button><button type="button" :disabled="readonly || blocked || !pendingLocalChanges" @click="editor.reset">{{ m.reset }}</button><button v-if="save" type="button" :disabled="readonly || blocked || jsonPending || !validation.ok || !pendingLocalChanges" @click="editor.save">{{ saving ? m.saving : m.save }}</button></div>
     </header>
+    <div v-if="confirmation" role="alertdialog" :aria-label="m.discardTitle" class="mr-designer-confirm" @keydown.esc.prevent="editor.decideDiscard(false)">
+      <strong>{{ m.discardTitle }}</strong><p>{{ m.discardDescription }}</p><button ref="keepButton" type="button" @click="editor.decideDiscard(false)">{{ m.keepEditing }}</button><button type="button" @click="editor.decideDiscard(true)">{{ m.discard }}</button>
+    </div>
     <div class="mr-designer-body">
       <aside class="mr-designer-panel">
-        <label>{{ m.name }}<input :value="draft.name" :disabled="readonly || saving" @input="editor.setName(value($event))" /></label>
-        <label>{{ m.description }}<textarea :value="draft.description" :disabled="readonly || saving" @input="editor.setDescription(value($event))" /></label>
+        <label>{{ m.name }}<input :value="draft.name" :disabled="readonly || blocked || jsonPending" @input="editor.setName(value($event))" /></label>
+        <label>{{ m.description }}<textarea :value="draft.description" :disabled="readonly || blocked || jsonPending" @input="editor.setDescription(value($event))" /></label>
         <label v-if="lists.length">{{ m.area }}<select v-model="selected"><option v-for="(item, index) in lists" :key="index" :value="index">{{ item.pageIndex + 1 }} {{ m.page }} · {{ item.component.title || item.component.dataset }}</option></select></label>
         <div v-if="activeList" class="mr-designer-columns">
-          <fieldset v-for="(column, index) in activeList.columns" :key="index" :disabled="readonly || saving">
-            <legend>{{ index + 1 }} · {{ column.header }}</legend>
+          <label>{{ m.columnsSearch }}<input v-model="query" type="search" /></label>
+          <div class="mr-designer-column-tools"><button type="button" :disabled="readonly || blocked || jsonPending || !visibleColumns.length" @click="editor.selectVisible(true)">{{ m.selectVisible }}</button><button type="button" :disabled="!selectedColumns.length" @click="editor.clearSelection">{{ m.clearSelection }}</button><span role="status">{{ m.columnsSelected }} {{ selectedColumns.length }} / {{ activeList.columns.length }}</span></div>
+          <div v-if="selectedColumns.length" class="mr-designer-batch">
+            <label>{{ m.batchBody }}<select :aria-label="m.batchBody" :disabled="readonly || blocked || jsonPending" @change="batch($event, 'align')"><option value="">{{ m.chooseAlignment }}</option><option value="auto">{{ m.auto }}</option><option value="left">{{ m.left }}</option><option value="center">{{ m.center }}</option><option value="right">{{ m.right }}</option><option value="justify">{{ m.justify }}</option></select></label>
+            <label>{{ m.batchHeader }}<select :aria-label="m.batchHeader" :disabled="readonly || blocked || jsonPending" @change="batch($event, 'headerAlign')"><option value="">{{ m.chooseAlignment }}</option><option value="left">{{ m.left }}</option><option value="center">{{ m.center }}</option><option value="right">{{ m.right }}</option><option value="justify">{{ m.justify }}</option></select></label>
+          </div>
+          <p v-if="!visibleColumns.length" role="status">{{ m.noColumns }}</p>
+          <fieldset v-for="{ column, index } in visibleColumns" :key="index" :disabled="readonly || blocked || jsonPending">
+            <legend><label class="mr-designer-select-column"><input type="checkbox" :checked="selectedColumns.includes(index)" @change="editor.toggleColumn(index, checked($event))" />{{ index + 1 }} · {{ column.header }}</label></legend>
             <label>{{ m.header }}<input :value="column.header" @input="editor.setColumn(index, 'header', value($event))" /></label>
             <label>{{ m.field }}<input :value="column.field" @change="editor.setColumn(index, 'field', value($event))" /></label>
             <label>{{ m.width }}<input type="number" min="0.1" step="0.5" :value="column.widthMm" @change="editor.setColumn(index, 'widthMm', value($event))" /></label>
@@ -40,7 +62,8 @@ function checked(event: Event): boolean { return (event.target as HTMLInputEleme
             <label class="mr-designer-toggle">{{ m.editable }}<input type="checkbox" :checked="column.editable === true" @change="editor.setColumn(index, 'editable', checked($event))" /></label>
           </fieldset>
         </div>
-        <details><summary>{{ m.json }}</summary><textarea v-model="json" class="mr-designer-json" :aria-label="m.json" :disabled="readonly || saving" spellcheck="false" /><button type="button" :disabled="readonly || saving" @click="editor.applyJson">{{ m.applyJson }}</button></details>
+        <details><summary>{{ m.json }}</summary><textarea v-model="json" class="mr-designer-json" :aria-label="m.json" :disabled="readonly || blocked" spellcheck="false" /><button type="button" :disabled="readonly || blocked" @click="editor.applyJson">{{ m.applyJson }}</button></details>
+        <p v-if="jsonPending" role="status" class="mr-designer-note">{{ m.jsonPending }}</p>
         <p class="mr-designer-note">{{ m.note }}</p>
       </aside>
       <div class="mr-designer-preview">
@@ -68,5 +91,6 @@ function checked(event: Event): boolean { return (event.target as HTMLInputEleme
 .mr-designer-preview { min-width: 0; min-height: 380px; display: flex; flex-direction: column; }.mr-designer-preview :deep(.mrp-root) { flex: 1; }
 .mr-designer-note { opacity: .7; font-size: 11px; }.mr-designer-error { padding: 10px 16px; color: #b91c1c; background: #fef2f2; }
 .mr-designer-json { width: 100%; height: 240px; font-family: monospace !important; margin: 8px 0; }
+.mr-designer-confirm{padding:12px 16px;border-bottom:1px solid var(--mrp-toolbar-border,#e2e8f0);background:var(--mrp-btn-hover-bg,#eff6ff)}.mr-designer-confirm p{margin:4px 0 10px}.mr-designer-column-tools{display:flex;align-items:center;flex-wrap:wrap;gap:4px}.mr-designer-column-tools span{font-size:11px;opacity:.7}.mr-designer-batch{margin:8px 0;padding:1px 8px;border-radius:5px;background:var(--mrp-btn-hover-bg,#eff6ff)}.mr-designer .mr-designer-select-column{display:flex;gap:6px;margin:0}.mr-designer-select-column input{width:auto}
 @media (max-width: 720px) { .mr-designer-body { grid-template-columns: 1fr; }.mr-designer-panel { max-height: 300px; border-right: 0; border-bottom: 1px solid var(--mrp-toolbar-border, #e2e8f0); } }
 </style>

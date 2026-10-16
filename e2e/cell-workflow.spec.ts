@@ -135,7 +135,13 @@ test("真实键盘选区、矩形粘贴、原子校验、保存型撤销及冲�
   await page.keyboard.press("Shift+ArrowRight");
   await expect(root.locator(".mrp-cell-selected")).toHaveCount(2);
   expect(await page.evaluate(() => (window as FixtureWindow).__mrWorkflow.report.copySelection())).toBe("2\t001");
-  await first.evaluate((element) => { const data = new DataTransfer(); data.setData("text/plain", "8\t0008\r\n9\t0009"); element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, clipboardData: data })); });
+  await first.evaluate((element) => {
+    const data = new DataTransfer(); data.setData("text/plain", "8\t0008\r\n9\t0009");
+    const event = new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: data });
+    // Firefox ignores clipboardData in the synthetic constructor; native events carry it.
+    Object.defineProperty(event, "clipboardData", { value: data });
+    element.dispatchEvent(event);
+  });
   await expect(root.locator(".mrp-cell-modified")).toHaveCount(4);
   expect(await page.evaluate(() => (window as FixtureWindow).__mrWorkflow.saves[0]?.batch.edits.map((edit) => edit.source?.rowKey))).toEqual(["R1", "R1", "R2", "R2"]);
   await root.getByRole("button", { name: "撤销", exact: true }).click();

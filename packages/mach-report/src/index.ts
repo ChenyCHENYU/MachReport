@@ -15,6 +15,7 @@ export * from "./render/window";
 export * from "./builder/template-builder";
 export * from "./builder/table-template";
 export * from "./source/report-source";
+export type { ReportTaskEvent, ReportTaskObserver, ReportTaskMonitoring } from "./source/task-events";
 export * from "./source/template-registry";
 export * from "./source/param-validation";
 export * from "./source/provider";
@@ -22,3 +23,5 @@ export * from "./source/template-store";
 export * from "./output/capabilities";
 export * from "./output/assets";
 export * from "./editing";
+
+export type { OutputTaskOptions } from "./output/progress";

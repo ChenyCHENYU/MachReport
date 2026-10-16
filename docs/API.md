@@ -303,3 +303,22 @@ pnpm install --frozen-lockfile
 pnpm verify
 pnpm test:e2e
 ```
+
+## 产品操作扩展
+
+| 配置 / 控制器 | 契约 |
+| --- | --- |
+| `guardChanges` | 默认为true，重新查询或导入替换前保护本地输入/草稿 |
+| `beforeDiscard(context)` | 返回boolean/Promise，拒绝、异常或过期决定保留内容；默认内置确认 |
+| `confirmDiscard(reason?)` | 供宿主路由等离开操作复用，默认reason为leave |
+| `state.pendingLocalChanges` | 未保存输入或本地净差异；区别已持久化仍可为true的dirty |
+| `state.reportIds / params` | 当前实际显示的查询快照上下文 |
+| `state.task / @task` | taskId、kind、stage、status、可选真实completed/total与cancellable |
+| `cancelTask()` | 取消当前查询/导入/导出/打印准备，屏蔽迟到结果；不回滚业务保存 |
+| `output.fidelity` | warn为默认；strict拒绝已识别的内容/样式降级 |
+| `state.diagnostics / @diagnostic` | 去重的结构化提示；含稳定code及可用的格式、页、组件/单元格位置 |
+| `getOutputDiagnostics(format)` | 对当前计划预检dom/canvas/pdf/xlsx，不加载导出库 |
+| `editable.fields` | 字段配置record或resolver，text/number/boolean/enum/date；保持模板只读与服务端授权 |
+| `focusField({ tableId?, datasetId?, field })` | 支持跨表同名字段精确定位 |
+
+详细示例、异步确认/取消边界见[产品操作流程](./PRODUCT_WORKFLOWS.md)，字段约束见[编辑指南](./CELL_EDITING.md)。PDF/XLSX/PNG和Excel导入另支持可选signal/onProgress；Node阶段事件及Java参考接口见[服务端指南](./SERVER.md)。

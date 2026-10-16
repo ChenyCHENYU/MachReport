@@ -1,3 +1,6 @@
+import type { OutputDiagnostic } from "@agile-team/mach-report";
+import type { OutputTaskOptions } from "../output/progress";
+import { assertOutputActive, waitForOutput } from "../output/progress";
 import type { RenderPlan } from "@agile-team/mach-report";
 
 /** available 仅表示字体资源可达；实际导出仍会校验文字能否编码。 */
@@ -12,7 +15,7 @@ export interface PdfFontCheckResult {
 
 /** PDF 导出器：RenderPlan → PDF 字节；第二参数可上报非致命保真告警。 */
 export interface PdfExporter {
-  (plan: RenderPlan, onWarning?: (message: string) => void): Promise<Uint8Array>;
+  (plan: RenderPlan, onWarning?: (message: string) => void, task?: OutputTaskOptions & { onDiagnostic?: (entry: OutputDiagnostic) => void }): Promise<Uint8Array>;
   /** 可选轻量字体检查；旧版自定义导出函数无需实现。取消时拒绝 AbortError。 */
   checkFont?: (signal?: AbortSignal) => Promise<PdfFontCheckResult>;
 }
@@ -154,14 +157,16 @@ export function createDefaultPdfExporter(
   options: DefaultPdfExporterOptions = { fontUrl: "/simhei.ttf" }
 ): PdfExporter {
   let pdfModule: typeof import("@agile-team/mach-report/pdf") | null = null;
-  const exporter: PdfExporter = async (plan, onWarning) => {
+  const exporter: PdfExporter = async (plan, onWarning, task = {}) => {
+    assertOutputActive(task.signal);
     if (!pdfModule) {
       pdfModule = await import("@agile-team/mach-report/pdf");
     }
+    assertOutputActive(task.signal);
     let font: Uint8Array | null = null;
     if (options.fontUrl) {
       try {
-        font = await pdfModule.loadFontWithCache(options.fontUrl, { strict: true });
+        font = await waitForOutput(pdfModule.loadFontWithCache(options.fontUrl, { strict: true }), task.signal);
         if (!font?.byteLength) throw new Error("字体文件为空或加载失败");
       } catch (cause) {
         const detail = cause instanceof Error ? cause.message : String(cause);
@@ -170,12 +175,15 @@ export function createDefaultPdfExporter(
     }
     let rendered: Awaited<ReturnType<typeof pdfModule.renderPlanToPdf>>;
     try {
-      rendered = await pdfModule.renderPlanToPdf(plan, font ? { customFontBytes: font } : {});
+      assertOutputActive(task.signal);
+      rendered = await pdfModule.renderPlanToPdf(plan, { ...task, ...(font ? { customFontBytes: font } : {}) });
     } catch (cause) {
       if (!font) throw cause;
       const detail = cause instanceof Error ? cause.message : String(cause);
       throw withCause(`PDF 生成失败：${detail}。当前字体 URL 为 ${JSON.stringify(options.fontUrl)}；请确认该文件是有效字体，或重新配置 pdfFontUrl`, cause);
     }
+    assertOutputActive(task.signal);
+    rendered.diagnostics?.forEach((entry) => { try { task.onDiagnostic?.(entry); } catch { /* Observer failure cannot fail output. */ } });
     const { bytes, unsupportedTextCount, pageErrors, fidelityWarnings } = rendered;
     if (unsupportedTextCount > 0) {
       throw new Error(`PDF 中有 ${unsupportedTextCount} 行文字无法编码；请部署支持所用文字的字体并配置 pdfFontUrl`);

@@ -1,10 +1,12 @@
-import type { PlanComponent, RenderPlan } from "../schema/render-plan";
+import { assertOutputActive, type OutputTaskOptions } from "./progress";
+import { notifyOutputDiagnostic } from "./diagnostic-notification";
+import type { ComponentStyle, PlanComponent, RenderPlan } from "../schema/render-plan";
 import { isImageBackedComponent, isRichText } from "../schema/render-plan";
 
 export type OutputFormat = "dom" | "canvas" | "pdf" | "xlsx";
 
 export interface OutputDiagnostic {
-  code: "missing-image" | "unsupported-component" | "unsupported-image-format" | "rich-text-flattened" | "nested-components-omitted" | "async-image-required" | "image-decode-failed" | "asset-render-failed" | "asset-budget-exceeded";
+  code: "missing-image" | "unsupported-component" | "unsupported-image-format" | "unsupported-style" | "rich-text-flattened" | "nested-components-omitted" | "async-image-required" | "image-decode-failed" | "asset-render-failed" | "asset-budget-exceeded";
   severity: "warning";
   format: OutputFormat;
   pageIndex: number;
@@ -16,9 +18,19 @@ export interface OutputDiagnostic {
   message: string;
 }
 
-export interface OutputDiagnosticOptions {
+export interface OutputDiagnosticOptions extends OutputTaskOptions {
   /** Structured fidelity diagnostics; rendering never silently invents missing content. */
   onDiagnostic?: (diagnostic: OutputDiagnostic) => void;
+  /** Reject known unsupported content before creating an incomplete file. Default warn. */
+  fidelity?: "warn" | "strict";
+}
+
+export class OutputFidelityError extends Error {
+  readonly code = "output-fidelity";
+  constructor(public readonly diagnostics: readonly OutputDiagnostic[]) {
+    super(`Output contains ${diagnostics.length} known fidelity issue(s): ${diagnostics[0]?.code}`);
+    this.name = "OutputFidelityError";
+  }
 }
 
 const VECTOR_KINDS = new Set(["text", "rect", "line", "ellipse"]);
@@ -42,6 +54,16 @@ function componentIssue(comp: PlanComponent, format: OutputFormat): Pick<OutputD
 function diagnostic(comp: PlanComponent, format: OutputFormat, pageIndex: number, componentIndex: number, issue: Pick<OutputDiagnostic, "code" | "message">): OutputDiagnostic {
   return { ...issue, severity: "warning", format, pageIndex, componentIndex, kind: comp.kind, nid: comp.nid };
 }
+function unsupportedStyle(style: ComponentStyle | undefined, format: OutputFormat): string | undefined {
+  if (!style || format === "dom") return;
+  const unsupported: string[] = [];
+  if (style.rotateDeg) unsupported.push("rotateDeg");
+  if (style.opacity !== undefined && style.opacity !== 1) unsupported.push("opacity");
+  if (format !== "xlsx" && style.align === "justify") unsupported.push("justify");
+  if (format === "canvas" && style.underline) unsupported.push("underline");
+  if (format === "xlsx" && style.letterSpacing) unsupported.push("letterSpacing");
+  return unsupported.length ? `${format} does not preserve these styles: ${unsupported.join(", ")}.` : undefined;
+}
 
 /** Pure preflight shared by browser and server; no DOM, fonts or output libraries are loaded. */
 function collectComponentDiagnostics(comp: PlanComponent, format: OutputFormat, pageIndex: number, componentIndex: number, componentPath: readonly number[], diagnostics: OutputDiagnostic[], ancestors: ReadonlySet<PlanComponent>): void {
@@ -49,10 +71,14 @@ function collectComponentDiagnostics(comp: PlanComponent, format: OutputFormat, 
     const visited = new Set(ancestors).add(comp);
     const issue = componentIssue(comp, format);
     if (issue) diagnostics.push({ ...diagnostic(comp, format, pageIndex, componentIndex, issue), componentPath });
+    const styleMessage = unsupportedStyle(comp.style, format);
+    if (styleMessage) diagnostics.push({ ...diagnostic(comp, format, pageIndex, componentIndex, { code: "unsupported-style", message: styleMessage }), componentPath });
     if (isRichText(comp) && format !== "dom") {
       diagnostics.push(diagnostic(comp, format, pageIndex, componentIndex, { code: "rich-text-flattened", message: "Rich text is exported as plain text; inline styles are not preserved." }));
     }
     for (const [rowIndex, row] of (comp.grid?.cells ?? []).entries()) for (const [columnIndex, cell] of row.entries()) {
+      const cellStyleMessage = unsupportedStyle(cell?.style, format);
+      if (cellStyleMessage) diagnostics.push({ ...diagnostic(comp, format, pageIndex, componentIndex, { code: "unsupported-style", message: cellStyleMessage }), componentPath: [...componentPath, rowIndex, columnIndex] });
       if (cell?.children?.length && format !== "dom") {
         diagnostics.push({ ...diagnostic(comp, format, pageIndex, componentIndex, { code: "nested-components-omitted", message: "Nested grid components are omitted; cell text is preserved." }), componentPath: [...componentPath, rowIndex, columnIndex] });
       } else if (format === "dom") {
@@ -68,7 +94,9 @@ export function inspectOutputCapabilities(plan: RenderPlan, format: OutputFormat
 }
 
 export function reportOutputDiagnostics(plan: RenderPlan, format: OutputFormat, options: OutputDiagnosticOptions): OutputDiagnostic[] {
+  assertOutputActive(options.signal);
   const diagnostics = inspectOutputCapabilities(plan, format);
-  diagnostics.forEach((entry) => options.onDiagnostic?.(entry));
+  diagnostics.forEach((entry) => notifyOutputDiagnostic(entry, options));
+  if (options.fidelity === "strict" && diagnostics.length) throw new OutputFidelityError(diagnostics);
   return diagnostics;
 }

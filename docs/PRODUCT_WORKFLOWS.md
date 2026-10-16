@@ -1,0 +1,61 @@
+# 产品操作流程
+
+常规页面继续传 `report-id` 与查询参数；字段、持久化、工具和输出策略在应用集中注册。复杂模板复用相同的查询、预览、编辑和导出生命周期，不依赖特定业务报表或接口。
+
+## 修改保护
+
+预览默认在重新查询、导入替换前检查未保存输入及本地草稿。内置确认框支持键盘、Esc 和焦点恢复；拒绝后保留原内容。`guardChanges: false` 可显式关闭，适合由宿主完整控制替换流程的集成。
+
+| 状态 | 含义 |
+| --- | --- |
+| `state.pendingLocalChanges` | 活动输入发生变化，或存在未持久化的本地净差异 |
+| `state.dirty` | 当前数据相对本次来源有净差异；可包含已经保存的改动 |
+| `state.reportIds / params` | 实际显示的接口快照上下文；拒绝查询替换后仍指向原快照 |
+
+有 `save/saveBatch` 时，成功确认的改动不会被当作未保存草稿；在途输入仍受保护。保存被取消不等于服务端数据库回滚，重新查询才能确认不确定的提交。
+
+```ts
+const report = useMachReport();
+// 路由由宿主拥有；组件不会自行注册路由或更改应用导航。
+onBeforeRouteLeave(() => report.confirmDiscard("leave"));
+```
+
+宿主已有确认组件时，在配置或预览属性提供 `beforeDiscard(context)`，返回布尔值或 Promise。`context.reason` 为 `reload/import/replace/leave`，含当前快照 `reportIds`。返回 `false`、抛错、过期决定均保留内容。确认期间的事务被阻止，批准前还会核对草稿身份和活动输入，旧确认不会覆盖后来变化的内容。卸载会结束待处理决定；浏览器离开使用浏览器自己的原生提示，不在卸载后弹窗。
+
+## 阶段反馈与取消
+
+默认阶段状态条覆盖查询、校验、排版、资源准备、导入、编码、下载与打印准备。`@task`、`state.task` 和 `cancelTask()` 使用同一个状态，不要求页面另建 loading 状态机。
+
+```ts
+report.cancelTask();
+const task = report.state.task;
+// task: { taskId, kind, stage, status, completed?, total?, cancellable }
+```
+
+`completed/total` 是当前阶段真实完成的页、Sheet等单位，不等同于整项任务的估算百分比。同步取数/分页/第三方编码在主线程执行期间不能被抢占；包内在可等待的阶段与输出单元之间检查取消并让出执行。取消后停止等待忽略 signal 的适配器，屏蔽迟到结果、告警与下载；它不能停止远端已经提交的事务。大 CPU 任务选择[Worker](./SERVER.md)执行器，以实际线程终止实现硬取消。
+
+直接使用 PDF、XLSX、PNG 和 Excel 导入 API 时，也可以传 `signal` 与 `onProgress(completed, total)`。进度观察器异常不破坏输出；取消时拒绝 `AbortError`，不会把部分文件当成功返回。共享字体加载可继续供其他订阅者复用，当前导出会停止等待。
+
+## 输出诊断与严格模式
+
+预览提供可搜索的兼容提示列表，保留错误码、格式和位置；支持跳页，已知单元格位置可直接定位。一次最多挂载100条匹配，使用搜索缩小范围；完整诊断通过 `state.diagnostics` 或 `@diagnostic` 获取。重复预检与实际输出诊断去重，重查/导入替换会清理上一份报告。
+
+```ts
+defineMachReportConfig({ defaults: { output: { fidelity: "strict" } } });
+const issues = report.getOutputDiagnostics("xlsx");
+```
+
+默认 `warn` 生成受支持内容并保留诊断；`strict` 在识别到缺图片、富文本简化、嵌套内容省略或不支持的样式等问题时拒绝输出。核心 PDF/XLSX/Canvas API 可直接传 `fidelity`；Node Runtime 顶层同样支持。稳定异常为 `OutputFidelityError`，`code="output-fidelity"`，携带 `diagnostics`。
+
+预检不加载导出库，不会自动补齐不支持的布局；strict 也不表示任意 Office 阅读器的像素一致性。字体缺字、行高不足及导出时才发现的编码问题，应结合实际输出结果和[质量矩阵](./QUALITY.md)验收。
+
+## 复杂模板与使用效率
+
+- 字段目录从真实计划提取中文列名、多层合并标题、逻辑表和数据集；同名字段按表身份消歧，目录点击和 `focusField({ field, datasetId, tableId })` 共用定位逻辑。
+- [类型编辑器](./CELL_EDITING.md)复用同一字段规则及原子事务；编号、空值、零值和小数保留明确语义。
+- [属性设计器](./DESIGNER.md)支持列搜索、批量对齐、撤销重做及草稿保护；模板配置不授予业务写权限。
+- [Java→Node示例](../examples/server-java-node/README.md)提供可运行协议参考，保持 Java 业务认证/事务与通用引擎职责清晰。
+
+测试使用独立合成数据，覆盖多报表/数据集、三层合并表头、不同纸型、分组小计总计、条件样式、长文本、零值/空值、前导零和高精度字符串，并回读真实 PDF/XLSX。业务原表是接入验收样本，通用能力的验证范围继续覆盖更复杂的组合。
+
+大幅缩小时，同时可见的页面会增多。预览保留各页实际几何占位，先挂载当前或搜索目标页，其余新页按帧补齐；占位显示加载提示。切换窗口、重新查询和卸载会取消旧调度，定位仍可优先同步挂载目标。选区按表缓存地址与状态，只写入变化的属性；这些调度由包内处理，不影响完整计划和导出内容。

@@ -1,0 +1,121 @@
+.mach-report-preview {
+  /* 主题变量默认值：配置中心 theme / 宿主 CSS 覆写均可接管 */
+  --mrp-shell-bg: #525659;
+  --mrp-shell-fg: #e8e8e8;
+  --mrp-toolbar-bg: #323639;
+  --mrp-toolbar-border: #22252a;
+  --mrp-toolbar-fg: #e8e8e8;
+  --mrp-btn-fg: #cfcfcf;
+  --mrp-btn-border: #4a4d52;
+  --mrp-btn-hover-bg: #414549;
+  --mrp-btn-hover-fg: #ffffff;
+  --mrp-btn-active-bg: #2d5fb8;
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--mrp-shell-bg);
+  color: var(--mrp-shell-fg);
+  overflow: hidden;
+}
+.mrp-main { display: flex; flex: 1; min-height: 0; }
+.mrp-body {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 24px;
+  outline: none; /* 键盘交互容器聚焦不带轮廓 */
+}
+/* 缩放容器：外层按缩放后尺寸占位，内层 transform 缩放（零重排） */
+.mrp-scale { position: relative; margin: 0 auto; }
+.mrp-scale-inner { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; }
+.mrp-page-holder {
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  margin-bottom: var(--mrp-page-gap);
+  flex: none;
+}
+/* 宽表的纵向分段只是渲染窗口，不再用纸张阴影和页间留白打断表格。 */
+.mrp-wide-report .mrp-page-holder { box-shadow: none; }
+.mrp-state {
+  padding: 40px;
+  text-align: center;
+  color: #bfbfbf;
+  font-size: 13px;
+}
+.mrp-error { color: #ff9d9d; }
+.mrp-edit-hint { padding: 5px 12px; font-size: 12px; color: var(--mrp-shell-fg); }
+.mrp-body :deep(.mrp-cell-selected) { background-image: linear-gradient(#2563eb12, #2563eb12); }
+.mrp-body :deep(.mrp-cell-focus) { outline: 2px solid #2563eb; outline-offset: -2px; z-index: 8 !important; }
+.mrp-body :deep(.mrp-cell-modified)::after { content: ""; position: absolute; right: 0; top: 0; border-top: 6px solid #d58916; border-left: 6px solid transparent; }
+.mrp-body :deep(.mrp-cell-frozen) { background-color: #fff; box-shadow: 1px 0 0 #aeb8c6, 0 1px 0 #aeb8c6; }
+.mrp-export-notice { padding: 7px 12px; font-size: 12px; background: #fff0c2; color: #613c00; }
+.mrp-export-error { background: #ffe0df; color: #8e1f1f; }
+.mrp-export-progress { background: #e7f0ff; color: #1a4d86; }
+.mrp-retry {
+  margin-left: 12px;
+  background: transparent;
+  color: #8fb7ff;
+  border: 1px solid #5a7fbf;
+  border-radius: 4px;
+  padding: 1px 10px;
+  cursor: pointer;
+}
+/* overlay 插槽层：默认穿透点击；放入交互元素时自开 pointer-events:auto */
+.mrp-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+/* 搜索命中高亮 */
+.mrp-page-holder :deep(mark.mrp-hit) {
+  background: #ffe066;
+  color: #7a5c00;
+  border-radius: 2px;
+  padding: 0 1px;
+  scroll-margin: 8px;
+}
+/* 缩略图侧栏 */
+.mrp-thumbs {
+  width: 140px;
+  flex: none;
+  overflow-y: auto;
+  border-left: 1px solid var(--mrp-toolbar-border);
+  background: var(--mrp-toolbar-bg);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+}
+.mrp-thumb { cursor: pointer; text-align: center; flex: none; margin: 0 0 8px; padding: 0; border: 0; background: transparent; font: inherit; }
+.mrp-thumb:focus-visible { outline: 2px solid var(--mrp-btn-active-bg); outline-offset: 2px; }
+.mrp-thumb-spacer { flex: none; }
+.mrp-thumb-box {
+  display: block;
+  box-sizing: border-box;
+  width: 116px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  border: 2px solid transparent;
+}
+.mrp-thumb-active .mrp-thumb-box { border-color: var(--mrp-btn-active-bg); }
+.mrp-thumb-no { display: block; margin-top: 4px; line-height: 16px; font-size: 11px; color: var(--mrp-toolbar-fg); }
+/* 调试面板 */
+.mrp-debug {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  background: rgba(0, 0, 0, 0.78);
+  color: #7ee787;
+  font: 11px/1.6 ui-monospace, monospace;
+  padding: 6px 10px;
+  border-radius: 6px;
+  pointer-events: none;
+  white-space: pre;
+}
+
+/* Page placeholders preserve logical geometry while background pages render between frames. */
+.mrp-page-holder :deep(.mrp-page-loading) { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; color: var(--mrp-btn-active-bg); font: 13px/1.5 sans-serif; background: #fff; }
+.mrp-page-holder :deep(.mrp-page-loading span) { white-space: nowrap; }
+
+.mrp-page-holder :deep(.mrp-page-render-error) { box-sizing: border-box; padding: 16px; color: #b42318; font: 13px/1.5 sans-serif; white-space: normal; }

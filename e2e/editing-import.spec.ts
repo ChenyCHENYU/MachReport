@@ -166,7 +166,8 @@ test("业务校验或保存失败不更新计划，异步保存不会覆盖重�
   await editor.fill("99");
   await editor.press("Enter");
   await expect.poll(() => page.evaluate(() => window.mrEditingFixture.snapshot().saving)).toBe(true);
-  await page.evaluate(() => window.mrEditingFixture.reload(7));
+  await page.evaluate(() => { void window.mrEditingFixture.reload(7); });
+  await root.getByRole("alertdialog").getByRole("button", { name: "放弃修改并继续", exact: true }).click();
   await expect(root.locator("td").filter({ hasText: /^7\.000$/ })).toBeVisible();
   await page.evaluate(() => window.mrEditingFixture.resolveSave());
   await expect.poll(() => page.evaluate(() => window.mrEditingFixture.snapshot().saving)).toBe(false);

@@ -17,6 +17,21 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Java to Node reference HTTP contract
+        run: node scripts/check-server-example.mjs
+      - name: Pack actual compatibility artifact
+        run: |
+          mkdir -p /tmp/mach-report-artifact
+          pnpm --filter @agile-team/mach-report pack --pack-destination /tmp/mach-report-artifact
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-compat-artifact
+          path: /tmp/mach-report-artifact/*.tgz
+          retention-days: 3
       - name: Install browsers for E2E
         run: pnpm exec playwright install chromium --with-deps
       - run: pnpm test:e2e
@@ -33,4 +48,51 @@ jobs:
         with:
           name: playwright-report
           path: playwright-report/
+          retention-days: 7
+
+  runtime-compat:
+    needs: verify
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22, 24]
+        vue: ["3.2.47", "3.5"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-compat-artifact
+          path: /tmp/mach-report-artifact
+      - name: Actual artifact ESM/CJS, exports, binaries and Vue SSR
+        shell: bash
+        run: |
+          archive=(/tmp/mach-report-artifact/*.tgz)
+          node scripts/check-compat.mjs --archive="${archive[0]}" --vue=${{ matrix.vue }}
+
+  browser-compat:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install ${{ matrix.browser }} --with-deps
+      - name: Cross-engine rendering, Excel fidelity, params and wide report workflows
+        run: pnpm exec playwright test --browser=${{ matrix.browser }} --retries=0
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-${{ matrix.browser }}-traces
+          path: test-results/
           retention-days: 7

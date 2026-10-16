@@ -331,6 +331,24 @@ describe("真实预览组件的父页面状态句柄", () => {
     expect(onError).not.toHaveBeenCalled();
   });
 
+  it("只有实际启用的 PDF 工具检查字体，纯 Excel 集成及隐藏 PDF 不显示无关字体错误", async () => {
+    const { exporter, pending } = fontFlights();
+    const { state, defaults, mountParent } = session({ exporter, defaults: { pdfFontUrl: "/state-test.ttf", showPdfWindow: false, toolbar: { exportFormats: ["xlsx"] } } });
+    const wrapper = mountParent(); await settle();
+    expect(pending).toHaveLength(0); expect(state.hasPlan).toBe(true);
+    expect(wrapper.find(".mrp-export-warning").exists()).toBe(false);
+    defaults.toolbar = { exportFormats: ["xlsx", "pdf"] }; await settle();
+    expect(pending).toHaveLength(1);
+    pending[0]!.resolve({ status: "error", fontUrl: "/state-test.ttf", message: "font not configured" }); await settle();
+    expect(wrapper.find(".mrp-export-warning").exists()).toBe(true);
+    await wrapper.find(".mrp-settings-toggle").trigger("click"); await settle();
+    const pdf = wrapper.findAll(".mrp-settings-option").find((label) => label.text() === "导出 PDF")!.find("input");
+    await pdf.setValue(false); await settle();
+    expect(wrapper.find(".mrp-export-warning").exists()).toBe(false); expect(pending).toHaveLength(1);
+    await pdf.setValue(true); await settle();
+    expect(pending).toHaveLength(2);
+  });
+
   it("手动重试取消旧检查，忽略过期结果，并可从诊断失败恢复", async () => {
     const { exporter, pending } = fontFlights();
     const { report, state, mountParent } = session({ exporter });

@@ -229,7 +229,7 @@ describe("ReportPreview optional cell editing", () => {
     await enter(input, "99");
     expect(save).toHaveBeenCalledOnce();
     expect(signal.aborted).toBe(false);
-    if (action === "reload") await controller(wrapper).reload();
+    if (action === "reload") { await wrapper.setProps({ guardChanges: false }); await controller(wrapper).reload(); }
     else if (action === "disable") await wrapper.setProps({ editable: false });
     else if (action === "escape") input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     else unmount(wrapper);

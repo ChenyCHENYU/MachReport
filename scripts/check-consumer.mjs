@@ -114,7 +114,7 @@ import { createReportRuntime, createReportTaskQueue } from "@agile-team/mach-rep
 import { createNodeReportExecutor } from "@agile-team/mach-report/server/node";
 import { createBrowserReportExecutor } from "@agile-team/mach-report/worker";
 import { writeRowsToXlsx } from "@agile-team/mach-report/xlsx/node";
-import { ReportTemplateEditor, type TemplateEditorOptions } from "@agile-team/mach-report/designer";
+import { ReportTemplateEditor, type TemplateEditorOptions, type TemplateEditorMessages } from "@agile-team/mach-report/designer";
 import { computeDataset, createCrossTable, createChartComponents } from "@agile-team/mach-report/analytics";
 import { Writable } from "node:stream";
 async function consume() {
@@ -161,6 +161,18 @@ async function consume() {
   await writeRowsToXlsx([{ id: "0001" }], { columns: [{ key: "id" }], stream: new Writable({ write(_chunk, _encoding, done) { done(); } }) });
   const editorOptions: TemplateEditorOptions = { modelValue: document, datasets: { detail: [] }, preview: { showExport: false, theme: { shellBg: "#fff" }, assets: { assetRenderers: { qrcode: ({ component }) => component.imageData ?? "data:image/png;base64," } } }, save: async (draft, context) => ({ ...draft, revision: context.expectedRevision }) };
   const editorProps: InstanceType<typeof ReportTemplateEditor>["$props"] = editorOptions;
+  const legacyEditorMessages: TemplateEditorMessages = {
+    title: "Editor", heading: "Properties", unpublished: "Unpublished", dirty: "Unsaved",
+    reset: "Reset", saving: "Saving", save: "Save", name: "Name", description: "Description",
+    area: "Area", page: "Page", header: "Header", field: "Field", width: "Width",
+    semantic: "Semantic", identifier: "ID", dimension: "Dimension", measure: "Measure", date: "Date", text: "Text",
+    bodyAlign: "Body", headerAlign: "Header", auto: "Auto", left: "Left", center: "Center", right: "Right", justify: "Justify",
+    editable: "Editable", json: "JSON", applyJson: "Apply", note: "Note", invalid: "Invalid"
+  };
+  const compatibleEditorMessages: TemplateEditorMessages = { ...legacyEditorMessages, undo: "Undo" };
+  // @ts-expect-error Message overrides remain strings even when newly optional.
+  const invalidEditorMessages: TemplateEditorMessages = { ...legacyEditorMessages, undo: 123 };
+  void [compatibleEditorMessages, invalidEditorMessages];
   const computed = computeDataset([{ value: 1 }], { fields: [{ field: "copy", expression: { field: "value" } }] });
   createCrossTable(computed.rows, { rowField: "value", columnField: "copy", aggregate: "count" });
   createChartComponents({ type: "bar", categories: ["A"], series: [{ name: "Q", values: [0] }], leftMm: 0, topMm: 0, widthMm: 100, heightMm: 50 });

@@ -14,6 +14,7 @@ export * from "./controller";
 export * from "./editing";
 export * from "./provider-editing";
 export * from "./tools";
+export * from "./guards";
 export type { ReportCellSelection, ReportFieldTarget } from "./composables/useCellSelection";
 export * from "./composables/usePageWindow";
 export * from "./composables/useZoom";

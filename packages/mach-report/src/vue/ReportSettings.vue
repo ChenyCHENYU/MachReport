@@ -42,25 +42,41 @@ function onChange(event: Event, key: ReportPreviewTool): void {
   emit("change", key, enabled);
 }
 
+function ownsKeyboard(event: KeyboardEvent): boolean {
+  if (!panel.value || event.defaultPrevented) return false;
+  if (event.target instanceof Node && panel.value.contains(event.target)) return true;
+  // Safari may leave focus on body after a clicked/temporarily disabled control.
+  // An unrelated or nested modal must still own its own Escape/Tab handling.
+  if (event.target instanceof Element && event.target.closest('[role="dialog"],dialog[open]')) return false;
+  return !Array.from(document.querySelectorAll('[aria-modal="true"],dialog[open]')).some((dialog) => dialog !== panel.value && !panel.value!.contains(dialog));
+}
 function onKeydown(event: KeyboardEvent): void {
-  if (event.key === "Escape") { event.preventDefault(); emit("close"); return; }
+  if (!ownsKeyboard(event)) return;
+  if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); emit("close"); return; }
   if (event.key !== "Tab") return;
   const elements = panel.value?.querySelectorAll<HTMLElement>("a[href],button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),[tabindex='0']");
   const first = elements?.[0];
   const last = elements?.[elements.length - 1];
-  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-  if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  const outside = !panel.value?.contains(document.activeElement);
+  if (outside || event.shiftKey && document.activeElement === first || !event.shiftKey && document.activeElement === last) {
+    event.preventDefault(); event.stopPropagation(); (event.shiftKey ? last : first)?.focus();
+  }
 }
 
 onMounted(() => {
-  previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const opener = panel.value?.closest(".mach-report-preview")?.querySelector<HTMLElement>(".mrp-settings-toggle");
+  previousFocus = opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
   closeButton.value?.focus();
+  document.addEventListener("keydown", onKeydown);
 });
-onUnmounted(() => previousFocus?.focus());
+onUnmounted(() => {
+  document.removeEventListener("keydown", onKeydown);
+  if (previousFocus?.isConnected) previousFocus.focus();
+});
 </script>
 
 <template>
-  <div class="mrp-settings-backdrop" @click.self="$emit('close')" @keydown="onKeydown">
+  <div class="mrp-settings-backdrop" @click.self="$emit('close')">
     <section ref="panel" class="mrp-settings-panel" role="dialog" aria-modal="true" :aria-label="messages.settings">
       <header class="mrp-settings-header">
         <div><strong>{{ messages.settings }}</strong><p>{{ messages.settingsLocal }}</p></div>

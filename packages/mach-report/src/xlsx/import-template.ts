@@ -1,3 +1,4 @@
+import { assertOutputActive, outputCheckpoint } from "../output/progress";
 import ExcelJSRuntime from "exceljs";
 import type * as ExcelJS from "exceljs";
 import type { TemplatePage } from "../layout/paginate";
@@ -179,12 +180,15 @@ function importSheet(sheet: ExcelJS.Worksheet, range: CellRange, workbook: Excel
  * No formulas, macros, links, database calls or scripts are evaluated. The workbook is not modified.
  */
 export async function importExcelTemplate(input: ArrayBuffer | Uint8Array | Blob, options: ExcelImportOptions = {}): Promise<ExcelImportResult> {
+  assertOutputActive(options.signal);
   const resolved = resolveImportOptions(options);
   const warnings = new ImportWarnings();
   const bytes = await checkedExcelBytes(input, resolved, warnings);
+  assertOutputActive(options.signal);
   const workbook = new ExcelJSRuntime.Workbook();
   try { await workbook.xlsx.load(bytes as unknown as ExcelJS.Buffer); }
   catch { throw new Error("Excel 文件解析失败；请确认它是未加密且完整的 .xlsx 文件"); }
+  assertOutputActive(options.signal);
   if (workbook.worksheets.length > resolved.limits.maxSheets) throw new Error("Excel 工作表数量超过导入上限");
   const selected = selectSheets(workbook, options);
   if (!selected.length) throw new Error("Excel 中没有可导入的可见工作表；可通过 sheets 显式选择隐藏工作表");
@@ -198,6 +202,7 @@ export async function importExcelTemplate(input: ArrayBuffer | Uint8Array | Blob
     const pages = importSheet(sheet, range, workbook, resolved, warnings, index);
     sheets.push({ name: sheet.name, index, range: rangeName(range), rowCount: range.bottom - range.top + 1, columnCount: range.right - range.left + 1, pageStart: template.pages.length, pageCount: pages.length });
     template.pages.push(...pages);
+    await outputCheckpoint(options, sheets.length, selected.length);
   }
   return { template, warnings: warnings.result(), sheets };
 }

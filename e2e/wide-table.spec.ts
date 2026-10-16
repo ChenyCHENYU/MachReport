@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 
-test("82列×2000行：实际字号、左右端可达、连续分段、远右搜索和小画布缩略图", async ({ page }, testInfo) => {
+test("82列×2000行：实际字号、左右端可达、连续分段、远右搜索和小画布缩略图", async ({ page, browserName }, testInfo) => {
   test.setTimeout(90000);
   await page.goto("http://localhost:8610");
   await expect(page.getByText("产品出库单")).toBeVisible({ timeout: 10000 });
@@ -55,7 +55,8 @@ test("82列×2000行：实际字号、左右端可达、连续分段、远右搜
       firstPageHeight: page.getBoundingClientRect().height };
   });
   expect(initial.transform).toBe("matrix(1, 0, 0, 1, 0, 0)");
-  expect(initial.fontPx).toBeCloseTo(13.3333, 2);
+  // Firefox exposes computed font sizes in 1/64 CSS-pixel steps.
+  expect(Math.abs(initial.fontPx - 13.3333)).toBeLessThanOrEqual(browserName === "firefox" ? 1 / 64 : 0.005);
   expect(initial.textColor).toBe("rgb(0, 0, 0)");
   expect(initial.holderGap).toBe("0px");
   expect(initial.shadow).toBe("none");

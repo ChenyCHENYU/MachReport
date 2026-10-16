@@ -59,6 +59,41 @@ const editing: ReportEditingOptions = {
 
 保存期间不会重复提交；失败保留原计划并显示错误，用户可修正或取消。重新查询、导入其他模板或卸载会取消旧操作，即使不消费 `signal` 的保存函数晚些返回，也不会覆盖新报表。
 
+## 按字段选择输入控件
+
+普通 `editable: true` 继续使用兼容的文本输入。需要类型控件、单位或范围提示时，只增加 `fields`；不需要为每个格创建组件或 watcher：
+
+```ts
+const editing: ReportEditingOptions = {
+  fields: {
+    quantity: { type: "number", label: "净重", unit: "吨", min: 0, max: 100, precision: 3 },
+    heatNo: { type: "text", label: "炉号", required: true, maxLength: 20 },
+    enabled: { type: "boolean", label: "启用", trueLabel: "是", falseLabel: "否" },
+    status: { type: "enum", label: "状态", options: [
+      { value: "open", label: "进行中" }, { value: "done", label: "已完成" }
+    ] },
+    businessDate: { type: "date", label: "业务日期", min: "2026-01-01", max: "2026-12-31" }
+  },
+  saveBatch: (batch, { signal }) => reportApi.saveCells(batch, { signal })
+};
+```
+
+字段先按 `context.source.field` 匹配，否则使用 `context.table.columnKey`。不同数据集有同名字段时，改用 `fields: (context) => ...` 返回该格配置；没有返回配置则保持原来的输入方式。单元格仍先经过模板只读规则和 `canEdit`，resolver 无法授予额外权限。
+
+| 配置 | 行为 |
+| --- | --- |
+| `label` / `hint` / `unit` | 输入名称、说明与单位；说明通过 `aria-describedby` 关联，主题继承外壳变量 |
+| `required` | 空字符串或 null 不允许提交；数字 `0`、布尔 `false` 有效 |
+| `number.min / max / precision` | 含边界的范围、小数位上限；拒绝超限值，不自动四舍五入 |
+| `text.maxLength` | 按 Unicode 码点计数；文本编号保留前导零 |
+| `boolean` | 显示是/否选项，保存实际布尔值；可通过 `trueLabel / falseLabel` 改名称 |
+| `enum.options` | 显示 `label`，保存实际 `value`；粘贴同样检查有效选项 |
+| `date.min / max` | 显式业务日期输入，保存 `YYYY-MM-DD` 字符串，检查真实日历与范围 |
+
+类型编辑器不改变数据模型：数字和布尔列应分别声明 `valueType: "number"`、`valueType: "boolean"`；日期使用文本业务字段。枚举值须与列的数据类型一致，选项不可重复。不匹配的类型、无效日期范围或精度配置在打开前报告明确错误；不要依赖编辑器将文本编号隐式转成数字。日期不包含时区或时间；Excel 导入日期仍只读，配置 `type: "date"` 不会解除保护。
+
+字段规则由核心入口的 `parseReportCellFieldInput(context, value, field)` 与 `validateReportCellFieldDefinition(context, field)` 统一执行，Node 或其他框架可复用；失败抛出带 `code / field / expected` 的 `ReportCellFieldError`。Vue 单格提交、批量粘贴、撤销、重做与恢复使用同一事务校验，全部通过后才调用保存接口。浏览器校验不能替代服务端权限与业务校验。
+
 `reportApi.saveCells` 是宿主自己的请求函数；接口路径、登录态和响应解包由宿主已有客户端负责，插件不绑定业务系统。服务端必须在一个事务中检查并保存整批，继续验证租户、可写字段、封月状态和并发版本。请求函数消费 `signal` 可终止真实请求；浏览器取消本身不能撤销服务端已完成的写入。
 
 已经使用统一 `ReportProvider` 时，无需再写一份保存转接：
@@ -154,7 +189,7 @@ await report.restoreChanges();
 
 `getChanges()` 返回本次成功操作的补丁流水，包括撤销与恢复操作；`getDifferences()` 返回相对本次来源的净差异。`getPlan()` 返回当前计划的独立快照，修改返回值不会影响预览。`cell-edit` 的参数包括 `address`、可选 `table` / `source`、`previousValue`、`previousText`、`value` 和 `text`。结构化错误通过现有 `error` 事件报告。
 
-只读 `state` 提供 `editing`、`saving`、`importing`、`dirty`、`canUndo`、`canRedo`、`changeCount` 和 `selection`。`dirty` 表示相对本次来源仍有净差异，不代表后台是否已持久化；有保存回调时同样会记录差异。离开提示和重新查询时机由应用决定。冻结、工具偏好与字段定位见[预览交互](./INTERACTION.md)。
+只读 `state` 提供 `editing`、`saving`、`importing`、`dirty`、`pendingLocalChanges`、`canUndo`、`canRedo`、`changeCount` 和 `selection`。`dirty` 表示相对本次来源仍有净差异，不代表后台是否已持久化；有保存回调时同样会记录差异。`pendingLocalChanges` 只统计实际改动的活动输入及无保存回调的本地净修改；成功调用保存接口后，差异审阅仍可保留，但不会被误判为未保存。取消输入或本地撤销回原值会清除对应待保存状态。冻结、工具偏好与字段定位见[预览交互](./INTERACTION.md)。
 
 ## 不使用 Vue
 

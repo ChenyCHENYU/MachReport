@@ -48,4 +48,14 @@ xlsx/node ── AsyncIterable → 逐行工作表（不构造完整计划）
 
 预览按可见页窗口挂载，搜索分片取消；批量编辑一次构建局部几何解析器，并按组件 / 行应用不可变复制。PNG逐页绘制 / 编码，资源与图片有预算；Node全量数据导出可用逐行出口。有界队列限制并发，Worker可终止同步计算。
 
+`usePageWindow` 计算几何范围，`usePageRendering` 管优先页、逐帧挂载、占位和代际取消；选区按新挂载的holder初始化，已有节点仅更新变化状态。几何、DOM构造和交互分别维护，避免把大宽表缩放调度交给集成页面。
+
 完整模板分页仍构造完整计划，不能从窗口化推导任意数据量恒定内存。默认Runtime在分页前预检逻辑规模，分页后核对实际页 / 单元格数；大任务选择Worker或流式出口，并在业务API限制查询范围。[质量矩阵](./QUALITY.md)记录各输出能力差异。
+
+## 操作生命周期与公开声明
+
+`usePreviewConfiguration` 集中处理配置层级与工具能力交集；`usePreviewFont` 管理字体检查/缓存；`preview-plan` 负责查询与导入计划准备。`useDiscardGuard`、`usePreviewTask`、`usePreviewDiagnostics` 各自管理替换决定、任务与诊断，组件只做生命周期接线。观察者不能改变事务结果，代际与小型身份快照阻止旧确认、旧输出、旧诊断污染新报表。
+
+`editing/fields` 的字段约束由单格、批量、历史与Node共用；`vue/cell-editor` 仅负责单实例控件和焦点。设计器使用独立列操作、受预算历史与丢弃保护hooks，复用同一模板文档/CAS协议。
+
+公开SFC声明通过TypeScript AST投影到最低受支持Vue与当前Vue的共同公共契约，保留props/events/controller/slots；不输出编译器私有provider/template-ref状态。遇到未知声明形态会阻止构建，严格ESM/CJS消费端同时验证正确与错误调用，避免通过any或skipLibCheck掩盖兼容问题。

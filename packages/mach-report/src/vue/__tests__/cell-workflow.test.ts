@@ -56,7 +56,7 @@ describe("spreadsheet interactions", () => {
     expect(document.activeElement).toBe(wrapper.find(".mrp-settings-close").element);
     expect(wrapper.find(".mrp-cell-editor").exists()).toBe(false);
   });
-  it("lets native Tab leave grid boundaries while preserving navigation between fragments", async () => {
+  it("leaves grid boundaries and preserves navigation between fragments", async () => {
     const original = plan();
     original.pages[0]!.components = [0, 1].map((rowIndex) => ({ kind: "rect", leftMm: 0, topMm: rowIndex * 10, widthMm: 100, heightMm: 10, table: { id: "orders", rowIndex, role: "body", columnKeys: ["qty", "code"] }, grid: { cells: [[{ text: String(rowIndex) }, { text: "code" }]] } }));
     const { wrapper, api: report } = await create(false, undefined, original);
@@ -74,7 +74,23 @@ describe("spreadsheet interactions", () => {
     await report.focusCell(address());
     const previous = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
     viewport.dispatchEvent(previous);
-    expect(previous.defaultPrevented).toBe(false);
+    expect(previous.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(viewport);
+  });
+  it("ignores non-text and empty native paste without clearing business values", async () => {
+    const saveBatch = vi.fn();
+    const { wrapper, api: report, original } = await create({ saveBatch });
+    await report.focusCell(address());
+    for (const types of [["image/png"], ["text/plain"]]) {
+      const paste = new Event("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(paste, "clipboardData", { value: { types, getData: () => "" } });
+      wrapper.find(".mrp-body").element.dispatchEvent(paste);
+      await flushPromises();
+      expect(paste.defaultPrevented).toBe(false);
+      expect(report.getPlan()).toEqual(original);
+      expect(report.getChanges()).toEqual([]);
+    }
+    expect(saveBatch).not.toHaveBeenCalled();
   });
   it("keeps header semantics after selection refresh", async () => {
     const original = plan();
@@ -281,6 +297,7 @@ describe("spreadsheet interactions", () => {
     const replacement = plan();
     replacement.pages[0]!.components[0]!.grid!.cells[0]![0] = { value: 100, text: "100", source: { datasetId: "orders", rowKey: "NEW", field: "qty", revision: 8 } };
     fetcher.mockResolvedValue(replacement);
+    await wrapper.setProps({ guardChanges: false });
     const onEdit = vi.fn(() => { void (wrapper.vm as unknown as MachReportController).reload(); });
     await wrapper.setProps({ "onCell-edit": onEdit });
     expect(await report[action]()).toBe(false);
@@ -294,6 +311,7 @@ describe("spreadsheet interactions", () => {
   });
   it("stops emitting the remaining old batch when a cell-edit callback replaces the report", async () => {
     const { wrapper, api: report, fetcher } = await create();
+    await wrapper.setProps({ guardChanges: false });
     const onEdit = vi.fn(() => { void (wrapper.vm as unknown as MachReportController).reload(); });
     fetcher.mockResolvedValue(plan());
     await wrapper.setProps({ "onCell-edit": onEdit });

@@ -41,7 +41,9 @@ test("宿主全局CSS不改变报表几何/字形，合并格与HTML打印回读
         const rect = node.getBoundingClientRect();
         const style = getComputedStyle(node);
         return { className: node.className, text: node.textContent,
-          x: rect.x - origin.x, y: rect.y - origin.y, width: rect.width, height: rect.height,
+          // Serialized documents can differ by a floating-point ULP after subtracting origins.
+          x: Math.round((rect.x - origin.x) * 1000) / 1000, y: Math.round((rect.y - origin.y) * 1000) / 1000,
+          width: Math.round(rect.width * 1000) / 1000, height: Math.round(rect.height * 1000) / 1000,
           font: style.fontFamily, size: style.fontSize, weight: style.fontWeight, lineHeight: style.lineHeight,
           color: style.color, padding: style.padding, border: style.borderWidth, transform: style.transform,
           opacity: style.opacity, textTransform: style.textTransform, letterSpacing: style.letterSpacing,

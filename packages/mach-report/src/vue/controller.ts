@@ -3,7 +3,8 @@ import { MACH_REPORT_CONTROLLER_KEY } from "./injection-keys";
 import { MachReportError } from "./errors";
 import type { MachReportErrorCode } from "./errors";
 import type { PdfFontCheckResult } from "./pdf-exporter";
-import type { RenderPlan, ReportCellEdit, ReportCellAddress } from "@agile-team/mach-report";
+import type { ReportDiscardReason, ReportPreviewTask, ReportPreviewDiagnostic } from "./guards";
+import type { RenderPlan, ReportCellEdit, ReportCellAddress, OutputFormat } from "@agile-team/mach-report";
 import type { ExcelImportOptions, ExcelImportResult } from "../xlsx/import-types";
 import type { ReportCellSelection, ReportFieldTarget } from "./composables/useCellSelection";
 
@@ -30,6 +31,12 @@ export interface MachReportState {
   readonly saving?: boolean;
   readonly importing?: boolean;
   readonly dirty?: boolean;
+  readonly pendingLocalChanges?: boolean;
+  readonly task?: Readonly<ReportPreviewTask> | null;
+  readonly diagnostics?: readonly Readonly<ReportPreviewDiagnostic>[];
+  /** Context of the displayed API snapshot, which can differ from an unexecuted query form. */
+  readonly reportIds?: readonly string[];
+  readonly params?: Readonly<Record<string, string>>;
   readonly canUndo?: boolean;
   readonly canRedo?: boolean;
   readonly changeCount?: number;
@@ -50,6 +57,9 @@ export interface MachReportController {
   /** 新组件提供；可选以兼容旧自定义控制器。 */
   readonly state?: MachReportState;
   checkPdfFont?(): Promise<PdfFontCheckResult>;
+  cancelTask?(): void;
+  confirmDiscard?(reason?: ReportDiscardReason): Promise<boolean>;
+  getOutputDiagnostics?(format: OutputFormat): readonly Readonly<ReportPreviewDiagnostic>[];
   reload(): Promise<void>;
   print(): Promise<void>;
   /** 支持 html/pdf/xlsx/png/word（excel/image/doc 为兼容别名）；未知格式报 export 错误。 */
@@ -80,6 +90,9 @@ export interface MachReportHandle extends MachReportController {
   readonly ready: ComputedRef<boolean>;
   readonly state: MachReportState;
   checkPdfFont(): Promise<PdfFontCheckResult>;
+  cancelTask(): void;
+  confirmDiscard(reason?: ReportDiscardReason): Promise<boolean>;
+  getOutputDiagnostics(format: OutputFormat): readonly Readonly<ReportPreviewDiagnostic>[];
   exportAs(format: string): Promise<void>;
   setParams(values: Record<string, string>, opts?: { reload?: boolean }): Promise<void>;
   importExcel(input: ArrayBuffer | Uint8Array | Blob, options?: ExcelImportOptions): Promise<ExcelImportResult | null>;
@@ -120,6 +133,11 @@ export function useMachReport(): MachReportHandle {
     get saving() { return currentState().saving ?? false; },
     get importing() { return currentState().importing ?? false; },
     get dirty() { return currentState().dirty ?? false; },
+    get pendingLocalChanges() { return currentState().pendingLocalChanges ?? false; },
+    get task() { return currentState().task ?? null; },
+    get diagnostics() { return currentState().diagnostics ?? []; },
+    get reportIds() { return currentState().reportIds ?? []; },
+    get params() { return currentState().params ?? {}; },
     get canUndo() { return currentState().canUndo ?? false; },
     get canRedo() { return currentState().canRedo ?? false; },
     get changeCount() { return currentState().changeCount ?? 0; },
@@ -151,6 +169,9 @@ export function useMachReport(): MachReportHandle {
       if (!controller.checkPdfFont) return { status: "unverified", fontUrl: "", message: "旧自定义控制器未提供字体检查，请由宿主确认字体配置" };
       return controller.checkPdfFont();
     },
+    cancelTask(): void { getController().cancelTask?.(); },
+    async confirmDiscard(reason?: ReportDiscardReason): Promise<boolean> { return await getController().confirmDiscard?.(reason) ?? true; },
+    getOutputDiagnostics(format: OutputFormat) { return getController().getOutputDiagnostics?.(format) ?? []; },
     async reload(): Promise<void> { await getController().reload(); },
     async print(): Promise<void> { await getController().print(); },
     async exportAs(format: string): Promise<void> { await getController().exportAs(format); },

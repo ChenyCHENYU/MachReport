@@ -74,6 +74,6 @@ describe("无界面服务端运行时", () => {
     };
     const runtime = createReportRuntime({ reports: reports(), executor });
     await runtime.prepare({ reportIds: ["sales"] });
-    expect(executor.prepare).toHaveBeenCalledWith({ reportIds: ["sales"] }, expect.any(AbortSignal));
+    expect(executor.prepare).toHaveBeenCalledWith({ reportIds: ["sales"], taskId: expect.any(String) }, expect.any(AbortSignal), undefined);
   });
 });

@@ -1,11 +1,25 @@
 import { nextTick, shallowRef, type Ref } from "vue";
-import { createReportCellResolver, formatReportClipboard, getReportCellContext, parseReportClipboard, ReportCellEditError, type RenderPlan, type ReportCellAddress, type ReportCellEdit, type ReportCellInput } from "@agile-team/mach-report";
+import { createReportCellResolver, formatReportClipboard, getReportCellContext, parseReportClipboard, ReportCellEditError, type PlanComponent, type RenderPlan, type ReportCellAddress, type ReportCellContext, type ReportCellEdit, type ReportCellInput } from "@agile-team/mach-report";
 import { resolveGridLayout } from "../../render/grid-geometry";
 import { reportCellAddress } from "./useCellEditing";
 import { selectionAddressResolver, selectionCoordinate } from "./selection-grid";
+import { focusAdjacentControl } from "./focus-order";
 
 export interface ReportCellSelection { anchor: ReportCellAddress; focus: ReportCellAddress }
-export interface ReportFieldTarget { field: string; datasetId?: string; rowKey?: string | number }
+export interface ReportFieldTarget { field: string; datasetId?: string; rowKey?: string | number; tableId?: string }
+function matchesField(context: ReportCellContext | null | undefined, target: ReportFieldTarget): boolean {
+  const source = context?.source;
+  if (!containsField(context, target.field)) return false;
+  if (target.tableId !== undefined && context?.table?.id !== target.tableId) return false;
+  if (target.datasetId !== undefined && (source?.datasetId ?? context?.component.table?.source?.datasetId) !== target.datasetId) return false;
+  return target.rowKey === undefined || source?.rowKey === target.rowKey;
+}
+function containsField(context: ReportCellContext | null | undefined, field: string): boolean {
+  if ((context?.source?.field ?? context?.table?.columnKey) === field) return true;
+  if (!context || context.table?.role !== "header") return false;
+  const start = context.address.columnIndex;
+  return context.component.table?.columnKeys.slice(start, start + (context.cell.colSpan ?? 1)).includes(field) ?? false;
+}
 interface SelectionHost {
   plan: Ref<RenderPlan | null>;
   root: Ref<HTMLElement | null>;
@@ -25,35 +39,96 @@ function sameAddress(a: ReportCellAddress, b: ReportCellAddress): boolean { retu
 function selector(address: ReportCellAddress): string {
   return `[data-page="${address.pageIndex + 1}"] [data-mr-component-index="${address.componentIndex}"] td[data-mr-row-index="${address.rowIndex}"][data-mr-column-index="${address.columnIndex}"]`;
 }
-function inside(plan: RenderPlan, address: ReportCellAddress, selection: ReportCellSelection): boolean {
-  const { anchor, focus } = selection;
-  const a = selectionCoordinate(plan, anchor);
-  const b = selectionCoordinate(plan, focus, anchor);
-  const c = selectionCoordinate(plan, address, anchor);
-  return c.grid === a.grid && c.row >= Math.min(a.row, b.row) && c.row <= Math.max(a.row, b.row)
-    && c.column >= Math.min(a.column, b.column) && c.column <= Math.max(a.column, b.column);
+interface SelectionBounds { grid: string; minRow: number; maxRow: number; minColumn: number; maxColumn: number; focusKey: string; origin?: PlanComponent["table"] }
+interface TableAddress { pageIndex: number; componentIndex: number }
+interface TableCoordinates { grid: string; rowOffset: number; columns?: readonly number[]; missingColumn: number }
+interface CellPaint { row: number; column: number; key: string; role?: string; selected?: boolean; focused?: boolean; modified?: boolean }
+function addressKey(address: ReportCellAddress): string {
+  return `${address.pageIndex}:${address.componentIndex}:${address.rowIndex}:${address.columnIndex}`;
+}
+function selectionBounds(plan: RenderPlan, selection: ReportCellSelection): SelectionBounds {
+  const a = selectionCoordinate(plan, selection.anchor);
+  const b = selectionCoordinate(plan, selection.focus, selection.anchor);
+  return { grid: a.grid, minRow: Math.min(a.row, b.row), maxRow: Math.max(a.row, b.row), minColumn: Math.min(a.column, b.column), maxColumn: Math.max(a.column, b.column), focusKey: addressKey(selection.focus), origin: plan.pages[selection.anchor.pageIndex]?.components[selection.anchor.componentIndex]?.table };
+}
+function tableCoordinates(base: TableAddress, component: PlanComponent | undefined, bounds: SelectionBounds): TableCoordinates {
+  const table = component?.table;
+  if (!table || !bounds.origin || table.id !== bounds.origin.id) return { grid: `${base.pageIndex}:${base.componentIndex}`, rowOffset: 0, missingColumn: -1 };
+  const indices = new Map<string, number>();
+  bounds.origin.columnKeys.forEach((key, index) => { if (!indices.has(key)) indices.set(key, index); });
+  return { grid: table.id, rowOffset: table.role === "header" ? -Math.max(1, component.grid?.cells.length ?? 1) : table.rowIndex, columns: table.columnKeys.map((key) => indices.get(key) ?? -1), missingColumn: indices.get("") ?? -1 };
+}
+function insideBounds(cell: CellPaint, coordinates: TableCoordinates | null, bounds: SelectionBounds | null): boolean {
+  if (!bounds || !coordinates || coordinates.grid !== bounds.grid) return false;
+  const row = coordinates.rowOffset + cell.row;
+  const column = coordinates.columns ? coordinates.columns[cell.column] ?? coordinates.missingColumn : cell.column;
+  return row >= bounds.minRow && row <= bounds.maxRow && column >= bounds.minColumn && column <= bounds.maxColumn;
+}
+function setAttributeIfChanged(element: HTMLElement, name: string, value: string): void {
+  if (element.getAttribute(name) !== value) element.setAttribute(name, value);
+}
+function setClassIfChanged(cell: HTMLElement, name: string, value: boolean): void {
+  if (cell.classList.contains(name) !== value) cell.classList.toggle(name, value);
+}
+function paintCell(cell: HTMLElement, state: CellPaint, role: string, selected: boolean, focused: boolean, modified: boolean): void {
+  if (state.role !== role) { setAttributeIfChanged(cell, "role", role); state.role = role; }
+  if (state.selected !== selected) {
+    setClassIfChanged(cell, "mrp-cell-selected", selected);
+    setAttributeIfChanged(cell, "aria-selected", String(selected)); state.selected = selected;
+  }
+  if (state.focused !== focused) {
+    setClassIfChanged(cell, "mrp-cell-focus", focused);
+    setAttributeIfChanged(cell, "tabindex", focused ? "0" : "-1"); state.focused = focused;
+  }
+  if (state.modified !== modified) { setClassIfChanged(cell, "mrp-cell-modified", modified); state.modified = modified; }
 }
 
 /** Delegated selection: one state and event handler, no Vue instance/listener per cell. */
 export function useCellSelection(host: SelectionHost) {
   const selection = shallowRef<ReportCellSelection | null>(null);
-  function refresh(): void {
+  const tableAddresses = new WeakMap<HTMLTableElement, TableAddress>();
+  const cellPaints = new WeakMap<HTMLTableCellElement, CellPaint>();
+  let previousDifferences: readonly ReportCellEdit[] | null = null;
+  let modifiedKeys = new Set<string>();
+  function refresh(scope = host.root.value ?? undefined): void {
+    if (!scope) return;
     const current = selection.value;
     const plan = host.plan.value;
-    const modified = new Set(host.differences().map((edit) => JSON.stringify(edit.address)));
-    host.root.value?.querySelectorAll<HTMLElement>("td[data-mr-row-index]").forEach((cell) => {
-      const address = reportCellAddress(cell);
-      if (!address) return;
-      const selected = !!current && !!host.plan.value && inside(host.plan.value, address, current);
-      cell.closest("table")?.setAttribute("role", "grid");
-      const table = plan?.pages[address.pageIndex]?.components[address.componentIndex]?.table;
-      cell.setAttribute("role", table?.role === "header" ? "columnheader" : "gridcell");
-      cell.classList.toggle("mrp-cell-selected", selected);
-      cell.classList.toggle("mrp-cell-focus", !!current && sameAddress(address, current.focus));
-      cell.classList.toggle("mrp-cell-modified", modified.has(JSON.stringify(address)));
-      cell.setAttribute("aria-selected", String(selected));
-      cell.tabIndex = current && sameAddress(address, current.focus) ? 0 : -1;
-    });
+    const differences = host.differences();
+    if (differences !== previousDifferences) { previousDifferences = differences; modifiedKeys = new Set(differences.map((edit) => addressKey(edit.address))); }
+    const bounds = current && plan ? selectionBounds(plan, current) : null;
+    if (scope instanceof HTMLTableElement) refreshTable(scope, plan, bounds);
+    for (const table of scope.querySelectorAll<HTMLTableElement>("table")) refreshTable(table, plan, bounds);
+  }
+  function tableAddress(table: HTMLTableElement): TableAddress | null {
+    const existing = tableAddresses.get(table);
+    if (existing) return existing;
+    const component = table.closest<HTMLElement>("[data-mr-component-index]");
+    const holder = component?.closest<HTMLElement>(".mrp-page-holder");
+    const address = { pageIndex: Number(holder?.dataset.page) - 1, componentIndex: Number(component?.dataset.mrComponentIndex) };
+    if (!Object.values(address).every((value) => Number.isInteger(value) && value >= 0)) return null;
+    tableAddresses.set(table, address); return address;
+  }
+  function cellPaint(cell: HTMLTableCellElement, base: TableAddress): CellPaint | null {
+    const existing = cellPaints.get(cell);
+    if (existing) return existing;
+    const rowIndex = Number(cell.dataset.mrRowIndex), columnIndex = Number(cell.dataset.mrColumnIndex);
+    if (![rowIndex, columnIndex].every((value) => Number.isInteger(value) && value >= 0)) return null;
+    const state = { row: rowIndex, column: columnIndex, key: addressKey({ ...base, rowIndex, columnIndex }) };
+    cellPaints.set(cell, state); return state;
+  }
+  function refreshTable(table: HTMLTableElement, plan: RenderPlan | null, bounds: SelectionBounds | null): void {
+    const base = tableAddress(table);
+    if (!base) return;
+    const component = plan?.pages[base.pageIndex]?.components[base.componentIndex];
+    const role = component?.table?.role === "header" ? "columnheader" : "gridcell";
+    const coordinates = bounds ? tableCoordinates(base, component, bounds) : null;
+    setAttributeIfChanged(table, "role", "grid");
+    for (const row of table.rows) for (const cell of row.cells) {
+      const state = cellPaint(cell, base);
+      if (!state) continue;
+      paintCell(cell, state, role, insideBounds(state, coordinates, bounds), bounds?.focusKey === state.key, modifiedKeys.size > 0 && modifiedKeys.has(state.key));
+    }
   }
   async function focusCell(address: ReportCellAddress, extend = false): Promise<boolean> {
     if (!host.plan.value || !getReportCellContext(host.plan.value, address)) return false;
@@ -141,7 +216,10 @@ export function useCellSelection(host: SelectionHost) {
     if (beginEditing(event, current.focus)) return true;
     if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab", "Enter"].includes(key)) return false;
     const moved = navigate(current.focus, key, key === "Tab" && event.shiftKey, event.shiftKey && key !== "Tab", true);
-    if (key === "Tab" && !moved) return false;
+    if (key === "Tab" && !moved) {
+      const active = host.root.value?.ownerDocument.activeElement;
+      if (!(active instanceof HTMLElement) || !focusAdjacentControl(active, event.shiftKey)) return false;
+    }
     event.preventDefault(); return true;
   }
   function beginEditing(event: KeyboardEvent, address: ReportCellAddress): boolean {
@@ -181,7 +259,7 @@ export function useCellSelection(host: SelectionHost) {
     return formatReportClipboard(rows);
   }
   function onCopy(event: ClipboardEvent): void {
-    if (!selection.value || (event.target instanceof Element && event.target.closest("textarea,input"))) return;
+    if (!selection.value || (event.target instanceof Element && event.target.closest("textarea,input,select"))) return;
     event.clipboardData?.setData("text/plain", copySelection()); event.preventDefault();
   }
   async function pasteSelection(text: string): Promise<boolean> {
@@ -204,9 +282,10 @@ export function useCellSelection(host: SelectionHost) {
     } catch (cause) { host.error(cause); return false; }
   }
   function onPaste(event: ClipboardEvent): void {
-    if (!selection.value || !host.enabled() || (event.target instanceof Element && event.target.closest("textarea,input"))) return;
+    if (!selection.value || !host.enabled() || (event.target instanceof Element && event.target.closest("textarea,input,select"))) return;
+    if (!event.clipboardData?.types.includes("text/plain")) return;
     const text = event.clipboardData?.getData("text/plain");
-    if (text !== undefined) { event.preventDefault(); void pasteSelection(text); }
+    if (text) { event.preventDefault(); void pasteSelection(text); }
   }
   async function focusField(target: ReportFieldTarget): Promise<boolean> {
     const plan = host.plan.value;
@@ -217,10 +296,7 @@ export function useCellSelection(host: SelectionHost) {
       for (let componentIndex = 0; componentIndex < page.components.length; componentIndex++) {
         for (const address of addresses({ pageIndex, componentIndex, rowIndex: 0, columnIndex: 0 })) {
           const context = cellAt(address);
-          const source = context?.source;
-          if ((source?.field ?? context?.table?.columnKey) !== target.field) continue;
-          if (target.datasetId !== undefined && source?.datasetId !== target.datasetId) continue;
-          if (target.rowKey !== undefined && source?.rowKey !== target.rowKey) continue;
+          if (!matchesField(context, target)) continue;
           return focusCell(address);
         }
       }

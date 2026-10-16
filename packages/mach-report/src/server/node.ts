@@ -1,7 +1,7 @@
 import { parentPort, Worker, type WorkerOptions } from "node:worker_threads";
 import type { ReportRuntime, ReportRuntimeExecutor } from "./types";
 import { createReportWorkerExecutor, type ReportWorkerOptions } from "../worker/client";
-import { isReportWorkerRequest, reportWorkerTransferList, runReportWorkerRequest } from "../worker/protocol";
+import { REPORT_WORKER_PROTOCOL, isReportWorkerRequest, reportWorkerTransferList, runReportWorkerRequest } from "../worker/protocol";
 
 export interface NodeReportExecutorOptions extends ReportWorkerOptions {
   filename?: string | URL;
@@ -29,7 +29,7 @@ export function serveNodeReportWorker(runtime: ReportRuntime): () => void {
   const port = parentPort;
   if (!port) throw new Error("serveNodeReportWorker 只能在 worker_threads 中调用");
   const onMessage = (value: unknown) => {
-    if (isReportWorkerRequest(value)) void runReportWorkerRequest(runtime, value).then((result) => port.postMessage(result, reportWorkerTransferList(result)));
+    if (isReportWorkerRequest(value)) void runReportWorkerRequest(runtime, value, (event) => port.postMessage({ protocol: REPORT_WORKER_PROTOCOL, id: value.id, type: "event", event })).then((result) => port.postMessage(result, reportWorkerTransferList(result)));
   };
   port.on("message", onMessage);
   return () => port.off("message", onMessage);

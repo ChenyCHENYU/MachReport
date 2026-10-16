@@ -10,6 +10,7 @@ import type { OutputDiagnostic } from "../output/capabilities";
 import { datasetJsonSchema } from "../schema/dataset";
 import type { DatasetRows, ReportTemplate } from "../layout/paginate";
 import { PaginatePageLimitError } from "../layout/paginate";
+import { createReportTaskReporter, notifyReportTaskEvent, reportTaskId, type ReportTaskEvent } from "../source/task-events";
 
 function definitions(reports: ReportRegistry, ids: string[]) {
   if (ids.length === 0) throw new ReportSourceError("config", "缺少报表 ID");
@@ -110,23 +111,27 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
     const measurer = pdf && faces ? pdf.createFontBytesMeasurer(faces) : undefined;
     const prepared = await localPrepare(input, measurer);
     throwIfAborted(input.signal);
-    let bytes: Uint8Array;
-    if (input.format === "pdf") {
+    const reporter = createReportTaskReporter(input);
+    const bytes = await reporter.run("encode", async () => {
+      let bytes: Uint8Array;
+      if (input.format === "pdf") {
+        throwIfAborted(input.signal);
+        const result = await pdf!.renderPlanToPdf(prepared.plan, { ...input.pdf, ...(measurer ? { measurer } : {}), fidelity: input.fidelity, signal: input.signal, onProgress: (completed, total) => reporter.progress("encode", completed, total) });
+        bytes = result.bytes;
+        prepared.diagnostics.push(...outputDiagnostics(result.diagnostics));
+        prepared.diagnostics.push(...result.fidelityWarnings.map((message) => ({ code: "pdf-fidelity", message, severity: "warning" as const })), ...result.pageErrors.map((message) => ({ code: "pdf-page", message, severity: "error" as const })));
+        if (result.unsupportedTextCount) prepared.diagnostics.push({ code: "pdf-font", message: `${result.unsupportedTextCount} 段文本包含当前字体不支持的字符`, severity: "warning" });
+      } else {
+        const { renderPlanToXlsx } = await import("@agile-team/mach-report/xlsx");
+        throwIfAborted(input.signal);
+        const result = await renderPlanToXlsx(prepared.plan, { ...input.xlsx, fidelity: input.fidelity, signal: input.signal, onProgress: (completed, total) => reporter.progress("encode", completed, total) });
+        bytes = new Uint8Array(result.buffer);
+        prepared.diagnostics.push(...outputDiagnostics(result.diagnostics));
+        prepared.diagnostics.push(...result.warnings.map((message) => ({ code: "xlsx-fidelity", message, severity: "warning" as const })));
+      }
       throwIfAborted(input.signal);
-      const result = await pdf!.renderPlanToPdf(prepared.plan, { ...input.pdf, ...(measurer ? { measurer } : {}) });
-      bytes = result.bytes;
-      prepared.diagnostics.push(...outputDiagnostics(result.diagnostics));
-      prepared.diagnostics.push(...result.fidelityWarnings.map((message) => ({ code: "pdf-fidelity", message, severity: "warning" as const })), ...result.pageErrors.map((message) => ({ code: "pdf-page", message, severity: "error" as const })));
-      if (result.unsupportedTextCount) prepared.diagnostics.push({ code: "pdf-font", message: `${result.unsupportedTextCount} 段文本包含当前字体不支持的字符`, severity: "warning" });
-    } else {
-      const { renderPlanToXlsx } = await import("@agile-team/mach-report/xlsx");
-      throwIfAborted(input.signal);
-      const result = await renderPlanToXlsx(prepared.plan, input.xlsx);
-      bytes = new Uint8Array(result.buffer);
-      prepared.diagnostics.push(...outputDiagnostics(result.diagnostics));
-      prepared.diagnostics.push(...result.warnings.map((message) => ({ code: "xlsx-fidelity", message, severity: "warning" as const })));
-    }
-    throwIfAborted(input.signal);
+      return bytes;
+    });
     assertBudget(budget, "maxOutputBytes", bytes.byteLength);
     const { plan: _plan, ...result } = prepared;
     return { ...result, bytes, format: input.format, contentType: input.format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", stats: { ...result.stats, durationMs: Date.now() - started, outputBytes: bytes.byteLength } };
@@ -135,16 +140,22 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
     describe: (ids) => describe(options.reports, ids),
     validate: (input) => validateInput(options.reports, input),
     prepare: (input) => controlled(input.signal, budget.maxDurationMs, async (signal) => {
-      const { signal: _signal, ...request } = input;
-      assertInput(options, request);
-      const result = options.executor ? await options.executor.prepare(request, signal) : await localPrepare({ ...request, signal });
+      const { signal: _signal, onEvent, ...values } = input;
+      const request = { ...values, taskId: values.taskId ?? reportTaskId() };
+      const observe = onEvent ? (event: ReportTaskEvent) => notifyReportTaskEvent(onEvent, event, signal) : undefined;
+      const monitoring = { ...request, signal, onEvent: observe };
+      createReportTaskReporter(monitoring).runSync("validate", () => assertInput(options, request));
+      const result = options.executor ? await options.executor.prepare(request, signal, observe) : await localPrepare(monitoring);
       return enforcePrepared(result, budget);
     }),
     export: (input) => controlled(input.signal, budget.maxDurationMs, async (signal) => {
-      const { signal: _signal, ...request } = input;
-      assertInput(options, request);
+      const { signal: _signal, onEvent, ...values } = input;
+      const request = { ...values, taskId: values.taskId ?? reportTaskId() };
+      const observe = onEvent ? (event: ReportTaskEvent) => notifyReportTaskEvent(onEvent, event, signal) : undefined;
+      const monitoring = { ...request, signal, onEvent: observe };
+      createReportTaskReporter(monitoring).runSync("validate", () => assertInput(options, request));
       if (request.format !== "pdf" && request.format !== "xlsx") throw new ReportSourceError("config", "不支持的报表导出格式");
-      const result = options.executor ? await options.executor.export(request, signal) : await localExport({ ...request, signal });
+      const result = options.executor ? await options.executor.export(request, signal, observe) : await localExport(monitoring);
       assertBudget(budget, "maxRows", result.stats.rows); assertBudget(budget, "maxPages", result.stats.pages); assertBudget(budget, "maxCells", result.stats.cells);
       assertBudget(budget, "maxOutputBytes", result.bytes.byteLength);
       return { ...result, stats: { ...result.stats, outputBytes: result.bytes.byteLength } };

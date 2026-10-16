@@ -1,3 +1,4 @@
+import { assertOutputActive, outputCheckpoint } from "../output/progress";
 import ExcelJSRuntime from "exceljs";
 import type * as ExcelJS from "exceljs";
 import type { RenderPlan } from "../schema/render-plan";
@@ -418,6 +419,7 @@ function validateOptions(options: XlsxRenderOptions): void {
 
 export async function renderPlanToXlsx(plan: RenderPlan, options: XlsxRenderOptions = {}): Promise<XlsxRenderResult> {
   validateOptions(options);
+  assertOutputActive(options.signal);
   const diagnostics = reportOutputDiagnostics(plan, "xlsx", options);
   const workbook = new ExcelJSRuntime.Workbook();
   const warnings: string[] = [];
@@ -432,8 +434,12 @@ export async function renderPlanToXlsx(plan: RenderPlan, options: XlsxRenderOpti
     usedNames.add(name.toLowerCase());
     const sheet = workbook.addWorksheet(name, worksheetOptions(unit, options.paperSize, warnings));
     const valueMode = options.valueMode ?? (isWidePage(page) || unit.continuous ? "raw" : "text");
+    assertOutputActive(options.signal);
     writeSheet({ sheet, warnings, limits, valueMode }, contents, unit.continuous);
+    await outputCheckpoint(options, sheetIndex + 1, units.length);
   }
+  assertOutputActive(options.signal);
   const buffer = await workbook.xlsx.writeBuffer();
+  assertOutputActive(options.signal);
   return { workbook, buffer, warnings, diagnostics };
 }

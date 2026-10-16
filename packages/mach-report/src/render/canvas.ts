@@ -1,6 +1,8 @@
+import { outputCheckpoint } from "../output/progress";
 import type { PlanComponent, PlanPage, PlanGrid, RenderPlan } from "../schema/render-plan";
 import { isImageBackedComponent, isRichText } from "../schema/render-plan";
-import { reportOutputDiagnostics, type OutputDiagnostic, type OutputDiagnosticOptions } from "../output/capabilities";
+import { OutputFidelityError, reportOutputDiagnostics, type OutputDiagnostic, type OutputDiagnosticOptions } from "../output/capabilities";
+import { notifyOutputDiagnostic } from "../output/diagnostic-notification";
 import { resolvePlanAssets, type AssetRenderOptions } from "../output/assets";
 import { drawCanvasImage, loadCanvasImage, loadPageImages, throwIfAborted, type CanvasImageLoader } from "./canvas-images";
 import { resolveGridLayout, type GridLayout } from "./grid-geometry";
@@ -374,6 +376,7 @@ export async function renderPlanToImages(
     const canvas = await drawAsyncPage(plan.pages[index]!, index, canvasOptions, diagnostics);
     try { blobs.push(await encodeCanvas(canvas, mime, quality, options.signal)); }
     finally { canvas.width = 0; canvas.height = 0; }
+    await outputCheckpoint(options, blobs.length, end - Math.max(0, options.start ?? 0) + 1);
   }
   throwIfAborted(options.signal);
   return { blobs, diagnostics };
@@ -405,6 +408,7 @@ export function renderPlanToCanvas(
   plan: RenderPlan,
   options: CanvasRenderOptions = {}
 ): CanvasRenderResult {
+  throwIfAborted(options.signal);
   if (typeof document === "undefined") {
     throw new Error("renderPlanToCanvas 需要浏览器环境（SSR 请在客户端钩子中调用）");
   }
@@ -417,20 +421,29 @@ export function renderPlanToCanvas(
   const end = Math.min(plan.pages.length - 1, options.end ?? plan.pages.length - 1);
   const canvases: HTMLCanvasElement[] = [];
   const diagnostics = reportOutputDiagnostics(plan, "canvas", options);
+  // This synchronous API cannot decode images. Diagnose the selected page window
+  // before allocating any bitmap, including when generic preflight supports images.
+  const imageDiagnostics = syncImageDiagnostics(plan, start, end);
+  for (const entry of imageDiagnostics) { notifyOutputDiagnostic(entry, options); diagnostics.push(entry); }
+  if (options.fidelity === "strict" && imageDiagnostics.length) throw new OutputFidelityError(diagnostics);
   for (let i = start; i <= end; i++) {
+    throwIfAborted(options.signal);
     const page = plan.pages[i]!;
     const { canvas, ctx } = createPageCanvas(page, dpr, dpi, options.maxCanvasPixels);
     for (const comp of page.components) {
-      if (isImageBackedComponent(comp)) {
-        const entry: OutputDiagnostic = { code: "async-image-required", severity: "warning", format: "canvas", pageIndex: i, componentIndex: page.components.indexOf(comp), kind: comp.kind, nid: comp.nid, message: "Use renderPlanToCanvasAsync or renderPlanToImages to decode and include images." };
-        diagnostics.push(entry);
-        options.onDiagnostic?.(entry);
-      }
       drawComponent(ctx, comp, pxPerMm, dpi, fontFamily, measurer);
     }
     canvases.push(canvas);
   }
   return { canvases, diagnostics };
+}
+
+function syncImageDiagnostics(plan: RenderPlan, start: number, end: number): OutputDiagnostic[] {
+  if (end < start) return [];
+  return plan.pages.slice(start, end + 1).flatMap((page, offset) => page.components.flatMap((comp, componentIndex): OutputDiagnostic[] => isImageBackedComponent(comp) ? [{
+    code: "async-image-required", severity: "warning", format: "canvas", pageIndex: start + offset, componentIndex, kind: comp.kind, nid: comp.nid,
+    message: "Use renderPlanToCanvasAsync or renderPlanToImages to decode and include images."
+  }] : []));
 }
 
 /** Browser async raster output: waits for every image and preserves component paint order. */
@@ -469,7 +482,7 @@ async function imagesForOutput(page: PlanPage, pageIndex: number, options: Async
       const comp = page.components[componentIndex]!;
       const entry: OutputDiagnostic = { code: "image-decode-failed", severity: "warning", format: "canvas", pageIndex, componentIndex, kind: comp.kind, nid: comp.nid, message: "Image decoding failed; raster output was cancelled instead of omitting the image." };
       diagnostics.push(entry);
-      options.onDiagnostic?.(entry);
+      notifyOutputDiagnostic(entry, options);
       throw error;
     }
   }, options.signal);

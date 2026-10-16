@@ -1,5 +1,7 @@
 import type { GridCell, PlanComponent, RenderPlan } from "../schema/render-plan";
 import type { OutputDiagnostic, OutputDiagnosticOptions, OutputFormat } from "./capabilities";
+import { notifyOutputDiagnostic } from "./diagnostic-notification";
+import { waitForOutput } from "./progress";
 
 export type ImageComponentKind = "image" | "chart" | "barcode" | "qrcode";
 
@@ -65,15 +67,6 @@ function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
 }
 
-function withAbort<T>(pending: PromiseLike<T> | T, signal: AbortSignal): Promise<T> {
-  throwIfAborted(signal);
-  return new Promise((resolve, reject) => {
-    const abort = () => reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
-    signal.addEventListener("abort", abort, { once: true });
-    Promise.resolve(pending).then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
-  });
-}
-
 function assetBudget(options: ResolvePlanAssetsOptions): Required<AssetRenderBudget> {
   const result = { maxAssets: 1000, maxImageBytes: 32 * 1024 * 1024, maxTotalImageBytes: 128 * 1024 * 1024, maxDurationMs: 30_000, ...options.assetBudget };
   for (const [key, value] of Object.entries(result)) {
@@ -92,7 +85,7 @@ function imageBytes(data: string): number {
 function issue(state: AssetState, context: Omit<ComponentImageContext, "signal">, code: "asset-render-failed" | "asset-budget-exceeded", message: string, cause?: unknown): undefined {
   const diagnostic: OutputDiagnostic = { code, message, severity: "warning", format: state.options.format ?? "dom", pageIndex: context.pageIndex, componentIndex: context.componentIndex, componentPath: context.componentPath, kind: context.component.kind, nid: context.component.nid };
   state.diagnostics.push(diagnostic);
-  state.options.onDiagnostic?.(diagnostic);
+  notifyOutputDiagnostic(diagnostic, { ...state.options, signal: state.signal });
   if (state.options.assetFailure !== "placeholder") throw new OutputAssetError(diagnostic, cause);
   return undefined;
 }
@@ -104,7 +97,7 @@ async function renderImage(state: AssetState, component: PlanComponent, context:
   let image: string;
   try {
     state.active = context;
-    image = await withAbort(renderer({ ...context, signal: state.signal }), state.signal);
+    image = await waitForOutput(renderer({ ...context, signal: state.signal }), state.signal);
     throwIfAborted(state.signal);
     if (image.length > state.budget.maxImageBytes * 4 + 1024) return issue(state, context, "asset-budget-exceeded", "Output exceeded the image payload byte budget.");
     const bytes = imageBytes(image);
@@ -122,7 +115,7 @@ function timeoutAssets(state: AssetState, controller: AbortController): void {
   if (!context) { controller.abort(new Error("Asset rendering exceeded maxDurationMs.")); return; }
   const diagnostic: OutputDiagnostic = { code: "asset-budget-exceeded", message: "Asset rendering exceeded maxDurationMs.", severity: "warning", format: state.options.format ?? "dom", pageIndex: context.pageIndex, componentIndex: context.componentIndex, componentPath: context.componentPath, kind: context.component.kind, nid: context.component.nid };
   state.diagnostics.push(diagnostic);
-  try { state.options.onDiagnostic?.(diagnostic); }
+  try { notifyOutputDiagnostic(diagnostic, { ...state.options, signal: state.signal }); }
   catch (error) { controller.abort(error); return; }
   controller.abort(new OutputAssetError(diagnostic));
 }
@@ -142,6 +135,7 @@ async function resolveComponent(state: AssetState, component: PlanComponent, con
   let pending = state.cache.get(component);
   if (!pending) { pending = renderImage(state, component, context); state.cache.set(component, pending); }
   const imageData = await pending;
+  throwIfAborted(state.signal);
   let grid = component.grid;
   if (grid) {
     const visited = new Set(ancestors).add(component);
@@ -174,6 +168,7 @@ export async function resolvePlanAssets(plan: RenderPlan, options: ResolvePlanAs
       for (const [componentIndex, component] of page.components.entries()) components.push(await resolveComponent(state, component, { component, pageIndex, componentIndex, componentPath: [] }, new Set()));
       pages.push(components.some((component, index) => component !== page.components[index]) ? { ...page, components } : page);
     }
+    throwIfAborted(state.signal);
     return { plan: pages.some((page, index) => page !== plan.pages[index]) ? { ...plan, pages } : plan, diagnostics: state.diagnostics };
   } finally { clearTimeout(timer); options.signal?.removeEventListener("abort", abort); }
 }

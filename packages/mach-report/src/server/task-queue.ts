@@ -1,10 +1,12 @@
+import { notifyReportTaskEvent, type ReportTaskEvent, type ReportTaskObserver } from "../source/task-events";
 import { ReportRuntimeError, throwIfAborted } from "./control";
 
 export type ReportTaskStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
-export interface ReportTaskContext { signal: AbortSignal; reportProgress(completed: number, total?: number): void }
+export interface ReportTaskContext { taskId: string; signal: AbortSignal; onEvent: ReportTaskObserver; reportProgress(completed: number, total?: number): void }
 export interface ReportTask<T> {
   readonly id: string;
   readonly status: ReportTaskStatus;
+  readonly event: ReportTaskEvent | undefined;
   readonly progress: { completed: number; total?: number } | undefined;
   result: Promise<T>;
   cancel(reason?: unknown): void;
@@ -12,7 +14,7 @@ export interface ReportTask<T> {
 export interface ReportTaskQueue {
   readonly active: number;
   readonly pending: number;
-  enqueue<T>(run: (context: ReportTaskContext) => T | Promise<T>, options?: { id?: string; signal?: AbortSignal }): ReportTask<T>;
+  enqueue<T>(run: (context: ReportTaskContext) => T | Promise<T>, options?: { id?: string; signal?: AbortSignal; onEvent?: ReportTaskObserver }): ReportTask<T>;
   /** 关闭后拒绝新任务并取消排队任务；运行任务按参数发送取消信号。 */
   close(options?: { cancelRunning?: boolean }): void;
 }
@@ -31,7 +33,7 @@ export function createReportTaskQueue(options: { concurrency?: number; maxQueued
   const drain = () => {
     while (!closed && running.size < concurrency && pending.length) pending.shift()!.start();
   };
-  const enqueue = <T>(run: (context: ReportTaskContext) => T | Promise<T>, request: { id?: string; signal?: AbortSignal } = {}): ReportTask<T> => {
+  const enqueue = <T>(run: (context: ReportTaskContext) => T | Promise<T>, request: { id?: string; signal?: AbortSignal; onEvent?: ReportTaskObserver } = {}): ReportTask<T> => {
     if (closed) throw new ReportRuntimeError("closed", "任务队列已关闭");
     throwIfAborted(request.signal);
     if (running.size >= concurrency && pending.length >= maxQueued) throw new ReportRuntimeError("queue-full", "报表任务队列已满");
@@ -40,6 +42,7 @@ export function createReportTaskQueue(options: { concurrency?: number; maxQueued
     const controller = new AbortController();
     let status: ReportTaskStatus = "queued";
     let progress: ReportTask<T>["progress"];
+    let latestEvent: ReportTaskEvent | undefined;
     let resolve!: (value: T) => void;
     let reject!: (reason: unknown) => void;
     const result = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
@@ -57,12 +60,18 @@ export function createReportTaskQueue(options: { concurrency?: number; maxQueued
       if (!Number.isFinite(completed) || completed < 0 || total !== undefined && (!Number.isFinite(total) || total < completed)) return;
       progress = { completed, ...(total === undefined ? {} : { total }) };
     };
+    const onEvent: ReportTaskObserver = (event) => {
+      if (status !== "running" || controller.signal.aborted) return;
+      latestEvent = { ...event, taskId: id };
+      if (event.completed !== undefined) reportProgress(event.completed, event.total);
+      notifyReportTaskEvent(request.onEvent, latestEvent, controller.signal);
+    };
     const entry: QueueEntry = {
       cancel,
       start: () => {
         if (status !== "queued") return;
         status = "running"; running.add(entry);
-        Promise.resolve().then(() => { throwIfAborted(controller.signal); return run({ signal: controller.signal, reportProgress }); }).then(
+        Promise.resolve().then(() => { throwIfAborted(controller.signal); return run({ taskId: id, signal: controller.signal, reportProgress, onEvent }); }).then(
           (value) => { if (status === "running") { status = "completed"; resolve(value); } },
           (error) => { if (status === "running") { status = "failed"; reject(error); } }
         ).finally(() => { running.delete(entry); clean(); drain(); });
@@ -72,7 +81,7 @@ export function createReportTaskQueue(options: { concurrency?: number; maxQueued
     if (request.signal?.aborted) cancel(request.signal.reason);
     else if (running.size < concurrency) entry.start();
     else pending.push(entry);
-    return { id, get status() { return status; }, get progress() { return progress; }, result, cancel };
+    return { id, get status() { return status; }, get progress() { return progress; }, get event() { return latestEvent; }, result, cancel };
   };
   return {
     get active() { return running.size; }, get pending() { return pending.length; }, enqueue,

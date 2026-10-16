@@ -1,9 +1,13 @@
 import { watch, type Ref } from "vue";
-import type { PlanPage, RenderPlan } from "@agile-team/mach-report";
+import type { OutputDiagnostic, PlanPage, RenderPlan } from "@agile-team/mach-report";
 import {
   renderPage as renderPageToDom,
   renderPlanToImages
 } from "@agile-team/mach-report";
+import { waitForOutput } from "../../output/progress";
+import { assertOutputActive, notifyOutputProgress } from "../../output/progress";
+import { createOutputRun, type OutputRun } from "./output-task";
+import type { ReportPreviewTask } from "../guards";
 import type { PdfExporter } from "../pdf-exporter";
 import type { XlsxRenderOptions } from "../../xlsx/render-xlsx";
 
@@ -69,6 +73,7 @@ export async function printPlans(
   options: {
     onProgress?: (done: number, total: number) => void;
     onError?: (message: string) => void;
+    signal?: AbortSignal;
   } = {}
 ): Promise<void> {
   const merged: RenderPlan = {
@@ -87,20 +92,22 @@ export async function printPlans(
     doc.open();
     doc.write(head);
     for (let i = 0; i < merged.pages.length; i++) {
+      assertOutputActive(options.signal);
       doc.write(renderPrintPage(merged.pages[i]!));
       if (i % YIELD_EVERY_PAGES === YIELD_EVERY_PAGES - 1) {
-        options.onProgress?.(i + 1, merged.pages.length);
+        notifyOutputProgress(options, i + 1, merged.pages.length);
         await yieldToBrowser();
       }
     }
     doc.write("</body></html>");
     doc.close();
     await yieldToBrowser();
-    options.onProgress?.(merged.pages.length, merged.pages.length);
+    notifyOutputProgress(options, merged.pages.length, merged.pages.length);
     finished = true;
     frame.contentWindow?.focus();
     frame.contentWindow?.print();
   } catch (error) {
+    if (options.signal?.aborted) throw error;
     options.onError?.(error instanceof Error ? `批量打印失败: ${error.message}` : "批量打印失败");
   } finally {
     // 成功路径等打印框关闭后回收；失败立即回收，杜绝 iframe 泄漏
@@ -114,10 +121,13 @@ export async function printPlans(
  * 复用打印文档构建（同一样式与 named pages 分页规则），套 Word 命名空间头。
  * Word 2003+ 可直接打开编辑——覆盖"导出可编辑单据"场景，零后端。
  */
+function buildWordHead(head: string): string {
+  return `<!doctype html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->${head.replace(/^<!doctype html><html><head>/, "")}`;
+}
+
 export function buildWordHtml(p: RenderPlan): { html: string; filename: string } {
   const { head, pageChunks } = buildPrintDocument(p);
-  // Word 头：office 命名空间 + Print 视图（所见即所得，保留 @page 尺寸）
-  const wordHead = `<!doctype html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->${head.replace(/^<!doctype html><html><head>/, "")}`;
+  const wordHead = buildWordHead(head);
   return {
     html: `${wordHead}${pageChunks.join("")}</body></html>`,
     filename: "mach-report.doc"
@@ -134,6 +144,8 @@ export function usePrintExport(
     onWarning?: (message: string) => void;
     onBusy?: (format: string | null) => void;
     onPrinting?: (printing: boolean) => void;
+    onTask?: (task: Readonly<ReportPreviewTask>) => void;
+    onDiagnostic?: (entry: OutputDiagnostic) => void;
   }
 ) {
   let printFrame: HTMLIFrameElement | null = null;
@@ -141,7 +153,8 @@ export function usePrintExport(
   let printing = false;
   let disposed = false;
   let planEpoch = 0;
-  const busyTasks = new Map<object, { plan: RenderPlan; epoch: number; format: string }>();
+  const busyTasks = new Map<object, { plan: RenderPlan; epoch: number; format: string; run: OutputRun }>();
+  let printRun: OutputRun | null = null;
   const pendingWindows = new Map<Window, { plan: RenderPlan; epoch: number }>();
   let lastBusy: string | null = null;
   /** PDF 字节流在下载和预览之间共享，避免重复生成。 */
@@ -165,12 +178,14 @@ export function usePrintExport(
 
   function beginBusy(p: RenderPlan, epoch: number, format: string): object {
     const token = {};
-    busyTasks.set(token, { plan: p, epoch, format });
+    busyTasks.set(token, { plan: p, epoch, format, run: createOutputRun("export", hooks.onTask) });
+    busyTasks.get(token)!.run.start();
     syncBusy();
     return token;
   }
 
   function endBusy(token: object): void {
+    busyTasks.get(token)?.run.finish();
     busyTasks.delete(token);
     syncBusy();
   }
@@ -185,6 +200,8 @@ export function usePrintExport(
 
   /** A replacement can begin before a new plan exists (for example a fallible Excel import). */
   function invalidatePending(): void {
+    for (const task of busyTasks.values()) task.run.finish("cancelled");
+    printRun?.finish("cancelled");
     planEpoch++;
     releasePrintFrame();
     syncBusy();
@@ -200,6 +217,7 @@ export function usePrintExport(
 
   /** 卸载后失效所有待完成操作；已打开的 PDF 文档仍可独立使用。 */
   function dispose(): void {
+    invalidatePending();
     disposed = true;
     planEpoch++;
     stopPlanWatch();
@@ -217,6 +235,30 @@ export function usePrintExport(
     a.download = filename;
     a.click();
   }
+  function downloadForRun(p: RenderPlan, epoch: number, run: OutputRun, blob: Blob, filename: string): void {
+    run.update("download");
+    // A synchronous task observer may cancel or replace the plan at this boundary.
+    if (isActive(p, epoch) && !run.controller.signal.aborted) downloadBlob(blob, filename);
+  }
+
+  async function writeFramePages(frame: HTMLIFrameElement, p: RenderPlan, epoch: number, run: OutputRun): Promise<boolean> {
+  const doc = frame.contentDocument!;
+  doc.open();
+  doc.write(buildPrintHead(p));
+  // 流式写入：每 YIELD_EVERY_PAGES 页让出主线程一次，避免大报表长任务
+  for (let i = 0; i < p.pages.length; i++) {
+    if (run.controller.signal.aborted) return false;
+    doc.write(renderPrintPage(p.pages[i]!));
+    run.update("print", i + 1, p.pages.length);
+    if (i % YIELD_EVERY_PAGES === YIELD_EVERY_PAGES - 1) await yieldToBrowser();
+    if (frame !== printFrame) return false; // 期间被释放（换单据）
+  }
+  doc.write("</body></html>");
+  doc.close();
+  await yieldToBrowser();
+  if (!isActive(p, epoch) || frame !== printFrame) return false;
+    return true;
+  }
 
   async function print(): Promise<void> {
     if (printing) return;
@@ -224,46 +266,47 @@ export function usePrintExport(
     if (disposed || !p || p.pages.length === 0) return;
     const epoch = planEpoch;
     printing = true;
+    const run = createOutputRun("print", hooks.onTask);
+    printRun = run;
+    run.start();
     hooks.onPrinting?.(true);
     releasePrintFrame();
-    const head = buildPrintHead(p);
     printFrame = document.createElement("iframe");
     printFrame.style.cssText =
       "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
     document.body.appendChild(printFrame);
     const frame = printFrame;
     try {
-      const doc = frame.contentDocument!;
-      doc.open();
-      doc.write(head);
-      // 流式写入：每 YIELD_EVERY_PAGES 页让出主线程一次，避免大报表长任务
-      for (let i = 0; i < p.pages.length; i++) {
-        doc.write(renderPrintPage(p.pages[i]!));
-        if (i % YIELD_EVERY_PAGES === YIELD_EVERY_PAGES - 1) await yieldToBrowser();
-        if (frame !== printFrame) return; // 期间被释放（换单据）
-      }
-      doc.write("</body></html>");
-      doc.close();
-      await yieldToBrowser();
-      if (!isActive(p, epoch) || frame !== printFrame) return;
+      if (!isActive(p, epoch) || run.controller.signal.aborted) { releasePrintFrame(); return; }
+      if (!await writeFramePages(frame, p, epoch, run)) return;
       frame.contentWindow?.focus();
       frame.contentWindow?.print();
     } catch {
+      run.finish("failed");
       if (frame === printFrame) releasePrintFrame();
       if (isActive(p, epoch)) hooks.onError("调用打印失败，请改用导出 PDF", "print");
     } finally {
+      run.finish();
+      if (printRun === run) printRun = null;
       printing = false;
       if (!disposed) hooks.onPrinting?.(false);
     }
   }
 
-  function getPdfBytes(p: RenderPlan, epoch: number): Promise<Uint8Array> {
+  function taskOptions(p: RenderPlan, epoch: number, run: OutputRun) {
+    return {
+      signal: run.controller.signal,
+      onDiagnostic: (entry: OutputDiagnostic) => { if (isActive(p, epoch) && !run.controller.signal.aborted) hooks.onDiagnostic?.(entry); },
+      onProgress: (done: number, total: number) => run.update("encode", done, total)
+    };
+  }
+  function getPdfBytes(p: RenderPlan, epoch: number, run?: OutputRun): Promise<Uint8Array> {
     if (pdfInFlight?.plan === p && pdfInFlight.epoch === epoch) return pdfInFlight.promise;
     const promise = Promise.resolve().then(() => {
       if (!isActive(p, epoch)) throw new Error("报表已切换或卸载");
-      return hooks.getPdfExporter()(p, (message) => {
+      return waitForOutput(hooks.getPdfExporter()(p, (message) => {
         if (isActive(p, epoch)) hooks.onWarning?.(message);
-      });
+      }, run ? taskOptions(p, epoch, run) : undefined), run?.controller.signal);
     }).finally(() => {
       if (pdfInFlight?.promise === promise) pdfInFlight = null;
     });
@@ -279,10 +322,12 @@ export function usePrintExport(
     const token = beginBusy(p, epoch, "PDF");
     const promise = (async () => {
       try {
-        const bytes = await getPdfBytes(p, epoch);
+        const run = busyTasks.get(token)!.run;
+        const bytes = await getPdfBytes(p, epoch, run);
         if (!isActive(p, epoch)) return;
-        downloadBlob(new Blob([bytes as unknown as globalThis.BlobPart], { type: "application/pdf" }), "mach-report.pdf");
+        downloadForRun(p, epoch, run, new Blob([bytes as unknown as globalThis.BlobPart], { type: "application/pdf" }), "mach-report.pdf");
       } catch (error) {
+        busyTasks.get(token)?.run.finish("failed");
         if (isActive(p, epoch)) hooks.onError(error instanceof Error ? `PDF 导出失败: ${error.message}` : "PDF 导出失败", "pdf");
       } finally {
         endBusy(token);
@@ -304,14 +349,16 @@ export function usePrintExport(
       try {
         const { renderPlanToXlsx } = await import("@agile-team/mach-report/xlsx");
         if (!isActive(p, epoch)) return;
-        const { buffer, warnings } = await renderPlanToXlsx(p, xlsxOptions);
+        const run = busyTasks.get(token)!.run;
+        const { buffer, warnings } = await waitForOutput(renderPlanToXlsx(p, { ...xlsxOptions, ...taskOptions(p, epoch, run) }), run.controller.signal);
         if (!isActive(p, epoch)) return;
         if (warnings.length > 0) hooks.onWarning?.(`Excel 导出有 ${warnings.length} 条提示：${warnings.slice(0, 2).join("；")}`);
         if (!isActive(p, epoch)) return;
-        downloadBlob(new Blob([buffer as unknown as globalThis.BlobPart], {
+        downloadForRun(p, epoch, run, new Blob([buffer as unknown as globalThis.BlobPart], {
           type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         }), "mach-report.xlsx");
       } catch (error) {
+        busyTasks.get(token)?.run.finish("failed");
         if (isActive(p, epoch)) hooks.onError(error instanceof Error ? `Excel 导出失败: ${error.message}` : "Excel 导出失败", "export");
       } finally {
         endBusy(token);
@@ -331,14 +378,17 @@ export function usePrintExport(
     const token = beginBusy(p, epoch, "图片");
     const promise = (async () => {
       try {
-        const { blobs } = await renderPlanToImages(p, {
+        const run = busyTasks.get(token)!.run;
+        const { blobs } = await waitForOutput(renderPlanToImages(p, {
+          ...taskOptions(p, epoch, run),
           dpr: Math.min(2, typeof devicePixelRatio === "number" ? devicePixelRatio : 1)
-        });
+        }), run.controller.signal);
         if (!isActive(p, epoch)) return;
         blobs.forEach((blob, i) => {
-          downloadBlob(blob, blobs.length > 1 ? `mach-report-page-${i + 1}.png` : "mach-report.png");
+          downloadForRun(p, epoch, run, blob, blobs.length > 1 ? `mach-report-page-${i + 1}.png` : "mach-report.png");
         });
       } catch (error) {
+        busyTasks.get(token)?.run.finish("failed");
         if (isActive(p, epoch)) hooks.onError(
           error instanceof Error ? `图片导出失败: ${error.message}` : "图片导出失败",
           "export"
@@ -352,20 +402,30 @@ export function usePrintExport(
     return promise;
   }
 
-  /** 导出 Word（可编辑 .doc，零后端） */
-  function exportWord(): void {
+  async function exportMarkup(format: "html" | "word"): Promise<void> {
     const p = plan.value;
-    if (disposed || !p || p.pages.length === 0) return;
+    if (disposed || !p || !p.pages.length) return;
+    const epoch = planEpoch;
+    const token = beginBusy(p, epoch, format === "word" ? "Word" : "HTML");
+    const run = busyTasks.get(token)!.run;
     try {
-      const { html, filename } = buildWordHtml(p);
-      downloadBlob(new Blob([html], { type: "application/msword;charset=utf-8" }), filename);
+      const chunks: string[] = [];
+      for (const [index, page] of p.pages.entries()) {
+        if (!isActive(p, epoch)) return;
+        chunks.push(renderPrintPage(page));
+        run.update("encode", index + 1, p.pages.length);
+        if (index % YIELD_EVERY_PAGES === YIELD_EVERY_PAGES - 1) await yieldToBrowser();
+      }
+      if (!isActive(p, epoch)) return;
+      const head = buildPrintHead(p);
+      const html = `${format === "word" ? buildWordHead(head) : head}${chunks.join("")}</body></html>`;
+      downloadForRun(p, epoch, run, new Blob([html], { type: format === "word" ? "application/msword;charset=utf-8" : "text/html;charset=utf-8" }), format === "word" ? "mach-report.doc" : "mach-report.html");
     } catch (error) {
-      hooks.onError(
-        error instanceof Error ? `Word 导出失败: ${error.message}` : "Word 导出失败",
-        "export"
-      );
-    }
+      run.finish("failed");
+      if (isActive(p, epoch)) hooks.onError(error instanceof Error ? `导出失败: ${error.message}` : "导出失败", "export");
+    } finally { endBusy(token); }
   }
+  async function exportWord(): Promise<void> { await exportMarkup("word"); }
 
   async function exportAs(format: string): Promise<void> {
     const p = plan.value;
@@ -383,20 +443,14 @@ export function usePrintExport(
       return;
     }
     if (format === "word" || format === "doc") {
-      exportWord();
+      await exportWord();
       return;
     }
     if (format !== "html") {
       hooks.onError(`不支持的导出格式：${format}`, "export");
       return;
     }
-    try {
-      const { head, pageChunks } = buildPrintDocument(p);
-      const html = `${head}${pageChunks.join("")}</body></html>`;
-      downloadBlob(new Blob([html], { type: "text/html;charset=utf-8" }), "mach-report.html");
-    } catch (error) {
-      hooks.onError(error instanceof Error ? `HTML 导出失败: ${error.message}` : "HTML 导出失败", "export");
-    }
+    await exportMarkup("html");
   }
 
   function openPdfWindow(): void {
@@ -411,7 +465,7 @@ export function usePrintExport(
     }
     pendingWindows.set(w, { plan: p, epoch });
     const token = beginBusy(p, epoch, "PDF");
-    void getPdfBytes(p, epoch).then((bytes) => {
+    void getPdfBytes(p, epoch, busyTasks.get(token)!.run).then((bytes) => {
       if (!isActive(p, epoch) || w.closed) {
         if (pendingWindows.delete(w)) w.close();
         return;
@@ -429,6 +483,7 @@ export function usePrintExport(
       doc.body.replaceChildren(viewer);
       pendingWindows.delete(w);
     }).catch((error: unknown) => {
+      busyTasks.get(token)?.run.finish("failed");
       w.close();
       pendingWindows.delete(w);
       if (isActive(p, epoch)) hooks.onError(error instanceof Error ? `PDF 预览失败: ${error.message}` : "PDF 预览失败", "pdf");
@@ -442,6 +497,7 @@ export function usePrintExport(
     exportWord,
     openPdfWindow,
     invalidatePending,
+    cancel: invalidatePending,
     releasePrintFrame,
     dispose
   };

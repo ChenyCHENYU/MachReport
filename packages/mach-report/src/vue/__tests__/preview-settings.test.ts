@@ -56,8 +56,38 @@ describe("ReportPreview settings and explicit empty result", () => {
     expect(wrapper.find(".mrp-import-excel").exists()).toBe(true);
   });
 
+  it("closes Escape after focus is lost, restores the Safari mouse opener and removes its document listener", async () => {
+    const wrapper = create({ autoLoad: false });
+    const toggle = wrapper.find(".mrp-settings-toggle");
+    // Mouse clicks on Safari buttons do not necessarily focus the opener.
+    await open(wrapper);
+    (document.activeElement as HTMLElement).blur();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await flushPromises();
+    expect(wrapper.find("[role='dialog']").exists()).toBe(false);
+    expect(document.activeElement).toBe(toggle.element);
+    const next = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    document.dispatchEvent(next); expect(next.defaultPrevented).toBe(false);
+  });
+
+  it("does not steal Escape from another modal and traps Tab back into its own modal when focus was lost", async () => {
+    const wrapper = create({ autoLoad: false });
+    await open(wrapper);
+    const other = document.createElement("section"); other.setAttribute("role", "dialog"); other.setAttribute("aria-modal", "true");
+    const input = document.createElement("input"); other.append(input); document.body.append(other); input.focus();
+    const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    input.dispatchEvent(escape); await flushPromises();
+    expect(escape.defaultPrevented).toBe(false);
+    expect(wrapper.find("[role='dialog']").exists()).toBe(true);
+    other.remove();
+    (document.activeElement as HTMLElement).blur();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(wrapper.find(".mrp-settings-close").element);
+  });
+
   it("toggles real output/read tools, resets them and never overrides host capability restrictions", async () => {
     const wrapper = create({ showExport: false, showPrint: false, editable: false, excelImport: false });
+    await vi.waitFor(() => expect(wrapper.find("td").exists()).toBe(true));
     await open(wrapper);
     for (const label of ["导出 PDF", "打印", "编辑单元格", "导入 Excel 模板"]) {
       expect(option(wrapper, label).attributes("disabled")).toBeDefined();

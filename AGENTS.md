@@ -13,11 +13,13 @@ pnpm test:coverage            # 覆盖率（关注 layout/ render/ format.ts）
 pnpm build                    # 全工作区构建（mach-report 十二代码入口 ESM+CJS + federation + examples）
 pnpm check:docs               # 文档相对链接、README 发布同步与 SVG 资源检查
 pnpm check:consumer           # 实际 npm 包隔离消费，ESM/CJS 运行与严格类型检查
+pnpm check:compat             # 实际包的 Node/Vue 严格类型与运行消费（支持 --archive/--node/--vue）
+pnpm check:server-example     # Java17目标客户端→Node真实HTTP、精度、错误、取消、下载与混合并发
 pnpm check:quality            # 生产代码圈复杂度 ≤20，统计全部 TS / Vue 函数
 pnpm verify                   # 类型 → lint → build → 覆盖率/产物守卫 → 文档 → 消费端
 pnpm test:e2e                 # E2E（真 Chromium；配置自动启动 examples dev server）
 pnpm run version              # 合并 changeset 并同步 README 版本，检查后提交推送
-pnpm release                  # 已提交版本的发版：clean gate → install → verify → E2E → publish
+pnpm release                  # 已提交版本的发版：clean gate → install → verify → Java/Node参考 → 当前环境兼容消费 → E2E → publish
 ```
 
 ## 架构地图
