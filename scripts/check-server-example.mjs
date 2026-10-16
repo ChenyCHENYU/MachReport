@@ -34,24 +34,34 @@ try {
   // 重复并发请求后资源门禁检查确定性的槽位归零；堆大小只报告，不依赖GC时机判定泄漏。
   const base = `http://127.0.0.1:${port}`;
   const heaps = [];
-  for (let batch = 0; batch < 4; batch++) {
-    const queries = Array.from({ length: 6 }, async () => {
+  for (let batch = 0; batch < 6; batch++) {
+    const queries = Array.from({ length: 4 }, async () => {
       const response = await fetch(`${base}/reports/sample/prepare`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ params: { plant: "YTS0", reportDate: "2026-10-15", delayMs: "5" } }) });
       if (response.status !== 200) throw new Error(`Concurrent request failed: ${await response.text()}`);
       await response.arrayBuffer();
     });
-    const exports = ["pdf", "xlsx"].map(async (format) => {
+    const exports = (batch < 4 ? ["pdf", "xlsx"] : []).map(async (format) => {
       const response = await fetch(`${base}/reports/sample/export/${format}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ params: { plant: "YTS0", reportDate: "2026-10-15" } }) });
       const bytes = new Uint8Array(await response.arrayBuffer());
-      if (response.status !== 200 || (format === "pdf" ? new TextDecoder().decode(bytes.slice(0, 4)) !== "%PDF" : bytes[0] !== 0x50)) throw new Error(`Concurrent ${format} export failed`);
+      if (response.status !== 200 || (format === "pdf" ? new TextDecoder().decode(bytes.slice(0, 4)) !== "%PDF" : bytes[0] !== 0x50)) throw new Error(`Concurrent ${format} export failed (${response.status}): ${new TextDecoder().decode(bytes.slice(0, 400))}`);
     });
     await Promise.all([...queries, ...exports]);
     heaps.push((await (await fetch(`${base}/health`)).json()).heapUsedBytes);
   }
+  // 正常批次最多6项，与2运行+4排队一致；另外超载8项验证结构化429，而非放宽队列上限。
+  const overload = await Promise.all(Array.from({ length: 8 }, async () => {
+    const response = await fetch(`${base}/reports/sample/prepare`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ params: { plant: "YTS0", reportDate: "2026-10-15", delayMs: "200" } }) });
+    const body = await response.json();
+    if (response.status === 429 && body.error?.code === "queue-full") return "rejected";
+    if (response.status === 200 && body.plan?.pages?.length) return "accepted";
+    throw new Error(`Unexpected overload response (${response.status}): ${JSON.stringify(body)}`);
+  }));
+  const overloadRejected = overload.filter((result) => result === "rejected").length;
+  if (overloadRejected === 0 || overloadRejected === overload.length) throw new Error("Missing accepted work or explicit queue backpressure");
   await delay(20);
   const health = await (await fetch(`${base}/health`)).json();
   if (health.active !== 0 || health.pending !== 0) throw new Error(`Leaked task slots: ${JSON.stringify(health)}`);
-  console.log(JSON.stringify({ concurrentRequests: 24, concurrentExports: 8, taskSlotsReleased: true, serverHeapSamplesBytes: heaps, memoryPolicy: "informational; no GC-dependent pass/fail threshold" }));
+  console.log(JSON.stringify({ concurrentRequests: 24, concurrentExports: 8, peakAcceptedBatch: 6, overloadRequests: 8, overloadRejected, taskSlotsReleased: true, serverHeapSamplesBytes: heaps, memoryPolicy: "informational; no GC-dependent pass/fail threshold" }));
 } finally {
   if (server && server.exitCode === null && server.signalCode === null) { const exited = new Promise((yes) => server.once("exit", yes)); server.kill(); await exited; }
   rmSync(scratch, { recursive: true, force: true });
