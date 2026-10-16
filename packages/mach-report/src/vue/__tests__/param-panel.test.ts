@@ -30,19 +30,68 @@ function paramsSpy() {
 async function mountPanel(extra: Record<string, unknown> = {}) {
   const { seen, fetcher } = paramsSpy();
   const wrapper = mount(ReportPreview, {
-    props: { reportId: "T1", autoLoad: true, fetcher, paramDefs: defs, ...extra },
+    props: { reportId: "T1", autoLoad: true, fetcher, paramDefs: defs, ...extra, params: { whCode: "W1", ...(extra.params as Record<string, string> | undefined) } },
     attachTo: document.body
   });
   await vi.waitFor(() => {
-    expect(wrapper.element.querySelector(".mrp-page-holder")).toBeTruthy();
+    expect(!!wrapper.element.querySelector(".mrp-page-holder") || wrapper.text().includes("请先完善查询条件")).toBe(true);
   }, { timeout: 5000 });
   return { wrapper, seen };
 }
 
 describe("参数面板（使用侧零表单代码）", () => {
+  it("范围、日期和Unicode长度校验同源，字段关联错误且焦点落在首个问题项", async () => {
+    const { seen, fetcher } = paramsSpy();
+    const bounded: ReportParamDef[] = [
+      { field: "qty", label: "数量", type: "number", min: 1, max: 20 },
+      { field: "day", label: "日期", type: "date", min: "2026-01-01" },
+      { field: "note", label: "说明", maxLength: 1 }
+    ];
+    const wrapper = mount(ReportPreview, { props: { reportId: "T1", fetcher, autoLoad: false, paramDefs: bounded, showExport: false, params: { qty: "0", day: "2025-12-31", note: "😀甲" } }, attachTo: document.body });
+    const inputs = wrapper.findAll(".mrp-param-input");
+    expect(inputs[0]!.attributes("min")).toBe("1");
+    expect(inputs[0]!.attributes("step")).toBe("any");
+    expect(inputs[1]!.attributes("min")).toBe("2026-01-01");
+    await wrapper.find(".mrp-param-query").trigger("click");
+    await vi.waitFor(() => expect(wrapper.findAll('[aria-invalid="true"]')).toHaveLength(3));
+    expect(seen).toHaveLength(0);
+    expect(document.activeElement).toBe(inputs[0]!.element);
+    for (const input of inputs) expect(document.getElementById(input.attributes("aria-describedby")!)?.textContent).toBeTruthy();
+    await inputs[0]!.setValue("1.5"); await inputs[1]!.setValue("2026-10-16"); await inputs[2]!.setValue("😀");
+    await wrapper.find(".mrp-param-query").trigger("click");
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0]).toMatchObject({ qty: "1.5", day: "2026-10-16", note: "😀" });
+    expect(wrapper.findAll('[aria-invalid="true"]')).toHaveLength(0);
+    wrapper.unmount();
+  });
+
+  it("可选选项能清空，默认值不被意外补回；中文输入法确认不触发查询", async () => {
+    const { seen, fetcher } = paramsSpy();
+    const wrapper = mount(ReportPreview, { props: { reportId: "T1", fetcher, paramDefs: [{ field: "plant", type: "select", defaultValue: "A", options: [{ value: "A", label: "厂A" }] }] }, attachTo: document.body });
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    const select = wrapper.find("select");
+    expect((select.element as HTMLSelectElement).options[0]!.disabled).toBe(false);
+    await select.setValue("");
+    select.element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true }));
+    await wrapper.vm.$nextTick();
+    expect(seen).toHaveLength(1);
+    await wrapper.find(".mrp-param-query").trigger("click");
+    await vi.waitFor(() => expect(seen).toHaveLength(2));
+    expect(seen[1]).toEqual({ plant: "" });
+    wrapper.unmount();
+  });
+
+  it("元数据读取错误返回config，不让异常逃逸组件挂载", async () => {
+    const onError = vi.fn(), fetcher = Object.assign(vi.fn().mockResolvedValue({}), { getParamDefs: () => { throw new Error("参数定义异常"); } });
+    const wrapper = mount(ReportPreview, { props: { reportId: "T1", fetcher, onError } });
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith("参数定义异常", expect.objectContaining({ code: "config" })));
+    expect(fetcher).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
   it("宿主切换单据时同步新参数；清空可选条件时不沿用宿主旧值", async () => {
     const { wrapper, seen } = await mountPanel({ params: { keyword: "旧单据" } });
-    await wrapper.setProps({ params: { keyword: "新单据" } });
+    await wrapper.setProps({ params: { whCode: "W1", keyword: "新单据" } });
     await vi.waitFor(() => expect(seen[seen.length - 1]?.keyword).toBe("新单据"));
     const input = wrapper.element.querySelector('input[placeholder="物料模糊查询"]') as HTMLInputElement;
     expect(input.value).toBe("新单据");
@@ -91,21 +140,25 @@ describe("参数面板（使用侧零表单代码）", () => {
 
   it("必填缺失：查询被拦截并报 param 错误码（不触发 reload）", async () => {
     const onError = vi.fn();
-    const { wrapper, seen } = await mountPanel({ onError });
+    const { seen, fetcher } = paramsSpy();
+    const wrapper = mount(ReportPreview, { props: { reportId: "T1", fetcher, paramDefs: defs, onError }, attachTo: document.body });
+    await wrapper.vm.$nextTick();
+    expect(onError).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain("请先完善查询条件");
     const query = wrapper.findAll("button").find((b) => b.text().includes("查"))!;
     await query.trigger("click");
     await vi.waitFor(() => expect(onError).toHaveBeenCalled(), { timeout: 5000 });
     const [msg, detail] = onError.mock.calls[0] as [string, { code: string }];
     expect(msg).toContain("仓库");
     expect(detail.code).toBe("param");
-    expect(seen.length).toBe(1); // 未重查
+    expect(seen.length).toBe(0); // 缺必填时首载和查询均不请求
     // 红框提示出现
     expect(wrapper.element.querySelectorAll(".mrp-param-missing").length).toBe(1);
     wrapper.unmount();
   }, 15000);
 
   it("重置恢复默认值并清除红框", async () => {
-    const { wrapper } = await mountPanel();
+    const { wrapper } = await mountPanel({ params: { whCode: "" } });
     const query = wrapper.findAll("button").find((b) => b.text().includes("查"))!;
     await query.trigger("click");
     expect(wrapper.element.querySelectorAll(".mrp-param-missing").length).toBe(1);
@@ -133,7 +186,7 @@ describe("参数面板（使用侧零表单代码）", () => {
 
   it("面板值覆盖宿主 props.params（用户意图优先）", async () => {    const { seen, fetcher } = paramsSpy();
     const wrapper = mount(ReportPreview, {
-      props: { reportId: "T1", autoLoad: true, fetcher, paramDefs: defs, params: { keyword: "宿主词" } }
+      props: { reportId: "T1", autoLoad: true, fetcher, paramDefs: defs, params: { whCode: "W1", keyword: "宿主词" } }
     });
     await vi.waitFor(() => expect(seen.length).toBe(1), { timeout: 5000 });
     expect(seen[0]!.keyword).toBe("宿主词"); // 面板空值不覆盖

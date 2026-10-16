@@ -277,13 +277,13 @@ describe("报表元数据与参数面板", () => {
     const onError = vi.fn();
     const fetcher = createReportSource({ A: { template: templateOf("首载结果"), load } });
     const wrapper = track(mount(ReportPreview, { props: { reportId: "A", fetcher, onError } }));
-    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(wrapper.text()).toContain("请先完善查询条件"));
     expect(load).not.toHaveBeenCalled();
-    expect(onError).toHaveBeenCalledWith(expect.stringContaining("keyword"), expect.objectContaining({ code: "param" }));
+    expect(onError).not.toHaveBeenCalled();
     const query = wrapper.findComponent(ReportParamPanel).findAll("button").find((button) => button.text().includes("查"))!;
     await query.trigger("click");
     expect(load).not.toHaveBeenCalled();
-    expect(onError).toHaveBeenCalledWith(expect.stringContaining("关键字"), { code: "param" });
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining("关键字"), expect.objectContaining({ code: "param", cause: { issues: [expect.objectContaining({ field: "keyword", code: "required" })] } }));
     await wrapper.find('input[placeholder="输入关键字"]').setValue("有效参数");
     await query.trigger("click");
     await vi.waitFor(() => expect(wrapper.text()).toContain("首载结果"));

@@ -5,6 +5,8 @@ import { PDFDict, PDFDocument, PDFFont, PDFName, PDFPage, PDFRawStream, decodePD
 import { renderPlanToPdf } from "../render-pdf";
 import { paginateTemplate, createTemplate } from "@agile-team/mach-report";
 import type { RenderPlan } from "@agile-team/mach-report";
+import ExcelJS from "exceljs";
+import { importExcelTemplate } from "../../xlsx/import-template";
 
 function planFixture(): RenderPlan {
   const template = createTemplate()
@@ -58,6 +60,30 @@ function multilineTablePlan(fontSizePt: number, lineCount: number): RenderPlan {
 const MULTILINE_CASES = [10, 10.5].flatMap((font) => [2, 3, 4, 5].map((lines) => [font, lines] as const));
 
 describe("renderPlanToPdf", () => {
+  it("真实 Excel 导入后只绘制已声明的单边和合并边框，不补出默认黑框", async () => {
+    const workbook = new ExcelJS.Workbook(), sheet = workbook.addWorksheet("Edges");
+    sheet.getCell("A1").value = "Plain";
+    sheet.getCell("B1").value = "Bottom";
+    sheet.getCell("B1").border = { bottom: { style: "thin", color: { argb: "FFFF0000" } } };
+    sheet.mergeCells("A3:B3"); sheet.getCell("A3").value = "Merged";
+    sheet.getCell("A3").border = { top: { style: "medium", color: { argb: "FF0000FF" } } };
+    const imported = await importExcelTemplate(new Uint8Array(await workbook.xlsx.writeBuffer()));
+    const plan = paginateTemplate(imported.template, {}).plan;
+    const line = vi.spyOn(PDFPage.prototype, "drawLine");
+    try {
+      const result = await renderPlanToPdf(plan);
+      expect(result.pageErrors).toEqual([]);
+      expect(line).toHaveBeenCalledTimes(2);
+      const lines = line.mock.calls.map(([options]) => options!);
+      expect(lines[0]!.color).toMatchObject({ red: 1, green: 0, blue: 0 });
+      expect(lines[1]!.color).toMatchObject({ red: 0, green: 0, blue: 1 });
+      expect(lines[0]!.thickness).toBe(0.5);
+      expect(lines[1]!.thickness).toBe(1);
+      expect(lines[1]!.end.x - lines[1]!.start.x).toBeCloseTo(plan.pages[0]!.components[1]!.widthMm * 72 / 25.4);
+      expect((await PDFDocument.load(result.bytes)).getPageCount()).toBe(1);
+    } finally { line.mockRestore(); }
+  });
+
   it.each(MULTILINE_CASES)("真实分页的 %spt/%s 行精确高度保留末行，无浮点误裁告警", async (font, count) => {
     const drawText = vi.spyOn(PDFPage.prototype, "drawText");
     try {

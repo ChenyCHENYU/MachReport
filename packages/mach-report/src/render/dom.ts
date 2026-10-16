@@ -8,7 +8,8 @@ import type {
 } from "../schema/render-plan";
 import { isImageBackedComponent, isRichText } from "../schema/render-plan";
 import { mmToPx, round } from "../units";
-import { resolveGridLayout, type GridCellBox, type GridEdge, type GridLayout } from "./grid-geometry";
+import { resolveGridLayout, type GridCellBox, type GridLayout } from "./grid-geometry";
+import { resolveGridStrokes } from "./grid-strokes";
 import { DEFAULT_FONT_FAMILY, DEFAULT_TEXT_COLOR } from "../defaults";
 import { reportOutputDiagnostics, type OutputDiagnosticOptions } from "../output/capabilities";
 import {
@@ -165,15 +166,8 @@ function renderGridCell(
 }
 
 function renderGridEdges(layout: GridLayout, comp: PlanComponent, dpi: number, doc: Document): HTMLElement[] {
-  const borders = resolveBoxBorders(comp.style);
-  const edges: GridEdge[] = borders.inner ? [...layout.edges] : [];
-  if (borders.top) edges.push({ kind: "h", pos: 0, from: 0, to: comp.widthMm });
-  if (borders.bottom) edges.push({ kind: "h", pos: comp.heightMm, from: 0, to: comp.widthMm });
-  if (borders.left) edges.push({ kind: "v", pos: 0, from: 0, to: comp.heightMm });
-  if (borders.right) edges.push({ kind: "v", pos: comp.widthMm, from: 0, to: comp.heightMm });
-  const stroke = resolveStroke(comp.style);
-  const border = `${round((stroke.widthPt * dpi) / 72, 2)}px solid ${stroke.color}`;
-  return edges.map((edge) => {
+  return resolveGridStrokes(layout, comp).map((edge) => {
+    const border = `${round((edge.widthPt * dpi) / 72, 2)}px solid ${edge.color}`;
     const line = doc.createElement("div");
     line.className = "mr-grid-edge";
     line.setAttribute("aria-hidden", "true");

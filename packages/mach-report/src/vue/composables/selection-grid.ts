@@ -1,11 +1,17 @@
-import type { RenderPlan, ReportCellAddress } from "@agile-team/mach-report";
+import type { PlanComponent, RenderPlan, ReportCellAddress } from "@agile-team/mach-report";
 
 interface SelectionCoordinate { grid: string; row: number; column: number }
+function firstLogicalRow(component: PlanComponent): number {
+  // Public plans use header.rowIndex = -1, regardless of header depth. Selection
+  // gives every header row a negative position so the last one cannot shadow body 0.
+  return component.table!.role === "header" ? -Math.max(1, component.grid?.cells.length ?? 1) : component.table!.rowIndex;
+}
 export function selectionCoordinate(plan: RenderPlan, address: ReportCellAddress, origin = address): SelectionCoordinate {
-  const table = plan.pages[address.pageIndex]?.components[address.componentIndex]?.table;
+  const component = plan.pages[address.pageIndex]?.components[address.componentIndex];
+  const table = component?.table;
   const originTable = plan.pages[origin.pageIndex]?.components[origin.componentIndex]?.table;
   if (table && originTable && table.id === originTable.id) return {
-    grid: table.id, row: table.rowIndex + address.rowIndex,
+    grid: table.id, row: firstLogicalRow(component) + address.rowIndex,
     column: originTable.columnKeys.indexOf(table.columnKeys[address.columnIndex] ?? "")
   };
   return { grid: `${address.pageIndex}:${address.componentIndex}`, row: address.rowIndex, column: address.columnIndex };
@@ -19,7 +25,7 @@ export function selectionAddressResolver(plan: RenderPlan, origin: ReportCellAdd
   plan.pages.forEach((page, pageIndex) => page.components.forEach((component, componentIndex) => {
     if (component.table?.id !== table.id || !component.grid) return;
     component.grid.cells.forEach((_row, rowIndex) => {
-      const logicalRow = component.table!.rowIndex + rowIndex;
+      const logicalRow = firstLogicalRow(component) + rowIndex;
       rows.set(logicalRow, [...rows.get(logicalRow) ?? [], { address: { pageIndex, componentIndex, rowIndex, columnIndex: 0 }, keys: component.table!.columnKeys }]);
     });
   }));

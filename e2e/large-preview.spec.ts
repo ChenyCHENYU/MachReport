@@ -58,7 +58,7 @@ test("1000 页预览：正文和缩略图有界、滚动实际渲染、搜索跳
     peakBodyPages = Math.max(peakBodyPages, await root.locator(".mrp-page-holder").count());
     expect(peakBodyPages).toBeLessThanOrEqual(4);
   }
-  await root.getByRole("button", { name: /缩略图/ }).click();
+  await root.getByRole("toolbar").getByRole("button", { name: /缩略图/ }).click();
   await expect.poll(() => root.locator(".mrp-thumb-box canvas").count()).toBeGreaterThan(0);
   const initial = root.locator('[data-thumb="1"]');
   await expect(initial).toHaveCount(1);
@@ -75,7 +75,7 @@ test("1000 页预览：正文和缩略图有界、滚动实际渲染、搜索跳
     expect(peakThumbs).toBeLessThanOrEqual(8);
     expect(await root.locator(".mrp-thumb-box canvas").count()).toBeLessThanOrEqual(8);
   }
-  await root.getByRole("button", { name: /缩略图/ }).click();
+  await root.getByRole("toolbar").getByRole("button", { name: /缩略图/ }).click();
   await expect(root.locator(".mrp-thumb-box canvas")).toHaveCount(0);
   await root.getByRole("button", { name: "内容搜索" }).click();
   const searchStarted = Date.now();

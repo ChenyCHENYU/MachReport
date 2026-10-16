@@ -52,6 +52,11 @@ export interface MachReportMessages {
   reset: string;
   /** 必填缺失提示（{label} 占位） */
   paramRequired: string;
+  paramInvalid?: string;
+  paramPrompt?: string;
+  paramPromptDescription?: string;
+  paramSelectPlaceholder?: string;
+  paramTextPlaceholder?: string;
   /** 可选搜索进度文案，旧完整 messages 对象无需新增字段。 */
   searching?: string;
   importExcel?: string;
@@ -70,6 +75,9 @@ export interface MachReportMessages {
   settingsReset?: string;
   settingsClose?: string;
   search?: string;
+  closeSearch?: string;
+  prevSearchMatch?: string;
+  nextSearchMatch?: string;
   zoom?: string;
   settingsLocal?: string;
   editingLocal?: string;
@@ -134,6 +142,11 @@ export const DEFAULT_MESSAGES: MachReportMessages = {
   query: "查 询",
   reset: "重 置",
   paramRequired: "请填写{label}",
+  paramInvalid: "{label}：{message}",
+  paramPrompt: "请先完善查询条件",
+  paramPromptDescription: "填写必填条件后点击查询，即可生成报表。",
+  paramSelectPlaceholder: "请选择{label}",
+  paramTextPlaceholder: "请输入{label}",
   searching: "搜索中…",
   importExcel: "导入 Excel 模板",
   importing: "正在导入 Excel…",
@@ -151,6 +164,9 @@ export const DEFAULT_MESSAGES: MachReportMessages = {
   settingsReset: "恢复默认",
   settingsClose: "关闭设置",
   search: "内容搜索",
+  closeSearch: "关闭搜索",
+  prevSearchMatch: "上一个匹配",
+  nextSearchMatch: "下一个匹配",
   zoom: "缩放工具",
   settingsLocal: "按需启用工具，仅作用于当前预览。",
   editingLocal: "修改为本地草稿；不会自动写入业务数据库。",

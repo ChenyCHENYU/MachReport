@@ -5,9 +5,9 @@
  * 搜索区（search.visible 时渲染）：输入即时上抛（防抖在 composable 层），
  * 打开时自动聚焦输入框。
  */
-import { nextTick, ref, watch } from "vue";
 import type { MachReportMessages } from "./config";
 import type { ReportExportFormat } from "./tools";
+import { useSearchInput } from "./composables/useSearchInput";
 
 const props = defineProps<{
   pageCount: number;
@@ -30,7 +30,7 @@ const props = defineProps<{
   busy?: boolean;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (e: "goto", page: number): void;
   (e: "zoom", mode: "fit" | number): void;
   (e: "export", format: "html" | "pdf" | "xlsx" | "png" | "word"): void;
@@ -44,15 +44,13 @@ defineEmits<{
   (e: "settings-toggle"): void;
 }>();
 
-const searchInputRef = ref<HTMLInputElement | null>(null);
-watch(
-  () => props.search.visible,
-  (visible) => {
-    if (visible) {
-      void nextTick(() => searchInputRef.value?.focus());
-    }
-  }
-);
+const searchControls = useSearchInput({
+  visible: () => props.search.visible,
+  navigate: (direction) => emit("search-nav", direction),
+  close: () => { if (props.search.visible) emit("search-toggle"); }
+});
+const { input: searchInputRef, toggle: searchToggleRef } = searchControls;
+defineExpose({ focusSearch: searchControls.focus });
 
 function pageInfo(text: string, cur: number, total: number): string {
   return text.replace("{cur}", String(cur)).replace("{total}", String(total));
@@ -89,8 +87,10 @@ function pageInfo(text: string, cur: number, total: number): string {
         class="mrp-search-input"
         type="text"
         :placeholder="messages.searchPlaceholder"
+        :aria-label="messages.search ?? messages.searchPlaceholder"
         :value="search.query"
         @input="$emit('search-input', ($event.target as HTMLInputElement).value)"
+        @keydown="searchControls.onKeydown"
       />
       <span v-if="search.query" class="mrp-search-count" role="status">{{ search.searching
         ? messages.searching ?? "搜索中…"
@@ -100,6 +100,7 @@ function pageInfo(text: string, cur: number, total: number): string {
         class="mrp-nav"
         type="button"
         :disabled="search.matchCount === 0"
+        :aria-label="messages.prevSearchMatch"
         @click="$emit('search-nav', -1)"
       >
 {{ messages.prevMatch }}
@@ -108,18 +109,22 @@ function pageInfo(text: string, cur: number, total: number): string {
         class="mrp-nav"
         type="button"
         :disabled="search.matchCount === 0"
+        :aria-label="messages.nextSearchMatch"
         @click="$emit('search-nav', 1)"
       >
 {{ messages.nextMatch }}
 </button>
+      <button class="mrp-nav mrp-search-close" type="button" :aria-label="messages.closeSearch" @click="searchControls.close">×</button>
     </div>
     <button
+      ref="searchToggleRef"
       v-if="showSearch !== false"
       class="mrp-nav"
       :class="{ 'mrp-active': search.visible }"
       type="button"
       title="Ctrl+F"
       :aria-label="messages.search ?? messages.searchPlaceholder"
+      :aria-pressed="search.visible"
       @click="$emit('search-toggle')"
     >
       <svg width="13" height="13" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.6" /><path d="m13 13 4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
@@ -129,6 +134,7 @@ function pageInfo(text: string, cur: number, total: number): string {
       class="mrp-nav"
       :class="{ 'mrp-active': thumbsVisible }"
       type="button"
+      :aria-pressed="thumbsVisible"
       @click="$emit('thumbs-toggle')"
     >
 ▦ {{ messages.thumbnails }}
@@ -249,8 +255,8 @@ function pageInfo(text: string, cur: number, total: number): string {
 .mrp-spacer { flex: 1; }
 .mrp-search { display: flex; align-items: center; gap: 4px; }
 .mrp-search-input {
-  background: #22252a;
-  color: #e8e8e8;
+  background: var(--mrp-toolbar-bg, #323639);
+  color: var(--mrp-toolbar-fg, #e8e8e8);
   border: 1px solid var(--mrp-btn-border, #4a4d52);
   border-radius: 4px;
   padding: 2px 8px;

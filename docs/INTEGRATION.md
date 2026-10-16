@@ -219,6 +219,12 @@ document.querySelector("#report")!.replaceChildren(renderPlan(plan, document));
 
 ## 高级接入与兼容
 
+### 查询面板的统一校验
+
+`params`元数据和显式`paramDefs`使用同一核心校验。必填、枚举、数字与日期范围、Unicode文本长度会在所有预览请求入口前检查，包括自动加载、手动查询、`reload()`和`setParams()`；原始`PlanFetcher`也遵循该规则。首次缺少必填值时保持中性填写提示，不发请求、不触发错误事件；点击查询后返回`param`并在字段旁显示原因、聚焦首个问题项。要自动首载，请提供必填`params`或`defaultValue`。
+
+可选下拉提供空选项。清空不带默认值的条件会省略该参数；显式清空有默认值的条件会传空串，避免下游再次填回默认值。重置恢复默认值并清除字段提示，不自动查询。`paramInvalid / paramPrompt / paramPromptDescription / paramSelectPlaceholder / paramTextPlaceholder`可在messages中覆盖。
+
 | 使用场景 | 入口 |
 | --- | --- |
 | 常规 Vue 项目 | `app.use(machReportPlugin, { reports })` |

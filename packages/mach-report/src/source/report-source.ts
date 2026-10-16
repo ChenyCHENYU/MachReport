@@ -1,4 +1,4 @@
-import { paginateTemplate, type DatasetRows, type PaginateOptions, type ReportParamDef, type ReportTemplate } from "../layout/paginate";
+import { PaginatePageLimitError, paginateTemplate, type DatasetRows, type PaginateOptions, type ReportParamDef, type ReportTemplate } from "../layout/paginate";
 import { RENDER_PLAN_SCHEMA_VERSION, type RenderPlan } from "../schema/render-plan";
 import { validateRenderPlan } from "../schema/validate";
 import { getReportParamDefs } from "./report-params";
@@ -186,11 +186,17 @@ function validateDataContract(definition: ReportDefinition, data: DatasetRows, r
   }
 }
 
-function paginateReport(template: ReportTemplate, data: DatasetRows, definition: ReportDefinition, reportId: string): ReturnType<typeof paginateTemplate> {
+function paginateReport(template: ReportTemplate, data: DatasetRows, definition: ReportDefinition, reportId: string, pageBudget?: { maxPages: number; usedPages: number }): ReturnType<typeof paginateTemplate> {
+  const remainingPages = pageBudget ? pageBudget.maxPages - pageBudget.usedPages : undefined;
   try {
-    return paginateTemplate(template, data, definition.pagination);
+    if (remainingPages !== undefined && remainingPages < 1 && template.pages.length) throw new PaginatePageLimitError(0, 1);
+    const pagination = remainingPages === undefined ? definition.pagination : { ...definition.pagination,
+      maxPages: Math.max(1, Math.min(remainingPages, definition.pagination?.maxPages ?? remainingPages)) };
+    return paginateTemplate(template, data, pagination);
   } catch (error) {
-    throw new ReportSourceError("validate", `报表 ${reportId} 排版失败：${error instanceof Error ? error.message : String(error)}`, error);
+    const cause = error instanceof PaginatePageLimitError && pageBudget && error.limit === remainingPages
+      ? new PaginatePageLimitError(pageBudget.maxPages, pageBudget.usedPages + error.actual) : error;
+    throw new ReportSourceError("validate", `报表 ${reportId} 排版失败：${cause instanceof Error ? cause.message : String(cause)}`, cause);
   }
 }
 
@@ -217,8 +223,9 @@ function appendTablePages(pages: RenderPlan["pages"], plan: RenderPlan, reportIn
  */
 export function createReportSource(
   reports: ReportRegistry,
-  options: { onWarning?: (message: string) => void; onDatasets?: (reportId: string, datasets: DatasetRows, template: ReportTemplate) => void } = {}
+  options: { onWarning?: (message: string) => void; onDatasets?: (reportId: string, datasets: DatasetRows, template: ReportTemplate) => void; maxPages?: number } = {}
 ): ReportSource {
+  if (options.maxPages !== undefined && (!Number.isSafeInteger(options.maxPages) || options.maxPages < 1)) throw new ReportSourceError("config", "maxPages 应为正安全整数");
   function definitionFor(id: string): ReportDefinition {
     const definition = Object.prototype.hasOwnProperty.call(reports, id) ? reports[id] : undefined;
     if (!definition) throw new ReportSourceError("config", `未注册报表 ${id}`);
@@ -249,7 +256,7 @@ export function createReportSource(
       context.params = assertReportParams(definition.params ?? template.params ?? [], context.params);
       const data = await loadDatasets(definition, context, reportId, onQueryResult, options.onDatasets ? (id, datasets) => options.onDatasets!(id, datasets, template) : undefined);
       checkAbort(signal);
-      const result = paginateReport(template, data, definition, reportId);
+      const result = paginateReport(template, data, definition, reportId, options.maxPages === undefined ? undefined : { maxPages: options.maxPages, usedPages: pages.length });
       appendTablePages(pages, result.plan, index, reportId);
       warnings.push(...result.warnings.map((message) => `${reportId}: ${message}`));
     }

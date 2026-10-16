@@ -12,6 +12,7 @@
 import {
   computed,
   inject,
+  nextTick,
   onMounted,
   onUnmounted,
   provide,
@@ -69,6 +70,7 @@ import { cloneReportSnapshot } from "./snapshot";
 import { usePreviewTools } from "./composables/usePreviewTools";
 import { useCellSelection } from "./composables/useCellSelection";
 import { useFrozenPanes } from "./composables/useFrozenPanes";
+import { useReportParams } from "./composables/useReportParams";
 import { prepareReportAssets } from "./assets";
 import { REPORT_EXPORT_FORMATS, type MachReportToolbarOptions, type ReportEmptyState, type ReportPreviewPreferences, type ReportPreviewTool, type ReportInteractionOptions, type ReportPreferencesOptions, type ReportSection } from "./tools";
 
@@ -144,6 +146,7 @@ const settingsOpen = ref(false);
 const importedResult = shallowRef<Pick<ExcelImportResult, "sheets" | "warnings"> | null>(null);
 const sessionInteraction = ref<ReportInteractionOptions>({});
 const importInputRef = ref<HTMLInputElement | null>(null);
+const toolbarRef = ref<InstanceType<typeof ReportToolbar> | null>(null);
 const timing = useLoadTiming();
 
 const wideReport = computed(() => !!plan.value?.pages.length && plan.value.pages.every((page) => page.layout === "wide"));
@@ -240,6 +243,13 @@ async function resetTools(): Promise<void> {
   tools.reset();
   sessionInteraction.value = {};
   emit("preferences-change", Object.freeze({ ...toolState.value }));
+}
+async function toggleSettings(): Promise<void> {
+  if (settingsOpen.value) { settingsOpen.value = false; return; }
+  // Wait for the active editor before moving focus into an aria-modal dialog.
+  // A rejected save must keep both the input and its focus available for correction.
+  if (!await editing.commit() || destroyed || !effectiveShowSettings.value) return;
+  settingsOpen.value = true;
 }
 function editErrorMessage(cause: unknown): string {
   if (cause instanceof ReportCellEditError) {
@@ -364,56 +374,23 @@ watch(
 );
 
 // ── 参数面板：定义优先级 prop > 模板 params；值合并优先级 面板值 > props.params ──
-const effectiveParamDefs = computed<ReportParamDef[]>(() =>
-  props.paramDefs ?? effectiveFetcher.value?.getParamDefs?.(reportIds.value) ?? []
-);
-const paramValues = ref<Record<string, string>>({});
-const paramAttempted = ref(false);
-
-function initParamValues(defs: ReportParamDef[]): void {
-  const next: Record<string, string> = {};
-  for (const def of defs) {
-    next[def.field] = props.params[def.field] ?? def.defaultValue ?? "";
-  }
-  paramValues.value = next;
-  paramAttempted.value = false;
-}
-initParamValues(effectiveParamDefs.value);
-watch(effectiveParamDefs, (defs) => initParamValues(defs));
-watch(reportIds, () => initParamValues(effectiveParamDefs.value));
-watch(() => JSON.stringify(props.params), () => initParamValues(effectiveParamDefs.value));
-
-/** 生效参数：面板值覆盖宿主传入值（面板是"用户当前意图"） */
-const effectiveParams = computed<Record<string, string>>(() => {
-  const next = { ...props.params };
-  for (const [field, value] of Object.entries(paramValues.value)) {
-    if (value === "") delete next[field];
-    else next[field] = value;
-  }
-  return next;
+const paramMetadata = computed(() => {
+  try { return { defs: props.paramDefs ?? effectiveFetcher.value?.getParamDefs?.(reportIds.value) ?? [], error: null }; }
+  catch (cause) { return { defs: [], error: new MachReportError("config", cause instanceof Error ? cause.message : "查询参数配置无效", cause) }; }
 });
-
-function missingRequired(): ReportParamDef[] {
-  return effectiveParamDefs.value.filter(
-    (d) => d.required === true && !(paramValues.value[d.field] ?? "").trim()
-  );
-}
+const effectiveParamDefs = computed<ReportParamDef[]>(() => paramMetadata.value.defs);
+const queryParams = useReportParams({ defs: effectiveParamDefs, reportIds, params: () => props.params, messages: () => resolvedMessages.value });
+const { values: paramValues, attempted: paramAttempted, pendingRequired } = queryParams;
+const paramPanelRef = ref<{ focusInvalid(): void } | null>(null);
 
 function onParamQuery(): void {
   paramAttempted.value = true;
-  const missing = missingRequired();
-  if (missing.length > 0) {
-    const label = missing[0]!.label ?? missing[0]!.field;
-    const message = resolvedMessages.value.paramRequired.replace("{label}", label);
-    errorMessage.value = message;
-    reportError(message, "param");
-    return;
-  }
+  if (!queryParams.validation.value.ok) void nextTick(() => paramPanelRef.value?.focusInvalid());
   void reload();
 }
 
 function onParamReset(): void {
-  initParamValues(effectiveParamDefs.value);
+  queryParams.reset(); errorMessage.value = ""; lastError.value = null;
 }
 
 const shellStyle = computed(() => ({
@@ -456,6 +433,23 @@ function invalidate(): void {
 let reloadSeq = 0;
 let loadController: AbortController | null = null;
 
+function readQueryParams(): Record<string, string> | null {
+  if (paramMetadata.value.error) {
+    const error = paramMetadata.value.error;
+    invalidate(); errorMessage.value = error.message; reportError(error.message, error.code, error.cause);
+    return null;
+  }
+  const query = queryParams.query();
+  if (query.params) return query.params;
+  invalidate();
+  errorMessage.value = query.quiet ? "" : query.error!.message;
+  if (!query.quiet) {
+    paramAttempted.value = true;
+    reportError(query.error!.message, query.error!.code, query.error!.cause);
+  }
+  return null;
+}
+
 async function reload(): Promise<void> {
   if (destroyed) return;
   const seq = ++reloadSeq;
@@ -478,6 +472,8 @@ async function reload(): Promise<void> {
     reportError(errorMessage.value, "config");
     return;
   }
+  const params = readQueryParams();
+  if (!params) return;
   loading.value = true;
   errorMessage.value = "";
   exportNotice.value = null;
@@ -495,7 +491,7 @@ async function reload(): Promise<void> {
   try {
     let next = await fetcher({
       reportIds: reportIds.value,
-      params: { ...effectiveParams.value },
+      params,
       signal: controller.signal,
       onWarning: reportWarning
     });
@@ -605,7 +601,7 @@ function openPdfWindow(): void {
 async function setParams(values: Record<string, string>, opts: { reload?: boolean } = {}): Promise<void> {
   if (destroyed) return;
   paramValues.value = { ...paramValues.value, ...values };
-  if (opts.reload !== false) await reload();
+  if (opts.reload !== false) { paramAttempted.value = true; await reload(); }
 }
 
 const controller: MachReportController = {
@@ -715,6 +711,7 @@ function onKeydown(e: KeyboardEvent): void {
   if (toolState.value.search && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
     e.preventDefault();
     if (!search.visible.value) search.toggle();
+    void nextTick(() => toolbarRef.value?.focusSearch());
     return;
   }
   switch (e.key) {
@@ -924,15 +921,18 @@ defineExpose({ ...controller, state });
 <template>
   <div class="mach-report-preview" :class="{ 'mrp-wide-report': wideReport }" :style="shellStyle">
     <ReportParamPanel
+      ref="paramPanelRef"
       v-if="effectiveShowParams && effectiveParamDefs.length > 0"
       :defs="effectiveParamDefs"
       v-model="paramValues"
       :messages="resolvedMessages"
       :attempted="paramAttempted"
+      :issues="queryParams.validation.value.issues"
       @query="onParamQuery"
       @reset="onParamReset"
     />
     <ReportToolbar
+      ref="toolbarRef"
       :page-count="pageCount"
       :current-page="currentPage"
       :zoom-mode="zoomMode"
@@ -961,7 +961,7 @@ defineExpose({ ...controller, state });
       @search-toggle="search.toggle"
       @thumbs-toggle="showThumbs = !showThumbs"
       @import-excel="importInputRef?.click()"
-      @settings-toggle="settingsOpen = !settingsOpen"
+      @settings-toggle="toggleSettings"
     />
     <ReportSettings v-if="settingsOpen && effectiveShowSettings" :available="availableTools" :enabled="toolState" :messages="resolvedMessages" :persisted-editing="persistedEditing" :interaction="effectiveInteraction" :busy="loading || importing || editing.saving.value || !!exporting || printing" @interaction="sessionInteraction = { ...sessionInteraction, ...$event }" @change="onToolChange" @reset="resetTools" @close="settingsOpen = false">
       <slot name="settings" />
@@ -996,7 +996,7 @@ defineExpose({ ...controller, state });
           {{ errorMessage }}
           <button class="mrp-retry" type="button" @click="reload">{{ resolvedMessages.retry }}</button>
         </div>
-        <ReportEmpty v-else-if="!plan || pageCount === 0" :title="resolvedMessages.empty" :description="emptyStateContent.description ?? resolvedMessages.emptyDescription" />
+        <ReportEmpty v-else-if="!plan || pageCount === 0" :title="pendingRequired ? resolvedMessages.paramPrompt ?? resolvedMessages.paramsTitle : resolvedMessages.empty" :description="pendingRequired ? resolvedMessages.paramPromptDescription : emptyStateContent.description ?? resolvedMessages.emptyDescription" />
         <div
           v-else
           class="mrp-scale"
@@ -1031,21 +1031,24 @@ defineExpose({ ...controller, state });
       </div>
       <aside v-if="toolState.thumbnails && showThumbs && pageCount > 0" ref="thumbsRef" class="mrp-thumbs" @scroll.passive="thumbs.onScroll">
         <div v-if="thumbs.windowRange.value.padTopPx > 0" class="mrp-thumb-spacer" :style="{ height: `${thumbs.windowRange.value.padTopPx}px` }" aria-hidden="true" />
-        <div
+        <button
           v-for="item in thumbs.visibleThumbs.value"
           :key="item.index"
           class="mrp-thumb"
+          type="button"
+          :aria-label="`${resolvedMessages.thumbnails} · ${resolvedMessages.pageInfo.replace('{cur}', String(item.index + 1)).replace('{total}', String(pageCount))}`"
+          :aria-current="item.index + 1 === currentPage ? 'page' : undefined"
           :style="{ height: `${item.height + 20}px` }"
           :class="{ 'mrp-thumb-active': item.index + 1 === currentPage }"
           @click="gotoPage(item.index + 1)"
         >
-          <div
+          <span
             class="mrp-thumb-box"
             :data-thumb="item.index + 1"
             :style="{ height: `${item.height}px` }"
           />
           <span class="mrp-thumb-no">{{ item.index + 1 }}</span>
-        </div>
+        </button>
         <div v-if="thumbs.windowRange.value.padBottomPx > 0" class="mrp-thumb-spacer" :style="{ height: `${thumbs.windowRange.value.padBottomPx}px` }" aria-hidden="true" />
       </aside>
     </div>
@@ -1151,9 +1154,11 @@ defineExpose({ ...controller, state });
   display: flex;
   flex-direction: column;
 }
-.mrp-thumb { cursor: pointer; text-align: center; flex: none; margin-bottom: 8px; }
+.mrp-thumb { cursor: pointer; text-align: center; flex: none; margin: 0 0 8px; padding: 0; border: 0; background: transparent; font: inherit; }
+.mrp-thumb:focus-visible { outline: 2px solid var(--mrp-btn-active-bg); outline-offset: 2px; }
 .mrp-thumb-spacer { flex: none; }
 .mrp-thumb-box {
+  display: block;
   box-sizing: border-box;
   width: 116px;
   background: #fff;

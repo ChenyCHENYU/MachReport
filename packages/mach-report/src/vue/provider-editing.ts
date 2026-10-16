@@ -3,6 +3,7 @@ import { ReportCellEditError } from "@agile-team/mach-report";
 import type { ReportEditOperation, ReportEditingOptions } from "./editing";
 import { MachReportError } from "./errors";
 import { cloneReportSnapshot } from "./snapshot";
+import { assertProviderSaveResult } from "./provider-save-result";
 
 type Current<T> = T | (() => T);
 export interface ProviderEditingOptions extends Pick<ReportEditingOptions, "canEdit" | "validate" | "requireSource"> {
@@ -52,7 +53,7 @@ export function createProviderEditing(provider: ReportProvider, options: Provide
       sourceToken: metadata(options.sourceToken, batch.edits, "sourceToken", sourceToken)
     });
     if (operation.signal.aborted) throw operation.signal.reason ?? new DOMException("Aborted", "AbortError");
-    if (!result || typeof result.revision !== "string" || !result.revision.trim()) throw new MachReportError("edit", "ReportProvider.save 必须返回非空 revision；请先在适配器解包业务响应");
+    assertProviderSaveResult(result, batch.edits.length);
     result.diagnostics?.forEach((diagnostic) => options.onDiagnostic?.(diagnostic));
     const errors = result.diagnostics?.filter((diagnostic) => diagnostic.severity === "error");
     if (errors?.length) throw new MachReportError("edit", errors.map((diagnostic) => diagnostic.message).join("；"), { diagnostics: errors });

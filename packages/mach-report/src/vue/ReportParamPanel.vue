@@ -8,8 +8,9 @@
  * 主题与文案全部走 --mrp-* 变量 / messages（无硬编码）。
  */
 import { computed, ref, watch } from "vue";
-import type { ReportParamDef } from "@agile-team/mach-report";
+import { validateReportParams, type ReportParamDef, type ReportParamIssue } from "@agile-team/mach-report";
 import type { MachReportMessages } from "./config";
+import { createParamPanelId, paramIssueMessage } from "./composables/useReportParams";
 
 const props = defineProps<{
   defs: ReportParamDef[];
@@ -17,6 +18,7 @@ const props = defineProps<{
   messages: MachReportMessages;
   /** 触发过查询后才开始必填提示（避免首屏一片红） */
   attempted: boolean;
+  issues?: readonly ReportParamIssue[];
 }>();
 
 const emit = defineEmits<{
@@ -27,6 +29,8 @@ const emit = defineEmits<{
 
 /** 本地值字典：外部整体替换（重置/初始化）时同步；控件输入只改本地并整体上抛 */
 const local = ref<Record<string, string>>({ ...props.modelValue });
+const root = ref<HTMLElement | null>(null);
+const panelId = createParamPanelId();
 watch(
   () => props.modelValue,
   (v) => {
@@ -34,11 +38,14 @@ watch(
   }
 );
 
+const issues = computed(() => props.issues ?? validateReportParams(props.defs, local.value).issues);
 const items = computed(() =>
-  props.defs.map((def) => ({
+  (Array.isArray(props.defs) ? props.defs : []).filter((def) => def && typeof def.field === "string").map((def, index) => ({
     def,
+    id: `${panelId}-${index}`,
     label: def.label ?? def.field,
-    value: local.value[def.field] ?? ""
+    value: local.value[def.field] ?? "",
+    error: props.attempted ? issues.value.find((issue) => issue.field === def.field) : undefined
   }))
 );
 
@@ -47,33 +54,38 @@ function setField(field: string, value: string): void {
   emit("update:modelValue", { ...local.value });
 }
 
-function missing(field: string): boolean {
-  const def = props.defs.find((d) => d.field === field);
-  return props.attempted && def?.required === true && !(local.value[field] ?? "").trim();
+function query(event: KeyboardEvent): void {
+  if (!event.isComposing) emit("query");
 }
+function focusInvalid(): void { root.value?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus(); }
+defineExpose({ focusInvalid });
 </script>
 
 <template>
-  <div class="mrp-params">
+  <div ref="root" class="mrp-params">
     <span class="mrp-params-title">{{ messages.paramsTitle }}</span>
     <div class="mrp-params-grid">
       <label
         v-for="item in items"
-        :key="item.def.field"
+        :key="item.id"
         class="mrp-param"
-        :class="{ 'mrp-param-missing': missing(item.def.field) }"
+        :class="{ 'mrp-param-missing': !!item.error }"
       >
-        <span class="mrp-param-label">
+        <span :id="`${item.id}-label`" class="mrp-param-label">
           {{ item.label }}<i v-if="item.def.required" class="mrp-param-star">*</i>
         </span>
         <select
           v-if="(item.def.type ?? 'text') === 'select'"
           class="mrp-param-input"
           :value="item.value"
+          :aria-labelledby="`${item.id}-label`"
+          :aria-invalid="item.error ? true : undefined"
+          :aria-describedby="item.error ? `${item.id}-error` : undefined"
+          :aria-required="item.def.required || undefined"
           @change="setField(item.def.field, ($event.target as HTMLSelectElement).value)"
-          @keydown.enter="$emit('query')"
+          @keydown.enter="query"
         >
-          <option value="" disabled hidden>{{ item.def.placeholder ?? `请选择${item.label}` }}</option>
+          <option value="" :disabled="item.def.required" :hidden="item.def.required">{{ item.def.placeholder ?? (messages.paramSelectPlaceholder ?? '请选择{label}').replace('{label}', item.label) }}</option>
           <option v-for="opt in item.def.options ?? []" :key="opt.value" :value="opt.value">
             {{ opt.label }}
           </option>
@@ -82,11 +94,19 @@ function missing(field: string): boolean {
           v-else
           class="mrp-param-input"
           :type="item.def.type === 'number' ? 'number' : item.def.type === 'date' ? 'date' : 'text'"
-          :placeholder="item.def.placeholder ?? `请输入${item.label}`"
+          :placeholder="item.def.placeholder ?? (messages.paramTextPlaceholder ?? '请输入{label}').replace('{label}', item.label)"
           :value="item.value"
+          :min="item.def.min"
+          :max="item.def.max"
+          :step="item.def.type === 'number' ? 'any' : undefined"
+          :aria-labelledby="`${item.id}-label`"
+          :aria-invalid="item.error ? true : undefined"
+          :aria-describedby="item.error ? `${item.id}-error` : undefined"
+          :aria-required="item.def.required || undefined"
           @input="setField(item.def.field, ($event.target as HTMLInputElement).value)"
-          @keydown.enter="$emit('query')"
+          @keydown.enter="query"
         >
+        <small v-if="item.error" :id="`${item.id}-error`" class="mrp-param-error" role="status">{{ paramIssueMessage(item.error, defs, messages) }}</small>
       </label>
     </div>
     <div class="mrp-params-actions">
@@ -136,8 +156,8 @@ function missing(field: string): boolean {
   margin-left: 2px;
 }
 .mrp-param-input {
-  background: #22252a;
-  color: #e8e8e8;
+  background: var(--mrp-toolbar-bg, #323639);
+  color: var(--mrp-toolbar-fg, #e8e8e8);
   border: 1px solid var(--mrp-btn-border, #4a4d52);
   border-radius: 4px;
   padding: 3px 8px;
@@ -147,7 +167,8 @@ function missing(field: string): boolean {
 }
 .mrp-param-input:focus { border-color: var(--mrp-btn-active-bg, #2d5fb8); }
 .mrp-param-missing .mrp-param-input { border-color: #ff7b72; }
-select.mrp-param-input option { background: #22252a; }
+select.mrp-param-input option { background: var(--mrp-toolbar-bg, #323639); color: var(--mrp-toolbar-fg, #e8e8e8); }
+.mrp-param-error { max-width: 260px; color: var(--mrp-error-fg, #e35d59); font-size: 11px; }
 .mrp-params-actions { display: flex; gap: 6px; padding-bottom: 1px; }
 .mrp-nav {
   background: transparent;

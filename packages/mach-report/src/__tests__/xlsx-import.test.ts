@@ -20,6 +20,50 @@ function importedCells(result: Awaited<ReturnType<typeof importExcelTemplate>>):
 }
 
 describe("importExcelTemplate", () => {
+  it("无边框与显式单边在导入、分页及实际 Excel 写读后保持原样", async () => {
+    const bytes = await excel((workbook) => {
+      const sheet = workbook.addWorksheet("边框");
+      sheet.getCell("A1").value = "无边框";
+      sheet.getCell("B1").value = "仅下边框";
+      sheet.getCell("B1").border = { bottom: { style: "thin", color: { argb: "FF123456" } } };
+      sheet.mergeCells("A2:B2"); sheet.getCell("A2").value = "合并单元格仅上边框";
+      sheet.getCell("A2").border = { top: { style: "thin" } };
+    });
+    const result = await importExcelTemplate(bytes);
+    const cells = importedCells(result);
+    expect(cells[0]!.style).toMatchObject({ borderTop: false, borderRight: false, borderBottom: false, borderLeft: false });
+    expect(cells[1]!.style).toMatchObject({ borderTop: false, borderRight: false, borderBottom: true, borderLeft: false });
+    expect(cells[2]!.style).toMatchObject({ borderTop: true, borderRight: false, borderBottom: false, borderLeft: false });
+    const { buffer } = await renderPlanToXlsx(paginateTemplate(result.template, {}).plan);
+    const reread = new ExcelJSRuntime.Workbook(); await reread.xlsx.load(buffer);
+    const sheet = reread.worksheets[0]!;
+    expect(sheet.getCell("A1").border).toEqual({});
+    expect(sheet.getCell("B1").border).toEqual({ bottom: { style: "thin", color: { argb: "FF123456" } } });
+    expect(sheet.getCell("A2").border.top?.style).toBe("thin");
+    expect(sheet.getCell("A2").border.bottom).toBeUndefined();
+  });
+
+  it("空白数字模板按格式右对齐且保留显式左对齐、文本格式与文本编号", async () => {
+    const bytes = await excel((workbook) => {
+      const sheet = workbook.addWorksheet("空白对齐");
+      sheet.addRow(["数量", "左对齐金额", "文本", "编号"]);
+      sheet.getCell("A2").numFmt = "0.000";
+      sheet.getCell("B2").numFmt = "#,##0.00"; sheet.getCell("B2").alignment = { horizontal: "left" };
+      sheet.getCell("C2").numFmt = "@";
+      sheet.getCell("D2").value = "000012"; sheet.getCell("D2").numFmt = "00000";
+    });
+    const result = await importExcelTemplate(bytes);
+    expect(importedCells(result).slice(4).map((cell) => [cell.value, cell.style?.align])).toEqual([[null, "right"], [null, "left"], [null, "left"], ["000012", "left"]]);
+    const plan = paginateTemplate(result.template, {}).plan;
+    const edit = createReportCellEdit(plan, { pageIndex: 0, componentIndex: 1, rowIndex: 0, columnIndex: 0 }, 12.5);
+    const { buffer } = await renderPlanToXlsx(applyReportCellEdit(plan, edit));
+    const reread = new ExcelJSRuntime.Workbook(); await reread.xlsx.load(buffer);
+    const sheet = reread.worksheets[0]!;
+    expect(sheet.getCell("A2").value).toBe(12.5);
+    expect(sheet.getCell("A2").alignment?.horizontal).toBe("right");
+    expect(sheet.getCell("D2").value).toBe("000012");
+  });
+
   it("imports all visible worksheets, preserves merge geometry/styles and roundtrips a single continuous sheet", async () => {
     const bytes = await excel((workbook) => {
       const sheet = workbook.addWorksheet("生产日报");

@@ -93,7 +93,7 @@ test("82列×2000行：实际字号、左右端可达、连续分段、远右搜
   await root.locator(".mrp-search-input").fill("同页目标");
   await expect(root.locator(".mrp-search-count")).toHaveText("1/2");
   expect(await viewport.evaluate((element) => element.scrollLeft)).toBeLessThan(100);
-  await root.getByRole("button", { name: "›", exact: true }).click();
+  await root.getByRole("button", { name: "下一个匹配", exact: true }).click();
   await expect(root.locator(".mrp-search-count")).toHaveText("2/2");
   await expect.poll(() => viewport.evaluate((element) => element.scrollLeft)).toBeGreaterThan(7000);
   const searchStarted = Date.now();
@@ -108,7 +108,7 @@ test("82列×2000行：实际字号、左右端可达、连续分段、远右搜
   const peakBodyPages = await root.locator(".mrp-page-holder").count();
   expect(peakBodyPages).toBeLessThanOrEqual(4);
   const searchLastMs = Date.now() - searchStarted;
-  await root.getByRole("button", { name: /缩略图/ }).click();
+  await root.getByRole("toolbar").getByRole("button", { name: /缩略图/ }).click();
   await expect.poll(() => root.locator(".mrp-thumb-box canvas").count()).toBeGreaterThan(0);
   await expect.poll(async () => {
     const box = (await hit.boundingBox())!;

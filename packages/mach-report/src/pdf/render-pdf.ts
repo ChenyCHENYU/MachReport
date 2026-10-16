@@ -3,6 +3,7 @@ import { PDFDocument, PDFName, PDFRawStream, StandardFonts, rgb, type PDFFont, t
 import type { ComponentStyle, PlanComponent, RenderPlan } from "../schema/render-plan";
 import { reportOutputDiagnostics, type OutputDiagnostic } from "../output/capabilities";
 import { resolvePlanAssets, type AssetRenderOptions } from "../output/assets";
+import { resolveGridStrokes } from "../render/grid-strokes";
 import {
   heuristicMeasurer,
   isImageBackedComponent,
@@ -282,19 +283,18 @@ function drawBoxBorders(page: PDFPage, style: ComponentStyle | undefined, box: T
 }
 
 function drawGridEdges(page: PDFPage, comp: PlanComponent, box: TextBox, layout: ReturnType<typeof resolveGridLayout>): void {
-  if (!resolveBoxBorders(comp.style).inner) return;
-  for (const edge of layout.edges) {
+  for (const edge of resolveGridStrokes(layout, comp)) {
+    const style = { borderColor: edge.color, lineWidthPt: edge.widthPt };
     if (edge.kind === "v") {
-      drawBorderLine(page, comp.style,
+      drawBorderLine(page, style,
         { x: box.x + mmToPt(edge.pos), y: box.yTop - mmToPt(edge.to) },
         { x: box.x + mmToPt(edge.pos), y: box.yTop - mmToPt(edge.from) });
     } else {
-      drawBorderLine(page, comp.style,
+      drawBorderLine(page, style,
         { x: box.x + mmToPt(edge.from), y: box.yTop - mmToPt(edge.pos) },
         { x: box.x + mmToPt(edge.to), y: box.yTop - mmToPt(edge.pos) });
     }
   }
-  drawBoxBorders(page, comp.style, box);
 }
 
 function drawGridCell(

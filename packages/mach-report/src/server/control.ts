@@ -19,6 +19,7 @@ export function assertBudget(budget: ReportRuntimeBudget, key: keyof ReportRunti
 export function validateBudget(budget: ReportRuntimeBudget): void {
   for (const [key, value] of Object.entries(budget)) {
     if (value !== undefined && (!Number.isFinite(value) || value <= 0)) throw new ReportRuntimeError("budget", `${key} 应为正有限数字`, `$.budget.${key}`);
+    if (key !== "maxDurationMs" && value !== undefined && !Number.isSafeInteger(value)) throw new ReportRuntimeError("budget", `${key} 应为正安全整数`, `$.budget.${key}`);
     if (key === "maxDurationMs" && value !== undefined && value > 2_147_483_647) throw new ReportRuntimeError("budget", "maxDurationMs 不能超过 2147483647", `$.budget.${key}`);
   }
 }

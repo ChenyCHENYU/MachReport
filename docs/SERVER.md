@@ -65,7 +65,7 @@ const result = validateReportParams(defs, { date: "2026-10-16" });
 const schema = reportParamsJsonSchema(defs);
 ```
 
-问题包含稳定的 `code/path/field/message`；异常为 `ReportParamValidationError`，`code="params"`。参数配置本身非法也会明确报错。JSON Schema 采用 Draft 2020-12；日期使用 `format: "date"`，日期上下界保留为 `x-report-minimum/x-report-maximum` 扩展，Java 适配层需要执行这两个日期范围规则。未知参数保留；参数校验不能代替权限或查询字段白名单。
+问题包含稳定的 `code/path/field/message`；异常为 `ReportParamValidationError`，`code="params"`。参数配置本身非法也会明确报错：JSON/JS 传入非数组、空定义项、非字符串默认值或非法选项时，返回 `definition` 问题，不进入取数和值校验。JSON Schema 采用 Draft 2020-12；日期使用 `format: "date"`，日期上下界保留为 `x-report-minimum/x-report-maximum` 扩展，Java 适配层需要执行这两个日期范围规则。未知参数保留；参数校验不能代替权限或查询字段白名单。
 
 Java 不直接执行 npm 包。可选做法是由已有 Java 后端完成认证、数据查询、事务与保存，再通过 JSON/HTTP 调用 Node 运行时。宿主可按已有规范注册下面的接口，库不会自动创建端口、接口或数据库表：
 
@@ -93,7 +93,9 @@ const file = await runtime.export({
 
 ## 预算、队列和取消
 
-默认运行时预算为 100000 行、10000 页、2000000 个渲染单元格、100000000 输出字节、120000 毫秒，可通过 `budget` 显式调整。分页前检查行数，并按明细行×列、表头和静态网格预检逻辑规模，避免明显的高列数内存放大；分页后再检查实际页面/单元格数。文件字节数在生成后检查；这些限制不是流式处理承诺。`dataValidation` 可收紧字段校验预算，不能绕过运行时的硬预算。
+默认运行时预算为 100000 行、10000 页、2000000 个渲染单元格、100000000 输出字节、120000 毫秒，可通过 `budget` 显式调整。数量和字节预算须为正安全整数。分页前检查行数，并按明细行×列、表头和静态网格预检逻辑规模，避免明显的高列数内存放大；页预算在追加超限页前中止，多报表请求共用同一额度，之后再核对实际页面/单元格数。文件字节数在生成后检查；这些限制不是流式处理承诺。`dataValidation` 可收紧字段校验预算，不能绕过运行时的硬预算。
+
+直接调用 `paginateTemplate` 可选传 `{ maxPages }`，超限抛 `PaginatePageLimitError`；`createReportSource(reports, { maxPages })` 对合并结果共用页预算。未配置时保留原有行为。Runtime 统一将页数超限归为 `ReportRuntimeError`，`code="budget"`、`path="$.budget.maxPages"`，便于宿主提示缩小查询范围。
 
 ```ts
 import { createReportTaskQueue } from "@agile-team/mach-report/server";

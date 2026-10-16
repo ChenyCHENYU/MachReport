@@ -81,6 +81,28 @@ describe("交互：键盘翻页与缩放", () => {
 });
 
 describe("交互：搜索", () => {
+  it("Enter/Shift+Enter 导航，IME 不触发，Esc 关闭且 Ctrl+F 可重新聚焦", async () => {
+    const wrapper = await mounted();
+    const viewport = wrapper.find(".mrp-body");
+    await viewport.trigger("keydown", { key: "f", ctrlKey: true });
+    const input = wrapper.find<HTMLInputElement>(".mrp-search-input");
+    await input.setValue("物料");
+    await vi.waitFor(() => expect(wrapper.find(".mrp-search-count").text()).toBe("1/2"));
+    await input.trigger("keydown", { key: "Enter", isComposing: true });
+    expect(wrapper.find(".mrp-search-count").text()).toBe("1/2");
+    await input.trigger("keydown", { key: "Enter" });
+    expect(wrapper.find(".mrp-search-count").text()).toBe("2/2");
+    await input.trigger("keydown", { key: "Enter", shiftKey: true });
+    expect(wrapper.find(".mrp-search-count").text()).toBe("1/2");
+    (viewport.element as HTMLElement).focus();
+    await viewport.trigger("keydown", { key: "f", ctrlKey: true });
+    expect(document.activeElement).toBe(input.element);
+    expect(input.attributes("aria-label")).toBe("内容搜索");
+    await input.trigger("keydown", { key: "Escape" });
+    expect(wrapper.find(".mrp-search-input").exists()).toBe(false);
+    expect(document.activeElement).toBe(wrapper.find('button[aria-label="内容搜索"]').element);
+    wrapper.unmount();
+  });
   it("输入关键字 → 命中计数/跳页/高亮 mark", async () => {
     const wrapper = await mounted();
     // 打开搜索并输入
@@ -184,6 +206,18 @@ describe("缩略图侧栏", () => {
       const boxes = wrapper.element.querySelectorAll("[data-thumb]");
       expect(boxes.length).toBe(2);
     });
+    wrapper.unmount();
+  });
+  it("缩略图使用具名按钮并声明当前页", async () => {
+    const wrapper = await mounted();
+    await wrapper.findAll("button").find((button) => button.text().includes("缩略图"))!.trigger("click");
+    await vi.waitFor(() => expect(wrapper.findAll("button.mrp-thumb")).toHaveLength(2));
+    const thumbs = wrapper.findAll("button.mrp-thumb");
+    expect(thumbs[0]!.attributes("aria-label")).toBe("缩略图 · 1 / 2");
+    expect(thumbs[0]!.attributes("aria-current")).toBe("page");
+    await thumbs[1]!.trigger("click");
+    expect(thumbs[1]!.attributes("aria-current")).toBe("page");
+    expect(thumbs[0]!.attributes("aria-current")).toBeUndefined();
     wrapper.unmount();
   });
 });

@@ -58,6 +58,22 @@ describe("explicit provider editing bridge", () => {
     expect(save.mock.calls[0]![0]).toMatchObject({ expectedRevision: "global-1", sourceToken: "global-token", requestId: "request-1" });
     await expect(editing.save!(edit, operation)).rejects.toThrow(/解包业务响应/);
   });
+  it.each([
+    { revision: "v2", sourceToken: {} },
+    { revision: "v2", diagnostics: {} },
+    { revision: "v2", diagnostics: [{ code: "warning", message: "missing severity" }] },
+    { revision: "v2", conflicts: [{ editIndex: -1, code: "stale", message: "bad index" }] },
+    { revision: "v2", conflicts: [{ editIndex: 9, code: "stale", message: "bad index" }] },
+    { revision: "v2", conflicts: [null] }
+  ])("rejects malformed save metadata without applying cells and explains the possible committed state", async (result) => {
+    const save = vi.fn().mockResolvedValue(result);
+    const { wrapper, report } = await create({ query: () => ({ datasets: {} }), save });
+    expect(await report.pasteSelection!("8")).toBe(false);
+    expect(save).toHaveBeenCalledOnce();
+    expect(report.getPlan!()!.pages[0]!.components[0]!.grid!.cells[0]![0]!.value).toBe(2);
+    expect(report.getDifferences!()).toEqual([]);
+    expect(wrapper.text()).toContain("服务器可能已提交，请重新查询确认");
+  });
   it.each(["A", "B"])("late saves cannot replace the latest metadata for query %s", async (nextReport) => {
     let reportId = "A", resolveFirst!: (result: ReportSaveResult) => void;
     const save = vi.fn(async (input: ReportSaveInput): Promise<ReportSaveResult> => input.requestId === "first"

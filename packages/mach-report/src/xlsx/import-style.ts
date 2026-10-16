@@ -71,7 +71,8 @@ function createCellStyle(cell: ExcelJS.Cell, theme: string[], sheet: string, war
     const background = colour(fill.fgColor, theme);
     if (background) style.backgroundColor = background;
   } else if (fill && !(fill.type === "pattern" && fill.pattern === "none")) warnings.add(`${sheet}: 渐变或图案填充暂不支持，保留单元格内容`);
-  if (source.border) applyBorders(style, source.border, theme, () => warnings.add(`${sheet}: 多种边线颜色、虚线、双线或对角线按单元格统一实线近似呈现`));
+  // 报表网格默认绘制边框；Excel 无边框必须显式关闭，不能凭空增加源模板中不存在的黑框。
+  applyBorders(style, source.border ?? {}, theme, () => warnings.add(`${sheet}: 多种边线颜色、虚线、双线或对角线按单元格统一实线近似呈现`));
   if (source.alignment) applyAlignment(style, source.alignment, () => warnings.add(`${sheet}: 部分旋转、缩进、收缩或分散对齐样式暂不支持`));
   if (font.strike || font.vertAlign) warnings.add(`${sheet}: 删除线、上标或下标暂不支持`);
   return style;
@@ -92,6 +93,7 @@ export function styleImporter(theme: string[], sheet: string, warnings: ImportWa
     }
     const raw = cell.value;
     const value = raw && typeof raw === "object" && ("formula" in raw || "sharedFormula" in raw) ? cell.result : raw;
-    return typeof value === "boolean" ? variants.center : typeof value === "number" || value instanceof Date ? variants.right : variants.left;
+    const numericBlank = value == null && /[0#?]/.test((cell.numFmt ?? "").replace(/"[^"]*"|\\.|\[[^\]]*\]/g, ""));
+    return typeof value === "boolean" ? variants.center : typeof value === "number" || value instanceof Date || numericBlank ? variants.right : variants.left;
   };
 }

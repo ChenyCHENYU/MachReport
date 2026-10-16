@@ -42,7 +42,8 @@ export function useTemplateEditor(props: TemplateEditorOptions, emit: (event: "u
   const headerAlignments = computed(() => {
     const list = activeList.value;
     if (!list) return [];
-    const styles = list.columns.map((column) => column.headerStyle?.align ?? column.headerAlign ?? list.headerStyle?.align ?? list.headerAlign ?? "left");
+    // 与分页器一致：正文列样式参与表头基样式，随后按列表、列的表头配置覆盖。
+    const styles = list.columns.map((column) => column.headerStyle?.align ?? column.headerAlign ?? list.headerStyle?.align ?? list.headerAlign ?? column.style?.align ?? "center");
     if (list.headerGrid && validation.value.ok) {
       for (const box of resolveGridLayout(list.headerGrid, list.widthMm, 100).cells) {
         for (let index = box.ci; index < box.ci + (box.cell.colSpan ?? 1); index++) styles[index] = box.cell.style?.align ?? "left";

@@ -15,6 +15,30 @@ function harness(options: TemplateEditorOptions) {
 }
 
 describe("轻量模板属性编辑器", () => {
+  it("普通表头的默认对齐及分层覆盖在属性面板与真实分页结果中保持一致", () => {
+    const configurations = [
+      {},
+      { column: { style: { align: "right" as const } } },
+      { headerAlign: "left" as const, column: { style: { align: "right" as const } } },
+      { headerAlign: "left" as const, headerStyle: { align: "center" as const } },
+      { headerStyle: { align: "center" as const }, column: { headerAlign: "right" as const } },
+      { column: { headerAlign: "right" as const, headerStyle: { align: "justify" as const } } }
+    ];
+    for (const { column, ...configuration } of configurations) {
+      const doc = document();
+      const list = doc.template.pages[0]!.components[0]!;
+      if (list.kind !== "list") throw new Error("fixture");
+      delete list.headerAlign;
+      Object.assign(list, configuration);
+      Object.assign(list.columns[0]!, column);
+      const { wrapper, editor } = harness({ modelValue: doc });
+      const plan = paginateTemplate(editor.draft.value.template, { detail: [] }).plan;
+      const header = plan.pages[0]!.components.find((component) => component.table?.role === "header")!;
+      expect(editor.headerAlignments.value[0]).toBe(header.grid!.cells[0]![0]!.style!.align);
+      wrapper.unmount();
+    }
+  });
+
   it("导入的合并表头修改对齐和文字后，实际计划同步更新且原始文档不变", () => {
     const doc = document();
     const list = doc.template.pages[0]!.components.find((component) => component.kind === "list")!;

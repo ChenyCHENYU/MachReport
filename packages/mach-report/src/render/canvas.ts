@@ -4,6 +4,7 @@ import { reportOutputDiagnostics, type OutputDiagnostic, type OutputDiagnosticOp
 import { resolvePlanAssets, type AssetRenderOptions } from "../output/assets";
 import { drawCanvasImage, loadCanvasImage, loadPageImages, throwIfAborted, type CanvasImageLoader } from "./canvas-images";
 import { resolveGridLayout, type GridLayout } from "./grid-geometry";
+import { resolveGridStrokes } from "./grid-strokes";
 import { wrapText, type TextMeasurer } from "../layout/textwrap";
 import { heuristicMeasurer } from "../layout/textwrap";
 import { ptToPx } from "../units";
@@ -152,15 +153,12 @@ function drawGridBorders(
   ctx: CanvasRenderingContext2D,
   layout: GridLayout,
   comp: PlanComponent,
-  x: number, y: number, w: number, h: number,
+  x: number, y: number,
   pxPerMm: number, dpi: number
 ): void {
-  const borders = resolveBoxBorders(comp.style);
-  if (!borders.inner) return;
-  const stroke = resolveStroke(comp.style);
-  ctx.strokeStyle = stroke.color;
-  ctx.lineWidth = ptToPx(stroke.widthPt, dpi);
-  for (const edge of layout.edges) {
+  for (const edge of resolveGridStrokes(layout, comp)) {
+    ctx.strokeStyle = edge.color;
+    ctx.lineWidth = ptToPx(edge.widthPt, dpi);
     ctx.beginPath();
     if (edge.kind === "v") {
       ctx.moveTo(x + edge.pos * pxPerMm, y + edge.from * pxPerMm);
@@ -171,7 +169,6 @@ function drawGridBorders(
     }
     ctx.stroke();
   }
-  drawRectangleBorder(ctx, borders, x, y, w, h);
 }
 
 function drawRectangleBorder(
@@ -203,7 +200,7 @@ function drawGrid(
     ctx.fillStyle = bg;
     ctx.fillRect(x + box.xMm * pxPerMm, y + box.yMm * pxPerMm, box.widthMm * pxPerMm, box.heightMm * pxPerMm);
   }
-  drawGridBorders(ctx, layout, comp, x, y, w, h, pxPerMm, dpi);
+  drawGridBorders(ctx, layout, comp, x, y, pxPerMm, dpi);
   const paddingMm = grid.paddingMm ?? 0.5;
   for (const box of layout.cells) {
     const text = box.cell.text ?? "";

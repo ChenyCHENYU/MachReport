@@ -39,13 +39,15 @@ export function useCellSelection(host: SelectionHost) {
   const selection = shallowRef<ReportCellSelection | null>(null);
   function refresh(): void {
     const current = selection.value;
+    const plan = host.plan.value;
     const modified = new Set(host.differences().map((edit) => JSON.stringify(edit.address)));
     host.root.value?.querySelectorAll<HTMLElement>("td[data-mr-row-index]").forEach((cell) => {
       const address = reportCellAddress(cell);
       if (!address) return;
       const selected = !!current && !!host.plan.value && inside(host.plan.value, address, current);
       cell.closest("table")?.setAttribute("role", "grid");
-      cell.setAttribute("role", "gridcell");
+      const table = plan?.pages[address.pageIndex]?.components[address.componentIndex]?.table;
+      cell.setAttribute("role", table?.role === "header" ? "columnheader" : "gridcell");
       cell.classList.toggle("mrp-cell-selected", selected);
       cell.classList.toggle("mrp-cell-focus", !!current && sameAddress(address, current.focus));
       cell.classList.toggle("mrp-cell-modified", modified.has(JSON.stringify(address)));
@@ -103,19 +105,30 @@ export function useCellSelection(host: SelectionHost) {
       const components = plan.pages[pageIndex]!.components;
       const start = pageIndex === address.pageIndex ? address.componentIndex + direction : direction === 1 ? 0 : components.length - 1;
       for (let componentIndex = start; componentIndex >= 0 && componentIndex < components.length; componentIndex += direction) {
-        if (components[componentIndex]?.table?.id !== table.id) continue;
-        const cells = addresses({ ...address, pageIndex, componentIndex });
-        const candidates = key === "Tab" ? cells : cells.filter((cell) => cell.columnIndex === address.columnIndex);
-        const candidate = direction === 1 ? candidates[0] : candidates[candidates.length - 1];
+        const candidate = fragmentTarget(address, { ...address, pageIndex, componentIndex }, key, direction);
         if (candidate) return candidate;
       }
     }
     return undefined;
   }
-  function navigate(address: ReportCellAddress, key: string, backwards = false, extend = false): void {
+  function fragmentTarget(origin: ReportCellAddress, target: ReportCellAddress, key: string, direction: number): ReportCellAddress | undefined {
+    const plan = host.plan.value!;
+    const table = plan.pages[origin.pageIndex]!.components[origin.componentIndex]!.table!;
+    const candidate = plan.pages[target.pageIndex]!.components[target.componentIndex]?.table;
+    if (candidate?.id !== table.id) return undefined;
+    // Printed headers repeat on every page; they are not new logical data rows.
+    if (candidate.role === "header" && table.role !== "header" && (direction > 0 || table.rowIndex + origin.rowIndex > 0)) return undefined;
+    const cells = addresses(target);
+    const matches = key === "Tab" ? cells : cells.filter((cell) => cell.columnIndex === origin.columnIndex);
+    return direction === 1 ? matches[0] : matches[matches.length - 1];
+  }
+  function navigate(address: ReportCellAddress, key: string, backwards = false, extend = false, nativeTab = false): boolean {
     const next = adjacent(address, key, backwards) ?? nextFragment(address, key, backwards);
-    if (next) void focusCell(next, extend);
-    else void focusCell(address);
+    if (next) { void focusCell(next, extend); return true; }
+    // Let native Tab leave the grid at its boundaries, including read-only previews.
+    // Other movement keys retain the current focus instead of scrolling the host page.
+    if (key !== "Tab" || !nativeTab) void focusCell(address);
+    return false;
   }
   function onKeydown(event: KeyboardEvent): boolean {
     const current = selection.value;
@@ -127,7 +140,9 @@ export function useCellSelection(host: SelectionHost) {
     if (modifier && key.toLowerCase() === "y") { event.preventDefault(); void host.redo(); return true; }
     if (beginEditing(event, current.focus)) return true;
     if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab", "Enter"].includes(key)) return false;
-    event.preventDefault(); navigate(current.focus, key, key === "Tab" && event.shiftKey, event.shiftKey && key !== "Tab"); return true;
+    const moved = navigate(current.focus, key, key === "Tab" && event.shiftKey, event.shiftKey && key !== "Tab", true);
+    if (key === "Tab" && !moved) return false;
+    event.preventDefault(); return true;
   }
   function beginEditing(event: KeyboardEvent, address: ReportCellAddress): boolean {
     if (!host.enabled() || !host.plan.value) return false;

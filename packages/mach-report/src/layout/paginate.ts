@@ -146,6 +146,16 @@ export interface PaginateOptions {
   mmPerRow?: number;
   /** 文本测量器（默认启发式；浏览器端可注入 canvas 测量校准） */
   measurer?: TextMeasurer;
+  /** 可选页数上限；在追加超限页前终止，避免先分配全部页面再检查。 */
+  maxPages?: number;
+}
+
+export class PaginatePageLimitError extends Error {
+  readonly code = "page-limit";
+  constructor(readonly limit: number, readonly actual: number) {
+    super(`报表页数超出上限 ${limit}（至少 ${actual} 页）`);
+    this.name = "PaginatePageLimitError";
+  }
 }
 
 export interface PaginateResult {
@@ -664,6 +674,7 @@ function pushWorkingPage(templatePage: TemplatePage, current: WorkingPage, ancho
 /** 模板遍历只编排静态组件和列表；行测量、分组、换页与汇总各自独立。 */
 export function paginateTemplate(template: ReportTemplate, datasets: DatasetRows, optionsOrMmPerRow: number | PaginateOptions = {}): PaginateResult {
   const options = typeof optionsOrMmPerRow === "number" ? { mmPerRow: optionsOrMmPerRow } : optionsOrMmPerRow;
+  if (options.maxPages !== undefined && (!Number.isSafeInteger(options.maxPages) || options.maxPages < 1)) throw new RangeError("maxPages 应为正安全整数");
   const warnings: string[] = [];
   const pages: PlanPage[] = [];
   const placeholders: PlanComponent[] = [];
@@ -672,7 +683,10 @@ export function paginateTemplate(template: ReportTemplate, datasets: DatasetRows
   for (const [pageIndex, templatePage] of template.pages.entries()) {
     const current = makeWorkingPage(templatePage);
     const anchors = templatePage.components.filter(isPageAnchor);
-    const pushCurrent = (isFinal = false) => pushWorkingPage(templatePage, current, anchors, pages, placeholders, isFinal);
+    const pushCurrent = (isFinal = false) => {
+      if (options.maxPages !== undefined && pages.length >= options.maxPages) throw new PaginatePageLimitError(options.maxPages, pages.length + 1);
+      pushWorkingPage(templatePage, current, anchors, pages, placeholders, isFinal);
+    };
     for (const [componentIndex, component] of templatePage.components.entries()) {
       if (isPageAnchor(component)) continue;
       if (component.kind !== "list") { current.components.push(component); continue; }

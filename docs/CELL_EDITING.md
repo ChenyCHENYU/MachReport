@@ -75,7 +75,7 @@ const editing = createProviderEditing(productionProvider, {
 
 `productionProvider.save` 收到同一 `reportId / params / requestId / edits / action / signal`，并统一返回 `{ revision, sourceToken?, conflicts?, diagnostics? }`。桥接默认 `requireSource: true`；没有 `provider.save` 会立即报告配置错误，注册 Provider 本身不会自动开启写入。`expectedRevision`、`sourceToken` 可传值或 getter；getter 优先，否则从整批一致的单元格来源推导，成功结果推进后续版本。`params` getter 应与预览正在使用的已执行查询保持一致，不能指向尚未查询的临时表单值。
 
-Provider 冲突使用 `{ editIndex, code, message }`，桥接自动定位回补丁来源并显示。接口包装须先在 Provider 内解包；缺少非空 `revision` 会报告明确错误，不把不完整的响应当作保存成功。单格 `save` 与批量 `saveBatch` 都可由同一桥接提供。
+Provider 冲突使用 `{ editIndex, code, message }`，`editIndex` 必须是本批补丁的有效整数索引，桥接自动定位回补丁来源并显示。接口包装须先在 Provider 内解包；桥接检查非空 `revision`、字符串 `sourceToken`、诊断与冲突结构。无效响应保留当前单元格和修改历史，明确提示“服务器可能已提交，请重新查询确认”，不能据此声称后台已回滚或直接重试写入。单格 `save` 与批量 `saveBatch` 都可由同一桥接提供。
 
 ## 稳定业务身份与并发协议
 

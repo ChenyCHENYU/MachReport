@@ -44,6 +44,20 @@ describe("跨端参数与 Provider 契约", () => {
     expect(() => reportParamsJsonSchema(defs)).toThrow(expect.objectContaining({ code: "params" }));
     expect(validateReportParams([{ field: "emoji", minLength: 1, maxLength: 1 }], { emoji: "😀" }).ok).toBe(true);
   });
+  it.each([null, {}, [null], [{ field: 12 }], [{ field: "x", defaultValue: 12 }],
+    [{ field: "x", options: {} }], [{ field: "x", options: [null] }], [{ field: "x", options: [{ label: "A", value: 1 }] }],
+    [{ field: "x", required: "yes" }], [{ field: "x", minLength: Symbol("length"), maxLength: 4, defaultValue: "A" }]
+  ])("JS/JSON 非法参数配置返回结构化 definition，不抛原生 TypeError：%j", (input) => {
+    const defs = input as unknown as ReportParamDef[];
+    expect(validateReportParams(defs, {}).issues).toEqual(expect.arrayContaining([expect.objectContaining({ code: "definition", path: expect.stringContaining("$.paramDefs") })]));
+    expect(() => assertReportParams(defs, {})).toThrow(expect.objectContaining({ code: "params" }));
+    expect(() => reportParamsJsonSchema(defs)).toThrow(expect.objectContaining({ code: "params" }));
+  });
+  it("非法参数对象也返回明确路径，元数据读取先检查配置而不直接访问 null 项", () => {
+    expect(validateReportParams([], null as unknown as Record<string, unknown>)).toMatchObject({ ok: false, issues: [{ code: "type", path: "$.params" }] });
+    const source = createReportSource({ a: { template: template(), params: [null] as unknown as ReportParamDef[] } });
+    expect(() => source.getParamDefs(["a"])).toThrow(expect.objectContaining({ code: "params" }));
+  });
   it("所有已声明参数在任何数据请求前校验，动态模板的参数在业务取数前校验", async () => {
     const load = vi.fn(() => ({}));
     const source = createReportSource({ a: { template: template(), load }, b: { template: template(), load, params: [{ field: "date", required: true }] } });

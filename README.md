@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.6.0-2563eb" alt="Source version 2.6.0" />
+  <img src="https://img.shields.io/badge/source-2.6.1-2563eb" alt="Source version 2.6.1" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -43,7 +43,7 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 完整宽表 | 自然列宽、横向滚动、默认 100% 预览；纵向分段窗口化，Excel 自动合并连续 Sheet |
 | 明细与汇总 | 自动折行与分页、重复表头、连续分组小计、末尾总计、页码占位符 |
 | 数据呈现 | 表头与内容独立对齐、类型自动对齐、数值 / 百分比 / 日期格式化、条件格式 |
-| 预览交互 | 双窗口渲染、冻结表头 / 前列、区域选取与复制、Sheet 导航、可选偏好存储 |
+| 预览交互 | 双窗口渲染、冻结表头 / 前列、跨页选区、键盘搜索与缩略图、Sheet 导航、可选偏好存储 |
 | 内容编辑 | 默认只读；双击与批量粘贴、原子保存、撤销 / 重做、恢复与变更清单 |
 | Excel 导入 | 多 Sheet、完整宽表、合并单元格、基础样式与缓存公式值转换为可复用模板 |
 | 模板配置 | 轻量属性编辑器、草稿 / 发布 / 历史 / 回滚、CAS 存储适配器、Excel 区域绑定 |
@@ -144,6 +144,8 @@ app.use(machReportPlugin, {
 `template` 使用上例或项目自己的模板；`orderApi` 是项目现有业务请求客户端。接口已经返回数据集时，直接写 `load: ({ params, signal }) => reportApi(params, { signal })`，无需 `defineReport` 或字段映射。静态数据使用 `{ template, datasets }`。
 
 模板的 `params` 会自动生成查询面板，显式 `paramDefs` 可覆盖。父页面用 `useMachReport()` 获得 `ref`、可等待的控制方法和只读响应式 `state`；例如 `report.state.canExport` 直接驱动外部按钮，加载、页数、导出、打印与错误无需另建状态。完整示例及接入边界见[项目接入指南](./docs/INTEGRATION.md)。旧 `fetcher` 与 `createLocalFetcher` 继续支持。
+
+查询面板复用同一参数契约，校验类型、范围、日期、枚举和Unicode长度。首次缺少必填条件时显示填写引导并等待查询；提交后标明具体字段并聚焦首个问题项。可选下拉能清空，中文输入法确认不会误提交。原始`fetcher + paramDefs`和编程式`setParams`同样在请求前校验；自动首载所需的必填值请通过`params`或`defaultValue`提供。
 
 ### 原生 TypeScript：生成并渲染页面
 
@@ -409,6 +411,8 @@ app.use(machReportPlugin, { fetcher, config });
 
 预览工具栏默认提供「设置」，将阅读、冻结窗格、导出、打印与可选数据操作集中在一个入口。使用方声明允许的能力；用户在面板中按需启用。默认偏好仅在当前实例，可显式提供 `preferences` 存储适配器。设置支持键盘操作、焦点约束和 Esc 关闭，无额外 UI 组件库依赖。
 
+Ctrl/Cmd+F打开或聚焦搜索，Enter / Shift+Enter切换命中，Esc关闭并返回预览；缩略图可用键盘操作。Tab跨页浏览业务格，到达首末边界后可离开报表。多层合并表头和重复打印表头不会遮蔽业务行的选择坐标。编辑尚未提交时，打开设置会先等待保存，失败保留原输入与焦点。
+
 ```vue
 <ReportPreview
   report-id="daily"
@@ -550,7 +554,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.6.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.6.1`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

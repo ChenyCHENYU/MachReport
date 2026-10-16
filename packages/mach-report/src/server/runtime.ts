@@ -2,13 +2,14 @@ import { createReportSource, ReportSourceError, type ReportRegistry } from "../s
 import { getReportParamDefs } from "../source/report-params";
 import { reportParamsJsonSchema, ReportParamValidationError, validateReportParams, type ReportParamValidation } from "../source/param-validation";
 import type { PreparedReport, ReportDescription, ReportRuntime, ReportRuntimeBudget, ReportRuntimeExportInput, ReportRuntimeExportResult, ReportRuntimeInput, ReportRuntimeOptions } from "./types";
-import { assertBudget, controlled, throwIfAborted, validateBudget } from "./control";
+import { assertBudget, controlled, ReportRuntimeError, throwIfAborted, validateBudget } from "./control";
 import type { PlanComponent } from "../schema/render-plan";
 import { validateRenderPlan } from "../schema/validate";
 import type { TextMeasurer } from "../layout/textwrap";
 import type { OutputDiagnostic } from "../output/capabilities";
 import { datasetJsonSchema } from "../schema/dataset";
 import type { DatasetRows, ReportTemplate } from "../layout/paginate";
+import { PaginatePageLimitError } from "../layout/paginate";
 
 function definitions(reports: ReportRegistry, ids: string[]) {
   if (ids.length === 0) throw new ReportSourceError("config", "缺少报表 ID");
@@ -82,7 +83,7 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
         maxCells: Math.min(budget.maxCells ?? 2_000_000, definition.dataValidation?.maxCells ?? Infinity)
       }
     }]));
-    const source = createReportSource(reports, { onDatasets: (_id, data, template) => {
+    const source = createReportSource(reports, { maxPages: budget.maxPages, onDatasets: (_id, data, template) => {
       rows += Object.values(data).reduce((sum, items) => sum + items.length, 0);
       assertBudget(budget, "maxRows", rows);
       inputCells += logicalCells(template, data);
@@ -91,7 +92,10 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
     const plan = await source({ ...input, params: input.params ?? {}, onWarning: (message) => diagnostics.push({ code: "layout", message, severity: "warning" }), onQueryResult: (id, result) => {
       Object.defineProperty(revisions, id, { value: { revision: result.revision, sourceToken: result.sourceToken }, enumerable: true, writable: true });
       diagnostics.push(...result.diagnostics ?? []);
-    } });
+    } }).catch((error: unknown) => {
+      if (error instanceof ReportSourceError && error.cause instanceof PaginatePageLimitError) throw new ReportRuntimeError("budget", error.cause.message, "$.budget.maxPages");
+      throw error;
+    });
     throwIfAborted(input.signal);
     const cells = plan.pages.reduce((sum, page) => sum + page.components.reduce((count, component) => count + cellCount(component), 0), 0);
     assertBudget(budget, "maxPages", plan.pages.length); assertBudget(budget, "maxCells", cells);

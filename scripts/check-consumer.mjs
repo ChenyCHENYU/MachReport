@@ -16,8 +16,9 @@ function run(command, args, cwd = scratch) {
 }
 
 try {
-  run("pnpm", ["--filter", "@agile-team/mach-report", "pack", "--pack-destination", scratch], root);
-  const archive = readdirSync(scratch).find((name) => name.endsWith(".tgz"));
+  const providedArchive = process.argv[2];
+  if (!providedArchive) run("pnpm", ["--filter", "@agile-team/mach-report", "pack", "--pack-destination", scratch], root);
+  const archive = providedArchive ? resolve(providedArchive) : readdirSync(scratch).find((name) => name.endsWith(".tgz"));
   if (!archive) throw new Error("Missing packed npm archive");
   run("tar", ["-xzf", resolve(scratch, archive)]);
   const extracted = resolve(scratch, "package");

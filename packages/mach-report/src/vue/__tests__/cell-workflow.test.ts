@@ -24,6 +24,66 @@ async function create(editable: boolean | ReportEditingOptions = true, preferenc
   return { wrapper, api: api(wrapper), original, fetcher };
 }
 describe("spreadsheet interactions", () => {
+  it("waits for the active edit before opening settings and keeps focus on a rejected save", async () => {
+    let reject!: (cause: Error) => void;
+    const save = vi.fn(() => new Promise<void>((_resolve, rejectSave) => { reject = rejectSave; }));
+    const { wrapper } = await create({ save });
+    await wrapper.find("td").trigger("dblclick");
+    await flushPromises();
+    const input = wrapper.find<HTMLTextAreaElement>(".mrp-cell-editor");
+    await input.setValue("8");
+    await wrapper.find(".mrp-settings-toggle").trigger("click");
+    expect(save).toHaveBeenCalledOnce();
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+    reject(new Error("保存失败，请修正"));
+    await flushPromises();
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+    expect(document.activeElement).toBe(input.element);
+    expect(input.attributes("aria-invalid")).toBe("true");
+  });
+  it("opens settings only after a pending edit has saved", async () => {
+    let complete!: () => void;
+    const save = vi.fn(() => new Promise<void>((resolve) => { complete = resolve; }));
+    const { wrapper } = await create({ save });
+    await wrapper.find("td").trigger("dblclick");
+    await flushPromises();
+    await wrapper.find(".mrp-cell-editor").setValue("8");
+    await wrapper.find(".mrp-settings-toggle").trigger("click");
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+    complete();
+    await flushPromises();
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(true);
+    expect(document.activeElement).toBe(wrapper.find(".mrp-settings-close").element);
+    expect(wrapper.find(".mrp-cell-editor").exists()).toBe(false);
+  });
+  it("lets native Tab leave grid boundaries while preserving navigation between fragments", async () => {
+    const original = plan();
+    original.pages[0]!.components = [0, 1].map((rowIndex) => ({ kind: "rect", leftMm: 0, topMm: rowIndex * 10, widthMm: 100, heightMm: 10, table: { id: "orders", rowIndex, role: "body", columnKeys: ["qty", "code"] }, grid: { cells: [[{ text: String(rowIndex) }, { text: "code" }]] } }));
+    const { wrapper, api: report } = await create(false, undefined, original);
+    const viewport = wrapper.find(".mrp-body").element;
+    await report.focusCell(address(0, 1));
+    const nextFragment = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    viewport.dispatchEvent(nextFragment);
+    await flushPromises();
+    expect(nextFragment.defaultPrevented).toBe(true);
+    expect(report.getSelection()?.focus).toEqual({ ...address(), componentIndex: 1 });
+    await report.focusCell({ ...address(0, 1), componentIndex: 1 });
+    const leave = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    viewport.dispatchEvent(leave);
+    expect(leave.defaultPrevented).toBe(false);
+    await report.focusCell(address());
+    const previous = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
+    viewport.dispatchEvent(previous);
+    expect(previous.defaultPrevented).toBe(false);
+  });
+  it("keeps header semantics after selection refresh", async () => {
+    const original = plan();
+    original.pages[0]!.components[0]!.table = { id: "header", role: "header", rowIndex: -1, columnKeys: ["qty", "code", "formula", "note"] };
+    const { wrapper, api: report } = await create(false, undefined, original);
+    await report.focusCell(address());
+    expect(wrapper.findAll('[role="columnheader"]')).toHaveLength(8);
+    expect(wrapper.findAll('[role="gridcell"]')).toHaveLength(0);
+  });
   it("selects, extends with Shift, navigates by keyboard and copies an exact rectangular TSV", async () => {
     const { wrapper, api: report } = await create();
     await wrapper.find('td[data-mr-row-index="0"][data-mr-column-index="0"]').trigger("click");
@@ -116,6 +176,29 @@ describe("spreadsheet interactions", () => {
     expect(await report.pasteSelection("8\t008\r\n9\t009")).toBe(true);
     expect(saveBatch.mock.calls[0]![0].edits.map((edit: { source: { rowKey: string } }) => edit.source.rowKey)).toEqual(["R1", "R1", "R2", "R2"]);
     expect(wrapper.findAll(".mrp-cell-modified")).toHaveLength(4);
+  });
+  it("keeps multi-row repeated headers separate from body coordinates during copy, paste and cross-page selection", async () => {
+    const original: RenderPlan = { schemaVersion: "multi-header", pages: [0, 1].map((rowIndex) => ({ layout: "wide", pageWidthMm: 200, pageHeightMm: 70, components: [
+      { kind: "rect", leftMm: 0, topMm: 0, widthMm: 100, heightMm: 20, table: { id: "orders", role: "header", rowIndex: -1, columnKeys: ["qty", "code"] }, grid: { colWidthsMm: [50, 50], cells: [[{ text: "订单明细", colSpan: 2 }], [{ text: "数量" }, { text: "编号" }]] } },
+      { kind: "rect", leftMm: 0, topMm: 20, widthMm: 100, heightMm: 10, table: { id: "orders", role: "body", rowIndex, columnKeys: ["qty", "code"], source: { datasetId: "orders", rowKey: `R${rowIndex + 1}` } }, grid: { cells: [[{ value: rowIndex + 1, text: String(rowIndex + 1), valueType: "number" }, { value: `00${rowIndex + 1}`, text: `00${rowIndex + 1}` }]] } }
+    ] })) };
+    const saveBatch = vi.fn();
+    const { wrapper, api: report } = await create({ saveBatch, requireSource: true }, undefined, original);
+    const firstBody = { ...address(), componentIndex: 1 };
+    const secondBody = { ...firstBody, pageIndex: 1, columnIndex: 1 };
+    await report.focusCell(firstBody);
+    await report.focusCell(secondBody, true);
+    expect(report.copySelection()).toBe("1\t001\r\n2\t002");
+    expect(await report.pasteSelection("8\t008\r\n9\t009")).toBe(true);
+    expect(saveBatch.mock.calls[0]![0].edits.map((edit: { source: { rowKey: string } }) => edit.source.rowKey)).toEqual(["R1", "R1", "R2", "R2"]);
+    await report.focusCell(address(1, 0));
+    await report.focusCell({ ...firstBody, columnIndex: 1 }, true);
+    expect(report.copySelection()).toBe("数量\t编号\r\n8\t008");
+    await report.focusCell(firstBody);
+    await wrapper.find(".mrp-body").trigger("keydown", { key: "ArrowDown", shiftKey: true });
+    await flushPromises();
+    expect(report.getSelection()?.focus).toEqual({ ...secondBody, columnIndex: 0 });
+    expect(report.copySelection()).toBe("8\r\n9");
   });
   it("loads opt-in preferences safely, preserves host capability limits and serializes adapter writes", async () => {
     const save = vi.fn();
