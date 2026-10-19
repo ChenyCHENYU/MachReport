@@ -62,9 +62,11 @@ const headingStatus = computed(() =>
 );
 const keepButton = ref<HTMLButtonElement | null>(null);
 const columnList = ref<HTMLDivElement | null>(null);
+const inspectorPanel = ref<HTMLDivElement | null>(null);
 watch(section, async (value) => {
-  if (value !== "fields") return;
   await nextTick();
+  if (inspectorPanel.value) inspectorPanel.value.scrollTop = 0;
+  if (value !== "fields") return;
   const list = columnList.value;
   const button = list?.querySelector<HTMLButtonElement>(
     `button[data-column-index="${activeIndex.value}"]`,
@@ -265,6 +267,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
           </button>
         </nav>
         <div
+          ref="inspectorPanel"
           :id="`${id}-panel-${section}`"
           class="mr-designer-panel"
           role="tabpanel"

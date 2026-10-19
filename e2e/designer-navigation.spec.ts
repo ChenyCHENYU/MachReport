@@ -155,7 +155,14 @@ for (const width of [1024, 1440]) {
     await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
       "c55",
     );
+    // 较矮宿主中属性编辑会滚动面板；分区复用 DOM 时不能继承旧滚动位置。
+    await page.setViewportSize({ width, height: 680 });
+    const panel = root.locator(".mr-designer-panel");
+    await panel.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    expect(await panel.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
     await root.getByRole("tab", { name: "模板", exact: true }).click();
+    await expect(root.getByRole("heading", { name: "模板信息", exact: true })).toBeInViewport({ ratio: 1 });
+    expect(await panel.evaluate((element) => element.scrollTop)).toBe(0);
     const fieldsTab = root.getByRole("tab", { name: "字段", exact: true });
     await fieldsTab.click();
     await expect(fieldsTab).toBeFocused();
@@ -163,6 +170,17 @@ for (const width of [1024, 1440]) {
     await expect(rows.last().getByRole("button")).toHaveAttribute("aria-pressed", "true");
     await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue("c55");
     expect(await root.evaluate((element) => element.scrollTop)).toBe(0);
+    await panel.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    expect(await panel.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    await root.getByRole("tab", { name: "高级", exact: true }).click();
+    await expect(root.getByRole("heading", { name: "完整配置", exact: true })).toBeInViewport({ ratio: 1 });
+    expect(await panel.evaluate((element) => element.scrollTop)).toBe(0);
+    await fieldsTab.click();
+    await expect(fieldsTab).toBeFocused();
+    await expect(rows.last().getByRole("button")).toBeInViewport({ ratio: 1 });
+    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue("c55");
+    expect(await root.evaluate((element) => element.scrollTop)).toBe(0);
+    await page.setViewportSize({ width, height: 800 });
     await root.getByLabel("搜索列名或字段", { exact: true }).fill("c54");
     await expect(rows).toHaveCount(1);
     await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
