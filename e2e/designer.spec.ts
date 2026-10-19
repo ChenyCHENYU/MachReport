@@ -25,7 +25,7 @@ test("template editor updates the real preview and persists a versioned draft", 
 test("template editor keeps invalid JSON out of the preview and fits narrow screens", async ({ page }) => {
   await page.setViewportSize({ width: 680, height: 1000 });
   await page.goto("http://localhost:8610/designer.html");
-  await page.locator("summary").click();
+  await page.getByRole("tab", { name: "高级", exact: true }).click();
   const json = page.locator(".mr-designer-json");
   await json.fill('{"invalid":true}');
   await page.getByRole("button", { name: "校验并应用 JSON" }).click();

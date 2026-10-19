@@ -37,6 +37,8 @@ const save: TemplateEditorOptions["save"] = (draft, { expectedRevision, signal }
 | `saved` | 保存成功后返回新文档，包括服务端修订号 |
 | `beforeDiscard(context)` | 可选宿主确认钩子，返回 `true` 才允许丢弃；未提供时显示内置确认。`reason` 为 `reset` / `replace`，包含独立草稿快照、可选替换文档和 `pendingLocalChanges: true` |
 
+属性面板按“字段 / 模板 / 高级”分区：常用字段目录与单列属性默认打开，名称、说明与修订信息放在“模板”，完整 JSON 放在“高级”。目录每行只展示列名与业务字段，点击后编辑当前一列；55 列不会同时展开 55 组表单。撤销、重做、恢复和保存集中在顶部，右侧预览与底部分页独立保持可见。
+
 属性面板支持模板名称 / 说明、多列表区域选择、字段、列宽、语义、正文对齐、表头对齐与可编辑开关。宽表列宽变化同步自然宽度；导入的合并表头同步物理表头样式与文字。内部预览固定只读并关闭另行导入，避免脱离当前模板草稿；需要验收输出时可显式配置`preview`，中文PDF同时提供字体。
 
 百列宽表可按中文列名或业务字段搜索。搜索仅筛选面板，不改变模板列顺序；勾选列后可批量设置正文 / 表头对齐，整个批量操作可一次撤销。跨列合并表头是一个物理单元格，对齐变更会同步覆盖该合并范围。选择另一个明细区域会清空勾选，防止误改其他表。
@@ -47,7 +49,7 @@ const save: TemplateEditorOptions["save"] = (draft, { expectedRevision, signal }
 
 恢复草稿和外部文档替换均保护未保存属性、无效字段、尚未应用的 JSON：默认内置确认支持 Escape 继续编辑；也可用 `beforeDiscard` 连接项目统一确认框。钩子拒绝、抛错、过期请求或等待期间草稿发生变化均保留当前内容。外部替换被拒绝时，会回传当前有效草稿使 `v-model` 恢复一致；无效草稿不冒充有效文档发出。
 
-组件 ref 暴露 `TemplateEditorController`：`pendingLocalChanges` 为当前是否有本地修改，`guardChanges()` 可接宿主路由离开保护，返回 `true` 后再导航。浏览器原生卸载不弹自定义异步确认，也不承诺能在卸载后保存草稿。
+组件 ref 暴露 `TemplateEditorController`：`pendingLocalChanges` 为当前是否有本地修改，`guardChanges()` 可接宿主路由离开保护，返回 `true` 后再导航。可选只读状态 `saving` / `blocked` 表示保存或确认正在进行，宿主可用其锁定切换模板、新建、关闭等跨模板动作；这些状态不要求新增适配器，也不改变 `readonly` 的禁止编辑语义。浏览器原生卸载不弹自定义异步确认，也不承诺能在卸载后保存草稿。
 
 ```ts
 import { ref } from "vue";

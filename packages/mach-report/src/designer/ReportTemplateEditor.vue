@@ -1,8 +1,16 @@
 <script setup lang="ts">
 import { ReportPreview } from "@agile-team/mach-report/vue";
 import type { ReportTemplateDocument } from "@agile-team/mach-report";
-import { nextTick, ref, watch } from "vue";
-import { useTemplateEditor, type TemplateEditorOptions } from "./useTemplateEditor";
+import { computed, getCurrentInstance, nextTick, ref, watch } from "vue";
+import ReportIcon from "../vue/ReportIcon.vue";
+import {
+  useTemplateEditor,
+  type TemplateEditorOptions,
+} from "./useTemplateEditor";
+import {
+  useTemplateInspector,
+  type TemplateInspectorSection,
+} from "./useTemplateInspector";
 
 const props = defineProps<TemplateEditorOptions>();
 const emit = defineEmits<{
@@ -13,84 +21,574 @@ const editor = useTemplateEditor(props, (event, document) => {
   if (event === "saved") emit("saved", document);
   else emit("update:modelValue", document);
 });
-const { draft, json, selected, error, saving, pendingLocalChanges, jsonPending, blocked, confirmation, canUndo, canRedo, validation, lists, activeList, visibleColumns, query, selectedColumns, fetcher, messages: m } = editor;
+const {
+  draft,
+  json,
+  selected,
+  error,
+  saving,
+  pendingLocalChanges,
+  jsonPending,
+  blocked,
+  confirmation,
+  canUndo,
+  canRedo,
+  validation,
+  lists,
+  activeList,
+  visibleColumns,
+  query,
+  selectedColumns,
+  fetcher,
+  messages: m,
+} = editor;
+const inspector = useTemplateInspector(
+  visibleColumns,
+  selected,
+  activeList,
+  query,
+);
+const { section, activeIndex, activeColumn } = inspector;
+const id = `mr-designer-${getCurrentInstance()?.uid ?? 0}`;
+const sections: TemplateInspectorSection[] = ["fields", "template", "advanced"];
+const headingStatus = computed(() =>
+  saving.value
+    ? m.value.saving
+    : props.readonly
+      ? m.value.readonly
+      : pendingLocalChanges.value
+        ? m.value.dirty
+        : m.value.ready,
+);
 const keepButton = ref<HTMLButtonElement | null>(null);
+const columnList = ref<HTMLDivElement | null>(null);
+watch(section, async (value) => {
+  if (value !== "fields") return;
+  await nextTick();
+  const list = columnList.value;
+  const button = list?.querySelector<HTMLButtonElement>(
+    `button[data-column-index="${activeIndex.value}"]`,
+  );
+  if (!list || !button) return;
+  // 仅移动字段目录自身，不抢分区按钮焦点，也不滚动外层页面。
+  const bounds = list.getBoundingClientRect(), target = button.getBoundingClientRect();
+  const top = bounds.top + list.clientTop, bottom = top + list.clientHeight;
+  if (target.top < top) list.scrollTop += target.top - top;
+  else if (target.bottom > bottom) list.scrollTop += target.bottom - bottom;
+});
 let previousFocus: HTMLElement | null = null;
 watch(confirmation, async (value) => {
-  if (value) { previousFocus = document.activeElement as HTMLElement | null; await nextTick(); keepButton.value?.focus(); }
-  else { await nextTick(); if (previousFocus?.isConnected) previousFocus.focus(); previousFocus = null; }
+  if (value) {
+    previousFocus = document.activeElement as HTMLElement | null;
+    await nextTick();
+    keepButton.value?.focus();
+  } else {
+    await nextTick();
+    if (previousFocus?.isConnected) previousFocus.focus();
+    previousFocus = null;
+  }
 });
-defineExpose({ get pendingLocalChanges() { return pendingLocalChanges.value; }, guardChanges: editor.guardChanges, reset: editor.reset, save: editor.save });
-function value(event: Event): string { return (event.target as HTMLInputElement).value; }
-function checked(event: Event): boolean { return (event.target as HTMLInputElement).checked; }
+defineExpose({
+  get pendingLocalChanges() {
+    return pendingLocalChanges.value;
+  },
+  get saving() {
+    return saving.value;
+  },
+  get blocked() {
+    return blocked.value;
+  },
+  guardChanges: editor.guardChanges,
+  reset: editor.reset,
+  save: editor.save,
+});
+function value(event: Event): string {
+  return (event.target as HTMLInputElement).value;
+}
+function checked(event: Event): boolean {
+  return (event.target as HTMLInputElement).checked;
+}
 function batch(event: Event, target: "align" | "headerAlign"): void {
   const select = event.target as HTMLSelectElement;
-  editor.alignColumns(target, select.value as "left" | "center" | "right" | "justify" | "auto"); select.value = "";
+  editor.alignColumns(
+    target,
+    select.value as "left" | "center" | "right" | "justify" | "auto",
+  );
+  select.value = "";
+}
+async function navigateColumn(event: KeyboardEvent): Promise<void> {
+  const index = inspector.moveColumn(event.key);
+  if (index === undefined) return;
+  event.preventDefault();
+  const list = (event.currentTarget as HTMLElement).closest(
+    ".mr-designer-column-list",
+  );
+  await nextTick();
+  const button = list?.querySelector<HTMLButtonElement>(
+    `button[data-column-index="${index}"]`,
+  );
+  button?.focus({ preventScroll: true });
+  button?.scrollIntoView({ block: "nearest" });
+}
+async function navigateSection(event: KeyboardEvent): Promise<void> {
+  const keys: Record<string, number> = {
+    ArrowRight: 1,
+    ArrowLeft: -1,
+    Home: -sections.length,
+    End: sections.length,
+  };
+  const delta = keys[event.key];
+  if (delta === undefined) return;
+  event.preventDefault();
+  const current = sections.indexOf(section.value);
+  const next =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? sections.length - 1
+        : (current + delta + sections.length) % sections.length;
+  section.value = sections[next]!;
+  const tabs = (event.currentTarget as HTMLElement).parentElement;
+  await nextTick();
+  tabs
+    ?.querySelector<HTMLButtonElement>(`#${id}-tab-${section.value}`)
+    ?.focus();
 }
 </script>
 
 <template>
-  <section class="mr-designer" :aria-label="m.title">
+  <section class="mr-designer" :aria-label="m.title" :aria-busy="saving">
     <header class="mr-designer-bar">
-      <div><strong>{{ m.heading }}</strong><span>{{ draft.id }} · {{ draft.revision || m.unpublished }}<b v-if="pendingLocalChanges"> · {{ m.dirty }}</b></span></div>
-      <div><button type="button" :disabled="readonly || blocked || !canUndo" @click="editor.undo">{{ m.undo }}</button><button type="button" :disabled="readonly || blocked || !canRedo" @click="editor.redo">{{ m.redo }}</button><button type="button" :disabled="readonly || blocked || !pendingLocalChanges" @click="editor.reset">{{ m.reset }}</button><button v-if="save" type="button" :disabled="readonly || blocked || jsonPending || !validation.ok || !pendingLocalChanges" @click="editor.save">{{ saving ? m.saving : m.save }}</button></div>
+      <div class="mr-designer-heading">
+        <ReportIcon name="columns" :size="18" />
+        <div>
+          <strong>{{ m.heading }}</strong><span :class="{ 'mr-designer-dirty': pendingLocalChanges }">{{
+            headingStatus
+          }}</span>
+        </div>
+      </div>
+      <div class="mr-designer-actions">
+        <div class="mr-designer-history">
+          <button
+            type="button"
+            class="mr-designer-icon-button"
+            :aria-label="m.undo"
+            :title="m.undo"
+            :disabled="readonly || blocked || !canUndo"
+            @click="editor.undo"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M4 10h10a6 6 0 0 1 0 12M4 10l5-5M4 10l5 5" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="mr-designer-icon-button"
+            :aria-label="m.redo"
+            :title="m.redo"
+            :disabled="readonly || blocked || !canRedo"
+            @click="editor.redo"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M20 10H10a6 6 0 0 0 0 12m10-12-5-5m5 5-5 5" />
+            </svg>
+          </button>
+        </div>
+        <button
+          type="button"
+          class="mr-designer-reset"
+          :disabled="readonly || blocked || !pendingLocalChanges"
+          @click="editor.reset"
+        >
+          {{ m.reset }}
+        </button>
+        <button
+          v-if="save"
+          type="button"
+          class="mr-designer-save"
+          :disabled="
+            readonly ||
+            blocked ||
+            jsonPending ||
+            !validation.ok ||
+            !pendingLocalChanges
+          "
+          @click="editor.save"
+        >
+          <ReportIcon name="file" :size="14" />{{ saving ? m.saving : m.save }}
+        </button>
+      </div>
     </header>
-    <div v-if="confirmation" role="alertdialog" :aria-label="m.discardTitle" class="mr-designer-confirm" @keydown.esc.prevent="editor.decideDiscard(false)">
-      <strong>{{ m.discardTitle }}</strong><p>{{ m.discardDescription }}</p><button ref="keepButton" type="button" @click="editor.decideDiscard(false)">{{ m.keepEditing }}</button><button type="button" @click="editor.decideDiscard(true)">{{ m.discard }}</button>
+    <div
+      v-if="confirmation"
+      role="alertdialog"
+      :aria-label="m.discardTitle"
+      class="mr-designer-confirm"
+      @keydown.esc.prevent="editor.decideDiscard(false)"
+    >
+      <div>
+        <strong>{{ m.discardTitle }}</strong>
+        <p>{{ m.discardDescription }}</p>
+      </div>
+      <div>
+        <button
+          ref="keepButton"
+          type="button"
+          @click="editor.decideDiscard(false)"
+        >
+          {{ m.keepEditing }}
+</button><button type="button" @click="editor.decideDiscard(true)">
+          {{ m.discard }}
+        </button>
+      </div>
     </div>
     <div class="mr-designer-body">
-      <aside class="mr-designer-panel">
-        <label>{{ m.name }}<input :value="draft.name" :disabled="readonly || blocked || jsonPending" @input="editor.setName(value($event))" /></label>
-        <label>{{ m.description }}<textarea :value="draft.description" :disabled="readonly || blocked || jsonPending" @input="editor.setDescription(value($event))" /></label>
-        <label v-if="lists.length">{{ m.area }}<select v-model="selected"><option v-for="(item, index) in lists" :key="index" :value="index">{{ item.pageIndex + 1 }} {{ m.page }} · {{ item.component.title || item.component.dataset }}</option></select></label>
-        <div v-if="activeList" class="mr-designer-columns">
-          <label>{{ m.columnsSearch }}<input v-model="query" type="search" /></label>
-          <div class="mr-designer-column-tools"><button type="button" :disabled="readonly || blocked || jsonPending || !visibleColumns.length" @click="editor.selectVisible(true)">{{ m.selectVisible }}</button><button type="button" :disabled="!selectedColumns.length" @click="editor.clearSelection">{{ m.clearSelection }}</button><span role="status">{{ m.columnsSelected }} {{ selectedColumns.length }} / {{ activeList.columns.length }}</span></div>
-          <div v-if="selectedColumns.length" class="mr-designer-batch">
-            <label>{{ m.batchBody }}<select :aria-label="m.batchBody" :disabled="readonly || blocked || jsonPending" @change="batch($event, 'align')"><option value="">{{ m.chooseAlignment }}</option><option value="auto">{{ m.auto }}</option><option value="left">{{ m.left }}</option><option value="center">{{ m.center }}</option><option value="right">{{ m.right }}</option><option value="justify">{{ m.justify }}</option></select></label>
-            <label>{{ m.batchHeader }}<select :aria-label="m.batchHeader" :disabled="readonly || blocked || jsonPending" @change="batch($event, 'headerAlign')"><option value="">{{ m.chooseAlignment }}</option><option value="left">{{ m.left }}</option><option value="center">{{ m.center }}</option><option value="right">{{ m.right }}</option><option value="justify">{{ m.justify }}</option></select></label>
-          </div>
-          <p v-if="!visibleColumns.length" role="status">{{ m.noColumns }}</p>
-          <fieldset v-for="{ column, index } in visibleColumns" :key="index" :disabled="readonly || blocked || jsonPending">
-            <legend><label class="mr-designer-select-column"><input type="checkbox" :checked="selectedColumns.includes(index)" @change="editor.toggleColumn(index, checked($event))" />{{ index + 1 }} · {{ column.header }}</label></legend>
-            <label>{{ m.header }}<input :value="column.header" @input="editor.setColumn(index, 'header', value($event))" /></label>
-            <label>{{ m.field }}<input :value="column.field" @change="editor.setColumn(index, 'field', value($event))" /></label>
-            <label>{{ m.width }}<input type="number" min="0.1" step="0.5" :value="column.widthMm" @change="editor.setColumn(index, 'widthMm', value($event))" /></label>
-            <label>{{ m.semantic }}<select :value="column.semanticRole || 'text'" @change="editor.setColumn(index, 'semanticRole', value($event))"><option value="identifier">{{ m.identifier }}</option><option value="dimension">{{ m.dimension }}</option><option value="measure">{{ m.measure }}</option><option value="date">{{ m.date }}</option><option value="text">{{ m.text }}</option></select></label>
-            <label>{{ m.bodyAlign }}<select :value="column.align ?? column.style?.align ?? activeList.align ?? 'left'" @change="editor.setColumn(index, 'align', value($event))"><option value="auto">{{ m.auto }}</option><option value="left">{{ m.left }}</option><option value="center">{{ m.center }}</option><option value="right">{{ m.right }}</option><option value="justify">{{ m.justify }}</option></select></label>
-            <label>{{ m.headerAlign }}<select :value="editor.headerAlignments.value[index]" @change="editor.setColumn(index, 'headerAlign', value($event))"><option value="left">{{ m.left }}</option><option value="center">{{ m.center }}</option><option value="right">{{ m.right }}</option><option value="justify">{{ m.justify }}</option></select></label>
-            <label class="mr-designer-toggle">{{ m.editable }}<input type="checkbox" :checked="column.editable === true" @change="editor.setColumn(index, 'editable', checked($event))" /></label>
-          </fieldset>
+      <aside class="mr-designer-inspector">
+        <nav
+          class="mr-designer-tabs"
+          role="tablist"
+          :aria-label="m.sectionsLabel"
+        >
+          <button
+            v-for="item in sections"
+            :id="`${id}-tab-${item}`"
+            :key="item"
+            type="button"
+            role="tab"
+            :aria-selected="section === item"
+            :aria-controls="`${id}-panel-${item}`"
+            :tabindex="section === item ? 0 : -1"
+            @click="section = item"
+            @keydown="navigateSection"
+          >
+            {{ m[`${item}Section`] }}
+          </button>
+        </nav>
+        <div
+          :id="`${id}-panel-${section}`"
+          class="mr-designer-panel"
+          role="tabpanel"
+          :aria-labelledby="`${id}-tab-${section}`"
+        >
+          <template v-if="section === 'fields'">
+            <label v-if="lists.length > 1" class="mr-designer-area">{{ m.area
+              }}<select v-model="selected">
+                <option
+                  v-for="(item, index) in lists"
+                  :key="index"
+                  :value="index"
+                >
+                  {{ item.pageIndex + 1 }} {{ m.page }} ·
+                  {{ item.component.title || item.component.dataset }}
+                </option>
+              </select></label>
+            <div v-if="activeList" class="mr-designer-columns">
+              <div class="mr-designer-directory-heading">
+                <strong>{{ m.columnDirectory }}</strong><span>{{ activeList.columns.length }} {{ m.fieldsCount }}</span>
+              </div>
+              <div class="mr-designer-search">
+                <ReportIcon name="search" :size="15" /><input
+                  v-model="query"
+                  type="search"
+                  :aria-label="m.columnsSearch"
+                  :placeholder="m.columnsSearch"
+                /><button
+                  v-if="query"
+                  type="button"
+                  class="mr-designer-icon-button"
+                  :aria-label="m.clearSearch"
+                  :title="m.clearSearch"
+                  @click="query = ''"
+                >
+                  <ReportIcon name="close" :size="14" />
+                </button>
+              </div>
+              <div class="mr-designer-column-tools">
+                <button
+                  type="button"
+                  :disabled="
+                    readonly || blocked || jsonPending || !visibleColumns.length
+                  "
+                  @click="editor.selectVisible(true)"
+                >
+                  {{ m.selectVisible }}
+</button><button
+                  v-if="selectedColumns.length"
+                  type="button"
+                  @click="editor.clearSelection"
+                >
+                  {{ m.clearSelection }}
+</button><span v-if="selectedColumns.length" role="status">{{ m.columnsSelected }} {{ selectedColumns.length }}</span><span v-else>{{ visibleColumns.length }} /
+                  {{ activeList.columns.length }}</span>
+              </div>
+              <div
+                ref="columnList"
+                class="mr-designer-column-list"
+                :aria-label="m.columnDirectory"
+                role="group"
+              >
+                <div
+                  v-for="{ column, index } in visibleColumns"
+                  :key="index"
+                  class="mr-designer-column-row"
+                  :class="{ 'is-active': activeIndex === index }"
+                >
+                  <input
+                    type="checkbox"
+                    :aria-label="`${m.selectColumn} ${column.header}`"
+                    :checked="selectedColumns.includes(index)"
+                    :disabled="readonly || blocked || jsonPending"
+                    @change="editor.toggleColumn(index, checked($event))"
+                  />
+                  <button
+                    type="button"
+                    :data-column-index="index"
+                    :aria-pressed="activeIndex === index"
+                    :tabindex="activeIndex === index ? 0 : -1"
+                    @click="inspector.activate(index)"
+                    @keydown="navigateColumn"
+                  >
+                    <span class="mr-designer-column-number">{{
+                      index + 1
+                    }}</span><span class="mr-designer-column-name"><strong>{{ column.header }}</strong><small>{{ column.field }}</small></span><ReportIcon
+                      v-if="activeIndex === index"
+                      name="chevron-right"
+                      :size="14"
+                    />
+                  </button>
+                </div>
+                <p
+                  v-if="!visibleColumns.length"
+                  role="status"
+                  class="mr-designer-empty"
+                >
+                  <ReportIcon name="search" :size="20" />{{ m.noColumns }}
+                </p>
+              </div>
+              <div v-if="selectedColumns.length" class="mr-designer-batch">
+                <label>{{ m.batchBody
+                  }}<select
+                    :aria-label="m.batchBody"
+                    :disabled="readonly || blocked || jsonPending"
+                    @change="batch($event, 'align')"
+                  >
+                    <option value="">{{ m.chooseAlignment }}</option>
+                    <option value="auto">{{ m.auto }}</option>
+                    <option value="left">{{ m.left }}</option>
+                    <option value="center">{{ m.center }}</option>
+                    <option value="right">{{ m.right }}</option>
+                    <option value="justify">{{ m.justify }}</option>
+                  </select></label>
+                <label>{{ m.batchHeader
+                  }}<select
+                    :aria-label="m.batchHeader"
+                    :disabled="readonly || blocked || jsonPending"
+                    @change="batch($event, 'headerAlign')"
+                  >
+                    <option value="">{{ m.chooseAlignment }}</option>
+                    <option value="left">{{ m.left }}</option>
+                    <option value="center">{{ m.center }}</option>
+                    <option value="right">{{ m.right }}</option>
+                    <option value="justify">{{ m.justify }}</option>
+                  </select></label>
+              </div>
+              <fieldset
+                v-if="activeColumn"
+                class="mr-designer-properties"
+                :disabled="readonly || blocked || jsonPending"
+              >
+                <legend>
+                  {{ m.columnProperties }}
+                  <span>{{ activeColumn.index + 1 }} ·
+                    {{ activeColumn.column.header }}</span>
+                </legend>
+                <label>{{ m.header
+                  }}<input
+                    :value="activeColumn.column.header"
+                    @input="
+                      editor.setColumn(
+                        activeColumn.index,
+                        'header',
+                        value($event),
+                      )
+                    "
+                /></label>
+                <label>{{ m.field
+                  }}<input
+                    :value="activeColumn.column.field"
+                    @change="
+                      editor.setColumn(
+                        activeColumn.index,
+                        'field',
+                        value($event),
+                      )
+                    "
+                /></label>
+                <label>{{ m.width
+                  }}<input
+                    type="number"
+                    min="0.1"
+                    step="0.5"
+                    :value="activeColumn.column.widthMm"
+                    @change="
+                      editor.setColumn(
+                        activeColumn.index,
+                        'widthMm',
+                        value($event),
+                      )
+                    "
+                /></label>
+                <label>{{ m.semantic
+                  }}<select
+                    :value="activeColumn.column.semanticRole || 'text'"
+                    @change="
+                      editor.setColumn(
+                        activeColumn.index,
+                        'semanticRole',
+                        value($event),
+                      )
+                    "
+                  >
+                    <option value="identifier">{{ m.identifier }}</option>
+                    <option value="dimension">{{ m.dimension }}</option>
+                    <option value="measure">{{ m.measure }}</option>
+                    <option value="date">{{ m.date }}</option>
+                    <option value="text">{{ m.text }}</option>
+                  </select></label>
+                <label>{{ m.bodyAlign
+                  }}<select
+                    :value="
+                      activeColumn.column.align ??
+                      activeColumn.column.style?.align ??
+                      activeList.align ??
+                      'left'
+                    "
+                    @change="
+                      editor.setColumn(
+                        activeColumn.index,
+                        'align',
+                        value($event),
+                      )
+                    "
+                  >
+                    <option value="auto">{{ m.auto }}</option>
+                    <option value="left">{{ m.left }}</option>
+                    <option value="center">{{ m.center }}</option>
+                    <option value="right">{{ m.right }}</option>
+                    <option value="justify">{{ m.justify }}</option>
+                  </select></label>
+                <label>{{ m.headerAlign
+                  }}<select
+                    :value="editor.headerAlignments.value[activeColumn.index]"
+                    @change="
+                      editor.setColumn(
+                        activeColumn.index,
+                        'headerAlign',
+                        value($event),
+                      )
+                    "
+                  >
+                    <option value="left">{{ m.left }}</option>
+                    <option value="center">{{ m.center }}</option>
+                    <option value="right">{{ m.right }}</option>
+                    <option value="justify">{{ m.justify }}</option>
+                  </select></label>
+                <label class="mr-designer-toggle">{{ m.editable
+                  }}<input
+                    type="checkbox"
+                    :checked="activeColumn.column.editable === true"
+                    @change="
+                      editor.setColumn(
+                        activeColumn.index,
+                        'editable',
+                        checked($event),
+                      )
+                    "
+                /></label>
+              </fieldset>
+            </div>
+            <p v-else role="status" class="mr-designer-empty">
+              {{ m.noColumns }}
+            </p>
+          </template>
+          <template v-else-if="section === 'template'">
+            <h3>{{ m.templateDetails }}</h3>
+            <label class="mr-designer-stacked">{{ m.name
+              }}<input
+                :value="draft.name"
+                :disabled="readonly || blocked || jsonPending"
+                @input="editor.setName(value($event))"
+            /></label>
+            <label class="mr-designer-stacked">{{ m.description
+              }}<textarea
+                rows="4"
+                :value="draft.description"
+                :disabled="readonly || blocked || jsonPending"
+                @input="editor.setDescription(value($event))"
+              />
+            </label>
+            <dl class="mr-designer-identity">
+              <dt>{{ m.templateIdentity }}</dt>
+              <dd>{{ draft.id }}</dd>
+              <dt>{{ m.templateRevision }}</dt>
+              <dd>{{ draft.revision || m.unpublished }}</dd>
+            </dl>
+            <p class="mr-designer-note">{{ m.note }}</p>
+          </template>
+          <template v-else>
+            <h3>{{ m.advancedTitle }}</h3>
+            <p class="mr-designer-note">{{ m.advancedDescription }}</p>
+            <label class="mr-designer-stacked">{{ m.json
+              }}<textarea
+                v-model="json"
+                class="mr-designer-json"
+                :aria-label="m.json"
+                :disabled="readonly || blocked"
+                spellcheck="false"
+              />
+            </label>
+            <button
+              type="button"
+              class="mr-designer-apply-json"
+              :disabled="readonly || blocked"
+              @click="editor.applyJson"
+            >
+              {{ m.applyJson }}
+            </button>
+          </template>
+          <p
+            v-if="jsonPending"
+            role="status"
+            class="mr-designer-note mr-designer-pending"
+          >
+            {{ m.jsonPending }}
+          </p>
         </div>
-        <details><summary>{{ m.json }}</summary><textarea v-model="json" class="mr-designer-json" :aria-label="m.json" :disabled="readonly || blocked" spellcheck="false" /><button type="button" :disabled="readonly || blocked" @click="editor.applyJson">{{ m.applyJson }}</button></details>
-        <p v-if="jsonPending" role="status" class="mr-designer-note">{{ m.jsonPending }}</p>
-        <p class="mr-designer-note">{{ m.note }}</p>
       </aside>
-      <div class="mr-designer-preview">
-        <div v-if="error" role="alert" class="mr-designer-error">{{ error }}</div>
-        <ul v-if="!validation.ok" role="alert" class="mr-designer-error"><li v-for="issue in validation.errors" :key="issue.path">{{ issue.path }}：{{ issue.message }}</li></ul>
-        <ReportPreview v-if="fetcher && validation.ok" report-id="draft" :fetcher="fetcher" :show-params="false" :editable="false" :excel-import="false" />
-        <p v-else class="mr-designer-note">{{ m.invalid }}</p>
+      <div class="mr-designer-preview" :aria-label="m.previewTitle">
+        <div v-if="error" role="alert" class="mr-designer-error">
+          {{ error }}
+        </div>
+        <ul v-if="!validation.ok" role="alert" class="mr-designer-error">
+          <li v-for="issue in validation.errors" :key="issue.path">
+            {{ issue.path }}：{{ issue.message }}
+          </li>
+        </ul>
+        <ReportPreview
+          v-if="fetcher && validation.ok"
+          report-id="draft"
+          :fetcher="fetcher"
+          :show-params="false"
+          :editable="false"
+          :excel-import="false"
+          height="100%"
+        />
+        <p v-else class="mr-designer-note mr-designer-invalid">
+          {{ m.invalid }}
+        </p>
       </div>
     </div>
   </section>
 </template>
 
-<style scoped>
-.mr-designer { display: flex; flex-direction: column; min-height: 480px; height: 100%; color: var(--mrp-toolbar-fg, #334155); background: var(--mrp-toolbar-bg, #fff); border: 1px solid var(--mrp-toolbar-border, #e2e8f0); border-radius: 10px; overflow: hidden; font: 13px/1.5 sans-serif; }
-.mr-designer-bar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--mrp-toolbar-border, #e2e8f0); }
-.mr-designer-bar span { display: block; font-size: 11px; opacity: .7; }.mr-designer-bar b { font-weight: 400; }
-.mr-designer-body { display: grid; grid-template-columns: minmax(230px, 300px) minmax(0, 1fr); flex: 1; min-height: 0; }
-.mr-designer-panel { overflow: auto; padding: 14px; border-right: 1px solid var(--mrp-toolbar-border, #e2e8f0); }
-.mr-designer label { display: grid; grid-template-columns: 90px minmax(0, 1fr); align-items: center; gap: 8px; margin: 8px 0; }
-.mr-designer input,.mr-designer select,.mr-designer textarea,.mr-designer button { box-sizing: border-box; min-width: 0; color: inherit; font: inherit; border: 1px solid var(--mrp-toolbar-border, #cbd5e1); border-radius: 5px; padding: 5px 7px; background: var(--mrp-toolbar-bg, #fff); }
-.mr-designer input:focus-visible,.mr-designer select:focus-visible,.mr-designer textarea:focus-visible,.mr-designer button:focus-visible { outline: 2px solid var(--mrp-btn-active-bg, #2563eb); outline-offset: 2px; }
-.mr-designer button { cursor: pointer; margin-right: 6px; }.mr-designer :disabled { cursor: default; opacity: .55; }
-.mr-designer fieldset { margin: 12px 0; border: 1px solid var(--mrp-toolbar-border, #e2e8f0); border-radius: 7px; }.mr-designer legend { padding: 0 6px; font-weight: 600; }
-.mr-designer .mr-designer-toggle { display: flex; justify-content: space-between; }
-.mr-designer-preview { min-width: 0; min-height: 380px; display: flex; flex-direction: column; }.mr-designer-preview :deep(.mrp-root) { flex: 1; }
-.mr-designer-note { opacity: .7; font-size: 11px; }.mr-designer-error { padding: 10px 16px; color: #b91c1c; background: #fef2f2; }
-.mr-designer-json { width: 100%; height: 240px; font-family: monospace !important; margin: 8px 0; }
-.mr-designer-confirm{padding:12px 16px;border-bottom:1px solid var(--mrp-toolbar-border,#e2e8f0);background:var(--mrp-btn-hover-bg,#eff6ff)}.mr-designer-confirm p{margin:4px 0 10px}.mr-designer-column-tools{display:flex;align-items:center;flex-wrap:wrap;gap:4px}.mr-designer-column-tools span{font-size:11px;opacity:.7}.mr-designer-batch{margin:8px 0;padding:1px 8px;border-radius:5px;background:var(--mrp-btn-hover-bg,#eff6ff)}.mr-designer .mr-designer-select-column{display:flex;gap:6px;margin:0}.mr-designer-select-column input{width:auto}
-@media (max-width: 720px) { .mr-designer-body { grid-template-columns: 1fr; }.mr-designer-panel { max-height: 300px; border-right: 0; border-bottom: 1px solid var(--mrp-toolbar-border, #e2e8f0); } }
-</style>
+<style scoped src="./template-editor.css"></style>

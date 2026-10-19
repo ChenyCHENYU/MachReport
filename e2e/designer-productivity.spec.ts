@@ -13,7 +13,7 @@ test("列搜索与批量对齐可一次撤销，默认恢复确认保留未应�
   await expect(page.locator(".mr-designer-preview td").filter({ hasText: /^64200(?:\.0+)?$/ }).first()).toHaveCSS("text-align", "right");
   await page.getByRole("button", { name: "重做", exact: true }).click();
   await expect(page.locator(".mr-designer-preview td").filter({ hasText: /^64200(?:\.0+)?$/ }).first()).toHaveCSS("text-align", "center");
-  await page.locator("summary").click();
+  await page.getByRole("tab", { name: "高级", exact: true }).click();
   await page.getByLabel("完整模板 JSON", { exact: true }).fill("{正在输入");
   await expect(page.getByRole("button", { name: "保存草稿", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "恢复草稿", exact: true }).click();

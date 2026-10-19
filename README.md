@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.8.1-2563eb" alt="Source version 2.8.1" />
+  <img src="https://img.shields.io/badge/source-2.8.2-2563eb" alt="Source version 2.8.2" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -321,7 +321,7 @@ app.use(machReportPlugin, {
 
 动态模板不隐式缓存，每次重载读取当前版本；需要自动查询面板时，在报表定义中声明 `params`。包内 `createTemplateManager(store)` 统一草稿、发布、不可变历史与回滚，宿主存储器提供原子 CAS；回滚产生新修订，保留原历史。默认内存适配器适合示例，生产接入现有数据库事务。完整方案见[模板管理扩展指南](./docs/TEMPLATE_MANAGEMENT.md)。
 
-可选 `/designer` 提供 `ReportTemplateEditor`：名称、字段映射、列宽、语义、正文 / 表头对齐、可编辑范围与高级 JSON；校验和实时预览在包内完成，宿主仅传文档、预览数据和 `save(document, { expectedRevision, signal })`。`v-model` 回显保留未保存状态，保存冲突保留草稿。运行示例后访问 `/designer.html`；接入见[模板编辑器](./docs/DESIGNER.md)。
+可选 `/designer` 提供 `ReportTemplateEditor`：按“字段 / 模板 / 高级”组织，默认用可搜索目录和当前字段属性编辑宽表，名称、说明与 JSON 按需打开；支持列宽、语义、正文 / 表头对齐、批量设置和键盘导航，预览持续可见。校验和实时预览在包内完成，宿主仅传文档、预览数据和 `save(document, { expectedRevision, signal })`。`v-model` 回显保留未保存状态，保存冲突保留草稿。运行示例后访问 `/designer.html`；接入见[模板编辑器](./docs/DESIGNER.md)。
 
 ## 前后端共用能力
 
@@ -605,7 +605,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.8.1`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.8.2`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

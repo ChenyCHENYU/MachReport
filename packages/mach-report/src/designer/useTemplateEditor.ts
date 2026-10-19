@@ -9,6 +9,8 @@ import { TEMPLATE_EDITOR_MESSAGES, type TemplateEditorMessages } from "./message
 export interface TemplateEditorSaveContext { expectedRevision?: string; signal: AbortSignal }
 export interface TemplateEditorController {
   readonly pendingLocalChanges: boolean;
+  readonly saving?: boolean;
+  readonly blocked?: boolean;
   guardChanges(reason?: TemplateEditorBeforeDiscardContext["reason"], replacement?: ReportTemplateDocument): Promise<boolean>;
   reset(): Promise<void>;
   save(): Promise<void>;
