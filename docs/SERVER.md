@@ -95,7 +95,9 @@ const file = await runtime.export({
 
 默认运行时预算为 100000 行、10000 页、2000000 个渲染单元格、100000000 输出字节、120000 毫秒，可通过 `budget` 显式调整。数量和字节预算须为正安全整数。分页前检查行数，并按明细行×列、表头和静态网格预检逻辑规模，避免明显的高列数内存放大；页预算在追加超限页前中止，多报表请求共用同一额度，之后再核对实际页面/单元格数。文件字节数在生成后检查；这些限制不是流式处理承诺。`dataValidation` 可收紧字段校验预算，不能绕过运行时的硬预算。
 
-直接调用 `paginateTemplate` 可选传 `{ maxPages }`，超限抛 `PaginatePageLimitError`；`createReportSource(reports, { maxPages })` 对合并结果共用页预算。未配置时保留原有行为。Runtime 统一将页数超限归为 `ReportRuntimeError`，`code="budget"`、`path="$.budget.maxPages"`，便于宿主提示缩小查询范围。
+直接调用 `paginateTemplate` 可选传 `{ maxPages, maxCells }`，分别抛 `PaginatePageLimitError / PaginateCellLimitError`；`createReportSource(reports, { maxPages, maxCells })` 对合并结果共用预算。未配置时保留原有行为。Runtime统一将超限归为 `ReportRuntimeError`，`code="budget"`，路径为 `$.budget.maxPages / maxCells`。逐页预算包含重复表头、锚点和嵌套网格，大数据可使用[逐页生成](./COMPLEX_REPORTS.md)。
+
+跨重启任务见[持久任务](./DURABLE_JOBS.md)，模板上线前的真实PDF/XLSX校验见[发布验收](./PUBLICATION_REVIEW.md)。两者均通过注入适配器接入，不要求常规预览页面增加配置。
 
 ```ts
 import { createReportTaskQueue } from "@agile-team/mach-report/server";

@@ -91,6 +91,17 @@ if ((await manager.get(document.id)).revision !== published.revision || (await m
 if (typeof designer.ReportTemplateEditor !== "object" || typeof worker.createBrowserReportExecutor !== "function") throw new Error("Missing optional UI/Worker entry");
 const calculated = analytics.computeDataset([{ qty: 2 }], { fields: [{ field: "amount", expression: { op: "multiply", args: [{ field: "qty" }, { value: 3 }] } }] });
 if (calculated.rows[0].amount !== 6) throw new Error("Invalid analytics entry");
+if (analytics.aggregateRows([{ n: "0.10" }, { n: "0.20" }], { op: "sum", field: "n", numeric: "decimal", digits: 2 }) !== "0.30") throw new Error("Exact decimal aggregation was lost");
+if ([...core.paginateTemplatePages(tableTemplate, { detail: [{ name: "Item", qty: 0 }] })].length !== core.countTemplatePages(tableTemplate, { detail: [{ name: "Item", qty: 0 }] })) throw new Error("Incremental pagination mismatch");
+const reviewed = await server.reviewReportPublication(document, { fixtures: [{ name: "sample", datasets: { detail: [{ name: "Item", qty: 0 }] } }], formats: ["xlsx"], digest: nodeServer.reportArtifactSha256 });
+if (!reviewed.ok || reviewed.artifacts[0]?.digest?.length !== 64) throw new Error("Packed publication gate failed");
+const durable = await nodeServer.openFileReportJobStore({ directory: ${JSON.stringify(resolve(scratch, "durable"))} });
+const jobs = server.createReportJobService({ store: durable, handlers: { test: () => ({ artifactId: "saved" }) } });
+await jobs.submit({ scope: "consumer", id: "one", kind: "test", payload: { value: 0 } });
+await jobs.runNext("worker");
+if ((await jobs.get("consumer", "one"))?.status !== "completed") throw new Error("Packed durable job adapter failed");
+await jobs.close(); await durable.close();
+if (typeof designer.ExcelBindingWizard !== "object" || typeof designer.TemplateReviewPanel !== "object" || typeof designer.RuleEditor !== "object" || typeof xlsx.inspectExcelWorkbook !== "function" || typeof xlsx.createExcelBindingDocument !== "function") throw new Error("Missing designer/binding public API");
 const executor = nodeServer.createNodeReportExecutor({ filename: new URL("./worker-fixture.mjs", import.meta.url) });
 const isolated = await executor.prepare({ reportIds: ["worker"] });
 if (!isolated.plan.pages.length) throw new Error("Packed Node Worker did not return a plan");
@@ -104,17 +115,17 @@ if (!isolated.plan.pages.length) throw new Error("Packed Node Worker did not ret
   run(process.execPath, ["smoke.mjs"]);
   run(process.execPath, ["smoke.cjs"]);
 
-  const consumer = `import { createTemplate, paginateTemplate } from "@agile-team/mach-report";
+  const consumer = `import { createTemplate, paginateTemplate, paginateTemplatePages, reviewReportTemplate } from "@agile-team/mach-report";
 import { renderPlanToXlsx } from "@agile-team/mach-report/xlsx";
 import { renderPlanToPdf } from "@agile-team/mach-report/pdf";
 import { compileDynamicSql } from "@agile-team/mach-report/sql";
 import { machReportPlugin, ReportPreview, createTemplate as createVueTemplate, createTableTemplate, createReportSource, defineReport, defineReportTemplate, parseReportTemplate, serializeReportTemplate, createTemplateRegistry, defineMachReportConfig, useMachReport, type PdfFontCheckResult, type MachReportToolbarOptions, type ReportEmptyState, type ReportPreviewPreferences } from "@agile-team/mach-report/vue";
 import { preloadMachReport } from "@agile-team/mach-report/vue/async";
-import { createReportRuntime, createReportTaskQueue } from "@agile-team/mach-report/server";
-import { createNodeReportExecutor } from "@agile-team/mach-report/server/node";
+import { createReportRuntime, createReportTaskQueue, reviewReportPublication, createReportJobService, createMemoryReportJobStore } from "@agile-team/mach-report/server";
+import { createNodeReportExecutor, reportArtifactSha256 } from "@agile-team/mach-report/server/node";
 import { createBrowserReportExecutor } from "@agile-team/mach-report/worker";
 import { writeRowsToXlsx } from "@agile-team/mach-report/xlsx/node";
-import { ReportTemplateEditor, type TemplateEditorOptions, type TemplateEditorMessages } from "@agile-team/mach-report/designer";
+import { ReportTemplateEditor, ExcelBindingWizard, RuleEditor, TemplateReviewPanel, type TemplateEditorOptions, type TemplateEditorMessages } from "@agile-team/mach-report/designer";
 import { computeDataset, createCrossTable, createChartComponents } from "@agile-team/mach-report/analytics";
 import { Writable } from "node:stream";
 async function consume() {
@@ -161,6 +172,16 @@ async function consume() {
   await writeRowsToXlsx([{ id: "0001" }], { columns: [{ key: "id" }], stream: new Writable({ write(_chunk, _encoding, done) { done(); } }) });
   const editorOptions: TemplateEditorOptions = { modelValue: document, datasets: { detail: [] }, preview: { showExport: false, theme: { shellBg: "#fff" }, assets: { assetRenderers: { qrcode: ({ component }) => component.imageData ?? "data:image/png;base64," } } }, save: async (draft, context) => ({ ...draft, revision: context.expectedRevision }) };
   const editorProps: InstanceType<typeof ReportTemplateEditor>["$props"] = editorOptions;
+  const reviewProps: InstanceType<typeof TemplateReviewPanel>["$props"] = { document, datasets: { detail: [] } };
+  const wizardProps: InstanceType<typeof ExcelBindingWizard>["$props"] = { datasets: [{ id: "detail", rowKey: "name", fields: [{ field: "name", type: "text" }] }] };
+  const list = document.template.pages[0]!.components.find(item => item.kind === "list");
+  if (list?.kind === "list") { const rules: InstanceType<typeof RuleEditor>["$props"] = { list }; void rules; }
+  for (const page of paginateTemplatePages(document.template, { detail: [] }, { maxCells: 1000 })) void page;
+  reviewReportTemplate(document, { fixtures: [{ name: "sample", datasets: { detail: [] } }] });
+  await reviewReportPublication(document, { fixtures: [{ name: "sample", datasets: { detail: [] } }], digest: reportArtifactSha256 });
+  const jobs = createReportJobService({ store: createMemoryReportJobStore(), handlers: { sample: () => null } });
+  await jobs.submit({ scope: "test", id: "one", kind: "sample", payload: {} }); await jobs.close();
+  void [reviewProps, wizardProps];
   const legacyEditorMessages: TemplateEditorMessages = {
     title: "Editor", heading: "Properties", unpublished: "Unpublished", dirty: "Unsaved",
     reset: "Reset", saving: "Saving", save: "Save", name: "Name", description: "Description",

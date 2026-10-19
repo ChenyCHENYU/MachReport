@@ -29,7 +29,8 @@ pnpm release                  # 已提交版本的发版：clean gate → instal
 - 子路径域：`src/pdf` `src/sql` `src/xlsx` `src/vue`——重依赖（pdf-lib/node-sql-parser/exceljs）与框架代码只存在于子路径产物；ExcelJS 声明内联，唯一依赖 `@types/node` 用于公开 Workbook 的 Node 类型签名
 - `source/` 管数据来源、参数与模板版本；`editing/` 是纯事务逻辑；`vue/composables/` 管选区、历史、冻结、搜索和生命周期，不把业务身份绑定到DOM行号。
 - `server/` 是共用Runtime/预算/队列，`worker/` 是可序列化RPC桥；Node线程与流式Excel分别在 `/server/node`、`/xlsx/node`，使用独立Node构建。节点声明在临时子目录聚合后移入dist，避免覆盖浏览器声明。
-- `analytics/` 生成交叉数据和基础图元；`output/` 管能力诊断与可选资源准备；`designer/` 为独立可选Vue属性编辑器，复用预览与模板管理，不进入核心入口。
+- `processing/` 是纯计算/聚合/矩阵公共层，`analytics/` 保留按需公共外观与基础图元；`output/` 管能力诊断与资源；`designer/` 为独立可选Vue画布/向导/规则/验收组件，复用预览与模板管理，不进入核心入口。
+- `source/template-review` 做显式样例预检；`server/publication` 做真实文件编码验收。持久任务使用 `server/job-service` 的租约/attempt围栏，文件适配器仅单进程；多实例原子CAS由宿主实现。
 - 数据来源通过 `PlanFetcher({ reportIds, params })` 注入；不得在插件中内置某个项目的接口路径、鉴权或响应格式
 - 常规接入使用插件 `reports` 或核心 `createReportSource`：宿主只定义模板、取数和字段映射，包内统一分页、参数元数据、校验与页合并。Vue 入口重导出核心 API；保留旧 fetcher 逃生口，signal / onWarning 为可选增强。
 - 父页面控制用 `useMachReport` 的稳定 ref / ready / 方法；重载与卸载必须取消旧取数，导出必须去重并隔离过期结果。同步打开 PDF 窗口，避免丢失浏览器用户手势。
@@ -57,5 +58,5 @@ pnpm release                  # 已提交版本的发版：clean gate → instal
 
 ## 已知未了项
 
-- 已提供轻量模板属性编辑器；自由拖拽画布、审批控制台为独立立项的多轮工程
+- 已提供毫米画布、Excel绑定向导和声明式规则；完整Excel公式引擎、宏、审批控制台仍不在通用内核内
 - npm token 轮换为人工事项（会话中出现过的凭证视为已泄露处理）

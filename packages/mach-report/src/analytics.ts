@@ -2,3 +2,6 @@
 export * from "./analytics/charts";
 export * from "./analytics/cross-table";
 export * from "./analytics/computed";
+export * from "./analytics/aggregate";
+export * from "./analytics/matrix";
+export * from "./analytics/decimal";

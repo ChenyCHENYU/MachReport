@@ -147,7 +147,9 @@ await manager.saveDraft(oldDocument, { expectedRevision: null });
 | 历史与回滚 | 历史选择与恢复确认 | 不可变发布版本、恢复旧版为新修订 |
 | 多租户 | 模板范围、读写权限、版本冲突 | 宿主客户端提供权限上下文，引擎无数据库绑定 |
 
-完整管理控制台和数据库表由宿主实施；本包不会自动写库。可选 `/designer` 提供模板属性编辑器，维护列名、字段映射、列宽、语义、对齐、编辑开关和 JSON，使用保存回调连接 Manager 或现有版本服务；它不包含自由拖拽画布。无 Vue 的后台仍可直接使用核心 Manager。服务端与 Worker 接入见 [SERVER.md](./SERVER.md)。
+业务管理后台和数据库表由宿主实施；本包不会自动写库。可选 `/designer` 提供[画布与属性编辑](./DESIGNER.md)、Excel绑定、规则和变更验收，使用保存回调连接Manager或现有版本服务。无Vue的后台仍可直接使用核心Manager。
+
+Manager可配置 `beforePublish({ document, previous, signal })` 门禁，发布和回滚都在CAS前执行。核心 `reviewReportTemplate`检查字段依赖、语义差异和显式样例；服务端 `reviewReportPublication`还真实编码PDF/XLSX并可归档摘要。失败保留草稿；并发修改继续由CAS拒绝覆盖。详细流程见[发布验收](./PUBLICATION_REVIEW.md)，运行时与Worker见[SERVER.md](./SERVER.md)。
 
 ## 校验与兼容
 

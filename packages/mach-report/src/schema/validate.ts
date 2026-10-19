@@ -127,6 +127,7 @@ export function validateComponent(
     }
   }
   validateTableSource(comp["table"], path, errors);
+  if (comp["pageAnchor"] !== undefined && !["header", "footer"].includes(comp["pageAnchor"] as string)) errors.push({ path: `${path}.pageAnchor`, message: "页面锚点应为 header 或 footer" });
   if (comp["lineDirection"] !== undefined && !["down", "up"].includes(comp["lineDirection"] as string)) errors.push({ path: `${path}.lineDirection`, message: "线段方向应为 down 或 up" });
   validateGrid(comp["grid"], path, errors, warnings);
   validateRichText(comp["richParagraphs"], path, errors);

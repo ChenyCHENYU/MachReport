@@ -1,4 +1,5 @@
 import { parentPort, Worker, type WorkerOptions } from "node:worker_threads";
+import { createHash } from "node:crypto";
 import type { ReportRuntime, ReportRuntimeExecutor } from "./types";
 import { createReportWorkerExecutor, type ReportWorkerOptions } from "../worker/client";
 import { REPORT_WORKER_PROTOCOL, isReportWorkerRequest, reportWorkerTransferList, runReportWorkerRequest } from "../worker/protocol";
@@ -35,3 +36,7 @@ export function serveNodeReportWorker(runtime: ReportRuntime): () => void {
   return () => port.off("message", onMessage);
 }
 export { ReportWorkerError } from "../worker/protocol";
+export { openFileReportJobStore } from "./node-job-store";
+export type { FileReportJobStore, FileReportJobStoreOptions } from "./node-job-store";
+/** Optional publication digest for Node hosts; use as reviewReportPublication({ digest }). */
+export function reportArtifactSha256(bytes: Uint8Array): string { return createHash("sha256").update(bytes).digest("hex"); }

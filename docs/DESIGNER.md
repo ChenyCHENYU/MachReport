@@ -1,4 +1,4 @@
-# 模板属性编辑器
+# 模板设计器
 
 `@agile-team/mach-report/designer` 是可选 Vue 入口。它复用模板文档、校验器与现有预览，维护可读的属性和 JSON；常规报表预览无需引入此入口。
 
@@ -30,6 +30,8 @@ const save: TemplateEditorOptions["save"] = (draft, { expectedRevision, signal }
 | --- | --- |
 | `modelValue` / `v-model` | 经过 `defineReportTemplate` / `parseReportTemplate` 校验的文档；编辑有效时发出独立快照 |
 | `datasets` | 显式预览数据；编辑器不查询业务接口，不把模板参数面板作为预览前置条件 |
+| `dataSchemas` / `bindingDatasets` | 可选字段契约与绑定目录，供公式字段选择、Excel映射和验收共用 |
+| `bindingSession` / `excel-bound` | 可重开的Excel绑定会话；仅模板替换确认成功后发出绑定事件 |
 | `save(document, context)` | 返回服务端保存后的文档；`context` 包含 `expectedRevision` 与 `signal` |
 | `readonly` | 禁止属性、JSON、恢复和保存；预览仍可阅读 |
 | `messages` | 覆盖 `TEMPLATE_EDITOR_MESSAGES` 文案 |
@@ -47,7 +49,7 @@ const save: TemplateEditorOptions["save"] = (draft, { expectedRevision, signal }
 
 百列宽表可按中文列名或业务字段搜索。搜索仅筛选面板，不改变模板列顺序；勾选列后可批量设置正文 / 表头对齐，整个批量操作可一次撤销。跨列合并表头是一个物理单元格，对齐变更会同步覆盖该合并范围。选择另一个明细区域会清空勾选，防止误改其他表。
 
-属性、应用 JSON、批量对齐均支持撤销 / 重做。历史保存在当前实例内，最多 100 帧且有 16 MiB 的字符串预算，超过预算先移除最旧帧；单帧超过预算时仅保留当前帧，不为大模板无限增长内存。保存成功或载入其他文档后重置历史，撤销不会把服务端修订号回退到旧版本。
+属性、应用 JSON、批量对齐均支持撤销 / 重做。历史采用周期检查点与可逆字符串增量，最多100帧、16MiB，频繁小修改不再为每一步保留整份大JSON。剪枝先重建新基线；单帧超预算仅保留当前帧。保存或载入其他文档重置历史，撤销不会回退服务端修订号。
 
 高级 JSON 必须经过校验后才能应用；ID 与修订号不能通过 JSON 偷换。尚未应用的 JSON 会暂停属性修改与保存，避免保存时丢弃正在输入的文本，可通过应用或撤销继续。无效属性保留在编辑面板并显示具体路径，暂停预览与保存；服务端冲突保留草稿，恢复按钮还原最近一次成功保存或外部载入的文档。`v-model` 回显不会把尚未保存的修改误当作已保存。
 
@@ -69,6 +71,16 @@ async function canLeave() { return await editor.value?.guardChanges() ?? true; }
 
 宿主可直接把保存接口接到 [createTemplateManager](./TEMPLATE_MANAGEMENT.md)。新文档的预期版本为 `null`，已有文档提交当前修订号；存储器保证状态更新和发布历史的原子 CAS。内存适配器只适合示例和测试。
 
-该组件是轻量属性编辑器，未提供自由拖拽画布、公式编辑器或审批控制台。字段映射和可编辑范围还必须满足业务 API 的契约与权限；界面上的开关不授予后台写权限。
+## 画布与按需工具
+
+“设计 / 预览”切换保留原属性面板与阅读预览。设计画布使用毫米几何：文本、明细、图片、矩形可添加、复制、删除、调整层级；拖动 / 缩放显示边缘和中心吸附线，键盘方向键微调，Escape取消。拖动中的位置使用局部样式与requestAnimationFrame更新，松手才校验并提交一个事务，撤销不会生成上百个鼠标帧。
+
+为保持画布交互轻量，设计态明细展示3条样例，静态网格最多展示2000格并明确提示；阅读预览与导出仍使用完整数据。图片上传限制4MiB，支持PNG/JPEG/WebP/SVG；项目也可提供受控资源地址。
+
+明细支持列宽拖动、列顺序 / 显隐、多层表头合并与拆分。合并前验证连续区域和已有跨度，不静默破坏原表头。图片使用项目受控资源地址，不在模板中嵌入任意脚本。只读模式关闭所有写入入口。
+
+“工具”提供全宽、按需加载的[Excel业务绑定](./EXCEL_BINDING.md)、[计算与规则](./COMPLEX_REPORTS.md)、[变更与验收](./PUBLICATION_REVIEW.md)，避免把复杂表单堆进窄属性栏。Excel向导保留会话；关闭工具返回原属性选择。规则以声明式表达式为默认，样例计算按按钮执行。
+
+字段映射和可编辑范围仍须符合业务API契约与权限；界面开关不授予后台写权限。画布不是完整Excel应用，宏、任意脚本、完整Excel公式重算和审批控制台不包含在此入口。
 
 启动 `pnpm --filter @agile-team/example-minimal dev` 后访问 `http://localhost:8610/designer.html`。示例使用明确标识的本地数据与内存存储，不连接业务数据库。

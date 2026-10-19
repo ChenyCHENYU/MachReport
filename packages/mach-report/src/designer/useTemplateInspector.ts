@@ -1,7 +1,12 @@
 import { computed, ref, watch, type Ref } from "vue";
 import type { ListComponent } from "@agile-team/mach-report";
 
-export type TemplateInspectorSection = "fields" | "template" | "advanced";
+export type TemplateInspectorSection =
+  | "fields"
+  | "component"
+  | "template"
+  | "tools"
+  | "advanced";
 
 /** 已选字段独立于目录的临时搜索与候选焦点，取消挑选不会丢失当前属性。 */
 export function useTemplateInspector(

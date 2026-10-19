@@ -1,4 +1,5 @@
 import { parseReportTemplate, type ReportTemplateDocument } from "./template-registry";
+import type { ReportTemplateReview } from "./template-review";
 
 export interface ReportTemplateVersion {
   revision: string;
@@ -25,7 +26,7 @@ export interface ReportTemplateStore {
 }
 export interface TemplateMutationOptions { expectedRevision: string | null; signal?: AbortSignal }
 export class ReportTemplateStoreError extends Error {
-  constructor(readonly code: "conflict" | "missing" | "draft" | "history", message: string) {
+  constructor(readonly code: "conflict" | "missing" | "draft" | "history" | "review", message: string) {
     super(message); this.name = "ReportTemplateStoreError";
   }
 }
@@ -54,6 +55,8 @@ export interface ReportTemplateManager {
 export function createTemplateManager(store: ReportTemplateStore, options: {
   migrate?: (input: unknown) => unknown | Promise<unknown>;
   now?: () => Date;
+  /** Optional publication gate; receives explicit draft snapshots and never replaces CAS. */
+  beforePublish?: (context: { document: ReportTemplateDocument; previous?: ReportTemplateDocument; signal?: AbortSignal }) => ReportTemplateReview | Promise<ReportTemplateReview>;
 } = {}): ReportTemplateManager {
   const read = async (id: string, signal?: AbortSignal) => {
     checkAbort(signal); const result = await store.read(id, signal); checkAbort(signal);
@@ -71,7 +74,13 @@ export function createTemplateManager(store: ReportTemplateStore, options: {
     // CAS 成功后不再报告取消，否则调用方会误以为提交未发生。
     return clone(next);
   };
-  const publish = (record: ReportTemplateRecord, document: ReportTemplateDocument, mutation: TemplateMutationOptions, restoredFrom?: string): Promise<ReportTemplateRecord> => {
+  const publish = async (record: ReportTemplateRecord, document: ReportTemplateDocument, mutation: TemplateMutationOptions, restoredFrom?: string): Promise<ReportTemplateRecord> => {
+    if (options.beforePublish) {
+      checkAbort(mutation.signal);
+      const review = await options.beforePublish({ document: parseReportTemplate(document), previous: record.published ? parseReportTemplate(record.published) : undefined, signal: mutation.signal });
+      if (!review || review.ok !== true) throw new ReportTemplateStoreError("review", review?.issues?.find((issue) => issue.severity === "error")?.message ?? "模板发布检查未通过");
+      checkAbort(mutation.signal);
+    }
     const revision = nextRevision(record);
     const snapshot = parseReportTemplate({ ...document, revision });
     const entry: ReportTemplateVersion = { revision, document: snapshot, publishedAt: (options.now?.() ?? new Date()).toISOString() };
@@ -87,6 +96,7 @@ export function createTemplateManager(store: ReportTemplateStore, options: {
     },
     history: async (id, signal) => { checkAbort(signal); const history = await store.history(id, signal); checkAbort(signal); return clone(history); },
     saveDraft: async (input, mutation) => {
+      mutation = { ...mutation };
       checkAbort(mutation.signal);
       const document = parseReportTemplate(options.migrate ? await options.migrate(input) : input);
       const record = await expected(document.id, mutation);
@@ -95,12 +105,14 @@ export function createTemplateManager(store: ReportTemplateStore, options: {
         ...(record?.publishedRevision ? { publishedRevision: record.publishedRevision, published: record.published } : {}) }, mutation);
     },
     publish: async (id, mutation) => {
+      mutation = { ...mutation };
       const record = await expected(id, mutation);
       if (!record) throw new ReportTemplateStoreError("missing", "模板不存在");
       if (!record.draft) throw new ReportTemplateStoreError("draft", "没有可发布的草稿");
       return publish(record, record.draft, mutation);
     },
     rollback: async (id, revision, mutation) => {
+      mutation = { ...mutation };
       const record = await expected(id, mutation);
       if (!record) throw new ReportTemplateStoreError("missing", "模板不存在");
       checkAbort(mutation.signal);

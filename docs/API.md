@@ -322,3 +322,19 @@ pnpm test:e2e
 | `focusField({ tableId?, datasetId?, field })` | 支持跨表同名字段精确定位 |
 
 详细示例、异步确认/取消边界见[产品操作流程](./PRODUCT_WORKFLOWS.md)，字段约束见[编辑指南](./CELL_EDITING.md)。PDF/XLSX/PNG和Excel导入另支持可选signal/onProgress；Node阶段事件及Java参考接口见[服务端指南](./SERVER.md)。
+
+## 2.9 可选设计与执行能力
+
+| 入口 | API | 说明 |
+| --- | --- | --- |
+| 核心 | `paginateTemplatePages / countTemplatePages` | 真正逐页生成，支持 `maxPages/maxCells/signal/knownTotalPages` |
+| 核心 | `diffReportTemplates / reviewReportTemplate` | 语义变更、字段依赖与显式样例排版检查 |
+| `/designer` | `ReportTemplateEditor` | 画布、属性与按需工具，新增可选 `dataSchemas/bindingDatasets/bindingSession` |
+| `/designer` | `ExcelBindingWizard / RuleEditor / TemplateReviewPanel` | 可分别集成的绑定、声明式规则及验收组件 |
+| `/xlsx` | `inspectExcelWorkbook / createExcelBindingDocument / createExcelBindingSession / parseExcelBindingSession` | 工作簿元数据、业务区域编译与会话保存 |
+| `/analytics` | `aggregateRows / createAggregateAccumulator / createMatrixTable / estimateMatrixTable` | 共用聚合和有预算动态矩阵，支持精确十进制 |
+| `/server` | `reviewReportPublication` | 显式样例的真实PDF/XLSX输出验收，不隐式发布 |
+| `/server` | `createReportJobService / ReportJobStore` | 持久任务协议、幂等、租约、取消、失败重试 |
+| `/server/node` | `openFileReportJobStore / reportArtifactSha256` | 单进程文件适配器与可选输出摘要 |
+
+详细配置见[设计器](./DESIGNER.md)、[Excel绑定](./EXCEL_BINDING.md)、[复杂报表](./COMPLEX_REPORTS.md)、[发布验收](./PUBLICATION_REVIEW.md)、[持久任务](./DURABLE_JOBS.md)。常规预览仍只需要报表ID与参数。

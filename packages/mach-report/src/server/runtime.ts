@@ -9,7 +9,7 @@ import type { TextMeasurer } from "../layout/textwrap";
 import type { OutputDiagnostic } from "../output/capabilities";
 import { datasetJsonSchema } from "../schema/dataset";
 import type { DatasetRows, ReportTemplate } from "../layout/paginate";
-import { PaginatePageLimitError } from "../layout/paginate";
+import { estimateListLayoutCells, PaginateCellLimitError, PaginatePageLimitError } from "../layout/paginate";
 import { createReportTaskReporter, notifyReportTaskEvent, reportTaskId, type ReportTaskEvent } from "../source/task-events";
 
 function definitions(reports: ReportRegistry, ids: string[]) {
@@ -22,11 +22,10 @@ function definitions(reports: ReportRegistry, ids: string[]) {
 function cellCount(component: PlanComponent): number {
   return component.grid?.cells.reduce((sum, row) => sum + row.reduce((count, cell) => count + (cell ? 1 + (cell.children?.reduce((nested, child) => nested + cellCount(child), 0) ?? 0) : 0), 0), 0) ?? 0;
 }
-function logicalCells(template: ReportTemplate, datasets: DatasetRows): number {
+function logicalCells(template: ReportTemplate, datasets: DatasetRows, pagination?: ReportRuntimeOptions["pagination"]): number {
   return template.pages.reduce((sum, page) => sum + page.components.reduce((count, component) => {
     if (component.kind !== "list") return count + cellCount(component);
-    const rows = datasets[component.dataset]?.length ?? 0;
-    return count + component.columns.length * (rows + (component.headerGrid?.cells.length ?? 1));
+    return count + estimateListLayoutCells(component, datasets, pagination);
   }, 0), 0);
 }
 function describe(reports: ReportRegistry, ids = Object.keys(reports)): ReportDescription[] {
@@ -84,10 +83,10 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
         maxCells: Math.min(budget.maxCells ?? 2_000_000, definition.dataValidation?.maxCells ?? Infinity)
       }
     }]));
-    const source = createReportSource(reports, { maxPages: budget.maxPages, onDatasets: (_id, data, template) => {
+    const source = createReportSource(reports, { maxPages: budget.maxPages, maxCells: budget.maxCells, onDatasets: (id, data, template) => {
       rows += Object.values(data).reduce((sum, items) => sum + items.length, 0);
       assertBudget(budget, "maxRows", rows);
-      inputCells += logicalCells(template, data);
+      inputCells += logicalCells(template, data, reports[id]?.pagination);
       assertBudget(budget, "maxCells", inputCells);
     } });
     const plan = await source({ ...input, params: input.params ?? {}, onWarning: (message) => diagnostics.push({ code: "layout", message, severity: "warning" }), onQueryResult: (id, result) => {
@@ -95,6 +94,7 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
       diagnostics.push(...result.diagnostics ?? []);
     } }).catch((error: unknown) => {
       if (error instanceof ReportSourceError && error.cause instanceof PaginatePageLimitError) throw new ReportRuntimeError("budget", error.cause.message, "$.budget.maxPages");
+      if (error instanceof ReportSourceError && error.cause instanceof PaginateCellLimitError) throw new ReportRuntimeError("budget", error.cause.message, "$.budget.maxCells");
       throw error;
     });
     throwIfAborted(input.signal);

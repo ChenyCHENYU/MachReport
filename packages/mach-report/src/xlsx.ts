@@ -5,3 +5,5 @@
 export * from "./xlsx/render-xlsx";
 export * from "./xlsx/import-template";
 export * from "./xlsx/bind-template";
+export * from "./xlsx/binding-workflow";
+export * from "./xlsx/binding-preview";

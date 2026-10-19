@@ -1,3 +1,4 @@
+import { formatDecimal, parseDecimal, compareDecimal } from "./processing/decimal";
 /**
  * 列值格式化（声明式、JSON 可序列化）。
  * 在 paginate 的 cellText 出口统一消费：格式化发生在进 RenderPlan 之前，
@@ -81,11 +82,17 @@ export function formatValue(value: unknown, format?: ColumnFormat): string {
   if (value == null || value === "" || !format) return String(value ?? "");
   switch (format.kind) {
     case "number": {
+      if (typeof value === "string") {
+        try { return formatDecimal(value, format.digits, format.thousands === true); } catch { return value; }
+      }
       const n = toNumber(value);
       if (n == null) return String(value);
       return formatNumber(n, format.thousands === true, format.digits);
     }
     case "percent": {
+      if (typeof value === "string") {
+        try { return formatDecimal(value, format.digits ?? 2, true, true); } catch { return value; }
+      }
       const n = toNumber(value);
       if (n == null) return String(value);
       return `${withThousands(n * 100, format.digits ?? 2)}%`;
@@ -107,6 +114,8 @@ export interface StyleRule {
     field: string;
     op: ">" | ">=" | "<" | "<=" | "==" | "!=";
     value: number | string;
+    /** Explicit decimal comparisons retain decimal thresholds as text. */
+    numeric?: "number" | "decimal";
   };
   /** 命中时合并进单元格样式（color/bold/backgroundColor 等） */
   style: Record<string, unknown>;
@@ -123,16 +132,17 @@ export function evalStyleRule(
 ): boolean {
   const raw = row[when.field];
   if (raw == null || raw === "") return false;
-  if (typeof when.value === "number") {
-    const n = toNumber(raw);
-    if (n == null) return false;
+  if (typeof when.value === "number" || when.numeric !== undefined) {
+    let n: number;
+    try { n = compareDecimal(parseDecimal(raw), parseDecimal(when.value)); } catch { return false; }
+    if (!Number.isFinite(n)) return false;
     switch (when.op) {
-      case ">": return n > when.value;
-      case ">=": return n >= when.value;
-      case "<": return n < when.value;
-      case "<=": return n <= when.value;
-      case "==": return n === when.value;
-      case "!=": return n !== when.value;
+      case ">": return n > 0;
+      case ">=": return n >= 0;
+      case "<": return n < 0;
+      case "<=": return n <= 0;
+      case "==": return n === 0;
+      case "!=": return n !== 0;
     }
   }
   const s = String(raw);

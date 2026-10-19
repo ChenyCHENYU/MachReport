@@ -116,7 +116,7 @@ for (const width of [1024, 1440]) {
     await expect(root.locator("fieldset")).toHaveCount(1);
     await expect(
       root.locator("fieldset input,fieldset select,fieldset [role=radiogroup]"),
-    ).toHaveCount(7);
+    ).toHaveCount(8);
     await expect(root.getByLabel("模板名称", { exact: true })).toHaveCount(0);
     await expect(root.getByLabel("完整模板 JSON", { exact: true })).toHaveCount(
       0,
@@ -231,7 +231,7 @@ for (const width of [1024, 1440]) {
     await focusedSearch.press("Shift+Tab");
     await page.keyboard.press("Shift+Tab");
     await expect(
-      root.getByRole("switch", { name: "允许编辑", exact: true }),
+      root.getByRole("checkbox", { name: "显示此列", exact: true }),
     ).toBeFocused();
     await expect(rows).toHaveCount(0);
     await root.getByRole("tab", { name: "模板", exact: true }).click();
@@ -344,6 +344,10 @@ for (const width of [1024, 1440]) {
     await fieldsTab.click();
     await expect(rows).toHaveCount(0);
     await fieldsTab.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(
+      root.getByRole("tab", { name: "组件", exact: true }),
+    ).toBeFocused();
     await page.keyboard.press("ArrowRight");
     await expect(
       root.getByRole("tab", { name: "模板", exact: true }),

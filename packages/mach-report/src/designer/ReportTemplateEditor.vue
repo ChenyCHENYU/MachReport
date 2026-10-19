@@ -1,8 +1,20 @@
 <script setup lang="ts">
 import { ReportPreview } from "@agile-team/mach-report/vue";
-import type { ReportTemplateDocument } from "@agile-team/mach-report";
-import { computed, getCurrentInstance, nextTick, ref, watch } from "vue";
+import { parseReportTemplate, type ReportTemplateDocument } from "@agile-team/mach-report";
+import {
+  computed,
+  defineAsyncComponent,
+  getCurrentInstance,
+  nextTick,
+  ref,
+  watch,
+} from "vue";
+import type { ExcelBindingWizardApply } from "./useExcelBindingWizard";
 import ReportIcon from "../vue/ReportIcon.vue";
+import TemplateDesignCanvas from "./TemplateDesignCanvas.vue";
+import CanvasComponentInspector from "./CanvasComponentInspector.vue";
+import HeaderStructureEditor from "./HeaderStructureEditor.vue";
+import { useTemplateWorkspace } from "./useTemplateWorkspace";
 import AlignmentControl from "./AlignmentControl.vue";
 import { useTemplateDirectory } from "./useTemplateDirectory";
 import {
@@ -14,10 +26,18 @@ import {
   type TemplateInspectorSection,
 } from "./useTemplateInspector";
 
+const ExcelBindingWizard = defineAsyncComponent(
+  () => import("./ExcelBindingWizard.vue"),
+);
+const RuleEditor = defineAsyncComponent(() => import("./RuleEditor.vue"));
+const TemplateReviewPanel = defineAsyncComponent(
+  () => import("./TemplateReviewPanel.vue"),
+);
 const props = defineProps<TemplateEditorOptions>();
 const emit = defineEmits<{
   (event: "update:modelValue", document: ReportTemplateDocument): void;
   (event: "saved", document: ReportTemplateDocument): void;
+  (event: "excel-bound", result: ExcelBindingWizardApply): void;
 }>();
 const editor = useTemplateEditor(props, (event, document) => {
   if (event === "saved") emit("saved", document);
@@ -47,7 +67,38 @@ const {
 const inspector = useTemplateInspector(selected, activeList);
 const { section, activeIndex, activeColumn } = inspector;
 const id = `mr-designer-${getCurrentInstance()?.uid ?? 0}`;
-const sections: TemplateInspectorSection[] = ["fields", "template", "advanced"];
+const sections: TemplateInspectorSection[] = [
+  "fields",
+  "component",
+  "template",
+  "tools",
+  "advanced",
+];
+const workspace = useTemplateWorkspace(
+  editor,
+  inspector,
+  () => props.dataSchemas,
+);
+const {
+  mode,
+  setMode,
+  canvasSelection,
+  canvasPage,
+  canvasActive,
+  tool,
+  visitedTools,
+  editDisabled,
+  dataSchema,
+  chooseCanvas,
+  insertComponent,
+  patchCanvas,
+  changeList,
+  moveColumn,
+  headerCommand,
+  locateReview,
+  canvas,
+} = workspace;
+
 const headingStatus = computed(() =>
   saving.value
     ? m.value.saving
@@ -105,6 +156,15 @@ defineExpose({
   reset: editor.reset,
   save: editor.save,
 });
+async function acceptExcel(result: ExcelBindingWizardApply): Promise<void> {
+  // Binding inside an editor replaces content, never the persistent template identity or CAS revision.
+  const candidate = { ...result.document, id: draft.value.id };
+  if (draft.value.revision === undefined) delete candidate.revision;
+  else candidate.revision = draft.value.revision;
+  if (!await editor.replaceDocument(candidate)) return;
+  const document = parseReportTemplate(editor.draft.value);
+  emit("excel-bound", { ...result, document, session: { ...result.session, identity: { id: document.id, name: document.name } } });
+}
 function value(event: Event): string {
   return (event.target as HTMLInputElement).value;
 }
@@ -175,6 +235,21 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
           {{ m[`${item}Section`] }}
         </button>
       </nav>
+      <div class="mr-designer-mode" role="group" :aria-label="m.design">
+        <button
+          type="button"
+          :aria-pressed="mode === 'design'"
+          @click="setMode('design')"
+        >
+          {{ m.design }}
+</button><button
+          type="button"
+          :aria-pressed="mode === 'preview'"
+          @click="setMode('preview')"
+        >
+          {{ m.preview }}
+        </button>
+      </div>
       <div class="mr-designer-actions">
         <div class="mr-designer-history">
           <button
@@ -250,8 +325,70 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
         </button>
       </div>
     </div>
-    <div class="mr-designer-body">
-      <aside class="mr-designer-inspector">
+    <div class="mr-designer-body" :class="{ 'is-tools': section === 'tools' }">
+      <div
+        v-if="visitedTools.size"
+        v-show="section === 'tools'"
+        class="mr-designer-tools"
+      >
+        <nav class="mr-designer-tool-tabs" :aria-label="m.toolsSection">
+          <button
+            v-for="item in ['excel', 'rules', 'review'] as const"
+            :key="item"
+            type="button"
+            :aria-pressed="tool === item"
+            @click="tool = item"
+          >
+            {{ m[`${item}Tool`] }}
+</button><span>{{ m.toolsDescription }}</span>
+        </nav>
+        <div class="mr-designer-tool-content">
+          <ExcelBindingWizard
+            v-if="visitedTools.has('excel')"
+            v-show="tool === 'excel'"
+            :datasets="bindingDatasets ?? []"
+            :session="bindingSession"
+            :identity="{ id: draft.id, name: draft.name }"
+            lock-id
+            :readonly="editDisabled"
+            @apply="acceptExcel"
+          /><TemplateReviewPanel
+            v-if="visitedTools.has('review')"
+            v-show="tool === 'review'"
+            :document="draft"
+            :previous="editor.originalDocument.value"
+            :datasets="datasets"
+            :data-schemas="dataSchemas"
+            @locate="locateReview"
+          />
+          <div
+            v-if="visitedTools.has('rules')"
+            v-show="tool === 'rules'"
+            class="mr-designer-rule-workspace"
+          >
+            <label v-if="lists.length > 1">{{ m.area
+              }}<select v-model="selected">
+                <option
+                  v-for="(item, index) in lists"
+                  :key="index"
+                  :value="index"
+                >
+                  {{ item.component.title || item.component.dataset }}
+                </option>
+              </select></label><RuleEditor
+              v-if="activeList"
+              :list="activeList"
+              :datasets="datasets"
+              :dataset-schema="dataSchema"
+              :dataset-schemas="dataSchemas"
+              :readonly="editDisabled"
+              @change="changeList"
+            />
+            <p v-else class="mr-designer-note">{{ m.rulesNeedList }}</p>
+          </div>
+        </div>
+      </div>
+      <aside v-if="section !== 'tools'" class="mr-designer-inspector">
         <div
           ref="inspectorPanel"
           :id="`${id}-panel-${section}`"
@@ -337,6 +474,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
                   <label>{{ m.field
                     }}<input
                       :value="activeColumn.column.field"
+                      :list="dataSchema ? `${id}-fields` : undefined"
                       @change="
                         editor.setColumn(
                           activeColumn.index,
@@ -344,7 +482,15 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
                           value($event),
                         )
                       "
-                  /></label>
+/></label><datalist v-if="dataSchema" :id="`${id}-fields`">
+                    <option
+                      v-for="field in dataSchema.fields"
+                      :key="field.field"
+                      :value="field.field"
+                    >
+                      {{ field.label }} · {{ field.type }} {{ field.unit }}
+                    </option>
+                  </datalist>
                 </div>
                 <div class="mr-designer-property-group">
                   <h3>{{ m.formatGroup }}</h3>
@@ -430,6 +576,41 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
                       )
                     "
                 /></label>
+                <div class="mr-designer-column-structure">
+                  <span>{{ m.columnOrder }}</span><button
+                    type="button"
+                    :aria-label="m.moveColumnLeft"
+                    :title="m.moveColumnLeft"
+                    :disabled="activeIndex <= 0"
+                    @click="moveColumn(-1)"
+                  >
+                    <ReportIcon name="chevron-left" :size="13" />
+</button><button
+                    type="button"
+                    :aria-label="m.moveColumnRight"
+                    :title="m.moveColumnRight"
+                    :disabled="activeIndex >= activeList.columns.length - 1"
+                    @click="moveColumn(1)"
+                  >
+                    <ReportIcon name="chevron-right" :size="13" />
+</button><label>{{ m.columnVisible
+                    }}<input
+                      type="checkbox"
+                      :checked="activeColumn.column.hidden !== true"
+                      :disabled="
+                        activeColumn.column.hidden !== true &&
+                        activeList.columns.filter((column) => !column.hidden)
+                          .length === 1
+                      "
+                      @change="
+                        editor.setColumn(
+                          activeColumn.index,
+                          'hidden',
+                          !checked($event),
+                        )
+                      "
+                  /></label>
+                </div>
               </fieldset>
               <div
                 v-if="directoryOpen"
@@ -459,7 +640,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
                     type="search"
                     :aria-label="m.columnsSearch"
                     :placeholder="m.columnsSearch"
-                  @keydown="directory.searchKeydown"
+                    @keydown="directory.searchKeydown"
                   /><button
                     v-if="query"
                     type="button"
@@ -567,6 +748,116 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
               {{ m.noColumns }}
             </p>
           </template>
+          <template v-else-if="section === 'component'">
+            <div class="mr-designer-object-tools">
+              <select
+                :aria-label="m.insertComponent"
+                :disabled="editDisabled"
+                @change="insertComponent"
+              >
+                <option value="">{{ m.insertComponent }}</option>
+                <option value="text">{{ m.insertText }}</option>
+                <option value="list">{{ m.insertList }}</option>
+                <option value="image">{{ m.insertImage }}</option>
+                <option value="rect">{{ m.insertRect }}</option>
+</select><button
+                type="button"
+                :title="m.duplicateComponent"
+                :aria-label="m.duplicateComponent"
+                :disabled="editDisabled || !canvasActive"
+                @click="canvas.duplicate"
+              >
+                ＋
+</button><button
+                type="button"
+                :title="m.removeComponent"
+                :aria-label="m.removeComponent"
+                :disabled="editDisabled || !canvasActive"
+                @click="canvas.remove"
+              >
+                <ReportIcon name="close" :size="14" />
+              </button>
+            </div>
+            <label v-if="draft.template.pages.length > 1">{{ m.page
+              }}<select v-model.number="canvasPage">
+                <option
+                  v-for="(_, pageIndex) in draft.template.pages"
+                  :key="pageIndex"
+                  :value="pageIndex"
+                >
+                  {{ pageIndex + 1 }}
+                </option>
+              </select></label>
+            <label class="mr-designer-stacked">{{ m.components
+              }}<select
+                :value="
+                  canvasSelection?.pageIndex === canvasPage
+                    ? canvasSelection.componentIndex
+                    : -1
+                "
+                @change="
+                  chooseCanvas({
+                    pageIndex: canvasPage,
+                    componentIndex: Number(value($event)),
+                  })
+                "
+              >
+                <option :value="-1" disabled>{{ m.noComponent }}</option>
+                <option
+                  v-for="(component, componentIndex) in draft.template.pages[
+                    canvasPage
+                  ]?.components"
+                  :key="componentIndex"
+                  :value="componentIndex"
+                >
+                  {{ componentIndex + 1 }} ·
+                  {{
+                    component.kind === "list"
+                      ? component.title || component.dataset
+                      : component.text || component.kind
+                  }}
+                </option>
+              </select></label>
+            <template v-if="canvasActive">
+              <div class="mr-designer-layer-tools">
+                <button
+                  type="button"
+                  :disabled="
+                    editDisabled || canvasSelection?.componentIndex === 0
+                  "
+                  @click="canvas.reorder(-1)"
+                >
+                  {{ m.backward }}
+</button><button
+                  type="button"
+                  :disabled="
+                    editDisabled ||
+                    canvasSelection?.componentIndex ===
+                      (draft.template.pages[canvasPage]?.components.length ??
+                        0) -
+                        1
+                  "
+                  @click="canvas.reorder(1)"
+                >
+                  {{ m.forward }}
+                </button>
+              </div>
+              <CanvasComponentInspector
+                :component="canvasActive"
+                :disabled="editDisabled"
+                :messages="m"
+                @geometry="canvas.geometry"
+                @patch="patchCanvas"
+              /><HeaderStructureEditor
+                v-if="canvasActive.kind === 'list'"
+                :list="canvasActive"
+                :disabled="editDisabled"
+                :messages="m"
+                @command="headerCommand"
+              />
+            </template>
+            <p v-else class="mr-designer-empty">{{ m.noComponent }}</p>
+          </template>
           <template v-else-if="section === 'template'">
             <h3>{{ m.templateDetails }}</h3>
             <label class="mr-designer-stacked">{{ m.name
@@ -622,7 +913,11 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
           </p>
         </div>
       </aside>
-      <div class="mr-designer-preview" :aria-label="m.previewTitle">
+      <div
+        v-if="section !== 'tools'"
+        class="mr-designer-preview"
+        :aria-label="m.previewTitle"
+      >
         <div v-if="error" role="alert" class="mr-designer-error">
           {{ error }}
         </div>
@@ -631,8 +926,23 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
             {{ issue.path }}：{{ issue.message }}
           </li>
         </ul>
+        <TemplateDesignCanvas
+          v-if="mode === 'design' && validation.ok"
+          :document="draft"
+          :selection="canvasSelection"
+          :page-index="canvasPage"
+          :datasets="datasets"
+          :disabled="editDisabled"
+          :messages="m"
+          @select="chooseCanvas"
+          @geometry="canvas.geometry"
+          @column="inspector.activate"
+          @width="
+            (index, width) => editor.setColumn(index, 'widthMm', String(width))
+          "
+        />
         <ReportPreview
-          v-if="fetcher && validation.ok"
+          v-else-if="fetcher && validation.ok"
           report-id="draft"
           :fetcher="fetcher"
           :messages="{

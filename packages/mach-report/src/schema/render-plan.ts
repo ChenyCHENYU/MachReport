@@ -105,6 +105,8 @@ export interface PlanTableFragment {
 }
 
 export interface PlanComponent {
+  /** Template page furniture repeats per page and reserves its vertical band. */
+  pageAnchor?: "header" | "footer";
   kind: ComponentKind;
   leftMm: number;
   topMm: number;

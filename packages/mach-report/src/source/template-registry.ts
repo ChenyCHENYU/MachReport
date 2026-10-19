@@ -1,3 +1,4 @@
+import { validateAggregates, validateComputed, validateRowCondition, validateMatrix } from "./template-complex-validation";
 import type { ReportTemplate } from "../layout/paginate";
 import { RENDER_PLAN_SCHEMA_VERSION } from "../schema/render-plan";
 import { validateComponent, type ValidationError, type ValidationResult } from "../schema/validate";
@@ -237,10 +238,13 @@ function validateListColumns(columns: unknown, path: string, errors: ValidationE
     errors.push({ path, message: "列表至少需要一列" });
     return;
   }
+  if (columns.every((column) => isObject(column) && column.hidden === true)) errors.push({ path, message: "列表至少需要一列可见列" });
   columns.forEach((column, index) => {
     const here = `${path}.${index}`;
     if (!isObject(column)) { errors.push({ path: here, message: "列应为对象" }); return; }
     validateEditableMetadata(column, here, errors);
+    booleanField(column, "hidden", here, errors);
+    validateRowCondition(column.visibleWhen, `${here}.visibleWhen`, errors);
     if (typeof column.header !== "string") errors.push({ path: `${here}.header`, message: "表头应为字符串（允许空白表头）" });
     stringField(column, "field", here, errors, true);
     numberField(column, "widthMm", here, errors, Number.MIN_VALUE, true);
@@ -266,6 +270,7 @@ function validateListColumns(columns: unknown, path: string, errors: ValidationE
       else column.rules.forEach((rule, ri) => {
         const rulePath = `${here}.rules.${ri}`;
         if (!isObject(rule) || !isObject(rule.when)) { errors.push({ path: rulePath, message: "条件格式缺少 when 对象" }); return; }
+        validateRowCondition(rule.when, `${rulePath}.when`, errors);
         stringField(rule.when, "field", `${rulePath}.when`, errors, true);
         if (![">", ">=", "<", "<=", "==", "!="].includes(rule.when.op as string)) errors.push({ path: `${rulePath}.when.op`, message: "未知条件运算符" });
         if (typeof rule.when.value !== "number" && typeof rule.when.value !== "string") errors.push({ path: `${rulePath}.when.value`, message: "条件值应为数字或字符串" });
@@ -285,6 +290,8 @@ function validateListGrouping(groupBy: unknown, path: string, errors: Validation
   for (const key of ["headerTemplate", "subtotalLabel"]) stringField(groupBy, key, path, errors);
   for (const key of ["headerStyle", "subtotalStyle"]) validateStyle(groupBy[key], `${path}.${key}`, errors);
   booleanField(groupBy, "keepWithNext", path, errors);
+  booleanField(groupBy, "repeatHeader", path, errors);
+  validateAggregates(groupBy.aggregates, `${path}.aggregates`, errors);
   if (groupBy.subtotal !== undefined && (!Array.isArray(groupBy.subtotal) || groupBy.subtotal.some((field) => typeof field !== "string"))) {
     errors.push({ path: `${path}.subtotal`, message: "小计字段应为字符串数组" });
   }
@@ -297,6 +304,7 @@ function validateListTotal(grandTotal: unknown, path: string, errors: Validation
     return;
   }
   stringField(grandTotal, "label", path, errors);
+  validateAggregates(grandTotal.aggregates, `${path}.aggregates`, errors);
   validateStyle(grandTotal.style, `${path}.style`, errors);
   if (grandTotal.fields !== undefined && (!Array.isArray(grandTotal.fields) || grandTotal.fields.some((field) => typeof field !== "string"))) {
     errors.push({ path: `${path}.fields`, message: "合计字段应为字符串数组" });
@@ -341,6 +349,27 @@ function validateHeaderSpans(headerRows: unknown[], count: number, path: string,
   });
 }
 
+function validateListComplex(list: JsonObject, path: string, errors: ValidationError[]): void {
+  validateComputed(list.computed, `${path}.computed`, errors);
+  validateMatrix(list.matrix, `${path}.matrix`, errors);
+  if (list.matrix && (list.detail || list.groupBy || (Array.isArray(list.groups) && list.groups.length) || list.grandTotal)) errors.push({ path: `${path}.matrix`, message: "矩阵请使用自身 totals 汇总，不能同时配置普通分组、总计或主从明细" });
+  validateRowCondition(list.rowVisibleWhen, `${path}.rowVisibleWhen`, errors);
+  if (list.groups !== undefined) {
+    if (!Array.isArray(list.groups) || list.groups.length > 16) errors.push({ path: `${path}.groups`, message: "分组应为数组，最多 16 级" });
+    else list.groups.forEach((group, index) => validateListGrouping(group, `${path}.groups.${index}`, errors));
+  }
+  if (list.detail === undefined) return;
+  const detail = list.detail, here = `${path}.detail`;
+  if (!isObject(detail)) { errors.push({ path: here, message: "主从关联应为对象" }); return; }
+  for (const key of ["dataset", "parentKey", "foreignKey"]) stringField(detail, key, here, errors, true);
+  stringField(detail, "rowKey", here, errors, detail.rowKey !== undefined);
+  stringField(detail, "label", here, errors);
+  booleanField(detail, "header", here, errors);
+  numberField(detail, "rowHeightMm", here, errors, Number.MIN_VALUE);
+  validateListColumns(detail.columns, `${here}.columns`, errors);
+  if (detail.unmatched !== undefined && detail.unmatched !== "error" && detail.unmatched !== "ignore") errors.push({ path: `${here}.unmatched`, message: "未关联明细策略应为 error 或 ignore" });
+}
+
 function validateList(list: JsonObject, path: string, errors: ValidationError[]): void {
   for (const key of ["leftMm", "topMm"]) numberField(list, key, path, errors, -Infinity, true);
   numberField(list, "widthMm", path, errors, Number.MIN_VALUE, true);
@@ -357,6 +386,7 @@ function validateList(list: JsonObject, path: string, errors: ValidationError[])
   alignment(list.align, `${path}.align`, errors, true);
   alignment(list.headerAlign, `${path}.headerAlign`, errors);
   validateStyle(list.headerStyle, `${path}.headerStyle`, errors);
+  validateListComplex(list, path, errors);
   validateListGrouping(list.groupBy, `${path}.groupBy`, errors);
   validateListTotal(list.grandTotal, `${path}.grandTotal`, errors);
 }

@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.8.4-2563eb" alt="Source version 2.8.4" />
+  <img src="https://img.shields.io/badge/source-2.9.0-2563eb" alt="Source version 2.9.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -41,18 +41,32 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | --- | --- |
 | 页面模型 | 毫米单位、纸张预设与自定义尺寸、页边距、横纵向、文本与表格几何 |
 | 完整宽表 | 自然列宽、横向滚动、默认 100% 预览；纵向分段窗口化，Excel 自动合并连续 Sheet |
-| 明细与汇总 | 自动折行与分页、重复表头、连续分组小计、末尾总计、页码占位符 |
+| 明细与汇总 | 自动分页、多级分组与加权小计、业务键主从明细、动态矩阵、重复页眉页脚 |
 | 数据呈现 | 表头与内容独立对齐、类型自动对齐、数值 / 百分比 / 日期格式化、条件格式 |
 | 预览交互 | 右下分页、分组导出菜单、内容搜索与字段目录、跨页选区、冻结窗格、Sheet 导航 |
 | 内容编辑 | 默认只读；双击与批量粘贴、原子保存、撤销 / 重做、恢复与变更清单 |
 | Excel 导入 | 多 Sheet、完整宽表、合并单元格、基础样式与缓存公式值转换为可复用模板 |
-| 模板配置 | 轻量属性编辑器、草稿 / 发布 / 历史 / 回滚、CAS 存储适配器、Excel 区域绑定 |
+| 模板配置 | 可视化画布、Excel 业务绑定向导、计算与规则、变更对比与发布验收、CAS 历史 / 回滚 |
 | 输出 | 浏览器打印、HTML、PDF、真正的 `.xlsx`、逐页 PNG、Word 兼容 HTML `.doc` |
 | 工程接入 | 局部组件、全局插件、异步入口、分层配置、结构化错误与导出告警 |
-| 引擎复用 | 数据 / 参数 JSON Schema、统一 Provider、Node Runtime、浏览器 / Node Worker、流式 Excel |
+| 引擎复用 | 共用契约与计算、逐页排版、Node Runtime / Worker、流式 Excel、可恢复持久任务 |
 | 分析扩展 | 可选只读选区计算、交叉汇总、声明式计算、柱图 / 折线图基础图元与资源适配 |
 
-数据接口、鉴权与业务规则由宿主应用决定。包内统一校验、分页、编辑事务和版本流程；宿主提供请求与存储适配器。轻量属性编辑器可直接使用；拖拽画布、审批与数据库部署仍由项目按需建设。
+数据接口、鉴权与业务规则由宿主应用决定。包内统一校验、分页、编辑事务、设计器和版本流程；宿主提供请求与存储适配器。审批和业务数据库部署按项目现有治理执行。
+
+### 设计、验收与执行共用一套模板
+
+| 工作 | 包内提供 | 宿主只需提供 |
+| --- | --- | --- |
+| 可视化设计 | 毫米画布、拖动 / 缩放 / 吸附、组件层级、列宽 / 顺序、多层表头 | 模板文档与保存回调 |
+| Excel 业务化 | 选Sheet → 标题 / 表头 / 明细 / 页尾区域 → 字段映射 → 预览，支持重开会话 | 工作簿、数据集与字段契约 |
+| 计算与复杂单据 | 声明式表达式、精确十进制、多级分组、主从关系与动态矩阵 | 业务数据与口径 |
+| 发布验收 | 变更分类、字段依赖检查、显式样例、服务端真实PDF/XLSX编码 | 验收样例、字体、原子CAS存储 |
+| 大任务 | 逐页生成、增量编辑历史、租约 / 幂等 / 取消 / 失败重试 | 调度、文件归档；多实例数据库CAS适配 |
+
+常规预览页面的接入保持不变。设计工具只在打开时加载；画布拖动在松手时提交一次模板事务，样例计算与验收按按钮执行。逐页生成不保留全部输出页，输入数据和分组索引仍受预算管理。
+
+操作与边界见[设计器](./docs/DESIGNER.md)、[Excel绑定](./docs/EXCEL_BINDING.md)、[复杂报表](./docs/COMPLEX_REPORTS.md)、[发布验收](./docs/PUBLICATION_REVIEW.md)、[持久任务](./docs/DURABLE_JOBS.md)。
 
 ## 安装：一个包，按需入口
 
@@ -538,11 +552,11 @@ const fetcher: PlanFetcher = async ({ reportIds, params, signal }) => {
 | `@agile-team/mach-report/pdf` | `renderPlanToPdf`、字体加载与缓存 |
 | `@agile-team/mach-report/xlsx` | `renderPlanToXlsx`、工作簿与导出告警 |
 | `@agile-team/mach-report/sql` | 动态 SQL 编译与单 SELECT 校验工具 |
-| `@agile-team/mach-report/server` | Runtime、预算、有界任务队列、元数据与共用导出 |
+| `@agile-team/mach-report/server` | Runtime、预算、持久任务协议、真实输出发布验收与共用导出 |
 | `@agile-team/mach-report/worker` | 浏览器 Worker 执行与消息桥接 |
-| `@agile-team/mach-report/server/node` | Node worker_threads 执行与硬取消 |
+| `@agile-team/mach-report/server/node` | Node worker_threads、单进程持久任务文件适配、文件摘要 |
 | `@agile-team/mach-report/xlsx/node` | AsyncIterable 行数据流式输出，仅 Node |
-| `@agile-team/mach-report/designer` | 可选 Vue 模板属性编辑器 |
+| `@agile-team/mach-report/designer` | 可选 Vue 画布、属性、Excel绑定向导、规则与验收面板 |
 | `@agile-team/mach-report/analytics` | 交叉表、受控计算、柱图 / 折线图基础图元 |
 
 内核保持零运行时依赖；ExcelJS、pdf-lib / fontkit、SQL parser 分别内联于对应构建入口。导入 `/xlsx` 才使用 Excel 能力，导入 `/pdf` 才使用 PDF 能力；Vue 不进入引擎主入口。npm 构建提供 ESM、CommonJS 与类型声明。
@@ -589,6 +603,10 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 | 交互配置 | [交互指南](./docs/INTERACTION.md)：选区、键盘、冻结、导航、偏好与导入摘要 |
 | 模板管理 | [扩展指南](./docs/TEMPLATE_MANAGEMENT.md)：JSON 文档、目录、动态版本与后台接入 |
 | 模板属性 | [编辑器指南](./docs/DESIGNER.md)：实时预览、版本保存与属性面板 |
+| Excel业务绑定 | [绑定向导](./docs/EXCEL_BINDING.md)：区域识别、契约映射与可重开会话 |
+| 复杂报表 | [计算与布局](./docs/COMPLEX_REPORTS.md)：精确数值、多级分组、主从、动态矩阵与逐页生成 |
+| 发布验收 | [变更与输出](./docs/PUBLICATION_REVIEW.md)：兼容检查、样例和真实文件验收 |
+| 持久任务 | [任务恢复](./docs/DURABLE_JOBS.md)：幂等、租约、取消与存储适配 |
 | 服务端 | [Runtime / Worker](./docs/SERVER.md)：统一契约、受控执行、流式输出 |
 | 分析扩展 | [分析与资源](./docs/ANALYTICS.md)：交叉表、计算、基础图表与资源适配 |
 | PDF | [字体与导出指南](./docs/PDF.md)：首次诊断、字库部署、缺字与缓存 |
@@ -605,7 +623,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.8.4`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.9.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

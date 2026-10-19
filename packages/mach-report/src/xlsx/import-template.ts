@@ -175,14 +175,10 @@ function importSheet(sheet: ExcelJS.Worksheet, range: CellRange, workbook: Excel
   return segments.map((segment) => segmentPage(context, segment));
 }
 
-/**
- * Import saved .xlsx cell values and common styles as a reusable JSON report template.
- * No formulas, macros, links, database calls or scripts are evaluated. The workbook is not modified.
- */
-export async function importExcelTemplate(input: ArrayBuffer | Uint8Array | Blob, options: ExcelImportOptions = {}): Promise<ExcelImportResult> {
+/** Common ZIP budgets and parsing for sheet inspection and actual grid import. */
+async function loadImportWorkbook(input: ArrayBuffer | Uint8Array | Blob, options: ExcelImportOptions, warnings: ImportWarnings): Promise<{ workbook: ExcelJS.Workbook; resolved: ResolvedImportOptions }> {
   assertOutputActive(options.signal);
   const resolved = resolveImportOptions(options);
-  const warnings = new ImportWarnings();
   const bytes = await checkedExcelBytes(input, resolved, warnings);
   assertOutputActive(options.signal);
   const workbook = new ExcelJSRuntime.Workbook();
@@ -190,6 +186,35 @@ export async function importExcelTemplate(input: ArrayBuffer | Uint8Array | Blob
   catch { throw new Error("Excel 文件解析失败；请确认它是未加密且完整的 .xlsx 文件"); }
   assertOutputActive(options.signal);
   if (workbook.worksheets.length > resolved.limits.maxSheets) throw new Error("Excel 工作表数量超过导入上限");
+  return { workbook, resolved };
+}
+export interface ExcelWorkbookSheet {
+  name: string;
+  index: number;
+  range: string;
+  rowCount: number;
+  columnCount: number;
+  visible: boolean;
+}
+export interface ExcelWorkbookInspection { sheets: ExcelWorkbookSheet[]; warnings: string[] }
+/** Inspect sheet metadata before selecting a bounded import; does not construct any template grids. */
+export async function inspectExcelWorkbook(input: ArrayBuffer | Uint8Array | Blob, options: ExcelImportOptions = {}): Promise<ExcelWorkbookInspection> {
+  const warnings = new ImportWarnings();
+  const { workbook } = await loadImportWorkbook(input, options, warnings);
+  const sheets = workbook.worksheets.map((sheet, index) => {
+    const range = selectedRange(sheet, sheetRangeOption(options, sheet.name));
+    return { name: sheet.name, index: index + 1, range: rangeName(range), rowCount: range.bottom - range.top + 1, columnCount: range.right - range.left + 1, visible: sheet.state === "visible" };
+  });
+  assertOutputActive(options.signal);
+  return { sheets, warnings: warnings.result() };
+}
+/**
+ * Import saved .xlsx cell values and common styles as a reusable JSON report template.
+ * No formulas, macros, links, database calls or scripts are evaluated. The workbook is not modified.
+ */
+export async function importExcelTemplate(input: ArrayBuffer | Uint8Array | Blob, options: ExcelImportOptions = {}): Promise<ExcelImportResult> {
+  const warnings = new ImportWarnings();
+  const { workbook, resolved } = await loadImportWorkbook(input, options, warnings);
   const selected = selectSheets(workbook, options);
   if (!selected.length) throw new Error("Excel 中没有可导入的可见工作表；可通过 sheets 显式选择隐藏工作表");
   const template: ExcelImportResult["template"] = { schemaVersion: RENDER_PLAN_SCHEMA_VERSION, pages: [] };

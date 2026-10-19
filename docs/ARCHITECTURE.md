@@ -31,6 +31,7 @@ xlsx/node ── AsyncIterable → 逐行工作表（不构造完整计划）
 | `server/`、`worker/` | 受控执行、任务队列、消息序列化和响应守护；Node线程入口独立构建 |
 | `designer/` | 可选属性组件与`useTemplateEditor`；复用模板验证和现有预览，不复制引擎 |
 | `analytics/` | 有预算的数据计算 / 交叉汇总与图元生成，不加载第三方图表框架 |
+| `processing/` | 核心与analytics共用的纯计算、十进制、聚合和矩阵；核心不反向加载可选子入口 |
 
 ## 接入原则
 
@@ -50,7 +51,11 @@ xlsx/node ── AsyncIterable → 逐行工作表（不构造完整计划）
 
 `usePageWindow` 计算几何范围，`usePageRendering` 管优先页、逐帧挂载、占位和代际取消；选区按新挂载的holder初始化，已有节点仅更新变化状态。几何、DOM构造和交互分别维护，避免把大宽表缩放调度交给集成页面。
 
-完整模板分页仍构造完整计划，不能从窗口化推导任意数据量恒定内存。默认Runtime在分页前预检逻辑规模，分页后核对实际页 / 单元格数；大任务选择Worker或流式出口，并在业务API限制查询范围。[质量矩阵](./QUALITY.md)记录各输出能力差异。
+`paginateTemplatePages`是真正逐页生成器，`paginateTemplate`在同一内核上收集完整计划。双遍页数计数复用计算 / 矩阵准备结果，输入数据与分组 / 关联索引仍按预算保留。Runtime在分页前预检逻辑规模，逐页累计实际渲染格（含重复锚点与嵌套网格），最后核对总量；多报表共用额度。Node全量Excel可另走AsyncIterable出口。[质量矩阵](./QUALITY.md)记录各输出能力差异。
+
+设计器按 `useTemplateEditor`（文档事务）、`useTemplateCanvas/useCanvasPointer`（几何交互）、`useRuleEditor/useRuleDataLayout`（声明式规则）、`useExcelBindingWizard`（工作簿会话）、`useTemplateWorkspace`（工具导航）拆分。大JSON历史保存可逆增量与周期检查点，拖动在RAF局部预览后一次提交，不把频繁交互变成全模板重排。
+
+`source/template-diff/template-review`处理纯变更和样例预检；`server/publication`才按需编码真实文件。`server/job-service`通过注入的原子CAS存储处理租约、attempt围栏、进度和恢复；`node-job-store`是独立单进程文件适配器，集群数据库由宿主提供。
 
 ## 操作生命周期与公开声明
 

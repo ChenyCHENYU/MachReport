@@ -17,6 +17,8 @@ export interface ExcelTableBinding {
   /** 将整个样例明细区域替换为动态数据；缺省为表头下方全部行。 */
   detail?: string;
   columns: readonly ExcelBindingColumn[];
+  /** Disable sample-cell number-format inference when a business schema is authoritative. */
+  inferSampleFormats?: boolean;
   rowKey?: string;
   revisionField?: string;
   sourceTokenField?: string;
@@ -119,7 +121,7 @@ function bindColumns(binding: ExcelTableBinding, header: PlanGrid, sample: PlanG
     fields.add(column.field);
     const label = leaves[index]?.text ?? column.field;
     const sampleCell = sampleCells.get(index);
-    const format = sampleFormat(sampleCell, column.format, column.field, warnings);
+    const format = binding.inferSampleFormats === false ? column.format : sampleFormat(sampleCell, column.format, column.field, warnings);
     return { ...column, ...(format ? { format } : {}), header: column.header ?? label, widthMm: widths[index]!, style: { ...sampleCell?.style, ...column.style }, ...(column.semanticRole && !column.align ? { align: "auto" as const } : {}), ...(column.editable === undefined && sampleCell?.editable === false ? { editable: false } : {}) };
   });
   applyHeaderOverrides(binding, leaves, columns);

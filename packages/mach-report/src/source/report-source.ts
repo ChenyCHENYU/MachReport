@@ -1,5 +1,5 @@
-import { PaginatePageLimitError, paginateTemplate, type DatasetRows, type PaginateOptions, type ReportParamDef, type ReportTemplate } from "../layout/paginate";
-import { RENDER_PLAN_SCHEMA_VERSION, type RenderPlan } from "../schema/render-plan";
+import { PaginateCellLimitError, PaginatePageLimitError, paginateTemplate, type DatasetRows, type PaginateOptions, type ReportParamDef, type ReportTemplate } from "../layout/paginate";
+import { RENDER_PLAN_SCHEMA_VERSION, type PlanComponent, type RenderPlan } from "../schema/render-plan";
 import { validateRenderPlan } from "../schema/validate";
 import { getReportParamDefs } from "./report-params";
 import { ReportTemplateError, validateReportTemplate } from "./template-registry";
@@ -184,16 +184,30 @@ function validateDataContract(definition: ReportDefinition, data: DatasetRows, r
   }
 }
 
-function paginateReport(template: ReportTemplate, data: DatasetRows, definition: ReportDefinition, reportId: string, pageBudget?: { maxPages: number; usedPages: number }): ReturnType<typeof paginateTemplate> {
-  const remainingPages = pageBudget ? pageBudget.maxPages - pageBudget.usedPages : undefined;
+interface SourcePaginationBudget { maxPages?: number; usedPages: number; maxCells?: number; usedCells: number }
+function planCells(plan: RenderPlan): number {
+  const count = (component: PlanComponent): number => component.grid?.cells.reduce((sum, row) => sum + row.reduce((size, cell) => size + (cell ? 1 + (cell.children?.reduce((total, child) => total + count(child), 0) ?? 0) : 0), 0), 0) ?? 0;
+  return plan.pages.reduce((sum, page) => sum + page.components.reduce((size, component) => size + count(component), 0), 0);
+}
+function sourcePagination(options: PaginateOptions | undefined, pages: number | undefined, cells: number | undefined, signal?: AbortSignal): PaginateOptions {
+  return { ...options, signal: signal ?? options?.signal,
+    ...(pages === undefined ? {} : { maxPages: Math.max(1, Math.min(pages, options?.maxPages ?? pages)) }),
+    ...(cells === undefined ? {} : { maxCells: Math.max(1, Math.min(cells, options?.maxCells ?? cells)) }) };
+}
+function paginateReport(template: ReportTemplate, data: DatasetRows, definition: ReportDefinition, reportId: string, budget: SourcePaginationBudget, signal?: AbortSignal): ReturnType<typeof paginateTemplate> & { cells: number } {
+  const remainingPages = budget.maxPages === undefined ? undefined : budget.maxPages - budget.usedPages;
+  const remainingCells = budget.maxCells === undefined ? undefined : budget.maxCells - budget.usedCells;
   try {
     if (remainingPages !== undefined && remainingPages < 1 && template.pages.length) throw new PaginatePageLimitError(0, 1);
-    const pagination = remainingPages === undefined ? definition.pagination : { ...definition.pagination,
-      maxPages: Math.max(1, Math.min(remainingPages, definition.pagination?.maxPages ?? remainingPages)) };
-    return paginateTemplate(template, data, pagination);
+    const pagination = sourcePagination(definition.pagination, remainingPages, remainingCells, signal);
+    const result = paginateTemplate(template, data, pagination);
+    const cells = planCells(result.plan);
+    if (remainingCells !== undefined && cells > remainingCells) throw new PaginateCellLimitError(remainingCells, cells);
+    return { ...result, cells };
   } catch (error) {
-    const cause = error instanceof PaginatePageLimitError && pageBudget && error.limit === remainingPages
-      ? new PaginatePageLimitError(pageBudget.maxPages, pageBudget.usedPages + error.actual) : error;
+    let cause = error;
+    if (error instanceof PaginatePageLimitError && budget.maxPages !== undefined && error.limit === remainingPages) cause = new PaginatePageLimitError(budget.maxPages, budget.usedPages + error.actual);
+    if (error instanceof PaginateCellLimitError && budget.maxCells !== undefined) cause = new PaginateCellLimitError(budget.maxCells, budget.usedCells + error.actual);
     throw new ReportSourceError("validate", `报表 ${reportId} 排版失败：${cause instanceof Error ? cause.message : String(cause)}`, cause);
   }
 }
@@ -221,9 +235,10 @@ function appendTablePages(pages: RenderPlan["pages"], plan: RenderPlan, reportIn
  */
 export function createReportSource(
   reports: ReportRegistry,
-  options: { onWarning?: (message: string) => void; onDatasets?: (reportId: string, datasets: DatasetRows, template: ReportTemplate) => void; maxPages?: number } = {}
+  options: { onWarning?: (message: string) => void; onDatasets?: (reportId: string, datasets: DatasetRows, template: ReportTemplate) => void; maxPages?: number; maxCells?: number } = {}
 ): ReportSource {
   if (options.maxPages !== undefined && (!Number.isSafeInteger(options.maxPages) || options.maxPages < 1)) throw new ReportSourceError("config", "maxPages 应为正安全整数");
+  if (options.maxCells !== undefined && (!Number.isSafeInteger(options.maxCells) || options.maxCells < 1)) throw new ReportSourceError("config", "maxCells 应为正安全整数");
   function definitionFor(id: string): ReportDefinition {
     const definition = Object.prototype.hasOwnProperty.call(reports, id) ? reports[id] : undefined;
     if (!definition) throw new ReportSourceError("config", `未注册报表 ${id}`);
@@ -244,6 +259,7 @@ export function createReportSource(
       definition.params ?? (typeof definition.template === "function" ? [] : definition.template.params) ?? [], requestedParams
     )));
     const pages: RenderPlan["pages"] = [];
+    let usedCells = 0;
     const warnings: string[] = [];
     for (const [index, definition] of definitions.entries()) {
       checkAbort(signal);
@@ -260,7 +276,8 @@ export function createReportSource(
         validateDataContract(definition, data, reportId);
       }, reportId);
       checkAbort(signal);
-      const result = reporter.runSync("layout", () => paginateReport(template, data, definition, reportId, options.maxPages === undefined ? undefined : { maxPages: options.maxPages, usedPages: pages.length }), reportId);
+      const result = reporter.runSync("layout", () => paginateReport(template, data, definition, reportId, { maxPages: options.maxPages, usedPages: pages.length, maxCells: options.maxCells, usedCells }, signal), reportId);
+      usedCells += result.cells;
       appendTablePages(pages, result.plan, index, reportId);
       warnings.push(...result.warnings.map((message) => `${reportId}: ${message}`));
     }

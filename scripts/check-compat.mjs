@@ -43,7 +43,7 @@ try {
   }
   writeFileSync(resolve(scratch, "consumer.mts"), `
 import { ReportPreview, type ReportPreviewTask, type MachReportController } from '@agile-team/mach-report/vue';
-import { ReportTemplateEditor } from '@agile-team/mach-report/designer';
+import { ReportTemplateEditor, ExcelBindingWizard, RuleEditor, TemplateReviewPanel } from '@agile-team/mach-report/designer';
 import { createReportRuntime, type ReportRuntimeInput } from '@agile-team/mach-report/server';
 import type { ReportTaskEvent, ReportTemplateDocument } from '@agile-team/mach-report';
 type PreviewProps = InstanceType<typeof ReportPreview>['$props'];
@@ -58,6 +58,11 @@ preview.reload(); preview.getChanges?.(); preview.focusField?.({field:'name'});
 preview.gotoPage('2');
 declare const document: ReportTemplateDocument;
 const editorProps: InstanceType<typeof ReportTemplateEditor>['$props'] = { modelValue: document };
+const wizard: InstanceType<typeof ExcelBindingWizard>['$props'] = { datasets: [{id:'detail',fields:[{field:'id',type:'text'}],rowKey:'id'}] };
+const review: InstanceType<typeof TemplateReviewPanel>['$props'] = { document };
+type RuleProps = InstanceType<typeof RuleEditor>['$props'];
+declare const rule: RuleProps;
+void [wizard, review, rule];
 // @ts-expect-error 模板文档不能为数字
 const invalidEditor: InstanceType<typeof ReportTemplateEditor>['$props'] = { modelValue: 12 };
 declare const editor: InstanceType<typeof ReportTemplateEditor>;

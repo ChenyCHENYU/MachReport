@@ -10,94 +10,15 @@ import type {
 import { RENDER_PLAN_SCHEMA_VERSION } from "../schema/render-plan";
 import { DEFAULT_FONT_FAMILY, DEFAULT_FONT_PT, LINE_HEIGHT } from "../defaults";
 import { heuristicMeasurer, wrapText, type TextMeasureOptions, type TextMeasurer } from "./textwrap";
-import { evalStyleRule, formatValue, toExcelNumberFormat, type ColumnFormat, type StyleRule } from "../format";
+import { evalStyleRule, formatValue, toExcelNumberFormat, type ColumnFormat } from "../format";
+import { computeDataset, type FormulaAdapter } from "../processing/computed";
+import { aggregateRows, type AggregateDefinition } from "../processing/aggregate";
+import { createMatrixTable, estimateMatrixTable } from "../processing/matrix";
+import { projectListColumns } from "./list-projection";
 import { mergeComponentStyles, resolveFontSize } from "../render/style";
 
-/** auto：真实数字/显式数值格式居右，日期与布尔居中，其他内容居左。 */
-export type ListAlignment = NonNullable<ComponentStyle["align"]> | "auto";
-
-export interface ListColumn {
-  header: string;
-  field: string;
-  widthMm: number;
-  style?: ComponentStyle;
-  /** 内容对齐，优先于 style.align；数值字符串不会自动判为数字。 */
-  align?: ListAlignment;
-  /** 独立的表头对齐，不改变内容对齐。 */
-  headerAlign?: ComponentStyle["align"];
-  /** 独立的表头样式，优先于列表级表头样式。 */
-  headerStyle?: ComponentStyle;
-  /** 值格式化（声明式）：千分位/小数位、百分比、日期 pattern */
-  format?: ColumnFormat;
-  /** 条件格式规则（声明式，命中合并进单元格样式；如负数红字） */
-  rules?: StyleRule[];
-  /** 内容列编辑控制；仍需由预览显式开启 editing，不影响表头/小计只读规则。 */
-  editable?: boolean;
-  /** 空值列或特殊数据类型可显式声明编辑输入类型。 */
-  valueType?: GridCell["valueType"];
-  /** 字段语义用于 auto 对齐；明确声明编号，避免把数字编号当成度量。 */
-  semanticRole?: "identifier" | "dimension" | "measure" | "date" | "text";
-}
-
-/** 分组小计配置（声明式，见 ListComponent.groupBy） */
-export interface ListGroupBy {
-  /** 分组字段（值变化即切组） */
-  field: string;
-  /** 组头文案模板，{value} 占位（默认 "{value}"） */
-  headerTemplate?: string;
-  headerStyle?: ComponentStyle;
-  /** 需要小计的列字段（组尾输出合计行；数值列求和，其余输出首值/留空） */
-  subtotal?: string[];
-  subtotalStyle?: ComponentStyle;
-  subtotalLabel?: string;
-  /** 组头防孤行（默认 true：页尾放不下"组头+首行"时整体换页） */
-  keepWithNext?: boolean;
-}
-
-export type ListGrandTotal =
-  | boolean
-  | {
-      label?: string;
-      style?: ComponentStyle;
-      /** 合计列（缺省沿用 groupBy.subtotal） */
-      fields?: string[];
-    };
-
-export interface ListComponent {
-  kind: "list";
-  id?: string;
-  /** 宽表标记用于连续 Excel；不改变低层列表的列宽和分页算法。 */
-  layout?: "page" | "wide";
-  /** 逻辑表名称，供 Excel Sheet 命名；不额外生成标题组件。 */
-  title?: string;
-  leftMm: number;
-  topMm: number;
-  widthMm: number;
-  dataset: string;
-  /** 数据集中稳定业务主键的字段名；省略时编辑仅有计划内坐标。 */
-  rowKey?: string;
-  revisionField?: string;
-  sourceTokenField?: string;
-  columns: ListColumn[];
-  fontSizePt?: number;
-  headerBold?: boolean;
-  rowHeightMm?: number;
-  paddingMm?: number;
-  headerEveryPage?: boolean;
-  headerBackgroundColor?: string;
-  /** 内容默认对齐，列配置可覆盖；低层模板缺省仍为 left。 */
-  align?: ListAlignment;
-  /** 表头默认对齐，列配置可覆盖。 */
-  headerAlign?: ComponentStyle["align"];
-  headerStyle?: ComponentStyle;
-  /** 可选多行合并表头；列宽按列表物理列对齐，供 Excel 业务模板复用。 */
-  headerGrid?: PlanGrid;
-  border?: boolean;
-  /** 分组小计（组头/组尾小计/组头防孤行） */
-  groupBy?: ListGroupBy;
-  /** 末尾总合计行（依赖 groupBy.subtotal 或显式 fields） */
-  grandTotal?: ListGrandTotal;
-}
+import type { ListColumn, ListComponent, ListGroupBy } from "./list-model";
+export type { ListAlignment, ListColumn, ListComponent, ListGroupBy, ListGrandTotal, ListDetail } from "./list-model";
 
 export type TemplateComponent = PlanComponent | ListComponent;
 
@@ -148,6 +69,14 @@ export interface PaginateOptions {
   measurer?: TextMeasurer;
   /** 可选页数上限；在追加超限页前终止，避免先分配全部页面再检查。 */
   maxPages?: number;
+  /** Actual grid cells, including repeated furniture and nested children; checked before each page is appended. */
+  maxCells?: number;
+  signal?: AbortSignal;
+  /** Streaming total-page anchors can skip the bounded counting pass when known. */
+  knownTotalPages?: number;
+  onWarning?: (warning: string) => void;
+  /** Trusted formula adapter is passed at execution time; it is never serialized in templates. */
+  formula?: FormulaAdapter;
 }
 
 export class PaginatePageLimitError extends Error {
@@ -155,6 +84,14 @@ export class PaginatePageLimitError extends Error {
   constructor(readonly limit: number, readonly actual: number) {
     super(`报表页数超出上限 ${limit}（至少 ${actual} 页）`);
     this.name = "PaginatePageLimitError";
+  }
+}
+
+export class PaginateCellLimitError extends Error {
+  readonly code = "cell-limit";
+  constructor(readonly limit: number, readonly actual: number) {
+    super(`报表单元格数量超出上限 ${limit}（至少 ${actual} 格）`);
+    this.name = "PaginateCellLimitError";
   }
 }
 
@@ -186,7 +123,12 @@ function makeWorkingPage(page: TemplatePage): WorkingPage {
 }
 
 function toContentBottom(page: TemplatePage, wp: WorkingPage): number {
-  return wp.heightMm - (page.layout === "wide" ? wp.marginBottomMm : (page.marginBottomMm ?? wp.marginBottomMm));
+  const bottom = wp.heightMm - (page.layout === "wide" ? wp.marginBottomMm : (page.marginBottomMm ?? wp.marginBottomMm));
+  return page.components.reduce((limit, component) => component.kind !== "list" && component.pageAnchor === "footer" ? Math.min(limit, component.topMm) : limit, bottom);
+}
+
+function headerBottom(page: TemplatePage): number {
+  return page.components.reduce((bottom, component) => component.kind !== "list" && component.pageAnchor === "header" ? Math.max(bottom, component.topMm + component.heightMm) : bottom, 0);
 }
 
 function cellText(value: unknown): string {
@@ -381,7 +323,7 @@ function buildRowGridFast(
   const cells: GridCellCompat[] = new Array(columns.length);
   for (let i = 0; i < columns.length; i++) {
     const col = columns[i]!;
-    const rawValue = row[col.field];
+    const rawValue = col.visibleWhen && !evalStyleRule(row, col.visibleWhen) ? null : row[col.field];
     const alignment = inter.autoStyles[i] ? autoAlignment(rawValue, col.format, col.semanticRole) : "left";
     let style = inter.autoStyles[i]?.[alignment] ?? inter.cellStyles[i]!;
     // 条件格式首个命中生效；所有变体在列表级驻留，热路径不构造样式对象。
@@ -403,6 +345,7 @@ function buildRowGridFast(
     const cell: GridCell = { text, style };
     if (value !== undefined) cell.value = value;
     applyCellEditMetadata(cell, col, inter.numberFormats[i]);
+    if (col.visibleWhen && rawValue === null && !evalStyleRule(row, col.visibleWhen)) cell.editable = false;
     cells[i] = cell;
   }
   return {
@@ -414,48 +357,41 @@ function buildRowGridFast(
 interface GridRow {
   grid: PlanGrid;
   heightMm: number;
+  table?: Pick<PlanTableFragment, "id" | "columnKeys" | "title">;
 }
 
 type DataRow = Record<string, unknown>;
 type RowUnit =
   | { kind: "row"; row: DataRow }
-  | { kind: "groupHeader"; label: string; firstRow: DataRow }
-  | { kind: "subtotal"; label: string; rows: DataRow[] };
+  | { kind: "groupHeader"; label: string; firstRow: DataRow; group: ListGroupBy; depth: number; rows: DataRow[] }
+  | { kind: "subtotal"; label: string; rows: DataRow[]; group: ListGroupBy; depth: number }
+  | { kind: "groupEnd"; depth: number };
 
-/** 只在需要分组时保存组桶；普通明细逐行产生，不再复制完整事件数组。 */
-function* listRowUnits(rows: DataRow[], groupBy?: ListGroupBy): Generator<RowUnit> {
-  if (!groupBy) {
-    for (const row of rows) yield { kind: "row", row };
-    return;
-  }
-  const groups = new Map<string, DataRow[]>();
-  for (const row of rows) {
-    const key = cellText(row[groupBy.field]);
-    const bucket = groups.get(key);
-    if (bucket) bucket.push(row);
-    else groups.set(key, [row]);
-  }
-  for (const [key, bucket] of groups) {
-    yield { kind: "groupHeader", label: (groupBy.headerTemplate ?? "{value}").replace(/\{value\}/g, key), firstRow: bucket[0]! };
-    for (const row of bucket) yield { kind: "row", row };
-    if (groupBy.subtotal?.length) yield { kind: "subtotal", label: groupBy.subtotalLabel ?? "小计", rows: bucket };
+function groupingKey(value: unknown): string {
+  if (value != null && typeof value !== "string" && typeof value !== "boolean" && !(typeof value === "number" && Number.isFinite(value))) throw new Error("分组字段应为有限 JSON 标量");
+  return JSON.stringify([typeof value, value ?? null]);
+}
+/** Buckets contain input references only; no complete event or render-plan array is retained. */
+function* listRowUnits(rows: DataRow[], groups: ListGroupBy[], depth = 0): Generator<RowUnit> {
+  const group = groups[depth];
+  if (!group) { for (const row of rows) yield { kind: "row", row }; return; }
+  const buckets = new Map<string, DataRow[]>();
+  for (const row of rows) { const key = groupingKey(row[group.field]); const bucket = buckets.get(key); if (bucket) bucket.push(row); else buckets.set(key, [row]); }
+  for (const bucket of buckets.values()) {
+    const label = (group.headerTemplate ?? "{value}").replace(/\{value\}/g, cellText(bucket[0]![group.field]));
+    yield { kind: "groupHeader", label, firstRow: bucket[0]!, group, depth, rows: bucket };
+    yield* listRowUnits(bucket, groups, depth + 1);
+    if (group.subtotal?.length || group.aggregates?.length) yield { kind: "subtotal", label: group.subtotalLabel ?? "小计", rows: bucket, group, depth };
+    yield { kind: "groupEnd", depth };
   }
 }
 
-function numericSum(rows: DataRow[], field: string): number {
-  let sum = 0;
-  for (const row of rows) {
-    const number = typeof row[field] === "number" ? row[field] as number : Number(row[field]);
-    if (Number.isFinite(number)) sum += number;
-  }
-  return sum;
-}
-
-function summaryValues(columns: ListColumn[], rows: DataRow[], fields: string[]): Map<string, GridCell> {
-  return new Map(fields.map((field) => {
-    const format = columns.find((column) => column.field === field)?.format ?? { kind: "number" as const, thousands: true };
-    const value = numericSum(rows, field);
-    return [field, { text: formatValue(value, format), value, numberFormat: toExcelNumberFormat(format) }];
+function summaryValues(columns: ListColumn[], rows: DataRow[], fields: string[], aggregates: AggregateDefinition[] = []): Map<string, GridCell> {
+  const definitions: AggregateDefinition[] = [...fields.filter((field) => !aggregates.some((item) => item.field === field)).map((field): AggregateDefinition => ({ field, op: "sum" })), ...aggregates];
+  return new Map(definitions.map((definition) => {
+    const format = columns.find((column) => column.field === definition.field)?.format ?? { kind: "number" as const, thousands: true };
+    const value = aggregateRows(rows, { ...definition, field: definition.valueField ?? definition.field });
+    return [definition.field, { text: formatValue(value, format), ...(value === null ? {} : { value }), ...(typeof value === "number" ? { numberFormat: toExcelNumberFormat(format) } : {}) }];
   }));
 }
 
@@ -507,10 +443,16 @@ interface ListPageContext {
   tableId: string;
   nextId(prefix: string): string;
   pushCurrent(isFinal?: boolean): void;
+  takePages(): PlanPage[];
+  datasets: DatasetRows;
+  signal?: AbortSignal;
+  formula?: FormulaAdapter;
+  prepared: WeakMap<ListComponent, PreparedListData>;
 }
 
 interface ListPageWriter {
   keepTogether(heightMm: number): void;
+  setGroupHeader(depth: number, row?: GridRow): void;
   placeGridRow(row: GridRow, prefix: string, role: PlanTableFragment["role"], source?: PlanTableFragment["source"]): void;
 }
 
@@ -518,32 +460,35 @@ interface ListPageWriter {
 function createListPageWriter(list: ListComponent, inter: ListInterningWithFloor, context: ListPageContext): ListPageWriter {
   const { templatePage, current, warnings, nextId, pushCurrent } = context;
   const contentBottom = () => toContentBottom(templatePage, current);
-  const contentTop = current.marginTopMm;
+  const contentTop = Math.max(current.marginTopMm, headerBottom(templatePage));
+  const continuationTop = templatePage.layout === "wide" ? headerBottom(templatePage) : contentTop;
   const tableBase = {
     id: context.tableId,
     columnKeys: list.columns.map((column) => column.field),
     ...(list.layout === undefined ? {} : { layout: list.layout }),
     ...(list.title === undefined ? {} : { title: list.title })
   };
-  let rowIndex = 0;
+  const rowIndices = new Map<string, number>();
+  const repeatedHeaders = new Map<number, GridRow>();
   const header: PlanComponent = {
     kind: "rect", leftMm: list.leftMm, topMm: 0, widthMm: list.widthMm,
     heightMm: inter.headerHeightMm, grid: inter.headerGrid, nid: nextId("listh"),
     table: { ...tableBase, role: "header", rowIndex: -1 }, style: inter.borderStyle
   };
   const placeHeader = (topMm: number) => current.components.push({ ...header, topMm });
-  let y = list.topMm;
+  let y = Math.max(list.topMm, contentTop);
   placeHeader(y);
   y += inter.headerHeightMm + context.mmPerRow;
 
   function freshTop(): number {
-    const top = templatePage.layout === "wide" ? 0 : list.topMm;
-    return list.headerEveryPage !== false ? top + inter.headerHeightMm : (templatePage.layout === "wide" ? 0 : contentTop);
+    const top = Math.max(templatePage.layout === "wide" ? 0 : list.topMm, continuationTop);
+    const headerTop = list.headerEveryPage !== false ? top + inter.headerHeightMm : continuationTop;
+    return headerTop + [...repeatedHeaders.values()].reduce((sum, row) => sum + row.heightMm, 0);
   }
 
   function freshCapacity(): number {
     const marginBottom = templatePage.layout === "wide" ? 0 : current.marginBottomMm;
-    return templatePage.heightMm - marginBottom - freshTop();
+    return Math.min(templatePage.heightMm - marginBottom, toContentBottom(templatePage, current)) - freshTop();
   }
 
   function ensureSpace(heightMm: number): void {
@@ -555,21 +500,28 @@ function createListPageWriter(list: ListComponent, inter: ListInterningWithFloor
       current.marginTopMm = 0;
       current.marginBottomMm = 0;
     }
-    const top = templatePage.layout === "wide" ? 0 : list.topMm;
+    const top = Math.max(templatePage.layout === "wide" ? 0 : list.topMm, continuationTop);
     if (list.headerEveryPage !== false) {
       placeHeader(top);
       y = top + inter.headerHeightMm;
-    } else y = templatePage.layout === "wide" ? 0 : contentTop;
+    } else y = continuationTop;
+    for (const row of repeatedHeaders.values()) appendGridRow(row, "listgr", "group-header");
   }
 
   function placeGridRow(row: GridRow, prefix: string, role: PlanTableFragment["role"], source?: PlanTableFragment["source"]): void {
     const available = freshCapacity();
     if (row.heightMm > available) warnings.push(`列表 ${list.id ?? list.dataset} 行高 ${row.heightMm.toFixed(2)}mm 超出单页可用高度 ${available.toFixed(2)}mm，预览与打印可能截断内容`);
     ensureSpace(row.heightMm);
+    appendGridRow(row, prefix, role, source);
+  }
+  function appendGridRow(row: GridRow, prefix: string, role: PlanTableFragment["role"], source?: PlanTableFragment["source"]): void {
+    const id = row.table?.id ?? tableBase.id;
+    const rowIndex = role === "header" ? -1 : rowIndices.get(id) ?? 0;
+    if (role !== "header") rowIndices.set(id, rowIndex + 1);
     current.components.push({
       kind: "rect", leftMm: list.leftMm, topMm: y, widthMm: list.widthMm,
       heightMm: row.heightMm, grid: row.grid, nid: nextId(prefix),
-      table: { ...tableBase, role, rowIndex: rowIndex++, ...(source ? { source } : {}) }, style: inter.borderStyle
+      table: { ...tableBase, ...row.table, role, rowIndex, ...(source ? { source } : {}) }, style: inter.borderStyle
     });
     y += row.heightMm;
   }
@@ -577,7 +529,8 @@ function createListPageWriter(list: ListComponent, inter: ListInterningWithFloor
     // 组合本身放不下新页时，按单行溢出策略处理；不要制造只有表头的额外空页。
     if (heightMm <= freshCapacity()) ensureSpace(heightMm);
   }
-  return { keepTogether, placeGridRow };
+  const setGroupHeader = (depth: number, row?: GridRow) => { if (row) repeatedHeaders.set(depth, row); else repeatedHeaders.delete(depth); };
+  return { keepTogether, placeGridRow, setGroupHeader };
 }
 
 function rowSource(list: ListComponent, row: DataRow): PlanTableFragment["source"] {
@@ -610,47 +563,136 @@ function checkedRowSources(list: ListComponent, rows: DataRow[]): Map<DataRow, P
 function placeGrandTotal(list: ListComponent, rows: DataRow[], inter: ListInterningWithFloor, context: ListPageContext, writer: ListPageWriter): void {
   if (!list.grandTotal) return;
   const total = typeof list.grandTotal === "object" ? list.grandTotal : undefined;
-  const fields = total?.fields ?? list.groupBy?.subtotal ?? [];
-  if (fields.length === 0) {
+  const group = groupsFor(list)[0];
+  const fields = total?.fields ?? group?.subtotal ?? [];
+  const aggregates = total?.aggregates ?? group?.aggregates ?? [];
+  if (fields.length === 0 && aggregates.length === 0) {
     context.warnings.push(`列表 ${list.id ?? ""} 配置了 grandTotal 但未提供合计字段（groupBy.subtotal 或 grandTotal.fields）`);
     return;
   }
-  const row = buildSpanRow(inter, context.measurer, total?.label ?? "合计", summaryValues(list.columns, rows, fields), total?.style ?? {}, labelSpanFor(list.columns, fields));
+  const row = buildSpanRow(inter, context.measurer, total?.label ?? "合计", summaryValues(list.columns, rows, fields, aggregates), total?.style ?? {}, labelSpanFor(list.columns, [...fields, ...aggregates.map((item) => item.field)]));
   writer.placeGridRow(row, "listgt", "grand-total");
 }
 
-function paginateList(list: ListComponent, rows: DataRow[], context: ListPageContext): void {
-  const sources = checkedRowSources(list, rows);
-  const width = list.columns.reduce((sum, column) => sum + column.widthMm, 0);
-  const scale = width > list.widthMm ? list.widthMm / width : 1;
-  const scaled = scale === 1 ? list : { ...list, columns: list.columns.map((column) => ({ ...column, widthMm: column.widthMm * scale })) };
+function checkPaginationAbort(signal?: AbortSignal): void {
+  if (signal?.aborted) { const error = new Error("报表排版已取消"); error.name = "AbortError"; throw error; }
+}
+function groupsFor(list: ListComponent): ListGroupBy[] {
+  const groups = list.groups ?? (list.groupBy ? [list.groupBy] : []);
+  if (groups.length > 16) throw new Error("列表最多支持 16 级分组");
+  return groups;
+}
+function scaleList(list: ListComponent): ListComponent {
+  const projected = projectListColumns(list);
+  const width = projected.columns.reduce((sum, column) => sum + column.widthMm, 0);
+  const scale = width > projected.widthMm ? projected.widthMm / width : 1;
+  return scale === 1 ? projected : { ...projected, columns: projected.columns.map((column) => ({ ...column, widthMm: column.widthMm * scale })) };
+}
+interface DetailContext { list: ListComponent; inter: ListInterningWithFloor; rows: Map<string, DataRow[]>; sources: Map<DataRow, PlanTableFragment["source"]> }
+function detailContext(list: ListComponent, rows: DataRow[], context: ListPageContext): DetailContext | undefined {
+  const detail = list.detail;
+  if (!detail) return undefined;
+  const parentKeys = new Set<string>();
+  for (const row of rows) { const key = relationKey(row[detail.parentKey]); if (parentKeys.has(key)) throw new Error("主从明细的主表关联键重复"); parentKeys.add(key); }
+  const children = context.datasets[detail.dataset] ?? [], buckets = new Map<string, DataRow[]>();
+  for (const row of children) {
+    const key = relationKey(row[detail.foreignKey]);
+    if (!parentKeys.has(key)) { if (detail.unmatched !== "ignore") throw new Error(`明细数据集 ${detail.dataset} 存在未关联的业务键`); continue; }
+    const bucket = buckets.get(key); if (bucket) bucket.push(row); else buckets.set(key, [row]);
+  }
+  const childList = scaleList({ ...list, id: `${list.id ?? list.dataset}:detail`, dataset: detail.dataset, rowKey: detail.rowKey, columns: detail.columns, headerGrid: undefined, rowHeightMm: detail.rowHeightMm ?? list.rowHeightMm, detail: undefined });
+  return { list: childList, inter: { ...interList(childList, context.measurer), rowHeightFloorMm: childList.rowHeightMm ?? 0 }, rows: buckets, sources: checkedRowSources(childList, children) };
+}
+function relationKey(value: unknown): string {
+  if ((typeof value !== "string" || !value.trim()) && !(typeof value === "number" && Number.isFinite(value))) throw new Error("主从关联键必须是非空字符串或有限数字");
+  return groupingKey(value);
+}
+function* placeDetails(master: ListComponent, row: DataRow, detail: DetailContext | undefined, context: ListPageContext, writer: ListPageWriter): Generator<PlanPage> {
+  if (!detail) return;
+  const rows = detail.rows.get(relationKey(row[master.detail!.parentKey])) ?? [];
+  if (!rows.length) return;
+  const table = { id: `${context.tableId}:detail`, columnKeys: detail.list.columns.map((column) => column.field), title: master.detail!.label };
+  if (master.detail!.label) writer.placeGridRow({ ...buildSpanRow(detail.inter, context.measurer, master.detail!.label, new Map(), {}, detail.list.columns.length), table }, "listdl", "group-header");
+  if (master.detail!.header !== false) writer.placeGridRow({ grid: detail.inter.headerGrid, heightMm: detail.inter.headerHeightMm, table }, "listdh", "header");
+  yield* context.takePages();
+  for (const child of rows) {
+    checkPaginationAbort(context.signal);
+    writer.placeGridRow({ ...buildRowGridFast(detail.inter, child, context.measurer), table }, "listdr", "body", detail.sources.get(child));
+    yield* context.takePages();
+  }
+}
+function resolveMatrix(list: ListComponent, rows: DataRow[]): { list: ListComponent; rows: DataRow[] } {
+  if (!list.matrix) return { list, rows };
+  if (list.detail || list.groupBy || list.groups?.length || list.grandTotal) throw new Error("矩阵不能同时配置普通分组、总计或主从明细");
+  const result = createMatrixTable(rows, list.matrix);
+  const columns: ListColumn[] = result.columns.map((column, index) => ({ ...column, widthMm: index === 0 ? list.matrix!.rowWidthMm ?? 40 : list.matrix!.columnWidthMm ?? 28, editable: false, align: index === 0 ? "center" : "right" }));
+  const derived: ListComponent = { ...list, columns, headerGrid: undefined, rowKey: undefined, revisionField: undefined, sourceTokenField: undefined };
+  if (list.layout === "wide") derived.widthMm = columns.reduce((sum, column) => sum + column.widthMm, 0);
+  return { list: derived, rows: result.rows };
+}
+interface PreparedListData { list: ListComponent; rows: DataRow[] }
+function prepareListData(list: ListComponent, input: DataRow[], context: ListPageContext): PreparedListData {
+  const existing = context.prepared.get(list);
+  if (existing) return existing;
+  let rows = list.computed?.length ? computeDataset(input, { fields: list.computed, signal: context.signal, formula: context.formula }).rows : input;
+  if (list.rowVisibleWhen) rows = rows.filter((row) => evalStyleRule(row, list.rowVisibleWhen!));
+  const result = resolveMatrix(list, rows);
+  context.prepared.set(list, result);
+  return result;
+}
+function* paginateList(list: ListComponent, input: DataRow[], context: ListPageContext): Generator<PlanPage> {
+  const prepared = prepareListData(list, input, context);
+  const rows = prepared.rows;
+  list = prepared.list;
+  if (list.layout === "wide") context.current.widthMm = Math.max(context.current.widthMm, list.leftMm + list.widthMm + context.current.marginRightMm);
+  const sources = checkedRowSources(list, rows), scaled = scaleList(list), groups = groupsFor(scaled);
   const inter = { ...interList(scaled, context.measurer), rowHeightFloorMm: scaled.rowHeightMm ?? 0 };
-  const writer = createListPageWriter(scaled, inter, context);
+  const writer = createListPageWriter(scaled, inter, context), detail = detailContext(scaled, rows, context);
   let nextRow: GridRow | undefined;
-  for (const unit of listRowUnits(rows, scaled.groupBy)) {
+  for (const unit of listRowUnits(rows, groups)) {
+    checkPaginationAbort(context.signal);
     if (unit.kind === "row") {
       writer.placeGridRow(nextRow ?? buildRowGridFast(inter, unit.row, context.measurer), "listr", "body", sources.get(unit.row));
       nextRow = undefined;
+      yield* context.takePages();
+      yield* placeDetails(scaled, unit.row, detail, context, writer);
     } else if (unit.kind === "groupHeader") {
-      const row = buildSpanRow(inter, context.measurer, unit.label, new Map(), scaled.groupBy?.headerStyle ?? {}, scaled.columns.length);
-      // 使用真实首行高度，包括条件字号与多行内容；下一轮直接复用测量结果。
-      nextRow = buildRowGridFast(inter, unit.firstRow, context.measurer);
-      if (scaled.groupBy?.keepWithNext !== false) writer.keepTogether(row.heightMm + nextRow.heightMm);
+      const row = buildSpanRow(inter, context.measurer, unit.label, new Map(), unit.group.headerStyle ?? {}, scaled.columns.length);
+      nextRow ??= buildRowGridFast(inter, unit.firstRow, context.measurer);
+      const followingHeaders = groups.slice(unit.depth + 1).reduce((height, group) => height + buildSpanRow(inter, context.measurer, (group.headerTemplate ?? "{value}").replace(/\{value\}/g, cellText(unit.firstRow[group.field])), new Map(), group.headerStyle ?? {}, scaled.columns.length).heightMm, 0);
+      if (unit.group.keepWithNext !== false) writer.keepTogether(row.heightMm + followingHeaders + nextRow.heightMm);
       writer.placeGridRow(row, "listg", "group-header");
-    } else {
-      const fields = scaled.groupBy?.subtotal ?? [];
-      const row = buildSpanRow(inter, context.measurer, unit.label, summaryValues(scaled.columns, unit.rows, fields), scaled.groupBy?.subtotalStyle ?? {}, labelSpanFor(scaled.columns, fields));
+      if (unit.group.repeatHeader) writer.setGroupHeader(unit.depth, row);
+    } else if (unit.kind === "subtotal") {
+      const fields = unit.group.subtotal ?? [], aggregates = unit.group.aggregates ?? [];
+      const row = buildSpanRow(inter, context.measurer, unit.label, summaryValues(scaled.columns, unit.rows, fields, aggregates), unit.group.subtotalStyle ?? {}, labelSpanFor(scaled.columns, [...fields, ...aggregates.map((item) => item.field)]));
       writer.placeGridRow(row, "listst", "subtotal");
-    }
+    } else writer.setGroupHeader(unit.depth);
+    yield* context.takePages();
   }
   placeGrandTotal(scaled, rows, inter, context, writer);
+  yield* context.takePages();
 }
 
 function isPageAnchor(component: TemplateComponent): component is PlanComponent {
-  return component.kind === "text" && typeof component.text === "string" && (component.text.includes("{page}") || component.text.includes("{totalPages}"));
+  return component.kind !== "list" && (component.pageAnchor !== undefined || (component.kind === "text" && typeof component.text === "string" && (component.text.includes("{page}") || component.text.includes("{totalPages}"))));
 }
 
-function pushWorkingPage(templatePage: TemplatePage, current: WorkingPage, anchors: PlanComponent[], pages: PlanPage[], placeholders: PlanComponent[], isFinal: boolean): void {
+function mapAnchorText(component: PlanComponent, replace: (text: string) => string): PlanComponent {
+  return {
+    ...component,
+    ...(component.text === undefined ? {} : { text: replace(component.text) }),
+    ...(component.lines ? { lines: component.lines.map(replace) } : {}),
+    ...(component.richParagraphs ? { richParagraphs: component.richParagraphs.map((paragraph) => ({ ...paragraph, segments: paragraph.segments.map((segment) => ({ ...segment, ...(segment.text === undefined ? {} : { text: replace(segment.text) }) })) })) } : {}),
+    ...(component.grid ? { grid: { ...component.grid, cells: component.grid.cells.map((row) => row.map((cell) => cell ? { ...cell, ...(cell.text === undefined ? {} : { text: replace(cell.text) }), ...(cell.children ? { children: cell.children.map((child) => mapAnchorText(child, replace)) } : {}) } : null)) } } : {})
+  };
+}
+function hasTotalAnchor(template: ReportTemplate): boolean {
+  let result = false;
+  for (const page of template.pages) for (const component of page.components) if (isPageAnchor(component)) mapAnchorText(component, (text) => { if (text.includes("{totalPages}")) result = true; return text; });
+  return result;
+}
+function outputPage(templatePage: TemplatePage, current: WorkingPage, anchors: PlanComponent[], pageNumber: number, isFinal: boolean, totalPages?: number): PlanPage {
   const output: PlanPage = {
     pageWidthMm: current.widthMm, pageHeightMm: current.heightMm,
     ...(templatePage.layout === undefined ? {} : { layout: templatePage.layout }),
@@ -658,48 +700,104 @@ function pushWorkingPage(templatePage: TemplatePage, current: WorkingPage, ancho
     marginLeftMm: current.marginLeftMm, marginRightMm: current.marginRightMm,
     components: current.components
   };
-  pages.push(output);
-  for (const anchor of anchors) {
-    const clone = { ...anchor, text: String(anchor.text ?? "").replace(/\{page\}/g, String(pages.length)) };
-    output.components.push(clone);
-    if (clone.text.includes("{totalPages}")) placeholders.push(clone);
-  }
+  const replace = (text: string) => {
+    const paged = text.replace(/\{page\}/g, String(pageNumber));
+    return totalPages === undefined ? paged : paged.replace(/\{totalPages\}/g, String(totalPages));
+  };
+  for (const anchor of anchors) output.components.push(mapAnchorText(anchor, replace));
   if (templatePage.layout === "wide") {
     const bottom = output.components.reduce((height, component) => Math.max(height, component.topMm + component.heightMm), 0);
     output.marginBottomMm = isFinal ? (templatePage.marginBottomMm ?? 0) : 0;
     output.pageHeightMm = Math.max(1, bottom + output.marginBottomMm);
   }
+  return output;
 }
-
-/** 模板遍历只编排静态组件和列表；行测量、分组、换页与汇总各自独立。 */
-export function paginateTemplate(template: ReportTemplate, datasets: DatasetRows, optionsOrMmPerRow: number | PaginateOptions = {}): PaginateResult {
-  const options = typeof optionsOrMmPerRow === "number" ? { mmPerRow: optionsOrMmPerRow } : optionsOrMmPerRow;
-  if (options.maxPages !== undefined && (!Number.isSafeInteger(options.maxPages) || options.maxPages < 1)) throw new RangeError("maxPages 应为正安全整数");
-  const warnings: string[] = [];
-  const pages: PlanPage[] = [];
-  const placeholders: PlanComponent[] = [];
-  let sequence = 0;
+function gridCells(grid: PlanGrid): number {
+  return grid.cells.reduce((sum, row) => sum + row.reduce((count, cell) => count + (cell ? 1 + (cell.children?.reduce((nested, child) => nested + componentCells(child), 0) ?? 0) : 0), 0), 0);
+}
+function componentCells(component: PlanComponent): number { return component.grid ? gridCells(component.grid) : 0; }
+function validatePaginateOptions(options: PaginateOptions): void {
+  for (const key of ["maxPages", "maxCells", "knownTotalPages"] as const) if (options[key] !== undefined && (!Number.isSafeInteger(options[key]) || options[key]! < 1)) throw new RangeError(`${key} 应为正安全整数`);
+}
+/** Internal generator retains the active page plus at most the row transition queue. */
+function* iteratePages(template: ReportTemplate, datasets: DatasetRows, options: PaginateOptions, warnings: string[], totalPages?: number, prepared = new WeakMap<ListComponent, PreparedListData>()): Generator<PlanPage> {
+  let sequence = 0, pageNumber = 0, actualCells = 0;
   const nextId = (prefix: string) => `${prefix}_${(++sequence).toString(36)}`;
   for (const [pageIndex, templatePage] of template.pages.entries()) {
-    const current = makeWorkingPage(templatePage);
-    const anchors = templatePage.components.filter(isPageAnchor);
+    checkPaginationAbort(options.signal);
+    const current = makeWorkingPage(templatePage), anchors = templatePage.components.filter(isPageAnchor);
+    let ready: PlanPage[] = [];
     const pushCurrent = (isFinal = false) => {
-      if (options.maxPages !== undefined && pages.length >= options.maxPages) throw new PaginatePageLimitError(options.maxPages, pages.length + 1);
-      pushWorkingPage(templatePage, current, anchors, pages, placeholders, isFinal);
+      if (options.maxPages !== undefined && pageNumber >= options.maxPages) throw new PaginatePageLimitError(options.maxPages, pageNumber + 1);
+      if (options.maxCells !== undefined) {
+        actualCells += [...current.components, ...anchors].reduce((sum, component) => sum + componentCells(component), 0);
+        if (actualCells > options.maxCells) throw new PaginateCellLimitError(options.maxCells, actualCells);
+      }
+      ready.push(outputPage(templatePage, current, anchors, ++pageNumber, isFinal, totalPages));
     };
+    const takePages = () => { const pages = ready; ready = []; return pages; };
     for (const [componentIndex, component] of templatePage.components.entries()) {
       if (isPageAnchor(component)) continue;
       if (component.kind !== "list") { current.components.push(component); continue; }
       const rows = datasets[component.dataset];
       if (!Array.isArray(rows)) warnings.push(`数据集 ${component.dataset} 未提供数据，列表 ${component.id ?? ""} 输出为空`);
-      paginateList(component, Array.isArray(rows) ? rows : [], {
-        templatePage, current, warnings, nextId, pushCurrent,
-        measurer: options.measurer ?? heuristicMeasurer, mmPerRow: options.mmPerRow ?? 0,
-        tableId: `table:${pageIndex}:${componentIndex}`
+      yield* paginateList(component, Array.isArray(rows) ? rows : [], {
+        templatePage, current, warnings, nextId, pushCurrent, takePages, datasets, signal: options.signal, formula: options.formula, prepared,
+        measurer: options.measurer ?? heuristicMeasurer, mmPerRow: options.mmPerRow ?? 0, tableId: `table:${pageIndex}:${componentIndex}`
       });
     }
-    pushCurrent(true);
+    pushCurrent(true); yield* takePages();
   }
-  for (const component of placeholders) component.text = component.text!.replace(/\{totalPages\}/g, String(pages.length));
+}
+/** Counting pass does not keep page grids, components or a RenderPlan alive. */
+export function countTemplatePages(template: ReportTemplate, datasets: DatasetRows, options: PaginateOptions = {}): number {
+  validatePaginateOptions(options);
+  let count = 0;
+  for (const _page of iteratePages(template, datasets, { ...options, onWarning: undefined }, [])) count++;
+  return count;
+}
+/** Genuine page-level layout. With total-page anchors, use knownTotalPages or a bounded counting pass. */
+export function* paginateTemplatePages(template: ReportTemplate, datasets: DatasetRows, options: PaginateOptions = {}): Generator<PlanPage> {
+  validatePaginateOptions(options);
+  const needsTotal = hasTotalAnchor(template);
+  const prepared = new WeakMap<ListComponent, PreparedListData>();
+  let total = options.knownTotalPages;
+  if (needsTotal && total === undefined) { total = 0; for (const _page of iteratePages(template, datasets, options, [], undefined, prepared)) total++; }
+  const warnings: string[] = [];
+  let delivered = 0;
+  for (const page of iteratePages(template, datasets, options, warnings, total, prepared)) {
+    for (; delivered < warnings.length; delivered++) options.onWarning?.(warnings[delivered]!);
+    yield page;
+  }
+}
+/** Compatibility collector: the pagination engine is shared with the bounded page iterator. */
+export function paginateTemplate(template: ReportTemplate, datasets: DatasetRows, optionsOrMmPerRow: number | PaginateOptions = {}): PaginateResult {
+  const options = typeof optionsOrMmPerRow === "number" ? { mmPerRow: optionsOrMmPerRow } : optionsOrMmPerRow;
+  validatePaginateOptions(options);
+  const warnings: string[] = [];
+  const pages = [...iteratePages(template, datasets, options, warnings, options.knownTotalPages)];
+  for (const page of pages) page.components = page.components.map((component) => isPageAnchor(component) ? mapAnchorText(component, (text) => text.replace(/\{totalPages\}/g, String(pages.length))) : component);
+  warnings.forEach((warning) => options.onWarning?.(warning));
   return { plan: { schemaVersion: RENDER_PLAN_SCHEMA_VERSION, pages }, warnings };
+}
+
+/** Conservative cell allocation estimate; relation validation rejects duplicate master keys before rendering. */
+export function estimateListLayoutCells(list: ListComponent, datasets: DatasetRows, options: Pick<PaginateOptions, "formula" | "signal"> = {}): number {
+  if (list.matrix) {
+    let rows = datasets[list.dataset] ?? [];
+    if (list.computed?.length) rows = computeDataset(rows, { fields: list.computed, ...options }).rows;
+    if (list.rowVisibleWhen) rows = rows.filter((row) => evalStyleRule(row, list.rowVisibleWhen!));
+    const shape = estimateMatrixTable(rows, list.matrix);
+    return shape.cells + shape.columnCount;
+  }
+  const rows = datasets[list.dataset]?.length ?? 0, columns = list.columns.filter((column) => !column.hidden).length;
+  const groups = groupsFor(list).length;
+  let cells = (rows * (1 + 2 * groups) + Number(!!list.grandTotal)) * columns;
+  cells += list.headerGrid ? gridCells(list.headerGrid) : columns;
+  if (list.detail) {
+    const childRows = datasets[list.detail.dataset]?.length ?? 0, childColumns = list.detail.columns.filter((column) => !column.hidden).length;
+    cells += (childRows + rows * (Number(list.detail.header !== false) + Number(!!list.detail.label))) * childColumns;
+  }
+  if (!Number.isSafeInteger(cells)) throw new RangeError("报表单元格估算超出安全整数预算");
+  return cells;
 }
