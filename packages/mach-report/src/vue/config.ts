@@ -6,6 +6,7 @@ import type { ReportEditingOptions } from "./editing";
 import type { MachReportToolbarOptions, ReportInteractionOptions, ReportPreferencesOptions } from "./tools";
 import type { ReportBeforeDiscard, ReportOutputOptions } from "./guards";
 import type { AssetRenderOptions } from "@agile-team/mach-report";
+import type { ReportCalculationMessages } from "./composables/useSelectionCalculation";
 
 /**
  * 配置中心（对齐 mach-table 的 defineMachTableConfig 体验）：
@@ -15,7 +16,27 @@ import type { AssetRenderOptions } from "@agile-team/mach-report";
  */
 
 /** 工具栏与状态文案（默认简体中文；出海场景覆写） */
-export interface MachReportMessages {
+export interface MachReportMessages extends Partial<ReportCalculationMessages> {
+  exportMenu?: string;
+  exportMenuDescription?: string;
+  clearSearch?: string;
+  searchHint?: string;
+  searchNoMatches?: string;
+  pageJump?: string;
+  pageJumpInvalid?: string;
+  pageJumpHint?: string;
+  pagination?: string;
+  columnSearchHint?: string;
+  columnSearchShortcut?: string;
+  closeColumnDirectory?: string;
+  columnResultsMore?: string;
+  columnCount?: string;
+  settingsGeneral?: string;
+  settingsTools?: string;
+  settingsAdvanced?: string;
+  settingsAdvancedDescription?: string;
+  settingsCalculations?: string;
+  settingsCalculationsDescription?: string;
   title: string;
   prevPage: string;
   nextPage: string;
@@ -150,7 +171,39 @@ export interface MachReportMessages {
   diagnosticAssetBudget?: string;
 }
 
+export const DEFAULT_CALCULATION_MESSAGES: ReportCalculationMessages = {
+  calculationTitle: "选区计算", calculationLocal: "仅本地分析，不写回实绩、不重算原公式。请选取同一单位与量纲的数值。",
+  calculationHint: "点击起点，Shift + 点击终点或方向键扩选。",
+  calculationFormula: "计算方式", calculationExpression: "组合公式",
+  calculationExpressionHint: "支持 SUM、AVERAGE/AVG、MIN、MAX、COUNT、MEDIAN 及 + - * / 和括号，不执行 Excel 公式；采用浮点数，精度仅用于展示。",
+  calculationPrecision: "展示小数位", calculationRun: "计算选区", calculationCancel: "取消计算", calculationResult: "计算结果",
+  calculationIncluded: "参与数值", calculationExcluded: "排除单元格", calculationEmpty: "选区没有可计算数值，计数为 0，其余结果为空。",
+  calculationNoSelection: "先关闭设置并选择数据，再从底部工具栏打开选区计算。",
+  calculationSum: "求和 SUM", calculationAverage: "平均值 AVERAGE", calculationMin: "最小值 MIN", calculationMax: "最大值 MAX",
+  calculationCount: "数值计数 COUNT", calculationMedian: "中位数 MEDIAN", calculationCustom: "组合公式",
+  calculationErrorSelection: "请选择同一明细区域中的数据。", calculationErrorLimit: "选区超过计算预算，请缩小范围后重试。",
+  calculationErrorExpression: "公式无效，请使用支持的摘要名称、运算符与括号。", calculationErrorDivision: "除数不能为 0。",
+  calculationErrorOverflow: "结果超出有效数值范围。", calculationErrorPrecision: "数值超出安全精度，或展示小数位不是 0 至 12 的整数。"
+};
+
+/** 新消息保持可选，旧的完整文案对象也能获得新增能力的默认文案。 */
+export function resolveCalculationMessages(messages: Partial<ReportCalculationMessages>): ReportCalculationMessages {
+  const result = { ...DEFAULT_CALCULATION_MESSAGES };
+  for (const key of Object.keys(result) as (keyof ReportCalculationMessages)[]) {
+    const value = messages[key];
+    if (typeof value === "string") result[key] = value;
+  }
+  return result;
+}
+
 export const DEFAULT_MESSAGES: MachReportMessages = {
+  ...DEFAULT_CALCULATION_MESSAGES,
+  exportMenu: "导出", exportMenuDescription: "选择文件格式", clearSearch: "清除搜索", searchHint: "Enter 下一个 · Shift+Enter 上一个", searchNoMatches: "没有匹配内容",
+  pageJump: "跳至页", pageJumpInvalid: "请输入有效页码", pageJumpHint: "Enter 跳转", pagination: "报表分页",
+  columnSearchHint: "输入列名或字段标识", columnSearchShortcut: "↑ ↓ 选择 · Enter 定位", closeColumnDirectory: "关闭字段目录",
+  columnResultsMore: "{count} 个匹配字段，显示前 {limit} 个；继续输入可缩小范围", columnCount: "{count} 个字段",
+  settingsGeneral: "常规", settingsTools: "工具", settingsAdvanced: "高级", settingsAdvancedDescription: "按需开启分析能力，保持日常阅读简洁。",
+  settingsCalculations: "启用选区计算", settingsCalculationsDescription: "选取数值后计算求和、平均值或组合公式，仅用于本地分析。",
   title: "报表预览",
   prevPage: "‹ 上一页",
   nextPage: "下一页 ›",
@@ -235,6 +288,8 @@ export const DEFAULT_MESSAGES: MachReportMessages = {
 
 /** 主题变量（组件外壳注入的 --mrp-* CSS 自定义属性） */
 export interface MachReportTheme {
+  /** 空态插图强调色，不随正文颜色变灰。 */
+  emptyAccent?: string;
   shellBg: string;
   shellFg: string;
   toolbarBg: string;
@@ -248,16 +303,17 @@ export interface MachReportTheme {
 }
 
 export const DEFAULT_THEME: MachReportTheme = {
-  shellBg: "#525659",
-  shellFg: "#e8e8e8",
-  toolbarBg: "#323639",
-  toolbarBorder: "#22252a",
-  toolbarFg: "#e8e8e8",
-  btnFg: "#cfcfcf",
-  btnBorder: "#4a4d52",
-  btnHoverBg: "#414549",
-  btnHoverFg: "#ffffff",
-  btnActiveBg: "#2d5fb8"
+  emptyAccent: "#79a7e8",
+  shellBg: "#f4f7fc",
+  shellFg: "#334155",
+  toolbarBg: "#ffffff",
+  toolbarBorder: "#e4eaf3",
+  toolbarFg: "#334155",
+  btnFg: "#526078",
+  btnBorder: "#dbe3ef",
+  btnHoverBg: "#edf3ff",
+  btnHoverFg: "#315fba",
+  btnActiveBg: "#3569d4"
 };
 
 /** 日志通道（默认 console；可注入 noop 静默或上报 collector） */
@@ -444,6 +500,7 @@ function boundedNumber(value: number | undefined, fallback: number, max: number,
 /** theme 对象 → CSS 自定义属性 style 对象（注入组件外壳） */
 export function themeToCssVars(theme: Partial<MachReportTheme>): CSSProperties {
   const out: Record<string, string> = {};
+  if (theme.emptyAccent != null) out["--mrp-empty-accent"] = theme.emptyAccent;
   if (theme.shellBg != null) out["--mrp-shell-bg"] = theme.shellBg;
   if (theme.shellFg != null) out["--mrp-shell-fg"] = theme.shellFg;
   if (theme.toolbarBg != null) out["--mrp-toolbar-bg"] = theme.toolbarBg;

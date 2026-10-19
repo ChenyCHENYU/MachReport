@@ -7,6 +7,7 @@ test("template editor updates the real preview and persists a versioned draft", 
   await expect(page.locator(".mr-designer-preview .mrp-page-holder").first()).toBeVisible();
   await expect(page.locator(".mr-designer-preview")).toContainText("000418");
   await expect(page.locator(".mr-designer-preview").getByRole("button", { name: "导出 PDF", exact: true })).toHaveCount(0);
+  await expect(page.locator(".mr-designer-preview").getByRole("button", { name: "导出", exact: true })).toHaveCount(0);
   await expect(page.locator(".mr-designer-preview [role=alert]")).toHaveCount(0);
   await expect(page.locator(".mr-designer-preview .mrp-toolbar")).toHaveCSS("background-color", "rgb(255, 255, 255)");
   const first = page.locator("fieldset").first();

@@ -77,7 +77,7 @@ describe("宽表预览", () => {
     await vi.waitFor(() => expect(wrapper.find(".mrp-search-count").text()).toBe("1/2"));
     await vi.waitFor(() => expect(scroll).toHaveBeenCalledOnce());
     expect(scroll.mock.contexts[0]).toBe(wrapper.findAll("mark")[0]!.element);
-    await wrapper.findAll("button").find((button) => button.text() === "›")!.trigger("click");
+    await wrapper.find('button[aria-label="下一个匹配"]').trigger("click");
     await vi.waitFor(() => expect(wrapper.find(".mrp-search-count").text()).toBe("2/2"));
     await vi.waitFor(() => expect(scroll).toHaveBeenCalledTimes(2));
     expect(scroll.mock.contexts[1]).toBe(wrapper.findAll("mark")[1]!.element);

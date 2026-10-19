@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, getCurrentInstance, onMounted, onUnmounted, ref } from "vue";
 import type { MachReportMessages } from "./config";
 import type { ReportInteractionOptions, ReportPreviewPreferences, ReportPreviewTool } from "./tools";
 
@@ -10,14 +10,30 @@ const props = defineProps<{
   persistedEditing: boolean;
   busy?: boolean;
   interaction?: ReportInteractionOptions;
+  section?: "general" | "tools" | "advanced";
 }>();
 const emit = defineEmits<{
   (e: "change", key: ReportPreviewTool, enabled: boolean): void;
   (e: "reset"): void;
   (e: "close"): void;
   (e: "interaction", value: ReportInteractionOptions): void;
+  (e: "section", value: "general" | "tools" | "advanced"): void;
 }>();
 const panel = ref<HTMLElement | null>(null);
+const section = computed(() => props.section ?? "general");
+const id = "mrp-settings-" + getCurrentInstance()?.uid;
+const tabs = computed(() => [
+  { key: "general" as const, label: props.messages.settingsGeneral ?? "常规" },
+  { key: "tools" as const, label: props.messages.settingsTools ?? "工具" },
+  { key: "advanced" as const, label: props.messages.settingsAdvanced ?? "高级" }
+]);
+function navigateTabs(event: KeyboardEvent, index: number): void {
+  const steps: Record<string, number> = { ArrowRight: (index + 1) % 3, ArrowLeft: (index + 2) % 3, Home: 0, End: 2 };
+  const target = steps[event.key];
+  if (target === undefined) return;
+  event.preventDefault(); emit("section", tabs.value[target]!.key);
+  panel.value?.querySelector<HTMLElement>("#" + id + "-tab-" + tabs.value[target]!.key)?.focus();
+}
 const closeButton = ref<HTMLButtonElement | null>(null);
 let previousFocus: HTMLElement | null = null;
 const groups = computed(() => [
@@ -54,7 +70,7 @@ function onKeydown(event: KeyboardEvent): void {
   if (!ownsKeyboard(event)) return;
   if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); emit("close"); return; }
   if (event.key !== "Tab") return;
-  const elements = panel.value?.querySelectorAll<HTMLElement>("a[href],button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),[tabindex='0']");
+  const elements = Array.from(panel.value?.querySelectorAll<HTMLElement>("a[href],button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),[tabindex='0']") ?? []).filter((element) => !element.closest("[hidden]") && element.tabIndex !== -1);
   const first = elements?.[0];
   const last = elements?.[elements.length - 1];
   const outside = !panel.value?.contains(document.activeElement);
@@ -65,7 +81,8 @@ function onKeydown(event: KeyboardEvent): void {
 
 onMounted(() => {
   const opener = panel.value?.closest(".mach-report-preview")?.querySelector<HTMLElement>(".mrp-settings-toggle");
-  previousFocus = opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  const active = document.activeElement;
+  previousFocus = active instanceof HTMLElement && active !== document.body && !panel.value?.contains(active) ? active : opener ?? null;
   closeButton.value?.focus();
   document.addEventListener("keydown", onKeydown);
 });
@@ -79,48 +96,40 @@ onUnmounted(() => {
   <div class="mrp-settings-backdrop" @click.self="$emit('close')">
     <section ref="panel" class="mrp-settings-panel" role="dialog" aria-modal="true" :aria-label="messages.settings">
       <header class="mrp-settings-header">
-        <div><strong>{{ messages.settings }}</strong><p>{{ messages.settingsLocal }}</p></div>
-        <button ref="closeButton" class="mrp-settings-close" type="button" :aria-label="messages.settingsClose" @click="$emit('close')">×</button>
+        <div><span class="mrp-settings-eyebrow">MACH REPORT</span><strong>{{ messages.settings }}</strong><p>{{ messages.settingsLocal }}</p></div>
+        <button ref="closeButton" class="mrp-settings-close" type="button" :aria-label="messages.settingsClose" @click="$emit('close')"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg></button>
       </header>
-      <div class="mrp-settings-content">
-        <slot />
-        <fieldset v-if="interaction">
-          <legend>{{ messages.settingsPanes }}</legend>
-          <label class="mrp-settings-option"><span>{{ messages.freezeHeaders }}</span><input type="checkbox" :checked="interaction.freezeHeaders" :disabled="busy" @change="$emit('interaction', { freezeHeaders: ($event.target as HTMLInputElement).checked })" /></label>
-          <label class="mrp-settings-option"><span>{{ messages.frozenColumns }}</span><input class="mrp-frozen-count" type="number" min="0" max="20" :value="interaction.frozenColumns ?? 0" :disabled="busy" @change="$emit('interaction', { frozenColumns: Math.max(0, Math.min(20, Number(($event.target as HTMLInputElement).value) || 0)) })" /></label>
-        </fieldset>
-        <fieldset v-for="group in groups" :key="group.label">
-          <legend>{{ group.label }}</legend>
-          <label v-for="tool in group.tools" :key="tool.key" class="mrp-settings-option" :class="{ 'mrp-settings-unavailable': !available[tool.key] }">
-            <span>{{ tool.label }}<small v-if="!available[tool.key]">{{ messages.settingsUnavailable }}</small></span>
-            <input type="checkbox" :checked="enabled[tool.key]" :disabled="busy || !available[tool.key]" @change="onChange($event, tool.key)" />
-          </label>
-        </fieldset>
-        <p v-if="available.editing" class="mrp-settings-note">{{ persistedEditing ? messages.editingSaved : messages.editingLocal }}</p>
-        <p v-if="available.import" class="mrp-settings-note">{{ messages.importLocal }}</p>
+      <div class="mrp-settings-tabs" role="tablist" :aria-label="messages.settings">
+        <button v-for="(tab, index) in tabs" :id="id + '-tab-' + tab.key" :key="tab.key" type="button" role="tab" :aria-selected="section === tab.key" :aria-controls="id + '-panel-' + tab.key" :tabindex="section === tab.key ? 0 : -1" @click="$emit('section', tab.key)" @keydown="navigateTabs($event, index)">{{ tab.label }}</button>
       </div>
-      <footer><button type="button" :disabled="busy" @click="$emit('reset')">{{ messages.settingsReset }}</button></footer>
+      <div class="mrp-settings-content">
+        <section :id="id + '-panel-general'" role="tabpanel" :aria-labelledby="id + '-tab-general'" :hidden="section !== 'general'">
+          <slot />
+          <fieldset v-if="interaction">
+            <legend>{{ messages.settingsPanes }}</legend>
+            <label class="mrp-settings-option"><span>{{ messages.freezeHeaders }}</span><input type="checkbox" :checked="interaction.freezeHeaders" :disabled="busy" @change="$emit('interaction', { freezeHeaders: ($event.target as HTMLInputElement).checked })" /></label>
+            <label class="mrp-settings-option"><span>{{ messages.frozenColumns }}</span><input class="mrp-frozen-count" type="number" min="0" max="20" :value="interaction.frozenColumns ?? 0" :disabled="busy" @change="$emit('interaction', { frozenColumns: Math.max(0, Math.min(20, Number(($event.target as HTMLInputElement).value) || 0)) })" /></label>
+          </fieldset>
+        </section>
+        <section :id="id + '-panel-tools'" role="tabpanel" :aria-labelledby="id + '-tab-tools'" :hidden="section !== 'tools'">
+          <fieldset v-for="group in groups" :key="group.label">
+            <legend>{{ group.label }}</legend>
+            <label v-for="tool in group.tools" :key="tool.key" class="mrp-settings-option" :class="{ 'mrp-settings-unavailable': !available[tool.key] }">
+              <span>{{ tool.label }}<small v-if="!available[tool.key]">{{ messages.settingsUnavailable }}</small></span>
+              <input type="checkbox" :checked="enabled[tool.key]" :disabled="busy || !available[tool.key]" @change="onChange($event, tool.key)" />
+            </label>
+          </fieldset>
+          <p v-if="available.editing" class="mrp-settings-note">{{ persistedEditing ? messages.editingSaved : messages.editingLocal }}</p>
+          <p v-if="available.import" class="mrp-settings-note">{{ messages.importLocal }}</p>
+        </section>
+        <section :id="id + '-panel-advanced'" role="tabpanel" :aria-labelledby="id + '-tab-advanced'" :hidden="section !== 'advanced'">
+          <p class="mrp-settings-intro">{{ messages.settingsAdvancedDescription }}</p>
+          <label class="mrp-settings-option mrp-settings-feature"><span>{{ messages.settingsCalculations }}<small :id="id + '-calculation-description'">{{ messages.settingsCalculationsDescription }}</small></span><input type="checkbox" :aria-label="messages.settingsCalculations" :aria-describedby="id + '-calculation-description'" :checked="interaction?.calculations === true" :disabled="busy" @change="$emit('interaction', { calculations: ($event.target as HTMLInputElement).checked })" /></label>
+          <slot v-if="interaction?.calculations" name="advanced" />
+        </section>
+      </div>
+      <footer><button type="button" :disabled="busy" @click="$emit('reset')">{{ messages.settingsReset }}</button><span>{{ messages.settingsLocal }}</span></footer>
     </section>
   </div>
 </template>
-
-<style scoped>
-.mrp-settings-backdrop { position: absolute; inset: 0; z-index: 30; background: rgba(15, 23, 42, .12); display: flex; justify-content: flex-end; padding: 10px; }
-.mrp-settings-panel { box-sizing: border-box; width: min(340px, 100%); display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--mrp-toolbar-border); border-radius: 10px; background: var(--mrp-toolbar-bg); color: var(--mrp-toolbar-fg); box-shadow: 0 12px 40px rgba(0, 0, 0, .22); font-size: 13px; }
-.mrp-settings-header { display: flex; align-items: flex-start; justify-content: space-between; padding: 16px 16px 10px; }
-.mrp-settings-header strong { font-size: 15px; }
-.mrp-settings-header p { font-size: 12px; opacity: .7; margin: 7px 0 0; line-height: 1.5; }
-.mrp-settings-panel button { cursor: pointer; color: inherit; border: 1px solid var(--mrp-btn-border); background: transparent; border-radius: 5px; padding: 5px 10px; }
-.mrp-settings-panel button:hover { background: var(--mrp-btn-hover-bg); }
-.mrp-settings-close { font-size: 20px; line-height: 18px; }
-.mrp-settings-content { overflow: auto; padding: 0 16px 10px; }
-.mrp-settings-content fieldset { border: 0; border-top: 1px solid var(--mrp-toolbar-border); margin: 12px 0 0; padding: 7px 0 0; min-width: 0; }
-.mrp-settings-content legend { font-weight: 600; padding-right: 10px; }
-.mrp-settings-option { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; cursor: pointer; }
-.mrp-settings-option input { accent-color: var(--mrp-btn-active-bg); width: 15px; height: 15px; margin: 0; flex: none; }
-.mrp-settings-option input.mrp-frozen-count { width: 54px; height: 24px; color: inherit; background: transparent; border: 1px solid var(--mrp-btn-border); border-radius: 4px; }
-.mrp-settings-option small { display: block; font-size: 11px; margin-top: 3px; opacity: .75; }
-.mrp-settings-unavailable { opacity: .5; cursor: default; }
-.mrp-settings-note { font-size: 11px; line-height: 1.6; opacity: .75; }
-.mrp-settings-panel footer { border-top: 1px solid var(--mrp-toolbar-border); padding: 10px 16px; }
-</style>
+<style scoped src="./settings.css"></style>

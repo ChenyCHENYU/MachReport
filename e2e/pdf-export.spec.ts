@@ -25,7 +25,8 @@ test.describe("PDF 前端直出", () => {
     await page.goto("http://localhost:8610");
     await expect(page.getByText("产品出库单")).toBeVisible({ timeout: 10000 });
     const downloadPromise = page.waitForEvent("download", { timeout: 70000 });
-    await page.getByRole("button", { name: "导出 Excel" }).click();
+    await page.getByRole("button", { name: "导出", exact: true }).click();
+    await page.getByRole("menuitem", { name: "导出 Excel", exact: true }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toBe("mach-report.xlsx");
     const stream = await download.createReadStream();

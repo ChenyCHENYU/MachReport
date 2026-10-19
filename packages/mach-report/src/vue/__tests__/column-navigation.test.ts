@@ -11,6 +11,7 @@ describe("column directory interaction", () => {
     const other = structuredClone(header); other.table!.id = "second"; other.table!.title = "成本";
     plan.pages[0]!.components.push(other);
     const wrapper = mount(ReportNavigation, { props: { sections: [], plan, messages: DEFAULT_MESSAGES, currentPage: 1, busy: false } });
+    await wrapper.find(".mrp-directory-trigger").trigger("click");
     await wrapper.find('input[type="search"]').setValue("重量");
     const candidates = wrapper.findAll(".mrp-column-directory section button");
     expect(candidates).toHaveLength(2);
@@ -20,6 +21,7 @@ describe("column directory interaction", () => {
     await candidates[1]!.trigger("click");
     expect(wrapper.emitted("locate-target")?.[0]?.[0]).toMatchObject({ field: "weight", tableId: "second" });
     expect(wrapper.find(".mrp-column-directory").exists()).toBe(false);
+    await wrapper.find(".mrp-directory-trigger").trigger("click");
     await wrapper.find('input[type="search"]').setValue("custom_field");
     await wrapper.find("form").trigger("submit");
     expect(wrapper.emitted("locate")?.[0]).toEqual(["custom_field"]);

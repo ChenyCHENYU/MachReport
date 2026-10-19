@@ -342,7 +342,8 @@ describe("exportAs 出口矩阵接线", () => {
     await vi.waitFor(() => {
       expect(wrapper.element.querySelector(".mrp-page-holder")).toBeTruthy();
     }, { timeout: 5000 });
-    // 工具栏出现三个按需导出按钮
+    // 所有按需导出格式仍可从统一菜单访问。
+    await wrapper.find(".mrp-export-trigger").trigger("click");
     const texts = wrapper.findAll("button").map((b) => b.text());
     expect(texts.some((t) => t.includes("导出 Excel"))).toBe(true);
     expect(texts.some((t) => t.includes("导出图片"))).toBe(true);

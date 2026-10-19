@@ -32,8 +32,9 @@ function create(props: Record<string, unknown> = {}) {
   return wrapper;
 }
 
-async function open(wrapper: VueWrapper) {
+async function open(wrapper: VueWrapper, section: "general" | "tools" = "tools") {
   await wrapper.find(".mrp-settings-toggle").trigger("click");
+  if (section === "tools") await wrapper.find('[role="tab"][id$="-tools"]').trigger("click");
   return wrapper.findComponent(ReportSettings);
 }
 
@@ -46,9 +47,10 @@ describe("ReportPreview settings and explicit empty result", () => {
     const wrapper = create({ autoLoad: false, excelImport: true });
     const toggle = wrapper.find(".mrp-settings-toggle");
     (toggle.element as HTMLElement).focus();
-    await open(wrapper);
+    await open(wrapper, "general");
     expect(wrapper.find("[role='dialog']").attributes("aria-modal")).toBe("true");
     expect(wrapper.text()).toContain("宿主显示版式");
+    await wrapper.find('[role="tab"][id$="-tools"]').trigger("click");
     expect(option(wrapper, "导入 Excel 模板").attributes("disabled")).toBeUndefined();
     await wrapper.find(".mrp-settings-backdrop").trigger("keydown", { key: "Escape" });
     expect(wrapper.find("[role='dialog']").exists()).toBe(false);

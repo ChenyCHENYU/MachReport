@@ -225,6 +225,7 @@ describe("spreadsheet interactions", () => {
     expect(wrapper.find(".mrp-import-excel").exists()).toBe(false);
     await wrapper.find(".mrp-settings-toggle").trigger("click");
     await flushPromises();
+    await wrapper.find('[role="tab"][id$="-tools"]').trigger("click");
     const option = wrapper.findAll("label.mrp-settings-option").find((label) => label.text().includes("内容搜索"))!;
     await option.find("input").setValue(true);
     await flushPromises();
@@ -237,6 +238,7 @@ describe("spreadsheet interactions", () => {
     const save = vi.fn();
     const { wrapper } = await create(false, { key: "first", adapter: { load, save } });
     await wrapper.find(".mrp-settings-toggle").trigger("click");
+    await wrapper.find('[role="tab"][id$="-tools"]').trigger("click");
     const search = wrapper.findAll("label.mrp-settings-option").find((label) => label.text().includes("内容搜索"))!.find("input");
     await search.setValue(false);
     resolve({ search: true });
@@ -251,6 +253,7 @@ describe("spreadsheet interactions", () => {
     await flushPromises();
     expect(wrapper.emitted("warning")?.some(([message]) => String(message).includes("偏好存储不可用"))).toBe(true);
     await wrapper.find(".mrp-settings-toggle").trigger("click");
+    await wrapper.find('[role="tab"][id$="-tools"]').trigger("click");
     const search = wrapper.findAll("label.mrp-settings-option").find((label) => label.text().includes("内容搜索"))!.find("input");
     await search.setValue(false);
     await flushPromises();

@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.7.0-2563eb" alt="Source version 2.7.0" />
+  <img src="https://img.shields.io/badge/source-2.8.0-2563eb" alt="Source version 2.8.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -43,14 +43,14 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 完整宽表 | 自然列宽、横向滚动、默认 100% 预览；纵向分段窗口化，Excel 自动合并连续 Sheet |
 | 明细与汇总 | 自动折行与分页、重复表头、连续分组小计、末尾总计、页码占位符 |
 | 数据呈现 | 表头与内容独立对齐、类型自动对齐、数值 / 百分比 / 日期格式化、条件格式 |
-| 预览交互 | 双窗口渲染、冻结表头 / 前列、跨页选区、键盘搜索与缩略图、Sheet 导航、可选偏好存储 |
+| 预览交互 | 右下分页、分组导出菜单、内容搜索与字段目录、跨页选区、冻结窗格、Sheet 导航 |
 | 内容编辑 | 默认只读；双击与批量粘贴、原子保存、撤销 / 重做、恢复与变更清单 |
 | Excel 导入 | 多 Sheet、完整宽表、合并单元格、基础样式与缓存公式值转换为可复用模板 |
 | 模板配置 | 轻量属性编辑器、草稿 / 发布 / 历史 / 回滚、CAS 存储适配器、Excel 区域绑定 |
 | 输出 | 浏览器打印、HTML、PDF、真正的 `.xlsx`、逐页 PNG、Word 兼容 HTML `.doc` |
 | 工程接入 | 局部组件、全局插件、异步入口、分层配置、结构化错误与导出告警 |
 | 引擎复用 | 数据 / 参数 JSON Schema、统一 Provider、Node Runtime、浏览器 / Node Worker、流式 Excel |
-| 分析扩展 | 交叉汇总、声明式计算、柱图 / 折线图基础图元；其他图表与二维码通过资源适配器接入 |
+| 分析扩展 | 可选只读选区计算、交叉汇总、声明式计算、柱图 / 折线图基础图元与资源适配 |
 
 数据接口、鉴权与业务规则由宿主应用决定。包内统一校验、分页、编辑事务和版本流程；宿主提供请求与存储适配器。轻量属性编辑器可直接使用；拖拽画布、审批与数据库部署仍由项目按需建设。
 
@@ -409,9 +409,11 @@ app.use(machReportPlugin, { fetcher, config });
 
 ### 设置入口与零数据反馈
 
-预览工具栏默认提供「设置」，将阅读、冻结窗格、导出、打印与可选数据操作集中在一个入口。使用方声明允许的能力；用户在面板中按需启用。默认偏好仅在当前实例，可显式提供 `preferences` 存储适配器。设置支持键盘操作、焦点约束和 Esc 关闭，无额外 UI 组件库依赖。
+预览默认采用浅色阅读界面：分页与跳页位于右下方，导出格式收在一个菜单，搜索、字段目录和缩放各自成组。空态插图使用淡蓝强调色，可通过 `theme.emptyAccent` 覆盖；主题只影响预览外壳，不改写模板与导出样式。
 
-Ctrl/Cmd+F打开或聚焦搜索，Enter / Shift+Enter切换命中，Esc关闭并返回预览；缩略图可用键盘操作。Tab跨页浏览业务格，到达首末边界后可离开报表。多层合并表头和重复打印表头不会遮蔽业务行的选择坐标。编辑尚未提交时，打开设置会先等待保存，失败保留原输入与焦点。
+「设置」分为常规、工具和高级三页：常规放冻结窗格及宿主的版式配置，工具控制阅读、输出与已授权的数据操作，高级提供可选选区计算。页面仍只传报表与业务参数，不用组装分页器、搜索框或设置面板。默认工具偏好仅在当前实例，可显式提供 `preferences` 存储适配器；交互开关在本实例内调整。设置支持方向键切页、焦点约束和 Esc 关闭，无额外 UI 组件库依赖。
+
+Ctrl/Cmd+F 打开或聚焦内容搜索，输入时显示检索状态与命中数，Enter / Shift+Enter 切换命中，Esc 关闭并返回搜索入口。字段目录将中文列名、字段标识与章节分组放在同一弹层，↑ / ↓ 选择、Enter 定位、Esc 关闭；无匹配和超出可见结果上限都有明确提示。Tab 可跨页浏览业务格，到达首末边界后离开报表。多层合并表头和重复打印表头不会遮蔽业务行的选择坐标。编辑尚未提交时，打开设置先等待保存，失败保留原输入与焦点。
 
 ```vue
 <ReportPreview
@@ -430,6 +432,8 @@ Ctrl/Cmd+F打开或聚焦搜索，Enter / Shift+Enter切换命中，Esc关闭并
 | 配置 | 行为 |
 | --- | --- |
 | `showSettings: false` | 隐藏设置入口，保留原有工具与控制器 API |
+| `interaction: { calculations: true }` | 默认启用只读选区计算；省略时关闭，也可由用户在设置的高级页开启 |
+| `theme: { emptyAccent: "#79a7e8" }` | 覆盖空态插图强调色，默认淡蓝 |
 | `toolbar: { search: false, thumbnails: false, zoom: false }` | 限制对应阅读工具；设置不能绕过宿主限制 |
 | `toolbar: { exportFormats: ['xlsx', 'pdf'] }` | 仅提供指定出口；省略时提供全部现有格式 |
 | `showExport` / `showPrint` / `showPdfWindow` | 保持原有能力上限；设为 `false` 的工具无法在设置中启用 |
@@ -439,6 +443,20 @@ Ctrl/Cmd+F打开或聚焦搜索，Enter / Shift+Enter切换命中，Esc关闭并
 组件不会根据空白单元格猜测是否无业务数据。由宿主依据成功查询的真实行数传入 `emptyState`；导入本地模板、改变数据来源后应同步更新这一业务状态。导入、编辑后的原生导出均使用当前预览计划。
 
 有效报表显示后，组件对已启用的 PDF 出口自动做轻量 HEAD 字体检查，不下载字库或加载 PDF 引擎。结果通过 `state.pdfFont` 提供，资源异常显示可重试提示；实际导出再验证字体文件及文字覆盖范围。部署、跨域与缓存处理见 [PDF 字体指南](./docs/PDF.md)。
+
+### 可选的只读选区计算
+
+只需一个配置开关；不必开启编辑，也不需要接保存回调：
+
+```vue
+<MachReportPreview report-id="daily" :params="query" :interaction="{ calculations: true }" />
+```
+
+关闭设置，单击起点后用 Shift + 单击或 Shift + 方向键选择数据，再从底部「选区计算」进入高级页。可选求和、平均值、最小值、最大值、数值计数与中位数，或输入 `SUM / COUNT` 等受控摘要表达式；点击「计算选区」才运行，选择过程不会反复重算。取消、切换选区或报表、关闭能力会隔离在途任务与旧结果。
+
+仅原始 `number` 参与；文本编号、数字字符串、日期、布尔和空值排除，真实 `0` 保留。合并格只计一次，同一逻辑表跨页去重，重复表头和结构汇总不叠加。计算采用浮点数，展示小数位不改变源值；应选择单位与量纲一致的数据，不安全整数、除零、溢出和超限均返回诊断。结果仅用于本地分析，不落库、不修改 KPI，也不执行或重算 Excel 原公式。
+
+默认选区最多 100,000 格、扫描预算 200,000，扫描与中位数排序分批让出执行并支持取消。组合公式仅接受摘要名、有限数值、四则运算与括号，限制为 256 字符、64 个 token、16 层深度；不会执行脚本、单元格引用或任意函数。详细操作与边界见[预览交互](./docs/INTERACTION.md)。
 
 ## 完整的日常操作流程
 
@@ -587,7 +605,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.7.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.8.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

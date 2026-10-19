@@ -342,6 +342,7 @@ describe("真实预览组件的父页面状态句柄", () => {
     pending[0]!.resolve({ status: "error", fontUrl: "/state-test.ttf", message: "font not configured" }); await settle();
     expect(wrapper.find(".mrp-export-warning").exists()).toBe(true);
     await wrapper.find(".mrp-settings-toggle").trigger("click"); await settle();
+    await wrapper.find('[role="tab"][id$="-tools"]').trigger("click"); await settle();
     const pdf = wrapper.findAll(".mrp-settings-option").find((label) => label.text() === "导出 PDF")!.find("input");
     await pdf.setValue(false); await settle();
     expect(wrapper.find(".mrp-export-warning").exists()).toBe(false); expect(pending).toHaveLength(1);

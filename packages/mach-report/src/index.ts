@@ -25,3 +25,4 @@ export * from "./output/assets";
 export * from "./editing";
 
 export type { OutputTaskOptions } from "./output/progress";
+export * from "./selection-calculations";

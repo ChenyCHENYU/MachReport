@@ -7,11 +7,18 @@ test("设置工具开关的真实checked状态、恢复默认和宿主权限边�
   await page.getByRole("button", { name: "设置", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "设置", exact: true });
   await expect(dialog).toBeVisible();
+  await dialog.getByRole("tab", { name: "工具", exact: true }).click();
   const html = dialog.getByRole("checkbox", { name: "导出 HTML", exact: true });
   await expect(html).toBeChecked();
   await html.uncheck();
   await expect(html).not.toBeChecked();
   await expect(page.locator(".mrp-toolbar").getByRole("button", { name: "导出 HTML", exact: true })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "关闭设置", exact: true }).click();
+  await page.getByRole("button", { name: "导出", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "导出 HTML", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await dialog.getByRole("tab", { name: "工具", exact: true }).click();
   await dialog.getByRole("checkbox", { name: "内容搜索", exact: true }).uncheck();
   await expect(page.locator(".mrp-toolbar").getByRole("button", { name: "内容搜索", exact: true })).toHaveCount(0);
   await expect(dialog.getByRole("checkbox", { name: /编辑单元格/ })).toBeDisabled();

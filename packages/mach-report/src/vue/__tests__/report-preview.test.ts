@@ -51,7 +51,7 @@ function datasets(n: number) {
 }
 
 describe("ReportPreview 契约", () => {
-  it("props 未传显隐项时走配置中心，缺省全开", () => {
+  it("props 未传显隐项时走配置中心，缺省全开", async () => {
     const wrapper = mount(ReportPreview, {
       props: { fetcher: null, reportId: null }
     });
@@ -61,6 +61,7 @@ describe("ReportPreview 契约", () => {
     expect(wrapper.props("showExport")).toBeUndefined();
     expect(wrapper.props("showPrint")).toBeUndefined();
     expect(wrapper.props("showPdfWindow")).toBeUndefined();
+    await wrapper.find(".mrp-export-trigger").trigger("click");
     const toolbarText = wrapper.text();
     expect(toolbarText).toContain("导出 PDF");
     expect(toolbarText).toContain("打印");
@@ -143,7 +144,7 @@ describe("ReportPreview 契约", () => {
       expect(wrapper.element.querySelectorAll(".mr-page").length).toBeGreaterThan(1)
     );
     expect(wrapper.text()).toMatch(/1 \/ \d+/);
-    const next = wrapper.findAll(".mrp-nav").find((b) => b.text().includes("下一页"))!;
+    const next = wrapper.find('.mrp-pagination button[aria-label="下一页 ›"]');
     await next.trigger("click");
     await vi.waitFor(() => expect(wrapper.text()).toMatch(/2 \/ \d+/));
   });

@@ -2,6 +2,8 @@
 export * from "@agile-team/mach-report";
 export { default as ReportPreview } from "./ReportPreview.vue";
 export { default as ReportToolbar } from "./ReportToolbar.vue";
+export { default as ReportPagination } from "./ReportPagination.vue";
+export type { ReportCalculationMessages } from "./composables/useSelectionCalculation";
 export { default as ReportParamPanel } from "./ReportParamPanel.vue";
 export * from "./adapters";
 export * from "./local-adapter";

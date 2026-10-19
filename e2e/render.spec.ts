@@ -150,7 +150,8 @@ test.describe("MachReport example 真浏览器渲染", () => {
       predicate: (d) => d.suggestedFilename().endsWith(".png"),
       timeout: 15000
     });
-    await page.getByRole("button", { name: "导出图片" }).click();
+    await page.getByRole("button", { name: "导出", exact: true }).click();
+    await page.getByRole("menuitem", { name: "导出图片", exact: true }).click();
     const png = await pngPromise;
     expect(png.suggestedFilename()).toMatch(/^mach-report(-page-\d+)?\.png$/);
     // Word：单个 .doc（谓词过滤，避开仍在到达的 PNG）
@@ -158,7 +159,8 @@ test.describe("MachReport example 真浏览器渲染", () => {
       predicate: (d) => d.suggestedFilename().endsWith(".doc"),
       timeout: 15000
     });
-    await page.getByRole("button", { name: "导出 Word" }).click();
+    await page.getByRole("button", { name: "导出", exact: true }).click();
+    await page.getByRole("menuitem", { name: "导出 Word", exact: true }).click();
     const doc = await docPromise;
     expect(doc.suggestedFilename()).toBe("mach-report.doc");
   });

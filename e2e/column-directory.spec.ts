@@ -26,7 +26,8 @@ test("中文列目录区分同名字段，定位第二空表明细的最右列�
     createApp({ render: () => h(ReportPreview, { reportId: "directory", fetcher: async () => plan, height: "100vh", showExport: false, showPrint: false, showPdfWindow: false }) }).mount(target);
   }, sourceUrl);
   const root = page.locator("#directory-fixture");
-  await root.getByRole("searchbox", { name: "定位字段", exact: true }).fill("总产重");
+  await root.locator(".mrp-directory-trigger").click();
+  await root.getByRole("combobox", { name: "搜索列名或字段", exact: true }).fill("总产重");
   const matches = root.locator(".mrp-column-directory section button");
   await expect(matches).toHaveCount(2);
   await matches.last().click();

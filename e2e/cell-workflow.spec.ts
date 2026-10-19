@@ -92,7 +92,7 @@ test("搜索支持重新聚焦、Enter导航、Esc退出且忽略IME确认", asy
 test("缩略图是可键盘激活的具名页按钮", async ({ page }) => {
   await mountWorkflow(page, true);
   const root = page.locator("#workflow-fixture");
-  await root.getByRole("button", { name: "▦ 缩略图", exact: true }).click();
+  await root.getByRole("button", { name: "缩略图", exact: true }).click();
   const thumbnail = root.getByRole("button", { name: "缩略图 · 1 / 1", exact: true });
   await thumbnail.focus();
   await thumbnail.press("Enter");

@@ -40,6 +40,9 @@ import {
   useThumbs
 } from "./composables/useReportSearch";
 import ReportToolbar from "./ReportToolbar.vue";
+import ReportPagination from "./ReportPagination.vue";
+import ReportCalculationPanel from "./ReportCalculationPanel.vue";
+import { useSelectionCalculation } from "./composables/useSelectionCalculation";
 import ReportSettings from "./ReportSettings.vue";
 import ReportEmpty from "./ReportEmpty.vue";
 import ReportDiscardDialog from "./ReportDiscardDialog.vue";
@@ -62,6 +65,7 @@ import {
 } from "./injection-keys";
 import {
   themeToCssVars,
+  resolveCalculationMessages,
   type MachReportMessages
 } from "./config";
 
@@ -153,6 +157,7 @@ const thumbsRef = ref<HTMLElement | null>(null);
 const showThumbs = ref(false);
 const importing = ref(false);
 const settingsOpen = ref(false);
+const settingsSection = ref<"general" | "tools" | "advanced">("general");
 const importedResult = shallowRef<Pick<ExcelImportResult, "sheets" | "warnings"> | null>(null);
 const importInputRef = ref<HTMLInputElement | null>(null);
 const toolbarRef = ref<InstanceType<typeof ReportToolbar> | null>(null);
@@ -213,6 +218,8 @@ const {
   effectiveEditable, effectiveExcelImport, persistedEditing, emptyStateContent, sessionInteraction
 } = usePreviewConfiguration(props, wideReport, (message) => emit("warning", message));
 const pdfToolsEnabled = computed(() => toolState.value.pdf || toolState.value.pdfWindow);
+const calculationsEnabled = computed(() => effectiveInteraction.value.calculations === true);
+const calculationMessages = computed(() => resolveCalculationMessages(resolvedMessages.value));
 const { pdfFont, getPdfExporter, checkPdfFont, retryPdfFont, cancelFontCheck } = usePreviewFont({
   plan, fontUrl: () => resolved.value.pdfFontUrl,
   enabled: () => pdfToolsEnabled.value,
@@ -232,11 +239,12 @@ async function resetTools(): Promise<void> {
   sessionInteraction.value = {};
   emit("preferences-change", Object.freeze({ ...toolState.value }));
 }
-async function toggleSettings(): Promise<void> {
+async function toggleSettings(section: "general" | "tools" | "advanced" = "general"): Promise<void> {
   if (settingsOpen.value) { settingsOpen.value = false; return; }
   // Wait for the active editor before moving focus into an aria-modal dialog.
   // A rejected save must keep both the input and its focus available for correction.
   if (!await editing.commit() || destroyed || !effectiveShowSettings.value) return;
+  settingsSection.value = section;
   settingsOpen.value = true;
 }
 function editErrorMessage(cause: unknown): string {
@@ -272,12 +280,15 @@ const editing = useCellEditing({
 });
 const cells = useCellSelection({
   plan, root: containerRef,
-  enabled: () => !!effectiveEditable.value,
+  enabled: () => !!effectiveEditable.value || calculationsEnabled.value,
+  editable: () => !!effectiveEditable.value,
   busy: () => loading.value || importing.value || editing.saving.value || !!exporting.value || printing.value || discard.pending.value,
   differences: () => editing.differences.value,
   gotoPage, edit: editing.editCell, apply: editing.apply, undo: editing.undo, redo: editing.redo,
   error: (cause) => { const message = editErrorMessage(cause); exportNotice.value = { kind: "error", message }; reportError(message, "edit", cause); }
 });
+const calculation = useSelectionCalculation({ plan, selection: cells.selection, enabled: () => calculationsEnabled.value });
+function openCalculations(): void { void toggleSettings("advanced"); }
 const discard = useDiscardGuard({
   pending: () => editing.pendingLocalChanges.value,
   reportIds: () => loadedContext.value?.reportIds ?? reportIds.value,
@@ -934,14 +945,19 @@ defineExpose({ ...controller, state });
       @thumbs-toggle="showThumbs = !showThumbs"
       @import-excel="importInputRef?.click()"
       @settings-toggle="toggleSettings"
-    />
+    >
+      <template v-if="sections.length <= 1" #navigation>
+        <ReportNavigation :plan="plan" compact v-if="pageCount > 0 && effectiveInteraction.navigation !== false" :sections="sections" :current-page="currentPage" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @locate-target="locateTarget" @goto="gotoPage" @locate="locateField" />
+      </template>
+    </ReportToolbar>
     <ReportDiscardDialog v-if="discard.request.value" :messages="resolvedMessages" @answer="discard.settle" />
     <ReportTaskStatus :task="task.state.value" :messages="resolvedMessages" @cancel="cancelTask" />
     <ReportDiagnostics :entries="diagnostics.entries.value" :messages="resolvedMessages" @locate="locateDiagnostic" />
-    <ReportSettings v-if="settingsOpen && effectiveShowSettings" :available="availableTools" :enabled="toolState" :messages="resolvedMessages" :persisted-editing="persistedEditing" :interaction="effectiveInteraction" :busy="loading || importing || editing.saving.value || !!exporting || printing" @interaction="sessionInteraction = { ...sessionInteraction, ...$event }" @change="onToolChange" @reset="resetTools" @close="settingsOpen = false">
+    <ReportSettings v-if="settingsOpen && effectiveShowSettings" :available="availableTools" :enabled="toolState" :messages="resolvedMessages" :persisted-editing="persistedEditing" :interaction="effectiveInteraction" :section="settingsSection" :busy="loading || importing || editing.saving.value || !!exporting || printing" @section="settingsSection = $event" @interaction="sessionInteraction = { ...sessionInteraction, ...$event }" @change="onToolChange" @reset="resetTools" @close="settingsOpen = false">
       <slot name="settings" />
+      <template #advanced><ReportCalculationPanel :state="calculation" :messages="calculationMessages" /></template>
     </ReportSettings>
-    <ReportNavigation :plan="plan" @locate-target="locateTarget" v-if="pageCount > 0 && effectiveInteraction.navigation !== false" :sections="sections" :current-page="currentPage" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @goto="gotoPage" @locate="locateField" />
+    <ReportNavigation :plan="plan" @locate-target="locateTarget" v-if="sections.length > 1 && pageCount > 0 && effectiveInteraction.navigation !== false" :sections="sections" :current-page="currentPage" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @goto="gotoPage" @locate="locateField" />
     <ReportImportSummary v-if="importedResult" :result="importedResult" :messages="resolvedMessages" />
     <ReportEditBar v-if="effectiveEditable && pageCount > 0" :differences="editing.differences.value" :conflicts="editing.conflicts.value" :messages="resolvedMessages" :saving="editing.saving.value" :can-undo="editing.canUndo.value" :can-redo="editing.canRedo.value" :persisted="persistedEditing" :busy="!!exporting || printing" @undo="editing.undo" @redo="editing.redo" @restore="editing.restore" @locate="cells.focusCell($event.address)" />
     <input v-if="effectiveExcelImport" ref="importInputRef" class="mrp-import-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden @change="onImportFile" />
@@ -1027,6 +1043,12 @@ defineExpose({ ...controller, state });
         <div v-if="thumbs.windowRange.value.padBottomPx > 0" class="mrp-thumb-spacer" :style="{ height: `${thumbs.windowRange.value.padBottomPx}px` }" aria-hidden="true" />
       </aside>
     </div>
+    <footer v-if="pageCount > 0" class="mrp-footer">
+      <div class="mrp-footer-context">
+        <button v-if="calculationsEnabled && effectiveShowSettings" class="mrp-calculation-toggle" type="button" :aria-label="calculationMessages.calculationTitle" @click="openCalculations"><span aria-hidden="true">∑</span>{{ calculationMessages.calculationTitle }}<strong v-if="calculation.result.value">{{ calculation.result.value.formatted }}</strong></button>
+      </div>
+      <ReportPagination :page-count="pageCount" :current-page="currentPage" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @goto="gotoPage" />
+    </footer>
     <!-- 默认插槽（overlay 层）：自定义操作按钮/状态徽标 -->
     <div class="mrp-overlay">
       <slot />

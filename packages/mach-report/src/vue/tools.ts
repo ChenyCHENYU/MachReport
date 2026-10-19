@@ -25,6 +25,8 @@ export type ReportPreviewTool = "search" | "thumbnails" | "zoom" | ReportExportF
 export type ReportPreviewPreferences = Record<ReportPreviewTool, boolean>;
 
 export interface ReportInteractionOptions {
+  /** 只读选区计算，默认关闭；不写回业务值或执行导入的 Excel 公式。 */
+  calculations?: boolean;
   /** Screen-only frozen panes; exported geometry is unchanged. */
   freezeHeaders?: boolean;
   /** Leading identity columns, from 0 to 20. */

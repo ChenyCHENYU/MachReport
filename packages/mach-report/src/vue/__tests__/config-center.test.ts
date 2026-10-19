@@ -1,7 +1,7 @@
 /* eslint-disable vue/one-component-per-file -- 测试内联 render 误报 */
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
-import { createApp, defineComponent, h, reactive } from "vue";
+import { createApp, defineComponent, h, nextTick, reactive } from "vue";
 import { machReportPlugin } from "../plugin";
 import {
   defineMachReportConfig,
@@ -73,7 +73,7 @@ describe("defineMachReportConfig 配置中心", () => {
     expect(resolved.messages.title).toBe("Report Preview");
     expect(resolved.messages.print).toBe("打印"); // 其余文案沿用缺省
     expect(resolved.theme.shellBg).toBe("#101010");
-    expect(resolved.theme.toolbarBg).toBe("#323639");
+    expect(resolved.theme.toolbarBg).toBe("#ffffff");
   });
 
   it("preset 局部覆盖文案和主题时保留 defaults 的其余字段，不改动输入", () => {
@@ -129,6 +129,8 @@ describe("defineMachReportConfig 配置中心", () => {
     });
     // 路由层关闭打印：工具栏无打印按钮，但仍可导出（应用层默认开）
     expect(root.textContent).not.toContain("打印");
+    (root.querySelector(".mrp-export-trigger") as HTMLButtonElement).click();
+    await nextTick();
     expect(root.textContent).toContain("导出 PDF");
   });
 

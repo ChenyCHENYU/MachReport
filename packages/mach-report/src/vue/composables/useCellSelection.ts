@@ -24,6 +24,8 @@ interface SelectionHost {
   plan: Ref<RenderPlan | null>;
   root: Ref<HTMLElement | null>;
   enabled(): boolean;
+  /** 选区分析可独立于编辑启用；省略时保持已有 enabled 的编辑语义。 */
+  editable?(): boolean;
   busy(): boolean;
   differences(): readonly ReportCellEdit[];
   gotoPage(page: number): void;
@@ -85,6 +87,7 @@ function paintCell(cell: HTMLElement, state: CellPaint, role: string, selected: 
 
 /** Delegated selection: one state and event handler, no Vue instance/listener per cell. */
 export function useCellSelection(host: SelectionHost) {
+  const canEdit = () => host.editable?.() ?? host.enabled();
   const selection = shallowRef<ReportCellSelection | null>(null);
   const tableAddresses = new WeakMap<HTMLTableElement, TableAddress>();
   const cellPaints = new WeakMap<HTMLTableCellElement, CellPaint>();
@@ -207,12 +210,10 @@ export function useCellSelection(host: SelectionHost) {
   }
   function onKeydown(event: KeyboardEvent): boolean {
     const current = selection.value;
-    if (host.busy() || (event.target instanceof Element && event.target.closest("textarea,input,select"))) return false;
+    if (host.busy() || (event.target instanceof Element && event.target.closest("textarea,input,select,button,a[href],[contenteditable]"))) return false;
     if (!current) return beginNavigation(event);
     const key = event.key;
-    const modifier = event.ctrlKey || event.metaKey;
-    if (modifier && key.toLowerCase() === "z") { event.preventDefault(); void (event.shiftKey ? host.redo() : host.undo()); return true; }
-    if (modifier && key.toLowerCase() === "y") { event.preventDefault(); void host.redo(); return true; }
+    if (historyShortcut(event)) return true;
     if (beginEditing(event, current.focus)) return true;
     if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab", "Enter"].includes(key)) return false;
     const moved = navigate(current.focus, key, key === "Tab" && event.shiftKey, event.shiftKey && key !== "Tab", true);
@@ -222,8 +223,17 @@ export function useCellSelection(host: SelectionHost) {
     }
     event.preventDefault(); return true;
   }
+  /** 只把编辑授权下的历史快捷键交给事务层；只读选区不拦截宿主快捷键。 */
+  function historyShortcut(event: KeyboardEvent): boolean {
+    if (!canEdit() || !(event.ctrlKey || event.metaKey)) return false;
+    const key = event.key.toLowerCase();
+    if (key !== "z" && key !== "y") return false;
+    event.preventDefault();
+    void (key === "y" || event.shiftKey ? host.redo() : host.undo());
+    return true;
+  }
   function beginEditing(event: KeyboardEvent, address: ReportCellAddress): boolean {
-    if (!host.enabled() || !host.plan.value) return false;
+    if (!canEdit() || !host.plan.value) return false;
     if (event.key !== "F2" && !(event.key === "Enter" && getReportCellContext(host.plan.value, address)?.editable)) return false;
     const cell = host.root.value?.querySelector<HTMLElement>(selector(address));
     if (cell) { event.preventDefault(); void host.edit(cell); }
@@ -264,7 +274,7 @@ export function useCellSelection(host: SelectionHost) {
   }
   async function pasteSelection(text: string): Promise<boolean> {
     const current = selection.value;
-    if (!current || !host.enabled() || host.busy()) return false;
+    if (!current || !canEdit() || host.busy()) return false;
     try {
       let rows: string[][];
       try { rows = parseReportClipboard(text); }
@@ -282,7 +292,7 @@ export function useCellSelection(host: SelectionHost) {
     } catch (cause) { host.error(cause); return false; }
   }
   function onPaste(event: ClipboardEvent): void {
-    if (!selection.value || !host.enabled() || (event.target instanceof Element && event.target.closest("textarea,input,select"))) return;
+    if (!selection.value || !canEdit() || (event.target instanceof Element && event.target.closest("textarea,input,select,button,a[href],[contenteditable]"))) return;
     if (!event.clipboardData?.types.includes("text/plain")) return;
     const text = event.clipboardData?.getData("text/plain");
     if (text) { event.preventDefault(); void pasteSelection(text); }

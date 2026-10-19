@@ -12,7 +12,8 @@ test("复杂体验页使用原生设置/目录/类型编辑与草稿保护切换
   await report.getByRole("button", { name: "设置", exact: true }).click();
   await expect(report.getByRole("dialog")).toBeVisible();
   await report.getByRole("button", { name: "关闭设置", exact: true }).click();
-  await report.getByRole("searchbox", { name: "定位字段", exact: true }).fill("Target");
+  await report.locator(".mrp-directory-trigger").click();
+  await report.getByRole("combobox", { name: "搜索列名或字段", exact: true }).fill("Target");
   await report.locator(".mrp-column-directory section button").click();
   const target = report.locator("tr").filter({ has: page.getByRole("gridcell", { name: "000001", exact: true }) }).locator('td[data-mr-column-index="5"]');
   await expect(target).toHaveText("0.00");
@@ -42,13 +43,15 @@ test("诊断样例明确呈现降级并拒绝严格输出，正常复杂报表�
   const report = page.locator(".product-preview");
   await expect(report.getByText("000001", { exact: true })).toBeVisible();
   const download = page.waitForEvent("download");
-  await expect(report.getByRole("button", { name: "导出 PDF", exact: true })).toHaveCount(0);
-  await report.getByRole("button", { name: "导出 Excel", exact: true }).click();
+  await report.getByRole("button", { name: "导出", exact: true }).click();
+  await expect(report.getByRole("menuitem", { name: "导出 PDF", exact: true })).toHaveCount(0);
+  await report.getByRole("menuitem", { name: "导出 Excel", exact: true }).click();
   expect((await download).suggestedFilename()).toBe("mach-report.xlsx");
   await page.getByRole("button", { name: "诊断样例 明确展示已知降级", exact: true }).click();
   await expect(report.locator(".mrp-diagnostics")).toBeVisible();
   await report.locator(".mrp-diagnostics > summary").click();
   await expect(report.locator(".mrp-diagnostics")).toContainText("missing-image");
-  await report.getByRole("button", { name: "导出 Excel", exact: true }).click();
+  await report.getByRole("button", { name: "导出", exact: true }).click();
+  await report.getByRole("menuitem", { name: "导出 Excel", exact: true }).click();
   await expect(report.locator(".mrp-export-error")).toContainText(/已知.*降级/);
 });
