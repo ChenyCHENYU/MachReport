@@ -40,13 +40,24 @@ function jump(): void {
   flex: none;
   min-height: 48px;
   box-sizing: border-box;
+  margin: 0;
   padding: 8px 14px;
   background: var(--mrp-toolbar-bg);
   color: var(--mrp-toolbar-fg);
   font-size: 12px;
+  font-family: inherit;
+  font-weight: 400;
+  line-height: 18px;
+  letter-spacing: normal;
   border-top: 1px solid var(--mrp-toolbar-border);
 }
 .mrp-pageinfo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 29px;
+  margin: 0;
+  padding: 0;
   min-width: 45px;
   text-align: center;
   font-variant-numeric: tabular-nums;
@@ -54,7 +65,10 @@ function jump(): void {
 }
 .mrp-page-buttons {
   display: flex;
+  align-items: center;
   gap: 4px;
+  margin: 0;
+  padding: 0;
 }
 .mrp-nav {
   display: inline-flex;
@@ -62,11 +76,17 @@ function jump(): void {
   justify-content: center;
   width: 29px;
   height: 29px;
+  min-width: 29px;
+  min-height: 29px;
+  box-sizing: border-box;
+  margin: 0;
   padding: 0;
   border: 1px solid var(--mrp-btn-border);
   border-radius: 6px;
   color: var(--mrp-btn-fg);
   background: transparent;
+  font: inherit;
+  line-height: 18px;
   cursor: pointer;
 }
 .mrp-nav:hover:not(:disabled) {
@@ -81,28 +101,56 @@ function jump(): void {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding-left: 12px;
+  box-sizing: border-box;
+  min-height: 29px;
+  margin: 0;
+  padding: 0 0 0 12px;
+  font: inherit;
+  line-height: inherit;
   border-left: 1px solid var(--mrp-toolbar-border);
 }
-label {
+.mrp-page-jump label {
   display: flex;
   align-items: center;
   gap: 7px;
+  box-sizing: border-box;
+  min-height: 29px;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  line-height: inherit;
 }
-label span {
+.mrp-page-jump label span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 29px;
+  margin: 0;
+  padding: 0;
   opacity: .6;
 }
-input {
+.mrp-page-jump input {
+  display: block;
   box-sizing: border-box;
   width: 45px;
   height: 29px;
+  min-width: 0;
+  min-height: 29px;
+  margin: 0;
+  padding: 0 6px;
   border: 1px solid var(--mrp-btn-border);
   border-radius: 6px;
   background: transparent;
   color: inherit;
   font: inherit;
+  line-height: 18px;
   text-align: center;
   font-variant-numeric: tabular-nums;
+}
+.mrp-nav :deep(svg) {
+  display: block;
+  flex: none;
+  margin: 0;
+  padding: 0;
 }
 button:focus-visible,input:focus-visible {
   outline: 2px solid var(--mrp-btn-active-bg);
