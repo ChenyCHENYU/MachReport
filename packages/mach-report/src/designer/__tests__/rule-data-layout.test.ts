@@ -128,6 +128,15 @@ describe("visual keyed detail and matrix configuration", () => {
     expect(change).toHaveBeenCalledTimes(count);
     wrapper.unmount();
   });
+  it("shows the engine's number default for existing and newly added matrix measures", async () => {
+    const value = list(); value.matrix = { rowFields: ["plant"], columnFields: ["id"], measures: [{ field: "value", op: "sum" }, { field: "value", op: "avg", numeric: "decimal" }] };
+    const wrapper = mount(RuleDataLayout, { props: { mode: "matrix", list: value, messages: DEFAULT_RULE_EDITOR_MESSAGES } });
+    const numeric = () => wrapper.findAll('select[aria-label="数值模式"]').map((control) => (control.element as HTMLSelectElement).value);
+    expect(numeric()).toEqual(["number", "decimal"]);
+    expect((wrapper.findAll('select[aria-label="数值模式"]')[0]!.element as HTMLSelectElement).selectedOptions[0]!.textContent).toBe("普通数值");
+    await wrapper.findAll("button").find((button) => button.text() === "+ 添加聚合")!.trigger("click"); expect(numeric()).toEqual(["number", "decimal", "number"]);
+    expect(value.matrix.measures[0]!.numeric).toBeUndefined(); expect(wrapper.emitted("change")).toBeUndefined(); wrapper.unmount();
+  });
   it("keeps detail and matrix selects explicitly named for keyboard and screen-reader use", async () => {
     for (const mode of ["detail", "matrix"] as const) {
       const wrapper = mount(RuleDataLayout, { props: { mode, list: list(), messages: DEFAULT_RULE_EDITOR_MESSAGES, datasets: { master: [{ plant: "P1", shift: "A", value: 10 }], child: [{ id: "C1", parent: "M1", qty: 0 }] } } });

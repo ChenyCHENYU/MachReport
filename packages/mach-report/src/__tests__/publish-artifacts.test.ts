@@ -46,6 +46,10 @@ describe("mach-report 引擎发布产物（零运行时依赖单包）", () => {
     expect(sqlJs.length).toBeGreaterThan(100_000); // node-sql-parser 已内联
   });
 
+  it.skipIf(!built)("设计器产物兼容缺少原生克隆API的门户", () => {
+    for (const extension of ["js", "cjs"]) expect(readFileSync(resolve(dist, `designer.${extension}`), "utf8")).not.toMatch(/\bstructuredClone\s*\(/u);
+  });
+
   it.skipIf(!built)("XLSX 声明内联完整 Workbook API，不要求宿主安装 ExcelJS", () => {
     const dts = readFileSync(resolve(dist, "xlsx.d.ts"), "utf8");
     expect(dts).not.toMatch(/(?:from\s*|import\s*\()(['"])exceljs\1/);

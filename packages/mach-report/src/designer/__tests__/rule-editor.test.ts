@@ -174,6 +174,21 @@ describe("declarative rule editor", () => {
     expect(list.computed).toBeUndefined();
     wrapper.unmount();
   });
+  it("displays ordinary numeric defaults for new/existing formulas and group aggregates without mutating source", async () => {
+    const list = component();
+    list.computed = [{ field: "copy", expression: { field: "qty" } }, { field: "exact", numeric: "decimal", expression: { field: "price" } }];
+    list.groups = [{ field: "qty", aggregates: [{ field: "price", op: "sum" }, { field: "qty", op: "sum", numeric: "decimal" }] }];
+    const wrapper = mount(RuleEditor, { props: { list } });
+    const numeric = () => wrapper.findAll('select[aria-label="数值模式"]').map((control) => (control.element as HTMLSelectElement).value);
+    expect(numeric()).toEqual(["number"]);
+    expect((wrapper.get('select[aria-label="数值模式"]').element as HTMLSelectElement).selectedOptions[0]!.textContent).toBe("普通数值");
+    await wrapper.get('select[aria-label="已有规则"]').setValue("copy"); expect(numeric()).toEqual(["number"]);
+    await wrapper.get('select[aria-label="已有规则"]').setValue("exact"); expect(numeric()).toEqual(["decimal"]);
+    await wrapper.findAll('[role="tab"]')[1]!.trigger("click"); expect(numeric()).toEqual(["number", "decimal"]);
+    await wrapper.findAll("button").find((button) => button.text() === "+ 添加聚合")!.trigger("click"); expect(numeric()).toEqual(["number", "decimal", "number"]);
+    expect(list.computed[0]!.numeric).toBeUndefined(); expect(list.groups[0]!.aggregates![0]!.numeric).toBeUndefined();
+    expect(wrapper.emitted("change")).toBeUndefined(); wrapper.unmount();
+  });
   it("gives every rule select an explicit stable accessible name independent of option text", async () => {
     const wrapper = mount(RuleEditor, { props: { list: component(), datasets: { detail: [{ qty: 2, price: 3 }] } } });
     const assertNamed = () => {

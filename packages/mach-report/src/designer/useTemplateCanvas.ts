@@ -90,7 +90,8 @@ export function useTemplateCanvas(
     if (
       transaction((document) => {
         const page = document.template.pages[selected.pageIndex]!,
-          component = structuredClone(selectedComponent(document, selected)!);
+          // 模板已通过纯JSON文档校验；兼容旧门户，且不把Vue响应式代理传给原生克隆API。
+          component = JSON.parse(JSON.stringify(selectedComponent(document, selected)!)) as TemplateComponent;
         const next = componentGeometry(component);
         next.leftMm += 4;
         next.topMm += 4;

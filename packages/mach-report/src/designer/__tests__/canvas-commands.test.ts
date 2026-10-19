@@ -1,5 +1,7 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { effectScope, ref } from "vue";
+import { useTemplateCanvas } from "../useTemplateCanvas";
 import {
   createTableTemplate,
   defineReportTemplate,
@@ -39,6 +41,26 @@ function fixture() {
   };
 }
 describe("可视化设计命令", () => {
+  it("缺少原生克隆API的旧宿主也能复制响应式模板，副本与原组件独立", () => {
+    vi.stubGlobal("structuredClone", undefined);
+    const scope = effectScope();
+    try {
+      const draft = ref(fixture().document);
+      const canvas = scope.run(() => useTemplateCanvas(draft, (mutate) => {
+        const next = JSON.parse(JSON.stringify(draft.value)) as typeof draft.value;
+        mutate(next); draft.value = next; return true;
+      }))!;
+      const page = draft.value.template.pages[0]!;
+      const index = page.components.findIndex((item) => item.kind === "list");
+      canvas.select({ pageIndex: 0, componentIndex: index }); canvas.duplicate();
+      const original = draft.value.template.pages[0]!.components[index] as ListComponent;
+      const copy = draft.value.template.pages[0]!.components.at(-1) as ListComponent;
+      expect(copy).not.toBe(original); expect(copy.columns).toEqual(original.columns);
+      copy.columns[0]!.header = "独立副本";
+      expect(original.columns[0]!.header).toBe("编号");
+      expect(validateReportTemplateDocument(draft.value).ok).toBe(true);
+    } finally { scope.stop(); vi.unstubAllGlobals(); }
+  });
   it("吸附优先最近边/中线并返回辅助线，大目录仅二分查找，非命中落半毫米网格", () => {
     const text = createCanvasComponent("text"),
       peer = createCanvasComponent("text");

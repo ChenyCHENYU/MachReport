@@ -77,6 +77,7 @@ export function useRuleEditor(
     groups.value = clone(
       props.list.groups ?? (props.list.groupBy ? [props.list.groupBy] : []),
     );
+    for (const group of groups.value) for (const aggregate of group.aggregates ?? []) aggregate.numeric ??= "number";
     if (!props.list.columns.some((item) => item.field === column.value))
       column.value = props.list.columns[0]?.field ?? "";
     error.value = "";
@@ -94,6 +95,7 @@ export function useRuleEditor(
         scope: "row",
       },
     );
+    formula.value.numeric ??= "number";
     preview.value = [];
     error.value = "";
   }
@@ -222,6 +224,7 @@ export function useRuleEditor(
     (currentGroup.value.aggregates ??= []).push({
       field: fields.value[0]?.field ?? "",
       op: "sum",
+      numeric: "number",
     });
   }
   function applyGroups(): void {

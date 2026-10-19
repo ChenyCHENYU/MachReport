@@ -89,6 +89,7 @@ export function useRuleDataLayout(
         totals: true,
       },
     );
+    matrix.value.measures = matrix.value.measures.map((measure) => ({ ...measure, numeric: measure.numeric ?? "number" }));
     error.value = "";
     preview.value = undefined;
   }
@@ -135,7 +136,7 @@ export function useRuleDataLayout(
   function addMeasure(): void {
     matrix.value.measures = [
       ...matrix.value.measures,
-      { field: sourceFields.value[0]?.field ?? "", op: "sum" },
+      { field: sourceFields.value[0]?.field ?? "", op: "sum", numeric: "number" },
     ];
   }
   function removeMeasure(index: number): void {
