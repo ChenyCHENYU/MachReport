@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.8.3-2563eb" alt="Source version 2.8.3" />
+  <img src="https://img.shields.io/badge/source-2.8.4-2563eb" alt="Source version 2.8.4" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -464,7 +464,7 @@ Ctrl/Cmd+F 打开或聚焦内容搜索，输入时显示检索状态与命中数
 
 查询、校验、排版、资源准备、文件生成提供阶段反馈和取消；PDF / Excel / 图片及 HTML / Word 输出报告真实完成单位，无法估算的编码过程不显示虚假百分比。`report.cancelTask()` 与 `state.task` 复用同一状态；忽略取消的自定义接口或导出器也不能用迟到结果覆盖当前报表。
 
-宽表字段目录直接读取模板中的中文列名、多层表头与数据集，支持搜索和跨表精确定位。可选设计器增加列搜索、批量对齐及撤销重做，无需使用方再维护一份列目录。
+宽表字段目录直接读取模板中的中文列名、多层表头与数据集，支持搜索和跨表精确定位。可选设计器把当前字段的内容、格式与编辑开关集中在首屏，字段目录按需展开并支持搜索、批量对齐与键盘导航；模板信息与高级 JSON 各有独立分区，保留撤销重做和草稿保护，无需使用方再维护一份列目录。
 
 大宽表适宽时优先挂载当前页和定位目标，其余页面按帧补齐并显示加载占位；切换或卸载取消旧调度。选区只更新变化的属性，减少大量单元格的属性读写。导出仍使用完整计划，使用方无需维护渲染调度。
 
@@ -605,7 +605,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.8.3`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.8.4`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

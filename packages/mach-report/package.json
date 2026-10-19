@@ -1,6 +1,6 @@
 {
   "name": "@agile-team/mach-report",
-  "version": "2.8.3",
+  "version": "2.8.4",
   "description": "独立的 TypeScript 报表引擎：模板分页、DOM/Canvas/PDF/Excel 输出与 Vue 3 预览组件",
   "type": "module",
   "sideEffects": [

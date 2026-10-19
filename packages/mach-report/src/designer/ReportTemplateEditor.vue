@@ -3,6 +3,8 @@ import { ReportPreview } from "@agile-team/mach-report/vue";
 import type { ReportTemplateDocument } from "@agile-team/mach-report";
 import { computed, getCurrentInstance, nextTick, ref, watch } from "vue";
 import ReportIcon from "../vue/ReportIcon.vue";
+import AlignmentControl from "./AlignmentControl.vue";
+import { useTemplateDirectory } from "./useTemplateDirectory";
 import {
   useTemplateEditor,
   type TemplateEditorOptions,
@@ -42,12 +44,7 @@ const {
   fetcher,
   messages: m,
 } = editor;
-const inspector = useTemplateInspector(
-  visibleColumns,
-  selected,
-  activeList,
-  query,
-);
+const inspector = useTemplateInspector(selected, activeList);
 const { section, activeIndex, activeColumn } = inspector;
 const id = `mr-designer-${getCurrentInstance()?.uid ?? 0}`;
 const sections: TemplateInspectorSection[] = ["fields", "template", "advanced"];
@@ -61,23 +58,27 @@ const headingStatus = computed(() =>
         : m.value.ready,
 );
 const keepButton = ref<HTMLButtonElement | null>(null);
-const columnList = ref<HTMLDivElement | null>(null);
 const inspectorPanel = ref<HTMLDivElement | null>(null);
-watch(section, async (value) => {
+const directory = useTemplateDirectory(inspector, section, visibleColumns);
+const {
+  open: directoryOpen,
+  cursor: directoryCursor,
+  trigger: directoryTrigger,
+  panel: directoryPanel,
+  search: directorySearch,
+  list: columnList,
+} = directory;
+watch(section, async () => {
   await nextTick();
   if (inspectorPanel.value) inspectorPanel.value.scrollTop = 0;
-  if (value !== "fields") return;
-  const list = columnList.value;
-  const button = list?.querySelector<HTMLButtonElement>(
-    `button[data-column-index="${activeIndex.value}"]`,
-  );
-  if (!list || !button) return;
-  // 仅移动字段目录自身，不抢分区按钮焦点，也不滚动外层页面。
-  const bounds = list.getBoundingClientRect(), target = button.getBoundingClientRect();
-  const top = bounds.top + list.clientTop, bottom = top + list.clientHeight;
-  if (target.top < top) list.scrollTop += target.top - top;
-  else if (target.bottom > bottom) list.scrollTop += target.bottom - bottom;
 });
+const alignLabels = computed(() => ({
+  auto: m.value.auto,
+  left: m.value.left,
+  center: m.value.center,
+  right: m.value.right,
+  justify: m.value.justify,
+}));
 let previousFocus: HTMLElement | null = null;
 watch(confirmation, async (value) => {
   if (value) {
@@ -118,20 +119,6 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
   );
   select.value = "";
 }
-async function navigateColumn(event: KeyboardEvent): Promise<void> {
-  const index = inspector.moveColumn(event.key);
-  if (index === undefined) return;
-  event.preventDefault();
-  const list = (event.currentTarget as HTMLElement).closest(
-    ".mr-designer-column-list",
-  );
-  await nextTick();
-  const button = list?.querySelector<HTMLButtonElement>(
-    `button[data-column-index="${index}"]`,
-  );
-  button?.focus({ preventScroll: true });
-  button?.scrollIntoView({ block: "nearest" });
-}
 async function navigateSection(event: KeyboardEvent): Promise<void> {
   const keys: Record<string, number> = {
     ArrowRight: 1,
@@ -162,13 +149,32 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
   <section class="mr-designer" :aria-label="m.title" :aria-busy="saving">
     <header class="mr-designer-bar">
       <div class="mr-designer-heading">
-        <ReportIcon name="columns" :size="18" />
-        <div>
-          <strong>{{ m.heading }}</strong><span :class="{ 'mr-designer-dirty': pendingLocalChanges }">{{
-            headingStatus
-          }}</span>
-        </div>
+        <ReportIcon name="columns" :size="15" />
+        <strong>{{ m.heading }}</strong>
+        <span :class="{ 'mr-designer-dirty': pendingLocalChanges }">{{
+          headingStatus
+        }}</span>
       </div>
+      <nav
+        class="mr-designer-tabs"
+        role="tablist"
+        :aria-label="m.sectionsLabel"
+      >
+        <button
+          v-for="item in sections"
+          :id="`${id}-tab-${item}`"
+          :key="item"
+          type="button"
+          role="tab"
+          :aria-selected="section === item"
+          :aria-controls="`${id}-panel-${item}`"
+          :tabindex="section === item ? 0 : -1"
+          @click="section = item"
+          @keydown="navigateSection"
+        >
+          {{ m[`${item}Section`] }}
+        </button>
+      </nav>
       <div class="mr-designer-actions">
         <div class="mr-designer-history">
           <button
@@ -217,7 +223,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
           "
           @click="editor.save"
         >
-          <ReportIcon name="file" :size="14" />{{ saving ? m.saving : m.save }}
+          <ReportIcon name="file" :size="13" />{{ saving ? m.saving : m.save }}
         </button>
       </div>
     </header>
@@ -226,7 +232,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
       role="alertdialog"
       :aria-label="m.discardTitle"
       class="mr-designer-confirm"
-      @keydown.esc.prevent="editor.decideDiscard(false)"
+      @keydown.esc.prevent.stop="editor.decideDiscard(false)"
     >
       <div>
         <strong>{{ m.discardTitle }}</strong>
@@ -246,30 +252,11 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
     </div>
     <div class="mr-designer-body">
       <aside class="mr-designer-inspector">
-        <nav
-          class="mr-designer-tabs"
-          role="tablist"
-          :aria-label="m.sectionsLabel"
-        >
-          <button
-            v-for="item in sections"
-            :id="`${id}-tab-${item}`"
-            :key="item"
-            type="button"
-            role="tab"
-            :aria-selected="section === item"
-            :aria-controls="`${id}-panel-${item}`"
-            :tabindex="section === item ? 0 : -1"
-            @click="section = item"
-            @keydown="navigateSection"
-          >
-            {{ m[`${item}Section`] }}
-          </button>
-        </nav>
         <div
           ref="inspectorPanel"
           :id="`${id}-panel-${section}`"
           class="mr-designer-panel"
+          :class="{ 'is-advanced': section === 'advanced' }"
           role="tabpanel"
           :aria-labelledby="`${id}-tab-${section}`"
         >
@@ -285,220 +272,155 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
                   {{ item.component.title || item.component.dataset }}
                 </option>
               </select></label>
-            <div v-if="activeList" class="mr-designer-columns">
-              <div class="mr-designer-directory-heading">
-                <strong>{{ m.columnDirectory }}</strong><span>{{ activeList.columns.length }} {{ m.fieldsCount }}</span>
-              </div>
-              <div class="mr-designer-search">
-                <ReportIcon name="search" :size="15" /><input
-                  v-model="query"
-                  type="search"
-                  :aria-label="m.columnsSearch"
-                  :placeholder="m.columnsSearch"
-                /><button
-                  v-if="query"
-                  type="button"
-                  class="mr-designer-icon-button"
-                  :aria-label="m.clearSearch"
-                  :title="m.clearSearch"
-                  @click="query = ''"
-                >
-                  <ReportIcon name="close" :size="14" />
-                </button>
-              </div>
-              <div class="mr-designer-column-tools">
+            <template v-if="activeList">
+              <div class="mr-designer-current">
                 <button
+                  ref="directoryTrigger"
                   type="button"
-                  :disabled="
-                    readonly || blocked || jsonPending || !visibleColumns.length
-                  "
-                  @click="editor.selectVisible(true)"
+                  class="mr-designer-field-trigger"
+                  :aria-expanded="directoryOpen"
+                  :aria-controls="`${id}-directory`"
+                  aria-haspopup="dialog"
+                  @click="directory.toggle"
+                  @keydown.esc="directory.escape"
                 >
-                  {{ m.selectVisible }}
-</button><button
-                  v-if="selectedColumns.length"
-                  type="button"
-                  @click="editor.clearSelection"
-                >
-                  {{ m.clearSelection }}
-</button><span v-if="selectedColumns.length" role="status">{{ m.columnsSelected }} {{ selectedColumns.length }}</span><span v-else>{{ visibleColumns.length }} /
-                  {{ activeList.columns.length }}</span>
-              </div>
-              <div
-                ref="columnList"
-                class="mr-designer-column-list"
-                :aria-label="m.columnDirectory"
-                role="group"
-              >
-                <div
-                  v-for="{ column, index } in visibleColumns"
-                  :key="index"
-                  class="mr-designer-column-row"
-                  :class="{ 'is-active': activeIndex === index }"
-                >
-                  <input
-                    type="checkbox"
-                    :aria-label="`${m.selectColumn} ${column.header}`"
-                    :checked="selectedColumns.includes(index)"
-                    :disabled="readonly || blocked || jsonPending"
-                    @change="editor.toggleColumn(index, checked($event))"
-                  />
+                  <span class="mr-designer-current-name"><strong>{{
+                      activeColumn?.column.header || m.noColumns
+                    }}</strong><small>{{
+                      activeColumn?.column.field || "—"
+                    }}</small></span><span class="mr-designer-directory-entry">{{ m.columnDirectory }}
+                    <b>{{ activeList.columns.length }}</b><ReportIcon name="chevron-down" :size="13" /></span>
+                </button>
+                <div class="mr-designer-field-position">
+                  <span :aria-label="m.fieldPosition">{{ activeIndex >= 0 ? activeIndex + 1 : 0 }}<i>/</i>{{ activeList.columns.length }}</span>
                   <button
                     type="button"
-                    :data-column-index="index"
-                    :aria-pressed="activeIndex === index"
-                    :tabindex="activeIndex === index ? 0 : -1"
-                    @click="inspector.activate(index)"
-                    @keydown="navigateColumn"
+                    class="mr-designer-icon-button"
+                    :aria-label="m.previousColumn"
+                    :title="m.previousColumn"
+                    :disabled="activeIndex <= 0"
+                    @click="inspector.stepColumn(-1)"
                   >
-                    <span class="mr-designer-column-number">{{
-                      index + 1
-                    }}</span><span class="mr-designer-column-name"><strong>{{ column.header }}</strong><small>{{ column.field }}</small></span><ReportIcon
-                      v-if="activeIndex === index"
-                      name="chevron-right"
-                      :size="14"
-                    />
+                    <ReportIcon name="chevron-left" :size="14" />
+                  </button>
+                  <button
+                    type="button"
+                    class="mr-designer-icon-button"
+                    :aria-label="m.nextColumn"
+                    :title="m.nextColumn"
+                    :disabled="activeIndex >= activeList.columns.length - 1"
+                    @click="inspector.stepColumn(1)"
+                  >
+                    <ReportIcon name="chevron-right" :size="14" />
                   </button>
                 </div>
-                <p
-                  v-if="!visibleColumns.length"
-                  role="status"
-                  class="mr-designer-empty"
-                >
-                  <ReportIcon name="search" :size="20" />{{ m.noColumns }}
-                </p>
-              </div>
-              <div v-if="selectedColumns.length" class="mr-designer-batch">
-                <label>{{ m.batchBody
-                  }}<select
-                    :aria-label="m.batchBody"
-                    :disabled="readonly || blocked || jsonPending"
-                    @change="batch($event, 'align')"
-                  >
-                    <option value="">{{ m.chooseAlignment }}</option>
-                    <option value="auto">{{ m.auto }}</option>
-                    <option value="left">{{ m.left }}</option>
-                    <option value="center">{{ m.center }}</option>
-                    <option value="right">{{ m.right }}</option>
-                    <option value="justify">{{ m.justify }}</option>
-                  </select></label>
-                <label>{{ m.batchHeader
-                  }}<select
-                    :aria-label="m.batchHeader"
-                    :disabled="readonly || blocked || jsonPending"
-                    @change="batch($event, 'headerAlign')"
-                  >
-                    <option value="">{{ m.chooseAlignment }}</option>
-                    <option value="left">{{ m.left }}</option>
-                    <option value="center">{{ m.center }}</option>
-                    <option value="right">{{ m.right }}</option>
-                    <option value="justify">{{ m.justify }}</option>
-                  </select></label>
               </div>
               <fieldset
                 v-if="activeColumn"
                 class="mr-designer-properties"
                 :disabled="readonly || blocked || jsonPending"
+                :aria-label="m.columnProperties"
               >
-                <legend>
-                  {{ m.columnProperties }}
-                  <span>{{ activeColumn.index + 1 }} ·
-                    {{ activeColumn.column.header }}</span>
-                </legend>
-                <label>{{ m.header
-                  }}<input
-                    :value="activeColumn.column.header"
-                    @input="
-                      editor.setColumn(
-                        activeColumn.index,
-                        'header',
-                        value($event),
-                      )
-                    "
-                /></label>
-                <label>{{ m.field
-                  }}<input
-                    :value="activeColumn.column.field"
-                    @change="
-                      editor.setColumn(
-                        activeColumn.index,
-                        'field',
-                        value($event),
-                      )
-                    "
-                /></label>
-                <label>{{ m.width
-                  }}<input
-                    type="number"
-                    min="0.1"
-                    step="0.5"
-                    :value="activeColumn.column.widthMm"
-                    @change="
-                      editor.setColumn(
-                        activeColumn.index,
-                        'widthMm',
-                        value($event),
-                      )
-                    "
-                /></label>
-                <label>{{ m.semantic
-                  }}<select
-                    :value="activeColumn.column.semanticRole || 'text'"
-                    @change="
-                      editor.setColumn(
-                        activeColumn.index,
-                        'semanticRole',
-                        value($event),
-                      )
-                    "
-                  >
-                    <option value="identifier">{{ m.identifier }}</option>
-                    <option value="dimension">{{ m.dimension }}</option>
-                    <option value="measure">{{ m.measure }}</option>
-                    <option value="date">{{ m.date }}</option>
-                    <option value="text">{{ m.text }}</option>
-                  </select></label>
-                <label>{{ m.bodyAlign
-                  }}<select
-                    :value="
-                      activeColumn.column.align ??
-                      activeColumn.column.style?.align ??
-                      activeList.align ??
-                      'left'
-                    "
-                    @change="
-                      editor.setColumn(
-                        activeColumn.index,
-                        'align',
-                        value($event),
-                      )
-                    "
-                  >
-                    <option value="auto">{{ m.auto }}</option>
-                    <option value="left">{{ m.left }}</option>
-                    <option value="center">{{ m.center }}</option>
-                    <option value="right">{{ m.right }}</option>
-                    <option value="justify">{{ m.justify }}</option>
-                  </select></label>
-                <label>{{ m.headerAlign
-                  }}<select
-                    :value="editor.headerAlignments.value[activeColumn.index]"
-                    @change="
-                      editor.setColumn(
-                        activeColumn.index,
-                        'headerAlign',
-                        value($event),
-                      )
-                    "
-                  >
-                    <option value="left">{{ m.left }}</option>
-                    <option value="center">{{ m.center }}</option>
-                    <option value="right">{{ m.right }}</option>
-                    <option value="justify">{{ m.justify }}</option>
-                  </select></label>
+                <div class="mr-designer-property-group">
+                  <h3>{{ m.contentGroup }}</h3>
+                  <label>{{ m.header
+                    }}<input
+                      :value="activeColumn.column.header"
+                      @input="
+                        editor.setColumn(
+                          activeColumn.index,
+                          'header',
+                          value($event),
+                        )
+                      "
+                  /></label>
+                  <label>{{ m.field
+                    }}<input
+                      :value="activeColumn.column.field"
+                      @change="
+                        editor.setColumn(
+                          activeColumn.index,
+                          'field',
+                          value($event),
+                        )
+                      "
+                  /></label>
+                </div>
+                <div class="mr-designer-property-group">
+                  <h3>{{ m.formatGroup }}</h3>
+                  <div class="mr-designer-format-pair">
+                    <label class="mr-designer-stacked">{{ m.width
+                      }}<input
+                        type="number"
+                        min="0.1"
+                        step="0.5"
+                        :value="activeColumn.column.widthMm"
+                        @change="
+                          editor.setColumn(
+                            activeColumn.index,
+                            'widthMm',
+                            value($event),
+                          )
+                        "
+                    /></label>
+                    <label class="mr-designer-stacked">{{ m.semantic
+                      }}<select
+                        :value="activeColumn.column.semanticRole || 'text'"
+                        @change="
+                          editor.setColumn(
+                            activeColumn.index,
+                            'semanticRole',
+                            value($event),
+                          )
+                        "
+                      >
+                        <option value="identifier">{{ m.identifier }}</option>
+                        <option value="dimension">{{ m.dimension }}</option>
+                        <option value="measure">{{ m.measure }}</option>
+                        <option value="date">{{ m.date }}</option>
+                        <option value="text">{{ m.text }}</option>
+                      </select></label>
+                  </div>
+                  <div class="mr-designer-control-row">
+                    <span>{{ m.bodyAlign }}</span><AlignmentControl
+                      :model-value="
+                        activeColumn.column.align ??
+                        activeColumn.column.style?.align ??
+                        activeList.align ??
+                        'left'
+                      "
+                      :label="m.bodyAlign"
+                      :labels="alignLabels"
+                      :auto-label="m.autoShort"
+                      allow-auto
+                      @update:model-value="
+                        editor.setColumn(activeColumn.index, 'align', $event)
+                      "
+                    />
+                  </div>
+                  <div class="mr-designer-control-row">
+                    <span>{{ m.headerAlign }}</span><AlignmentControl
+                      :model-value="
+                        editor.headerAlignments.value[activeColumn.index] ||
+                        'left'
+                      "
+                      :label="m.headerAlign"
+                      :labels="alignLabels"
+                      :auto-label="m.autoShort"
+                      @update:model-value="
+                        editor.setColumn(
+                          activeColumn.index,
+                          'headerAlign',
+                          $event,
+                        )
+                      "
+                    />
+                  </div>
+                </div>
                 <label class="mr-designer-toggle">{{ m.editable
                   }}<input
                     type="checkbox"
+                    role="switch"
                     :checked="activeColumn.column.editable === true"
                     @change="
                       editor.setColumn(
@@ -509,7 +431,138 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
                     "
                 /></label>
               </fieldset>
-            </div>
+              <div
+                v-if="directoryOpen"
+                :id="`${id}-directory`"
+                ref="directoryPanel"
+                role="dialog"
+                :aria-label="m.columnDirectory"
+                class="mr-designer-directory"
+                @keydown.esc="directory.escape"
+                @focusout="directory.leave"
+              >
+                <div class="mr-designer-directory-heading">
+                  <strong>{{ m.columnDirectory }}
+                    <span>{{ activeList.columns.length }}</span></strong><button
+                    type="button"
+                    class="mr-designer-icon-button"
+                    :aria-label="m.closeDirectory"
+                    @click="directory.close(true)"
+                  >
+                    <ReportIcon name="close" :size="15" />
+                  </button>
+                </div>
+                <div class="mr-designer-search">
+                  <ReportIcon name="search" :size="14" /><input
+                    ref="directorySearch"
+                    v-model="query"
+                    type="search"
+                    :aria-label="m.columnsSearch"
+                    :placeholder="m.columnsSearch"
+                  @keydown="directory.searchKeydown"
+                  /><button
+                    v-if="query"
+                    type="button"
+                    class="mr-designer-icon-button"
+                    :aria-label="m.clearSearch"
+                    :title="m.clearSearch"
+                    @click="query = ''"
+                  >
+                    <ReportIcon name="close" :size="13" />
+                  </button>
+                </div>
+                <div class="mr-designer-column-tools">
+                  <button
+                    type="button"
+                    :disabled="
+                      readonly ||
+                      blocked ||
+                      jsonPending ||
+                      !visibleColumns.length
+                    "
+                    @click="editor.selectVisible(true)"
+                  >
+                    {{ m.selectVisible }}
+</button><button
+                    v-if="selectedColumns.length"
+                    type="button"
+                    @click="editor.clearSelection"
+                  >
+                    {{ m.clearSelection }}
+</button><span v-if="selectedColumns.length" role="status">{{ m.columnsSelected }} {{ selectedColumns.length }}</span><span v-else>{{ visibleColumns.length }} /
+                    {{ activeList.columns.length }}</span>
+                </div>
+                <div
+                  ref="columnList"
+                  class="mr-designer-column-list"
+                  :aria-label="m.columnDirectory"
+                  role="group"
+                >
+                  <div
+                    v-for="{ column, index } in visibleColumns"
+                    :key="index"
+                    class="mr-designer-column-row"
+                    :class="{ 'is-active': activeIndex === index }"
+                  >
+                    <input
+                      type="checkbox"
+                      :aria-label="`${m.selectColumn} ${column.header}`"
+                      :checked="selectedColumns.includes(index)"
+                      :disabled="readonly || blocked || jsonPending"
+                      @change="editor.toggleColumn(index, checked($event))"
+                    /><button
+                      type="button"
+                      :data-column-index="index"
+                      :aria-pressed="activeIndex === index"
+                      :tabindex="directoryCursor === index ? 0 : -1"
+                      @click="directory.choose(index)"
+                      @keydown="directory.navigate"
+                    >
+                      <span class="mr-designer-column-number">{{
+                        index + 1
+                      }}</span><span class="mr-designer-column-name"><strong>{{ column.header }}</strong><small>{{ column.field }}</small></span><ReportIcon
+                        v-if="activeIndex === index"
+                        name="chevron-right"
+                        :size="13"
+                      />
+                    </button>
+                  </div>
+                  <p
+                    v-if="!visibleColumns.length"
+                    role="status"
+                    class="mr-designer-empty"
+                  >
+                    <ReportIcon name="search" :size="20" />{{ m.noColumns }}
+                  </p>
+                </div>
+                <div v-if="selectedColumns.length" class="mr-designer-batch">
+                  <label>{{ m.batchBody
+                    }}<select
+                      :aria-label="m.batchBody"
+                      :disabled="readonly || blocked || jsonPending"
+                      @change="batch($event, 'align')"
+                    >
+                      <option value="">{{ m.chooseAlignment }}</option>
+                      <option value="auto">{{ m.auto }}</option>
+                      <option value="left">{{ m.left }}</option>
+                      <option value="center">{{ m.center }}</option>
+                      <option value="right">{{ m.right }}</option>
+                      <option value="justify">{{ m.justify }}</option>
+                    </select></label><label>{{ m.batchHeader
+                    }}<select
+                      :aria-label="m.batchHeader"
+                      :disabled="readonly || blocked || jsonPending"
+                      @change="batch($event, 'headerAlign')"
+                    >
+                      <option value="">{{ m.chooseAlignment }}</option>
+                      <option value="left">{{ m.left }}</option>
+                      <option value="center">{{ m.center }}</option>
+                      <option value="right">{{ m.right }}</option>
+                      <option value="justify">{{ m.justify }}</option>
+                    </select></label>
+                </div>
+              </div>
+            </template>
             <p v-else role="status" class="mr-designer-empty">
               {{ m.noColumns }}
             </p>
@@ -524,24 +577,25 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
             /></label>
             <label class="mr-designer-stacked">{{ m.description
               }}<textarea
-                rows="4"
+                rows="2"
                 :value="draft.description"
                 :disabled="readonly || blocked || jsonPending"
                 @input="editor.setDescription(value($event))"
               />
             </label>
-            <dl class="mr-designer-identity">
-              <dt>{{ m.templateIdentity }}</dt>
-              <dd>{{ draft.id }}</dd>
-              <dt>{{ m.templateRevision }}</dt>
-              <dd>{{ draft.revision || m.unpublished }}</dd>
-            </dl>
-            <p class="mr-designer-note">{{ m.note }}</p>
+            <details class="mr-designer-technical">
+              <summary>{{ m.technicalDetails }}</summary>
+              <dl class="mr-designer-identity">
+                <dt>{{ m.templateIdentity }}</dt>
+                <dd>{{ draft.id }}</dd>
+                <dt>{{ m.templateRevision }}</dt>
+                <dd>{{ draft.revision || m.unpublished }}</dd>
+              </dl>
+            </details>
           </template>
           <template v-else>
             <h3>{{ m.advancedTitle }}</h3>
-            <p class="mr-designer-note">{{ m.advancedDescription }}</p>
-            <label class="mr-designer-stacked">{{ m.json
+            <label class="mr-designer-stacked mr-designer-json-label">{{ m.json
               }}<textarea
                 v-model="json"
                 class="mr-designer-json"
@@ -581,6 +635,10 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
           v-if="fetcher && validation.ok"
           report-id="draft"
           :fetcher="fetcher"
+          :messages="{
+            title: m.previewTitle,
+            columnDirectory: m.previewFieldDirectory,
+          }"
           :show-params="false"
           :editable="false"
           :excel-import="false"

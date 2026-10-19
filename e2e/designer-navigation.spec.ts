@@ -105,15 +105,18 @@ async function mountWideDesigner(page: Page) {
 }
 
 for (const width of [1024, 1440]) {
-  test(`${width}px 55列使用单列属性，目录键盘导航及预览分页保持可见`, async ({
+  test(`${width}px 55列属性首屏可操作，按需目录保留键盘与物理列导航`, async ({
     page,
   }, testInfo) => {
     await page.setViewportSize({ width, height: 800 });
     const root = await mountWideDesigner(page),
-      rows = root.locator(".mr-designer-column-row");
-    await expect(rows).toHaveCount(55);
+      rows = root.locator(".mr-designer-column-row"),
+      trigger = root.locator(".mr-designer-field-trigger");
+    await expect(rows).toHaveCount(0);
     await expect(root.locator("fieldset")).toHaveCount(1);
-    await expect(root.locator("fieldset input,fieldset select")).toHaveCount(7);
+    await expect(
+      root.locator("fieldset input,fieldset select,fieldset [role=radiogroup]"),
+    ).toHaveCount(7);
     await expect(root.getByLabel("模板名称", { exact: true })).toHaveCount(0);
     await expect(root.getByLabel("完整模板 JSON", { exact: true })).toHaveCount(
       0,
@@ -121,68 +124,148 @@ for (const width of [1024, 1440]) {
     await expect(root.getByLabel("批量正文对齐", { exact: true })).toHaveCount(
       0,
     );
-    const geometry = await root.evaluate((root) => {
-      const bounds = (selector: string) =>
-        root.querySelector(selector)!.getBoundingClientRect().toJSON();
-      const directory = root
-        .querySelector(".mr-designer-column-list")!
-        .getBoundingClientRect();
-      const visibleRows = [
-        ...root.querySelectorAll(".mr-designer-column-row"),
-      ].filter(
-        (row) =>
-          row.getBoundingClientRect().bottom <= directory.bottom &&
-          row.getBoundingClientRect().top >= directory.top,
-      ).length;
-      return {
-        designer: bounds(".mr-designer"),
-        preview: bounds(".mr-designer-preview"),
-        footer: bounds(".mrp-footer"),
-        directory: bounds(".mr-designer-column-list"),
-        visibleRows,
-        scrollWidth: root.scrollWidth,
-        width: root.clientWidth,
-      };
-    });
-    expect(geometry.visibleRows).toBeGreaterThanOrEqual(6);
-    expect(geometry.footer.bottom).toBeLessThanOrEqual(800 - 15);
-    expect(geometry.preview.height).toBeGreaterThan(500);
-    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width);
+    const geometries = [];
+    for (const height of [800, 680]) {
+      await page.setViewportSize({ width, height });
+      const geometry = await root.evaluate((root) => {
+        const bounds = (selector: string) =>
+          root.querySelector(selector)!.getBoundingClientRect().toJSON();
+        const panel = root.querySelector(".mr-designer-panel")!;
+        const controls = [
+          ...root.querySelectorAll(
+            "fieldset input,fieldset select,fieldset [role=radiogroup]",
+          ),
+        ];
+        const propertyControls = controls.map((control) => {
+          const rect = control.getBoundingClientRect();
+          const target = document.elementFromPoint(
+            rect.x + rect.width / 2,
+            rect.y + rect.height / 2,
+          );
+          return {
+            bounds: rect.toJSON(),
+            visible: target === control || control.contains(target),
+          };
+        });
+        return {
+          designer: bounds(".mr-designer"),
+          header: bounds(".mr-designer-bar"),
+          preview: bounds(".mr-designer-preview"),
+          footer: bounds(".mrp-footer"),
+          panel: bounds(".mr-designer-panel"),
+          panelScroll: panel.scrollHeight - panel.clientHeight,
+          propertyControls,
+          scrollWidth: root.scrollWidth,
+          width: root.clientWidth,
+        };
+      });
+      geometries.push({ width, height, ...geometry });
+      expect(geometry.header.height).toBe(42);
+      expect(geometry.footer.bottom).toBeLessThanOrEqual(height - 15);
+      expect(geometry.preview.height).toBeGreaterThan(height - 95);
+      expect(geometry.panelScroll).toBeLessThanOrEqual(1);
+      expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width);
+      for (const control of geometry.propertyControls) {
+        expect(control.visible).toBe(true);
+        expect(control.bounds.top).toBeGreaterThanOrEqual(geometry.panel.top);
+        expect(control.bounds.bottom).toBeLessThanOrEqual(
+          geometry.panel.bottom,
+        );
+      }
+    }
+    await trigger.click();
+    await expect(rows).toHaveCount(55);
+    await expect(
+      root.getByLabel("搜索列名或字段", { exact: true }),
+    ).toBeFocused();
     const first = rows.first().getByRole("button");
     await first.focus();
     await first.press("End");
-    await expect(rows.last().getByRole("button")).toBeFocused();
+    const last = rows.last().getByRole("button");
+    await expect(last).toBeFocused();
+    await expect(last).toBeInViewport({ ratio: 1 });
+    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
+      "c1",
+    );
+    await last.press("Enter");
+    await expect(rows).toHaveCount(0);
     await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
       "c55",
     );
-    // 较矮宿主中属性编辑会滚动面板；分区复用 DOM 时不能继承旧滚动位置。
-    await page.setViewportSize({ width, height: 680 });
-    const panel = root.locator(".mr-designer-panel");
-    await panel.evaluate((element) => { element.scrollTop = element.scrollHeight; });
-    expect(await panel.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    await trigger.click();
+    // 多选只负责批量操作，不改变当前字段或关闭目录。
+    await rows.nth(1).getByRole("checkbox").check();
+    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
+      "c55",
+    );
+    await expect(
+      root.getByRole("dialog", { name: "字段目录", exact: true }),
+    ).toBeVisible();
+    await root
+      .getByLabel("批量正文对齐", { exact: true })
+      .selectOption("center");
+    await root
+      .getByRole("button", { name: "关闭字段目录", exact: true })
+      .click();
+    await expect(trigger).toBeFocused();
+    await expect(rows).toHaveCount(0);
+    await trigger.click();
+    await expect(rows.nth(1).getByRole("checkbox")).toBeChecked();
+    await expect(last).toBeInViewport({ ratio: 1 });
+    await last.press("Enter");
+    await expect(rows).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
+      "c55",
+    );
+    await root.getByRole("button", { name: "撤销", exact: true }).click();
+    // 正向 Tab 离开目录不会把焦点留在被覆盖的属性中，也不强制返回入口。
+    await trigger.click();
+    await last.focus();
+    await last.press("Tab");
+    await expect(rows).toHaveCount(0);
+    await expect(trigger).not.toBeFocused();
+    // 反向 Tab 允许回到属性，但此时必须先收起覆盖目录。
+    await trigger.click();
+    const focusedSearch = root.getByLabel("搜索列名或字段", { exact: true });
+    await focusedSearch.press("Shift+Tab");
+    await page.keyboard.press("Shift+Tab");
+    await expect(
+      root.getByRole("switch", { name: "允许编辑", exact: true }),
+    ).toBeFocused();
+    await expect(rows).toHaveCount(0);
     await root.getByRole("tab", { name: "模板", exact: true }).click();
-    await expect(root.getByRole("heading", { name: "模板信息", exact: true })).toBeInViewport({ ratio: 1 });
-    expect(await panel.evaluate((element) => element.scrollTop)).toBe(0);
+    await expect(
+      root.getByRole("heading", { name: "模板信息", exact: true }),
+    ).toBeInViewport({ ratio: 1 });
+    await expect(root.locator(".mr-designer-technical")).not.toHaveAttribute(
+      "open",
+    );
     const fieldsTab = root.getByRole("tab", { name: "字段", exact: true });
     await fieldsTab.click();
     await expect(fieldsTab).toBeFocused();
-    await expect(rows.last().getByRole("button")).toBeInViewport({ ratio: 1 });
-    await expect(rows.last().getByRole("button")).toHaveAttribute("aria-pressed", "true");
-    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue("c55");
+    await expect(rows).toHaveCount(0);
+    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
+      "c55",
+    );
     expect(await root.evaluate((element) => element.scrollTop)).toBe(0);
-    await panel.evaluate((element) => { element.scrollTop = element.scrollHeight; });
-    expect(await panel.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
     await root.getByRole("tab", { name: "高级", exact: true }).click();
-    await expect(root.getByRole("heading", { name: "完整配置", exact: true })).toBeInViewport({ ratio: 1 });
-    expect(await panel.evaluate((element) => element.scrollTop)).toBe(0);
+    await expect(
+      root.getByRole("heading", { name: "完整配置", exact: true }),
+    ).toBeInViewport({ ratio: 1 });
+    await expect(
+      root.getByLabel("完整模板 JSON", { exact: true }),
+    ).toBeVisible();
     await fieldsTab.click();
-    await expect(fieldsTab).toBeFocused();
-    await expect(rows.last().getByRole("button")).toBeInViewport({ ratio: 1 });
-    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue("c55");
-    expect(await root.evaluate((element) => element.scrollTop)).toBe(0);
-    await page.setViewportSize({ width, height: 800 });
-    await root.getByLabel("搜索列名或字段", { exact: true }).fill("c54");
+    await trigger.click();
+    const search = root.getByLabel("搜索列名或字段", { exact: true });
+    await search.fill("c54");
     await expect(rows).toHaveCount(1);
+    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
+      "c55",
+    );
+    await search.press("Enter");
+    await expect(rows).toHaveCount(0);
     await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
       "c54",
     );
@@ -199,23 +282,68 @@ for (const width of [1024, 1440]) {
           : [];
       }),
     ).toEqual(["精准字段54", "业务指标55"]);
-    await root
-      .getByLabel("搜索列名或字段", { exact: true })
-      .fill("不存在的字段");
-    await expect(root.getByText("没有匹配的列", { exact: true })).toBeVisible();
-    await expect(root.locator("fieldset")).toHaveCount(0);
+    // 关闭目录后的前后切换走完整物理列，保留目录查询也不能跳到错误字段。
+    await root.getByRole("button", { name: "下一字段", exact: true }).click();
+    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
+      "c55",
+    );
+    await root.getByRole("button", { name: "上一字段", exact: true }).click();
+    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
+      "c54",
+    );
+    await trigger.click();
+    await expect(search).toHaveValue("c54");
+    await search.fill("不存在的字段");
+    await expect(
+      root.getByText("没有匹配的列", { exact: true }).last(),
+    ).toBeVisible();
+    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
+      "c54",
+    );
+    await search.press("Enter");
+    await expect(
+      root.getByRole("dialog", { name: "字段目录", exact: true }),
+    ).toBeVisible();
+    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
+      "c54",
+    );
+    await expect(root.locator("fieldset")).toHaveCount(1);
     await root.getByRole("button", { name: "清除搜索", exact: true }).click();
     await expect(rows).toHaveCount(55);
     await expect(root.locator("fieldset")).toHaveCount(1);
-    await root.getByLabel("搜索列名或字段", { exact: true }).fill("业务指标55");
+    await search.fill("业务指标55");
+    await rows.first().getByRole("button").press("Enter");
     const header = root.getByLabel("表头", { exact: true });
     await header.focus();
     await header.press("ControlOrMeta+A");
     await header.pressSequentially("持续输入后的完整名称");
     await expect(header).toBeFocused();
     await expect(header).toHaveValue("持续输入后的完整名称");
-    await root.getByRole("button", { name: "清除搜索", exact: true }).click();
-    await root.getByRole("tab", { name: "字段", exact: true }).focus();
+    // Escape 只关闭字段目录并还焦，不传播到宿主弹窗。
+    await page.evaluate(() => {
+      (window as Window & { __escaped?: number }).__escaped = 0;
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape")
+          (window as Window & { __escaped?: number }).__escaped!++;
+      });
+    });
+    await trigger.click();
+    await search.press("Escape");
+    await expect(trigger).toBeFocused();
+    await expect(rows).toHaveCount(0);
+    expect(
+      await page.evaluate(
+        () => (window as Window & { __escaped?: number }).__escaped,
+      ),
+    ).toBe(0);
+    await trigger.click();
+    await root.getByRole("tab", { name: "模板", exact: true }).click();
+    await expect(
+      root.getByRole("tab", { name: "模板", exact: true }),
+    ).toBeFocused();
+    await fieldsTab.click();
+    await expect(rows).toHaveCount(0);
+    await fieldsTab.focus();
     await page.keyboard.press("ArrowRight");
     await expect(
       root.getByRole("tab", { name: "模板", exact: true }),
@@ -255,9 +383,10 @@ for (const width of [1024, 1440]) {
         })),
       )
       .toEqual({ saving: false, blocked: false, dirty: false });
-    await root.getByRole("tab", { name: "字段", exact: true }).click();
+    await fieldsTab.click();
+    await page.setViewportSize({ width, height: 800 });
     await testInfo.attach("workbench-layout.json", {
-      body: JSON.stringify(geometry, null, 2),
+      body: JSON.stringify(geometries, null, 2),
       contentType: "application/json",
     });
     await page.screenshot({
