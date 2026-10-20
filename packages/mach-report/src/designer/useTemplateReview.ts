@@ -20,7 +20,11 @@ export function useTemplateReview(props: TemplateReviewOptions) {
     stale.value = !!report.value; failure.value = "";
   }
   // Deep watching tracks in-place edits too; no repeated serialization or hashing of large datasets.
-  for (const input of [() => props.document, () => props.previous, () => props.datasets, () => props.dataSchemas, () => props.formats]) watch(input, invalidate, { deep: true, flush: "sync" });
+  for (const input of [() => props.document, () => props.previous]) watch(input, () => {
+    acknowledged.value = false;
+    invalidate();
+  }, { deep: true, flush: "sync" });
+  for (const input of [() => props.datasets, () => props.dataSchemas, () => props.formats]) watch(input, invalidate, { deep: true, flush: "sync" });
   watch([sampleSize, acknowledged], invalidate, { flush: "sync" });
   onBeforeUnmount(() => { revision++; clearTimeout(timer); });
   const errors = computed(() => report.value?.issues.filter((issue) => issue.severity === "error").length ?? 0);

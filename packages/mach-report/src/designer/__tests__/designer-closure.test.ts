@@ -45,6 +45,26 @@ describe("designer review and local draft closure", () => {
     await wrapper.setProps({ document: document() }); await vi.runAllTimersAsync();
     expect(wrapper.find(".mr-review-summary").exists()).toBe(false); expect(wrapper.attributes("aria-busy")).toBe("false"); wrapper.unmount();
   });
+  it("binds compatibility acknowledgement to the current document and baseline while retaining it across sample data changes", async () => {
+    const previous = reactive(document()), next = reactive(document());
+    (next.template.pages[0]!.components.find(item => item.kind === "list") as ListComponent).columns.pop();
+    const datasets = reactive({ detail: [{ id: "a", qty: 1 }] });
+    const wrapper = mount(TemplateReviewPanel, { props: { document: next, previous, datasets } });
+    const checked = () => (wrapper.get('input[type="checkbox"]').element as HTMLInputElement).checked;
+    await run(wrapper); await wrapper.get('input[type="checkbox"]').setValue(true); await run(wrapper);
+    expect(wrapper.get(".mr-review-summary").text()).toContain("0 错误");
+    datasets.detail[0]!.qty = 2; await flushPromises();
+    expect(checked()).toBe(true); expect(wrapper.find(".mr-review-summary").exists()).toBe(false);
+    await run(wrapper); expect(wrapper.get(".mr-review-summary").text()).toContain("0 错误");
+    (next.template.pages[0]!.components.find(item => item.kind === "list") as ListComponent).columns[0]!.header = "新业务列";
+    await flushPromises(); expect(checked()).toBe(false); expect(wrapper.find(".mr-review-summary").exists()).toBe(false);
+    await run(wrapper); expect(wrapper.text()).toContain("需要明确确认兼容性");
+    await wrapper.get('input[type="checkbox"]').setValue(true); await run(wrapper);
+    expect(wrapper.get(".mr-review-summary").text()).toContain("0 错误");
+    (previous.template.pages[0]!.components.find(item => item.kind === "list") as ListComponent).columns.push({ field: "extra", header: "新增基线字段", widthMm: 10 });
+    await flushPromises(); expect(checked()).toBe(false); expect(wrapper.find(".mr-review-summary").exists()).toBe(false);
+    await run(wrapper); expect(wrapper.text()).toContain("需要明确确认兼容性"); wrapper.unmount();
+  });
   it("preserves unapplied formula, grouping, detail and matrix drafts across tabs and guards the host editor", async () => {
     const wrapper = mount(ReportTemplateEditor, { props: { modelValue: document(), datasets: { detail: [{ id: "a", qty: 2 }] }, dataSchemas: schemas }, global: { stubs: { ReportPreview: true } } });
     await wrapper.findAll('[role="tab"]').find(button => button.text() === "工具")!.trigger("click"); await flushPromises();
