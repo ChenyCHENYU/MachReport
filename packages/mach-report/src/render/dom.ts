@@ -152,7 +152,7 @@ function renderGridCell(
   const payload = doc.createElement("div");
   payload.className = "mr-cell-content";
   elementStyle("flex").add("position", "absolute")
-    .mm("left", paddingMm, dpi).mm("right", paddingMm, dpi)
+    .mm("left", paddingMm + (cell.indentMm ?? 0), dpi).mm("right", paddingMm, dpi)
     .mm("top", paddingMm, dpi).mm("bottom", paddingMm, dpi)
     .add("flex-direction", "column")
     .add("justify-content", style.verticalAlign === "top" ? "flex-start" : style.verticalAlign === "bottom" ? "flex-end" : "center")

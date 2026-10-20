@@ -11,6 +11,7 @@ import type { ReportEditSessionPart } from "../editing/session-data";
 import { createReportTaskReporter, type ReportTaskMonitoring } from "./task-events";
 import type { ReportProvider, ReportQueryResult } from "./provider";
 import { validateDatasetRows, type DatasetContract, type DatasetValidationOptions } from "../schema/dataset";
+import { templateValidationDatasets } from "./template-tree-data";
 
 /** 取数与排版共同使用的请求上下文；取消只影响本次调用。 */
 export interface ReportLoadContext {
@@ -179,7 +180,9 @@ function validateProviderResult(result: ReportQueryResult, reportId: string): vo
   }
 }
 
-function validateDataContract(definition: ReportDefinition, data: DatasetRows, reportId: string): void {
+function validateDataContract(definition: ReportDefinition, data: DatasetRows, reportId: string, template: ReportTemplate, signal?: AbortSignal): void {
+  try { data = templateValidationDatasets(template, data, { maxRows: definition.dataValidation?.maxRows, signal }); }
+  catch (error) { throw new ReportSourceError("validate", `报表 ${reportId} 树形数据无效：${error instanceof Error ? error.message : String(error)}`, error); }
   for (const [name, contract] of Object.entries(definition.dataSchema ?? {})) {
     let validation: ReturnType<typeof validateDatasetRows>;
     try { validation = validateDatasetRows(Object.prototype.hasOwnProperty.call(data, name) ? data[name] : undefined, contract, { ...definition.dataValidation, path: `$.datasets.${name}` }); }
@@ -226,6 +229,7 @@ function appendTablePages(pages: RenderPlan["pages"], plan: RenderPlan, reportIn
   };
   for (const page of plan.pages) pages.push({
     ...page,
+    ...(page.meta ? { meta: { ...page.meta, reportScope: JSON.stringify([reportIndex, reportId]) } } : {}),
     components: page.components.map((component) => component.table ? {
       ...component,
       table: { ...component.table, id: scopedTableId(component.table.id) }
@@ -298,7 +302,7 @@ export function createReportSource(
       reporter.runSync("validate", () => {
         validateDatasets(data, reportId);
         options.onDatasets?.(reportId, data, template);
-        validateDataContract(definition, data, reportId);
+        validateDataContract(definition, data, reportId, template, signal);
       }, reportId);
       checkAbort(signal);
       const result = reporter.runSync("layout", () => paginateReport(template, data, definition, reportId, { maxPages: options.maxPages, usedPages: pages.length, maxCells: options.maxCells, usedCells }, signal), reportId);

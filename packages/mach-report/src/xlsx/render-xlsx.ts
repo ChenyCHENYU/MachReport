@@ -9,6 +9,7 @@ import { resolveGridLayout, type GridLayout } from "../render/grid-geometry";
 import { mergeComponentStyles, resolveFontSize } from "../render/style";
 import { mmToExcelColumnWidth } from "./column-width";
 import { reportOutputDiagnostics, type OutputDiagnostic, type OutputDiagnosticOptions } from "../output/capabilities";
+import { composeExcelFlowPages, excelFlowPageInfo } from "./region-output";
 
 /**
  * RenderPlan → xlsx 导出（B 端第二出口，对齐家族 @agile-team/mach-table-xlsx 路线）：
@@ -112,16 +113,23 @@ interface SheetUnit {
   continuous: boolean;
   tableId?: string;
   title?: string;
+  flow?: boolean;
 }
 
 interface TablePage {
   id: string;
   title?: string;
   wide: boolean;
+  flow?: boolean;
 }
 
 /** 仅在整页可可靠归属同一张逻辑表时合并；普通自由布局绝不推测。 */
 function tablePage(page: PlanPage): TablePage | undefined {
+  const flow = excelFlowPageInfo(page);
+  if (flow) return { id: `xlsx-flow:${flow.key}`, title: flow.sheet, wide: true, flow: true };
+  return ordinaryTablePage(page);
+}
+function ordinaryTablePage(page: PlanPage): TablePage | undefined {
   const fragments = page.components.filter((comp) => comp.table !== undefined);
   const first = fragments[0]?.table;
   if (!first || typeof first.id !== "string" || !first.id.trim() || !Array.isArray(first.columnKeys) || !first.columnKeys.length) return undefined;
@@ -171,7 +179,7 @@ function sheetUnits(plan: RenderPlan, mode: XlsxRenderOptions["sheetMode"], warn
     if (continuous && previous?.continuous && previous.tableId === table.id) {
       previous.pages.push({ page, index });
     } else {
-      units.push({ pages: [{ page, index }], continuous, ...(continuous ? { tableId: table.id, title: table.title } : {}) });
+      units.push({ pages: [{ page, index }], continuous, ...(continuous ? { tableId: table.id, title: table.title } : {}), ...(candidate?.flow ? { flow: true, title: candidate.title } : {}) });
     }
   }
   return units;
@@ -266,7 +274,9 @@ interface SheetContents {
 }
 
 function sheetContents(unit: SheetUnit): SheetContents {
-  const components = unit.pages.flatMap(({ page, index }, position) => page.components
+  const components = unit.flow
+    ? composeExcelFlowPages(unit.pages, unit.continuous).map(comp => ({ comp, pageIndex: unit.pages[0]!.index }))
+    : unit.pages.flatMap(({ page, index }, position) => page.components
     .filter((comp) => !unit.continuous || (comp.pageAnchor !== "header" || position === 0) && (comp.pageAnchor !== "footer" || position === unit.pages.length - 1))
     .map((comp) => ({ comp, pageIndex: index })));
   const grids = new Map<PlanComponent, GridLayout>();
@@ -358,6 +368,7 @@ function writeGrid(writer: SheetWriter, comp: PlanComponent, layout: GridLayout,
       writer.warnings.push(`page ${pageIndex + 1} ${comp.nid ?? comp.kind} cell ${box.ri + 1}:${box.ci + 1}: 嵌套组件内容暂不支持 xlsx 导出，已跳过`);
     }
     applyGridCellStyle(cell, mergeComponentStyles(comp.style, box.cell.style));
+    if (box.cell.indentMm) cell.alignment = { ...cell.alignment, indent: Math.min(250, Math.max(1, Math.round(box.cell.indentMm / 2.5))) };
     mergeGridCell(writer.sheet, box, layout, cursorRow);
   }
   return cursorRow + layout.rows.length;
@@ -440,12 +451,12 @@ export async function renderPlanToXlsx(plan: RenderPlan, options: XlsxRenderOpti
   const usedNames = new Set<string>();
   for (const [sheetIndex, unit] of units.entries()) {
     const contents = sheetContents(unit);
-    if (unit.continuous) validateContinuousTable(unit, contents.grids);
+    if (unit.continuous && !unit.flow) validateContinuousTable(unit, contents.grids);
     const page = unit.pages[0]!.page;
     const name = options.sheetName?.(sheetIndex) ?? generatedSheetName(unit.title, sheetIndex, usedNames);
     usedNames.add(name.toLowerCase());
     const sheet = workbook.addWorksheet(name, worksheetOptions(unit, options.paperSize, warnings));
-    const valueMode = options.valueMode ?? (isWidePage(page) || unit.continuous ? "raw" : "text");
+    const valueMode = options.valueMode ?? (isWidePage(page) || unit.continuous || unit.flow ? "raw" : "text");
     assertOutputActive(options.signal);
     writeSheet({ sheet, warnings, limits, valueMode }, contents, unit.continuous, images);
     await outputCheckpoint(options, sheetIndex + 1, units.length);

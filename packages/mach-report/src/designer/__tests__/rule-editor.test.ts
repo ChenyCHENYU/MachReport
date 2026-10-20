@@ -160,7 +160,7 @@ describe("declarative rule editor", () => {
       wrapper = mount(RuleEditor, {
         props: { list, datasets: { detail: [{ qty: 2, price: 3 }] } },
       });
-    expect(wrapper.findAll('[role="tab"]')).toHaveLength(5);
+    expect(wrapper.findAll('[role="tab"]').map(tab => tab.text())).toEqual(["计算", "分组", "条件", "主从", "矩阵", "树形"]);
     await wrapper.get('input[aria-label="结果字段"]').setValue("total");
     const apply = wrapper
       .findAll("button")

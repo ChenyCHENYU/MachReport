@@ -4,6 +4,8 @@ export const DEFAULT_RULE_EDITOR_MESSAGES = {
   catalog: "规则与字段", searchFields: "搜索字段、类型或单位", useField: "使用此字段", shown: "显示", explanation: "计算解释", sourceValues: "源值", expression: "表达式", result: "结果", notChecked: "修改后请重新验算", nullReason: "空值依规则保留；空值传播与除零策略见计算边界。", sourceHint: "最多展示 5 条明细；分组和全量聚合以当前验算范围为准。", pending: "未应用配置",
   detail: "主从",
   matrix: "矩阵",
+  tree: "树形",
+  treeInput: "输入结构", treeFlat: "扁平父子表", treeNested: "嵌套子节点", treeId: "节点业务键", treeParent: "父节点键", treeChildren: "子节点数组字段", treeLabel: "层级标签列", treeIndent: "每级缩进 · mm", treeOrphan: "孤儿节点", treeAsRoot: "作为根节点", treeValues: "父级数值来源", treeSource: "保留来源值", treeLeaves: "按后代叶子聚合", treeRows: "最多节点", treeDepth: "最多层级", treeHint: "全量树展示与导出。总计只统计叶子，避免父子重复。应用将替换普通分组、主从、矩阵和行可见条件；可撤销恢复。", treeReadonly: "嵌套输入首版只读；扁平输入的结构键和派生父级聚合只读。", treeBudget: "树形样例最多 1000 个节点，请提供完整关系样例。",
   measureLabel: "显示名称",
   childDataset: "明细数据集",
   parentKey: "主表关联键",

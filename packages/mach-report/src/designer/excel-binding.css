@@ -19,6 +19,29 @@
 .mr-binding * {
   box-sizing: border-box;
 }
+.mr-binding-mode { display: flex; padding: 2px; gap: 2px; border: 1px solid #e2eaf5; border-radius: 7px; background: #f4f7fc; }
+.mr-binding-mode button { min-height: 26px; padding: 0 9px; border-color: transparent; background: transparent; font-size: 10px; }
+.mr-binding-mode button[aria-pressed="true"] { background: #fff; color: #2563eb; border-color: #dbe7f7; box-shadow: 0 1px 3px #16325a0d; }
+.mr-binding-grid td[tabindex="0"] { cursor: crosshair; }
+.mr-binding-grid td.is-cell-selected { background: #dbeafe !important; box-shadow: inset 0 0 0 1px #93bdf3; }
+.mr-binding-add-region { width: 100%; margin-top: 10px; color: #2563eb !important; border-style: dashed !important; background: #f7faff !important; }
+.mr-binding-add-region code { margin-left: auto; font-size: 10px; }
+.mr-binding-region-list { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; }
+.mr-binding-region-entry { display: flex; align-items: stretch; border: 1px solid #e5ebf4; border-radius: 7px; overflow: hidden; background: #fafcff; }
+.mr-binding-region-entry.is-active { border-color: #a9c7f4; background: #f0f6ff; }
+.mr-binding-region-entry > button:first-child { display: grid; grid-template-columns: 1fr auto; text-align: left; flex: 1; min-width: 0; gap: 3px 8px; padding: 8px; border: 0; background: transparent; }
+.mr-binding-region-entry strong { font-size: 10px; font-weight: 600; }
+.mr-binding-region-entry code { font-size: 10px; color: #5276a4; }
+.mr-binding-region-entry small { grid-column: 1 / -1; color: #8391a5; font-size: 9px; }
+.mr-binding-region-entry > button:last-child { min-width: 27px; padding: 0; border: 0; background: transparent; color: #8fa0b7; }
+.mr-binding-region-tools { display: flex; align-items: center; gap: 6px; margin: 10px 0 0; }
+.mr-binding-region-tools button { padding: 0 7px; min-height: 25px; font-size: 10px; }
+.mr-binding-region-tools code { font-size: 10px; color: #7990ae; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mr-binding-concurrency { margin-top: 12px; padding: 8px; border-radius: 6px; background: #f8fafc; color: #7c8ea7; font-size: 10px; }
+.mr-binding-concurrency summary { cursor: pointer; }
+.mr-binding-region-editor { padding: 0; margin: 0; border: 0; min-width: 0; }
+.mr-binding-field-search { display: flex; align-items: center; gap: 6px; padding: 0 8px; border: 1px solid #dce6f4; border-radius: 6px; background: #f8fbff; color: #7b95b7; }
+.mr-binding-field-search input { border: 0 !important; background: transparent !important; width: 100%; padding-left: 0 !important; font-size: 10px !important; }
 .mr-binding button,
 .mr-binding input,
 .mr-binding select {

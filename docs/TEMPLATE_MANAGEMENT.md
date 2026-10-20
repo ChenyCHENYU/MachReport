@@ -158,3 +158,9 @@ Manager可配置 `beforePublish({ document, previous, signal })` 门禁，发布
 导入接受 JSON 文本或普通 JSON 对象；拒绝未知文档版本、未知文档根字段、函数、访问器、循环、危险键、特殊原型和稀疏数组。文档限制为1000万字符、20万 JSON 节点、64层嵌套；多行合并表头还限制逻辑网格不超过20万格，避免小 JSON 通过巨大跨度放大校验成本。对象会完整校验后再复制，不执行模板脚本。网络响应大小和业务数据范围仍由宿主控制。
 
 原有静态 `ReportDefinition.template` 保持2.1兼容，包括显式 undefined 的可选属性；新导入/动态文档遵循纯 JSON 契约。导出前如果静态模板带 undefined，应用应去掉未配置字段；序列化不会静默丢弃非法值。
+
+## 模板目录与报表实例
+
+`ReportTemplateCatalogProvider.search/get` 独立承载分类、标签和远程分页元数据；`createLocalTemplateCatalog` 是最多 1000 项的本地参考实现，`cloneReportTemplate(document,{id,name})` 会校验新 ID 并去除来源修订。模板文档继续只保存设计，不混入企业账号、查询凭据或生成数据。
+
+模板历史不是报表实例。实例使用 `/server` 的 `ReportInstanceStore`、`createReportInstanceManager` 和 `createReportGenerationService`：明确保存渲染快照、参数、模板/数据修订，追加版本和当前指针必须处于同一 CAS 事务。预览保持只读，业务单元格落库仍经 Provider.save。存储责任、参考预算和未来平台能力见[产品能力](PRODUCT_PLATFORM.md)。

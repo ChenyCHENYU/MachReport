@@ -4,7 +4,9 @@
 
 ## 最小接入
 
-只查看工作簿时直接导入；将业务原型变成接口驱动模板时，导入后调用 `bindExcelTemplate`。二者分开，避免误把样例行当作真实业务数据。
+只查看工作簿时直接导入；将业务原型变成接口驱动模板时，单数据集整表可调用 `bindExcelTemplate`，同 Sheet 多来源和局部区域使用 `createExcelRegionBindingDocument`（recipe `2.0`）。二者分开，避免误把样例行当作真实业务数据。
+
+[Excel 业务绑定](./EXCEL_BINDING.md)提供可操作向导、`A3:L3` 产量单记录＋`A5:L5` 成本重复区的完整示例、每页页尾和连续 Excel 回读语义。旧 `bindExcelTemplate` 和 recipe `1.0` 的完整列宽／静态尾页行为保持兼容；多区域是独立版本模型，不是简单放宽旧整表校验。
 
 ### 显式业务区域绑定
 

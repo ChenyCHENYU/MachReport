@@ -209,14 +209,15 @@ function drawGrid(
     if (!text) continue;
     const style = mergeComponentStyles(comp.style, box.cell.style);
     const font = resolveFontSize(style, dpi);
-    const contentWidthMm = Math.max(0, box.widthMm - 2 * paddingMm);
+    const indentMm = box.cell.indentMm ?? 0;
+    const contentWidthMm = Math.max(0, box.widthMm - 2 * paddingMm - indentMm);
     const lines = wrapText(text, contentWidthMm, { fontSizePt: font.fontSizePt, bold: style.bold, italic: style.italic, fontFamily: style.fontFamily ?? fontFamily, letterSpacingPt: style.letterSpacing }, measurer).join("\n");
     drawTextBlock(ctx, {
       text: lines, fontSizePx: font.fontSizePx,
       bold: style.bold ?? false, italic: style.italic,
       color: resolveTextColor(style, DEFAULT_TEXT_COLOR),
       align: style.align ?? "left", lineHeight: resolveLineHeight(style), letterSpacingPx: ptToPx(style.letterSpacing ?? 0, dpi)
-    }, x + (box.xMm + paddingMm) * pxPerMm, y + (box.yMm + paddingMm) * pxPerMm,
+    }, x + (box.xMm + paddingMm + indentMm) * pxPerMm, y + (box.yMm + paddingMm) * pxPerMm,
     contentWidthMm * pxPerMm, Math.max(0, box.heightMm - 2 * paddingMm) * pxPerMm,
     style.fontFamily ?? fontFamily, style.verticalAlign ?? "middle");
   }

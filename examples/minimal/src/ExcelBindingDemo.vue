@@ -8,10 +8,10 @@ import { ReportPreview } from "@agile-team/mach-report/vue";
 import { createLocalFetcher } from "@agile-team/mach-report/vue";
 import type {
   ExcelBindingDataset,
-  ExcelBindingSession,
+  AnyExcelBindingSession,
 } from "@agile-team/mach-report/xlsx";
 const readonly = ref(false);
-const session = ref<ExcelBindingSession>();
+const session = ref<AnyExcelBindingSession>();
 const result = ref<ExcelBindingWizardApply>();
 const datasets: ExcelBindingDataset[] = [
   {
@@ -46,12 +46,14 @@ const datasets: ExcelBindingDataset[] = [
     samples: [{ heat: "000418", weight: 0, energy: 30800 }],
   },
 ];
+datasets.push({ ...datasets[0]!, id: "summary", label: "产量概览 · 单记录示例", samples: [{ heat: "SUMMARY-01", weight: 0, energy: 30800 }] });
 const fetcher = computed(() =>
   result.value
     ? createLocalFetcher({
         bound: {
           template: result.value.document.template,
           datasets: {
+            summary: [{ heat: "SUMMARY-01", weight: 0, energy: 30800 }],
             production: [
               { heat: "LIVE-001", weight: 0, energy: 30800 },
               { heat: "LIVE-002", weight: 64200.125, energy: 29600 },
@@ -68,7 +70,7 @@ function reopen(): void {
   if (result.value)
     session.value = JSON.parse(
       JSON.stringify(result.value.session),
-    ) as ExcelBindingSession;
+    ) as AnyExcelBindingSession;
 }
 </script>
 <template>

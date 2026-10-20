@@ -313,11 +313,12 @@ function drawGridCell(
   checkTextStyle(renderer, style, location);
   const paddingMm = comp.grid?.paddingMm ?? 0.5;
   const padding = mmToPt(paddingMm);
+  const indentMm = cell.cell.indentMm ?? 0, indent = mmToPt(indentMm);
   const content = {
-    x: box.x + padding, yTop: box.yTop - padding,
-    width: Math.max(0, box.width - 2 * padding), height: Math.max(0, box.height - 2 * padding)
+    x: box.x + padding + indent, yTop: box.yTop - padding,
+    width: Math.max(0, box.width - 2 * padding - indent), height: Math.max(0, box.height - 2 * padding)
   };
-  const lines = wrappedLines(renderer, cell.cell.text, cell.widthMm - 2 * paddingMm, style);
+  const lines = wrappedLines(renderer, cell.cell.text, Math.max(0, cell.widthMm - 2 * paddingMm - indentMm), style);
   const lineHeight = resolveFontSize(style).fontSizePt * resolveLineHeight(style);
   const capacity = Math.floor((content.height + TEXT_HEIGHT_EPSILON_PT) / lineHeight);
   const maxLines = Math.max(1, capacity);

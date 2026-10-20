@@ -109,6 +109,88 @@ function harness(options: ExcelBindingWizardOptions) {
   return { wizard, emitted, wrapper, state };
 }
 describe("Excel binding wizard interaction", () => {
+  it("reuses one workbook owner when switching Sheets and retains independent region drafts in dirty protection", async () => {
+    const other = structuredClone(source); other.sheets[0]!.name = "第二页";
+    for (const component of other.template.pages[0]!.components) if (component.kind !== "list" && component.meta) component.meta.xlsxSheet = "第二页";
+    load.mockReset().mockResolvedValueOnce(source).mockResolvedValueOnce(other).mockResolvedValueOnce(source);
+    opened.mockClear(); disposed.mockClear();
+    const { wizard, wrapper } = harness({ datasets });
+    await wizard.importFile(new File(["data"], "regions.xlsx"));
+    wizard.mode.value = "regions"; wizard.regionBindings.select(3, 1, false); wizard.regionBindings.select(3, 2, true); wizard.regionBindings.add(); wizard.regionBindings.dataset("rows");
+    wizard.regionBindings.active.value!.fields = ["id", "weight"]; wizard.regionBindings.active.value!.rowKey = "id";
+    const original = JSON.stringify(wizard.regionBindings.recipe.value);
+    await wizard.chooseSheet("第二页");
+    expect(wizard.regionBindings.recipe.value.sheet).toBe("第二页"); expect(wizard.regionBindings.recipe.value.regions).toEqual([]);
+    wizard.regionBindings.select(4, 1, false); wizard.regionBindings.select(4, 2, true); wizard.regionBindings.add();
+    await wizard.chooseSheet("日报");
+    expect(JSON.stringify(wizard.regionBindings.recipe.value)).toBe(original);
+    expect(wizard.pendingLocalChanges.value).toBe(true);
+    expect(opened).toHaveBeenCalledTimes(1); expect(load).toHaveBeenCalledTimes(3);
+    wrapper.unmount(); expect(disposed).toHaveBeenCalledTimes(1);
+  });
+  it("creates two independent same-Sheet regions by real cell selection and survives an application veto", async () => {
+    const accept = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const wrapper = mount(ExcelBindingWizard, { props: { datasets, session: session(), accept } });
+    await wrapper.findAll("button").find(button => button.text().includes("多区域绑定"))!.trigger("click");
+    async function selectRange(row: number): Promise<void> {
+      await wrapper.get(`td[data-source-cell="${row}:1"]`).trigger("keydown", { key: "Enter" });
+      await wrapper.get(`td[data-source-cell="${row}:2"]`).trigger("keydown", { key: "Enter", shiftKey: true });
+      await wrapper.get(".mr-binding-add-region").trigger("click");
+      await wrapper.get('.mr-binding-multi select[aria-label="业务数据集"]').setValue("rows");
+      await wrapper.get('.mr-binding-multi select[aria-label="稳定业务主键"]').setValue("id");
+      await wrapper.get('.mr-binding-multi select[aria-label="Excel 列 A · 业务字段"]').setValue("id");
+      await wrapper.get('.mr-binding-multi select[aria-label="Excel 列 B · 业务字段"]').setValue("weight");
+    }
+    await selectRange(3);
+    await wrapper.get('.mr-binding-multi select[aria-label="填充方式"]').setValue("record");
+    await selectRange(4);
+    expect(wrapper.findAll(".mr-binding-region-entry")).toHaveLength(2);
+    expect(wrapper.text()).toContain("A4:B4");
+    const apply = wrapper.findAll("button").find(button => button.text() === "校验并使用模板")!;
+    expect(apply.attributes("disabled")).toBeUndefined();
+    await apply.trigger("click"); await flushPromises();
+    expect(accept).toHaveBeenCalledTimes(1);
+    expect((wrapper.vm as unknown as { pendingLocalChanges: boolean }).pendingLocalChanges).toBe(true);
+    const candidate = accept.mock.calls[0]![0];
+    expect(candidate.session.version).toBe("2.0");
+    expect(candidate.recipe.regions).toEqual([
+      { id: "region-1", range: "A3:B3", dataset: "rows", mode: "record", rowKey: "id", fields: ["id", "weight"] },
+      { id: "region-2", range: "A4:B4", dataset: "rows", mode: "repeat", rowKey: "id", fields: ["id", "weight"] },
+    ]);
+    expect(JSON.stringify(candidate.document)).not.toContain("SAMPLE");
+    await apply.trigger("click"); await flushPromises();
+    expect((wrapper.vm as unknown as { pendingLocalChanges: boolean }).pendingLocalChanges).toBe(false);
+    expect(wrapper.text()).toContain("模板已生成，等待接入方确认");
+    wrapper.unmount();
+  });
+  it("reopens version 2 mappings, preserves them across mode switches, and readonly guards all region actions", async () => {
+    const multi = { version: "2.0" as const, source: structuredClone(source), identity: { id: "multi", name: "区域日报" }, recipe: { version: "2.0" as const, sheet: "日报", regions: [{ id: "cost", range: "A3:B3", mode: "repeat" as const, dataset: "rows", fields: ["id", "weight"], rowKey: "id" }] } };
+    const { wizard, wrapper, state } = harness({ datasets, session: multi });
+    expect(wizard.mode.value).toBe("regions"); expect(wizard.regionBindings.recipe.value).toEqual(multi.recipe);
+    wizard.regionBindings.select(4, 1, false); wizard.regionBindings.select(4, 2, true); wizard.regionBindings.add();
+    wizard.mode.value = "table"; wizard.mode.value = "regions";
+    expect(wizard.regionBindings.recipe.value.regions).toHaveLength(2);
+    state.readonly = true;
+    const before = JSON.stringify(wizard.regionBindings.recipe.value);
+    wizard.regionBindings.remove("cost"); wizard.regionBindings.dataset("other"); wizard.regionBindings.header(); wizard.regionBindings.footer(); wizard.regionBindings.clearFooter(); wizard.regionBindings.add();
+    expect(JSON.stringify(wizard.regionBindings.recipe.value)).toBe(before);
+    wrapper.unmount();
+  });
+  it("bounds large field catalogues and searches labels, codes and units without dropping already selected mappings", async () => {
+    const fields = [{ field: "id", type: "text" as const }, ...Array.from({ length: 1000 }, (_, index) => ({ field: `field${index}`, label: `指标 ${index}`, type: "number" as const, ...(index === 999 ? { unit: "特殊单位" } : {}) }))];
+    const multi = { version: "2.0" as const, source: structuredClone(source), identity: { id: "multi", name: "大字段目录" }, recipe: { version: "2.0" as const, sheet: "日报", regions: [{ id: "cost", range: "A3:B3", mode: "repeat" as const, dataset: "large", fields: ["id", "field500"], rowKey: "id" }] } };
+    const wrapper = mount(ExcelBindingWizard, { props: { datasets: [{ id: "large", fields }], session: multi } });
+    const panel = wrapper.get(".mr-binding-multi");
+    expect(panel.findAll(".mr-binding-map select option").length).toBeLessThan(140);
+    const selected = panel.get('select[aria-label="Excel 列 B · 业务字段"]');
+    expect((selected.element as HTMLSelectElement).value).toBe("field500");
+    await panel.get('input[aria-label="搜索字段名称、编码或单位"]').setValue("特殊单位");
+    expect(selected.find('option[value="field999"]').exists()).toBe(true);
+    expect(selected.find('option[value="field500"]').exists()).toBe(true);
+    await selected.setValue("field999");
+    expect((selected.element as HTMLSelectElement).value).toBe("field999");
+    wrapper.unmount();
+  });
   it("graphic row selection and explicit mappings create a new document with a reopenable session", async () => {
     const { wizard, wrapper, emitted } = harness({
       datasets,

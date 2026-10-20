@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import ExcelRegionBindingPanel from "./ExcelRegionBindingPanel.vue";
 import ReportIcon from "../vue/ReportIcon.vue";
 import type { ExcelBindingRegion } from "../xlsx/binding-workflow";
 import {
@@ -16,6 +17,7 @@ const emit = defineEmits<{
 const wizard = useExcelBindingWizard(props, (result) => emit("apply", result));
 const {
   imported,
+  mode, regionBindings,
   recipe,
   identity,
   sourceName,
@@ -65,7 +67,26 @@ function pointerRow(event: PointerEvent, number: number): void {
   event.preventDefault();
   dragging.value = true;
   wizard.chooseRow(number, event.shiftKey);
+  if (mode.value === "regions" && sourceRange.value) { regionBindings.select(number, sourceRange.value.left, false); regionBindings.select(number, sourceRange.value.right, true); }
   (event.currentTarget as HTMLElement).focus();
+}
+function pointerCell(event: PointerEvent, sourceRow: number, sourceColumn: number): void {
+  if (mode.value !== "regions" || event.button !== 0 || disabled.value) return;
+  event.preventDefault(); dragging.value = true;
+  regionBindings.select(sourceRow, sourceColumn, event.shiftKey);
+  (event.currentTarget as HTMLElement).focus();
+}
+function cellKeydown(event: KeyboardEvent, sourceRow: number, sourceColumn: number): void {
+  if (mode.value !== "regions") return;
+  if (event.key === " " || event.key === "Enter") { event.preventDefault(); regionBindings.select(sourceRow, sourceColumn, event.shiftKey); }
+  const deltas: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
+  const delta = deltas[event.key];
+  if (!delta || !sourceRange.value) return;
+  event.preventDefault();
+  const nextRow = Math.max(sourceRange.value.top, Math.min(sourceRange.value.bottom, sourceRow + delta[0]));
+  const nextColumn = Math.max(sourceRange.value.left, Math.min(sourceRange.value.right, sourceColumn + delta[1]));
+  if (event.shiftKey) regionBindings.select(nextRow, nextColumn, true);
+  (event.currentTarget as HTMLElement).closest("table")?.querySelector<HTMLElement>(`td[data-source-cell="${nextRow}:${nextColumn}"]`)?.focus();
 }
 function rowKeydown(event: KeyboardEvent, number: number): void {
   if (event.key === " " || event.key === "Enter") {
@@ -199,6 +220,7 @@ defineExpose({
               {{ item.name }}
             </option>
           </select></label>
+        <div class="mr-binding-mode" role="group" :aria-label="m.regionMode"><button type="button" :aria-pressed="mode === 'table'" :disabled="disabled" @click="mode = 'table'">{{ m.tableMode }}</button><button type="button" :aria-pressed="mode === 'regions'" :disabled="disabled" @click="mode = 'regions'"><ReportIcon name="grid" :size="12" />{{ m.multiRegions }}</button></div>
         <span class="mr-binding-range">{{ sheet?.range }} · {{ sheet?.rowCount }} ×
           {{ sheet?.columnCount }}</span>
         <span class="mr-binding-sample-note">{{ m.sourceOnly }}</span>
@@ -206,7 +228,7 @@ defineExpose({
       <div class="mr-binding-layout">
         <div class="mr-binding-source">
           <div class="mr-binding-grid-heading">
-            <strong>{{ m.source }}</strong><span>{{ m.sourceHint }}</span>
+            <strong>{{ m.source }}</strong><span>{{ mode === "regions" ? m.multiHint : m.sourceHint }}</span>
           </div>
           <div
             v-if="viewport"
@@ -264,7 +286,14 @@ defineExpose({
                     :rowspan="cell.rowSpan"
                     :colspan="cell.colSpan"
                     :title="`${cell.address} · ${cell.text}`"
-                    :class="{ 'is-continued': cell.continued }"
+                    :data-source-cell="`${cell.row}:${cell.column}`"
+                    :tabindex="mode === 'regions' ? 0 : undefined"
+                    :aria-label="mode === 'regions' ? `${m.selectionCellLabel} ${cell.address}` : undefined"
+                    :aria-selected="mode === 'regions' ? regionBindings.selected(cell.row, cell.column) : undefined"
+                    :class="{ 'is-continued': cell.continued, 'is-cell-selected': mode === 'regions' && regionBindings.selected(cell.row, cell.column) }"
+                    @pointerdown="pointerCell($event, cell.row, cell.column)"
+                    @pointerenter="mode === 'regions' && dragging && regionBindings.select(cell.row, cell.column, true)"
+                    @keydown="cellKeydown($event, cell.row, cell.column)"
                     :style="{
                       textAlign: cell.style?.align,
                       fontWeight: cell.style?.bold ? '600' : undefined,
@@ -279,7 +308,7 @@ defineExpose({
           <footer v-if="viewport" class="mr-binding-grid-footer">
             <span>{{ m.selected }}
               <strong>{{
-                selection ? `${selection.top}–${selection.bottom}` : "—"
+                mode === "regions" ? regionBindings.selection.value || "—" : selection ? `${selection.top}–${selection.bottom}` : "—"
               }}</strong></span>
             <div class="mr-binding-window">
               <button
@@ -332,7 +361,8 @@ defineExpose({
           </footer>
         </div>
         <div class="mr-binding-inspector">
-          <fieldset :disabled="disabled">
+          <ExcelRegionBindingPanel v-if="mode === 'regions'" :controller="regionBindings" :datasets="datasets" :disabled="disabled" :messages="m" />
+          <fieldset v-show="mode === 'table'" :disabled="disabled">
             <section class="mr-binding-group">
               <h3><b>1</b>{{ m.regionLegend }}</h3>
               <div
@@ -449,8 +479,10 @@ defineExpose({
                 </button>
               </div>
             </section>
+          </fieldset>
+          <fieldset :disabled="disabled">
             <section class="mr-binding-group">
-              <h3><b>3</b>{{ m.identity }}</h3>
+              <h3>{{ m.identity }}</h3>
               <label class="mr-binding-label">{{ m.templateId
                 }}<input :value="lockId ? props.identity?.id ?? identity.id : identity.id" autocomplete="off" :readonly="lockId" @input="identity.id = ($event.target as HTMLInputElement).value" /></label><label class="mr-binding-label">{{ m.templateName
                 }}<input v-model="identity.name" autocomplete="off" /></label>
@@ -509,4 +541,4 @@ defineExpose({
   </section>
 </template>
 
-<style scoped src="./excel-binding.css"></style>
+<style src="./excel-binding.css"></style>

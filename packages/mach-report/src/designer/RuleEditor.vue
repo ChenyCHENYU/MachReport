@@ -53,6 +53,7 @@ const metadata = getComputationMetadata();
           'conditions',
           'detail',
           'matrix',
+          'tree',
         ] as const"
         :key="item"
         type="button"
@@ -449,7 +450,7 @@ const metadata = getComputationMetadata();
       </div>
     </div>
     <RuleDataLayout
-      v-for="layout in ['detail', 'matrix'] as const"
+      v-for="layout in ['detail', 'matrix', 'tree'] as const"
       v-show="tab === layout"
       :key="`${layout}-${layoutEpoch}`"
       :list="list"

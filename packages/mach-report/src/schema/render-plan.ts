@@ -66,6 +66,8 @@ export interface GridCell {
   value?: string | number | boolean | null;
   /** Excel 数字格式（例如 #,##0.00 / 0.00%），不改变 text。 */
   numberFormat?: string;
+  /** Physical left inset for hierarchical labels; raw value stays unchanged. */
+  indentMm?: number;
   /** 编辑输入类型；省略时只按原始值推断，数字字符串不会被转换为数值。 */
   valueType?: "text" | "number" | "boolean";
   /** 单元格级编辑控制；预览仍需显式开启 editing。 */
@@ -132,6 +134,7 @@ export interface PlanComponent {
 }
 
 export interface PlanPage {
+  meta?: Record<string, unknown>;
   /** wide 表示完整自然列宽；页面仅为预览的垂直窗口分段。 */
   layout?: "page" | "wide";
   pageWidthMm: number;

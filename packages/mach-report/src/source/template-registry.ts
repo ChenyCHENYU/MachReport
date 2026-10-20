@@ -3,7 +3,11 @@ import type { ReportTemplate } from "../layout/paginate";
 import { RENDER_PLAN_SCHEMA_VERSION } from "../schema/render-plan";
 import { validateComponent, type ValidationError, type ValidationResult } from "../schema/validate";
 import { validateEditableMetadata } from "../schema/cell-edit-validation";
-import { isReportDate, validateReportParamDefinitions } from "./param-validation";
+import { validateReportParamDefinitions } from "./param-validation";
+import { isReportTemporalBound } from "./param-temporal";
+import { validateReportPageFlow, type ReportPageFlow } from "../layout/flow";
+import type { TemplateComponent } from "../layout/paginate";
+import { validateListTree } from "./template-tree-validation";
 
 /** 模板存储文档版本；与渲染计划版本独立演进。 */
 export const REPORT_TEMPLATE_DOCUMENT_VERSION = "1.0";
@@ -194,7 +198,7 @@ function validateParams(value: unknown, path: string, errors: ValidationError[])
       if (fields.has(param.field)) errors.push({ path: `${here}.field`, message: "参数名重复" });
       fields.add(param.field);
     }
-    if (param.type !== undefined && !["text", "number", "date", "select"].includes(param.type as string)) {
+    if (param.type !== undefined && !["text", "number", "date", "month", "year", "dateRange", "select"].includes(param.type as string)) {
       errors.push({ path: `${here}.type`, message: "未知参数类型" });
     }
     for (const key of ["label", "defaultValue", "placeholder"]) stringField(param, key, here, errors);
@@ -224,8 +228,8 @@ function validateParamBounds(param: JsonObject, path: string, errors: Validation
   for (const key of ["min", "max"]) {
     const value = param[key];
     if (value === undefined) continue;
-    const valid = param.type === "date" ? typeof value === "string" && isReportDate(value) : param.type === "number" && typeof value === "number" && Number.isFinite(value);
-    if (!valid) errors.push({ path: `${path}.${key}`, message: "number 使用有限数字边界，date 使用有效 YYYY-MM-DD 日期边界" });
+    const valid = isReportTemporalBound(param.type as string | undefined, value) || param.type === "number" && typeof value === "number" && Number.isFinite(value);
+    if (!valid) errors.push({ path: `${path}.${key}`, message: "数字使用有限数字边界，日期/月/年使用对应规范字符串边界" });
   }
   const reversedNumber = typeof param.min === "number" && typeof param.max === "number" && param.min > param.max;
   const reversedDate = typeof param.min === "string" && typeof param.max === "string" && param.min > param.max;
@@ -350,6 +354,7 @@ function validateHeaderSpans(headerRows: unknown[], count: number, path: string,
 }
 
 function validateListComplex(list: JsonObject, path: string, errors: ValidationError[]): void {
+  validateListTree(list, path, errors);
   validateComputed(list.computed, `${path}.computed`, errors);
   validateMatrix(list.matrix, `${path}.matrix`, errors);
   if (list.matrix && (list.detail || list.groupBy || (Array.isArray(list.groups) && list.groups.length) || list.grandTotal)) errors.push({ path: `${path}.matrix`, message: "矩阵请使用自身 totals 汇总，不能同时配置普通分组、总计或主从明细" });
@@ -381,7 +386,8 @@ function validateList(list: JsonObject, path: string, errors: ValidationError[])
   validateListColumns(list.columns, `${path}.columns`, errors);
   for (const key of ["fontSizePt", "rowHeightMm"]) numberField(list, key, path, errors, Number.MIN_VALUE);
   numberField(list, "paddingMm", path, errors);
-  for (const key of ["headerBold", "headerEveryPage", "border"]) booleanField(list, key, path, errors);
+  for (const key of ["header", "headerBold", "headerEveryPage", "border"]) booleanField(list, key, path, errors);
+  if (list.cardinality !== undefined && list.cardinality !== "record") errors.push({ path: `${path}.cardinality`, message: "单记录区域类型应为 record" });
   stringField(list, "headerBackgroundColor", path, errors);
   alignment(list.align, `${path}.align`, errors, true);
   alignment(list.headerAlign, `${path}.headerAlign`, errors);
@@ -437,6 +443,12 @@ function validateStaticFields(component: JsonObject, path: string, errors: Valid
   });
 }
 
+function validatePageFlow(page: Record<string, unknown>, path: string, errors: ValidationError[]): void {
+  if (page.flow === undefined || !Array.isArray(page.components)) return;
+  try { validateReportPageFlow(page.components as TemplateComponent[], page.flow as ReportPageFlow); }
+  catch (cause) { errors.push({ path: `${path}.flow`, message: cause instanceof Error ? cause.message : String(cause) }); }
+}
+
 /** 对入库/导入模板做声明式校验，不执行分页或数据请求。 */
 export function validateReportTemplate(input: unknown): ValidationResult {
   const errors: ValidationError[] = [];
@@ -466,6 +478,7 @@ export function validateReportTemplate(input: unknown): ValidationResult {
         if (isObject(component) && component.kind === "list") validateList(component, here, errors);
         else { validateComponent(component, here, errors, warnings); if (isObject(component)) validateStaticFields(component, here, errors); }
       });
+      validatePageFlow(page, path, errors);
     });
   }
   return { ok: errors.length === 0, errors, warnings };

@@ -12,10 +12,11 @@ import {
 } from "../processing/matrix";
 import { validateReportTemplate } from "../source/template-registry";
 import type { RuleEditorMessages } from "./rule-messages";
+import { createTreeTable, type TreeTableOptions } from "../processing/tree";
 export interface RuleDataLayoutOptions {
   list: ListComponent;
   accept?: (list: ListComponent) => boolean;
-  mode: "detail" | "matrix";
+  mode: "detail" | "matrix" | "tree";
   datasets?: DatasetRows;
   datasetSchema?: DatasetContract;
   datasetSchemas?: Record<string, DatasetContract>;
@@ -40,7 +41,8 @@ export function useRuleDataLayout(
     columnFields: [],
     measures: [],
   });
-  const localDraft = useLocalDraft(() => ({ enabled: enabled.value, detail: detail.value, matrix: matrix.value }));
+  const tree = ref<TreeTableOptions>({ input: "flat", idField: "id", parentField: "parentId", labelField: "", parentValues: "source" });
+  const localDraft = useLocalDraft(() => ({ enabled: enabled.value, detail: detail.value, matrix: matrix.value, tree: tree.value }));
   let committed: string | undefined;
   const preview = ref<{ columns: string[]; rows: unknown[][] }>();
   const datasets = computed(() => [
@@ -69,8 +71,7 @@ export function useRuleDataLayout(
   }
   function reset(): void {
     if (committed === JSON.stringify(props.list)) { committed = undefined; return; }
-    enabled.value =
-      props.mode === "detail" ? !!props.list.detail : !!props.list.matrix;
+    enabled.value = !!props.list[props.mode];
     const first =
       datasets.value.find((item) => item !== props.list.dataset) ?? "";
     detail.value = clone(
@@ -96,11 +97,12 @@ export function useRuleDataLayout(
       },
     );
     matrix.value.measures = matrix.value.measures.map((measure) => ({ ...measure, numeric: measure.numeric ?? "number" }));
+    tree.value = clone(props.list.tree ?? { input: "flat", idField: props.list.rowKey ?? "id", parentField: "parentId", childrenField: "children", labelField: props.list.columns[0]?.field ?? "", parentValues: "source", orphan: "error", indentMm: 3, maxRows: 100000, maxDepth: 64 });
     error.value = "";
     preview.value = undefined;
     localDraft.accept();
   }
-  watch(() => [props.mode, props.list.dataset, props.mode === "detail" ? props.list.detail : props.list.matrix], reset, { immediate: true });
+  watch(() => [props.mode, props.list.dataset, props.list[props.mode]], reset, { immediate: true });
   function chooseDataset(dataset: string): void {
     detail.value.dataset = dataset;
     detail.value.columns = [];
@@ -151,6 +153,26 @@ export function useRuleDataLayout(
       (_, position) => position !== index,
     );
   }
+  function addTreeAggregate(): void { tree.value.aggregates = [...(tree.value.aggregates ?? []), { field: sourceFields.value.find(field => field.field !== tree.value.labelField && field.field !== tree.value.idField)?.field ?? "", op: "sum", numeric: "number" }]; }
+  function removeTreeAggregate(index: number): void { tree.value.aggregates = tree.value.aggregates?.filter((_, position) => position !== index); }
+  function checkTree(): void {
+    error.value = ""; preview.value = undefined;
+    try {
+      const rows = props.datasets?.[props.list.dataset] ?? [];
+      if (!rows.length) throw new Error(props.messages.noData);
+      if (rows.length > 1000) throw new Error(props.messages.treeBudget);
+      const result = createTreeTable(rows, { ...tree.value, aggregates: tree.value.parentValues === "leaf-aggregate" ? tree.value.aggregates : undefined, maxRows: 1000 });
+      const columns = props.list.columns.slice(0, 5);
+      preview.value = { columns: columns.map(column => column.header), rows: result.entries.slice(0, 8).map(entry => columns.map(column => column.field === tree.value.labelField ? `${"　".repeat(Math.min(6, entry.depth))}${entry.row[column.field] ?? ""}` : entry.row[column.field])) };
+    } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); }
+  }
+  function applyTree(next: ListComponent): void {
+    if (!enabled.value) { delete next.tree; return; }
+    next.tree = clone(tree.value);
+    if (next.tree.parentValues !== "leaf-aggregate") delete next.tree.aggregates;
+    next.rowKey = next.tree.idField;
+    delete next.detail; delete next.matrix; delete next.groupBy; delete next.groups; delete next.rowVisibleWhen;
+  }
   function checkMatrix(): void {
     error.value = "";
     preview.value = undefined;
@@ -176,16 +198,19 @@ export function useRuleDataLayout(
   function apply(): void {
     if (props.readonly) return;
     const next = clone(props.list);
-    if (props.mode === "detail") {
+    if (props.mode === "tree") applyTree(next);
+    else if (props.mode === "detail") {
       if (!enabled.value) delete next.detail;
       else {
         next.detail = clone(detail.value);
         delete next.matrix;
+        delete next.tree;
       }
     } else if (!enabled.value) delete next.matrix;
     else {
       next.matrix = clone(matrix.value);
       delete next.detail;
+      delete next.tree;
       delete next.groups;
       delete next.groupBy;
       delete next.grandTotal;
@@ -202,6 +227,7 @@ export function useRuleDataLayout(
     pendingLocalChanges: localDraft.pending,
     detail,
     matrix,
+    tree,
     datasets,
     sourceFields,
     childFields,
@@ -213,6 +239,9 @@ export function useRuleDataLayout(
     addMeasure,
     removeMeasure,
     checkMatrix,
+    addTreeAggregate,
+    removeTreeAggregate,
+    checkTree,
     apply,
   };
 }

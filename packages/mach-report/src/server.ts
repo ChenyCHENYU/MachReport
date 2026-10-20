@@ -5,3 +5,6 @@ export * from "./server/task-queue";
 export * from "./server/job-store";
 export * from "./server/job-service";
 export * from "./server/publication";
+export * from "./server/batch";
+export * from "./server/instance-store";
+export * from "./server/generation";

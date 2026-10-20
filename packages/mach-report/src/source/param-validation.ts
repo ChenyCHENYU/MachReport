@@ -1,4 +1,6 @@
 import type { ReportParamDef } from "../layout/paginate";
+import { isReportTemporalBound, parseReportDateRange, reportTemporalIssue } from "./param-temporal";
+export { isReportDate, isReportMonth, isReportYear, parseReportDateRange, formatReportDateRange, type ReportDateRange } from "./param-temporal";
 
 export type ReportParamIssueCode = "definition" | "required" | "type" | "option" | "minimum" | "maximum" | "minLength" | "maxLength";
 export interface ReportParamIssue { code: ReportParamIssueCode; path: string; field: string; message: string }
@@ -18,27 +20,30 @@ export class ReportParamValidationError extends Error {
   }
 }
 
-export function isReportDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value.startsWith("0000-")) return false;
-  const date = new Date(`${value}T00:00:00.000Z`);
-  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
-}
-
 function validNumber(value: string): boolean {
   return /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value) && Number.isFinite(Number(value));
 }
 
 function valueIssues(def: ReportParamDef, value: string): Array<[ReportParamIssueCode, string]> {
   if (def.type === "number" && !validNumber(value)) return [["type", "应为有限数字"]];
-  if (def.type === "date" && !isReportDate(value)) return [["type", "应为有效的 YYYY-MM-DD 日期"]];
+  const temporalIssue = reportTemporalIssue(def.type, value);
+  if (temporalIssue) return [["type", temporalIssue]];
   const issues: Array<[ReportParamIssueCode, string]> = [];
   if (def.type === "select" && def.options && !def.options.some((option) => option.value === value)) issues.push(["option", "不在允许的选项中"]);
   const length = Array.from(value).length;
   if (def.minLength !== undefined && length < def.minLength) issues.push(["minLength", `至少 ${def.minLength} 个字符`]);
   if (def.maxLength !== undefined && length > def.maxLength) issues.push(["maxLength", `最多 ${def.maxLength} 个字符`]);
-  const comparable = def.type === "number" ? Number(value) : value;
-  if (def.min !== undefined && comparable < def.min) issues.push(["minimum", `不能小于 ${def.min}`]);
-  if (def.max !== undefined && comparable > def.max) issues.push(["maximum", `不能大于 ${def.max}`]);
+  issues.push(...valueBoundsIssues(def, value));
+  return issues;
+}
+
+function valueBoundsIssues(def: ReportParamDef, value: string): Array<[ReportParamIssueCode, string]> {
+  const range = def.type === "dateRange" ? parseReportDateRange(value) : undefined;
+  const lower = range?.start ?? (def.type === "number" ? Number(value) : value);
+  const upper = range?.end ?? lower;
+  const issues: Array<[ReportParamIssueCode, string]> = [];
+  if (def.min !== undefined && lower < def.min) issues.push(["minimum", `不能小于 ${def.min}`]);
+  if (def.max !== undefined && upper > def.max) issues.push(["maximum", `不能大于 ${def.max}`]);
   return issues;
 }
 
@@ -47,8 +52,8 @@ function boundsIssues(def: ReportParamDef): string[] {
   for (const key of ["min", "max"] as const) {
     const bound = def[key];
     if (bound === undefined) continue;
-    const valid = def.type === "date" ? typeof bound === "string" && isReportDate(bound) : def.type === "number" && typeof bound === "number" && Number.isFinite(bound);
-    if (!valid) messages.push(`${key} 应为 number 的有限数字边界或 date 的有效日期边界`);
+    const valid = isReportTemporalBound(def.type, bound) || def.type === "number" && typeof bound === "number" && Number.isFinite(bound);
+    if (!valid) messages.push(`${key} 应为数字的有限边界或日期/月/年的规范字符串边界`);
   }
   const reversedNumber = typeof def.min === "number" && typeof def.max === "number" && def.min > def.max;
   const reversedDate = typeof def.min === "string" && typeof def.max === "string" && def.min > def.max;
@@ -85,8 +90,9 @@ function validOptions(options: unknown): options is NonNullable<ReportParamDef["
 
 function metadataIssues(def: ReportParamDef): string[] {
   const issues: string[] = [];
-  if (def.type !== undefined && !["text", "number", "date", "select"].includes(def.type)) issues.push("未知参数类型");
+  if (def.type !== undefined && !["text", "number", "date", "month", "year", "dateRange", "select"].includes(def.type)) issues.push("未知参数类型");
   if (def.label !== undefined && typeof def.label !== "string") issues.push("参数标签应为字符串");
+  if (def.placeholder !== undefined && typeof def.placeholder !== "string") issues.push("提示文字应为字符串");
   if (def.required !== undefined && typeof def.required !== "boolean") issues.push("required 应为布尔值");
   if (def.defaultValue !== undefined && typeof def.defaultValue !== "string") issues.push("默认值应为字符串");
   if (def.options !== undefined && !validOptions(def.options)) issues.push("选项应为包含字符串 label/value 的数组");
@@ -156,10 +162,21 @@ export function assertReportParams(defs: readonly ReportParamDef[], input: Recor
   return result.values;
 }
 
-function paramSchema(def: ReportParamDef): Record<string, unknown> {
-  const schema: Record<string, unknown> = { type: def.type === "number" ? "number" : "string", title: def.label ?? def.field };
+function temporalSchema(def: ReportParamDef): Record<string, unknown> {
+  const schema: Record<string, unknown> = {};
+  // Unlike $, this end assertion cannot also match before a final newline.
+  const end = "(?![\\s\\S])";
   if (def.type === "date") schema.format = "date";
-  if (def.required && def.type !== "number") schema.pattern = "\\S";
+  if (def.type === "month") schema.pattern = `^(?!0000)[0-9]{4}-(0[1-9]|1[0-2])${end}`;
+  if (def.type === "year") schema.pattern = `^(?!0000)[0-9]{4}${end}`;
+  if (def.type === "dateRange") schema.pattern = `^[0-9]{4}-[0-9]{2}-[0-9]{2}/[0-9]{4}-[0-9]{2}-[0-9]{2}${end}`;
+  if (def.type === "dateRange") schema["x-report-date-range"] = { separator: "/", ordered: true, calendarDates: true };
+  return schema;
+}
+
+function paramSchema(def: ReportParamDef): Record<string, unknown> {
+  const schema: Record<string, unknown> = { type: def.type === "number" ? "number" : "string", title: def.label ?? def.field, ...temporalSchema(def) };
+  if (def.required && def.type !== "number" && !schema.pattern) schema.pattern = "\\S";
   if (def.type === "select" && def.options) schema.enum = def.options.map((option) => option.value);
   if (def.defaultValue !== undefined && (def.type !== "number" || def.defaultValue.trim())) schema.default = def.type === "number" ? Number(def.defaultValue) : def.defaultValue;
   if (def.minLength !== undefined) schema.minLength = def.minLength;

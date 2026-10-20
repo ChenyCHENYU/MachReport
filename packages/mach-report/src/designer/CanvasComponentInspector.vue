@@ -11,6 +11,8 @@ import {
 const props = defineProps<{
   component: TemplateComponent;
   disabled?: boolean;
+  /** Region layout is owned by the Excel binding recipe; styles/content remain editable. */
+  geometryDisabled?: boolean;
   messages?: Partial<TemplateEditorMessages>;
 }>();
 const emit = defineEmits<{
@@ -27,6 +29,7 @@ const labels = computed(() => [
   m.value.componentHeight,
 ]);
 function geometry(key: keyof CanvasGeometry, event: Event): void {
+  if (props.disabled || props.geometryDisabled) return;
   const number = Number((event.target as HTMLInputElement).value);
   if (!Number.isFinite(number)) return;
   emit("geometry", { ...componentGeometry(props.component), [key]: number });
@@ -91,12 +94,14 @@ async function upload(event: Event): Promise<void> {
           step="0.5"
           :min="key === 'widthMm' || key === 'heightMm' ? 2 : 0"
           :value="componentGeometry(component)[key]"
+          :disabled="geometryDisabled"
           @change="geometry(key, $event)"
       /></label>
     </div>
     <label v-if="component.kind !== 'list'">{{ m.repeatPage
       }}<select
         :value="component.pageAnchor ?? ''"
+        :disabled="geometryDisabled"
         @change="emit('patch', { pageAnchor: input($event) || undefined })"
       >
         <option value="">{{ m.repeatNone }}</option>

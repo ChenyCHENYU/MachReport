@@ -3,6 +3,7 @@ import type { ComponentStyle, GridCell, PlanGrid } from "../schema/render-plan";
 import type { ColumnFormat, StyleRule } from "../format";
 import type { ComputedField } from "../processing/computed";
 import type { MatrixTableOptions } from "../processing/matrix";
+import type { TreeTableOptions } from "../processing/tree";
 
 /** auto：真实数字/显式数值格式居右，日期与布尔居中，其他内容居左。 */
 export type ListAlignment = NonNullable<ComponentStyle["align"]> | "auto";
@@ -63,6 +64,8 @@ export type ListGrandTotal =
 
 export interface ListComponent {
   kind: "list";
+  /** Opaque serializable layout annotations; interpreted only by explicit optional adapters. */
+  meta?: Record<string, unknown>;
   id?: string;
   /** 宽表标记用于连续 Excel；不改变低层列表的列宽和分页算法。 */
   layout?: "page" | "wide";
@@ -72,6 +75,10 @@ export interface ListComponent {
   topMm: number;
   widthMm: number;
   dataset: string;
+  /** Headerless record/region bindings do not allocate a synthetic list header. */
+  header?: boolean;
+  /** A fixed record region rejects multiple rows instead of dropping source data. */
+  cardinality?: "record";
   /** 数据集中稳定业务主键的字段名；省略时编辑仅有计划内坐标。 */
   rowKey?: string;
   revisionField?: string;
@@ -98,6 +105,8 @@ export interface ListComponent {
   computed?: ComputedField[];
   /** Dynamic pivot of the current source dataset, with read-only derived identities. */
   matrix?: MatrixTableOptions;
+  /** Full ordered hierarchy; source parent values and descendant-leaf rollups are explicit. */
+  tree?: TreeTableOptions;
   /** Explicit row visibility; hidden rows do not participate in summaries. */
   rowVisibleWhen?: StyleRule["when"];
   /** Master/detail relation is keyed by business identity, never by display row index. */

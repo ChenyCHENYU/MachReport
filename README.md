@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.10.0-2563eb" alt="Source version 2.10.0" />
+  <img src="https://img.shields.io/badge/source-2.11.0-2563eb" alt="Source version 2.11.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -67,6 +67,9 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 常规预览页面的接入保持不变。稳定业务键的数据源自动维护编辑重算会话；派生列只读，保存前准备重算，成功后更新公式、条件样式与汇总，导出等待在途编辑。工作簿公式继续仅显示缓存结果。设计工具只在打开时加载；画布拖动在松手时提交一次模板事务，样例计算与验收按按钮执行。逐页生成不保留全部输出页，输入数据和分组索引仍受预算管理。
 
 操作与边界见[设计器](./docs/DESIGNER.md)、[Excel绑定](./docs/EXCEL_BINDING.md)、[复杂报表](./docs/COMPLEX_REPORTS.md)、[发布验收](./docs/PUBLICATION_REVIEW.md)、[持久任务](./docs/DURABLE_JOBS.md)。
+
+业务参数、设计器和服务端执行共用一套声明：查询参数支持月份、年份与日期区间；Excel 单 Sheet 可绑定多个数据集，静态邻格与后续区域随明细行数保持位置；树形节点按稳定身份排版，父级来源值与叶子汇总显式区分。可选模板库提供分类、搜索、打开和复制，批量面板提供逐组参数校验、进度、取消及显式失败重试。实例通过独立 CAS 契约保存参数、模板/数据修订与渲染快照，预览不自动保存。运行示例访问 `/platform.html`，产品分层、接入示例及暂缓的连接/IAM/调度/渠道路线见[产品能力](./docs/PRODUCT_PLATFORM.md)。
+
 
 ## 安装：一个包，按需入口
 
@@ -601,6 +604,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 | Excel | [导出指南](./docs/EXCEL.md)与[模板导入](./docs/EXCEL_IMPORT.md)：原始类型、宽表与工作簿转换 |
 | 单元格编辑 | [编辑指南](./docs/CELL_EDITING.md)：开关、类型、权限校验、异步保存与输出同步 |
 | 交互配置 | [交互指南](./docs/INTERACTION.md)：选区、键盘、冻结、导航、偏好与导入摘要 |
+| 产品工作流 | [能力与后端边界](./docs/PRODUCT_PLATFORM.md) · [批量生成](./docs/BATCH_GENERATION.md) |
 | 模板管理 | [扩展指南](./docs/TEMPLATE_MANAGEMENT.md)：JSON 文档、目录、动态版本与后台接入 |
 | 模板属性 | [编辑器指南](./docs/DESIGNER.md)：实时预览、版本保存与属性面板 |
 | Excel业务绑定 | [绑定向导](./docs/EXCEL_BINDING.md)：区域识别、契约映射与可重开会话 |
@@ -623,7 +627,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.10.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.11.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

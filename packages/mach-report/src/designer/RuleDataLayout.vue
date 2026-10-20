@@ -13,20 +13,21 @@ const {
   enabled,
   detail,
   matrix,
+  tree,
   datasets,
   sourceFields,
   childFields,
   error,
   preview,
 } = editor;
-watch([editor.pendingLocalChanges, enabled, detail, matrix], () => emit("dirty", editor.pendingLocalChanges.value), { immediate: true, deep: true, flush: "sync" });
+watch([editor.pendingLocalChanges, enabled, detail, matrix, tree], () => emit("dirty", editor.pendingLocalChanges.value), { immediate: true, deep: true, flush: "sync" });
 const metadata = getComputationMetadata();
 </script>
 <template>
   <div class="mr-data-layout">
     <label class="mr-data-layout__check"><input v-model="enabled" type="checkbox" :disabled="readonly" />{{
         messages.enabled
-      }}{{ mode === "detail" ? messages.detail : messages.matrix }}</label>
+      }}{{ messages[mode] }}</label>
     <template v-if="enabled && mode === 'detail'">
       <p class="mr-data-layout__hint">{{ messages.detailHint }}</p>
       <label>{{ messages.childDataset
@@ -104,6 +105,37 @@ const metadata = getComputationMetadata();
             :disabled="readonly"
           />{{ messages.childHeader }}</label>
       </div>
+    </template>
+    <template v-else-if="enabled && mode === 'tree'">
+      <p class="mr-data-layout__hint">{{ messages.treeHint }}</p>
+      <div class="mr-data-layout__pair">
+        <label>{{ messages.treeInput }}<select v-model="tree.input" :aria-label="messages.treeInput" :disabled="readonly"><option value="flat">{{ messages.treeFlat }}</option><option value="nested">{{ messages.treeNested }}</option></select></label>
+        <label>{{ messages.treeId }}<select v-model="tree.idField" :aria-label="messages.treeId" :disabled="readonly"><option v-for="field in sourceFields" :key="field.field" :value="field.field">{{ field.label }}</option></select></label>
+      </div>
+      <div class="mr-data-layout__pair">
+        <label v-if="tree.input === 'flat'">{{ messages.treeParent }}<select v-model="tree.parentField" :aria-label="messages.treeParent" :disabled="readonly"><option v-for="field in sourceFields" :key="field.field" :value="field.field">{{ field.label }}</option></select></label>
+        <label v-else>{{ messages.treeChildren }}<input v-model="tree.childrenField" :aria-label="messages.treeChildren" :disabled="readonly" placeholder="children" /></label>
+        <label>{{ messages.treeLabel }}<select v-model="tree.labelField" :aria-label="messages.treeLabel" :disabled="readonly"><option v-for="column in list.columns.filter(item => !item.hidden)" :key="column.field" :value="column.field">{{ column.header }}</option></select></label>
+      </div>
+      <div class="mr-data-layout__pair">
+        <label>{{ messages.treeIndent }}<input v-model.number="tree.indentMm" :aria-label="messages.treeIndent" type="number" min="0" max="20" step="0.5" :disabled="readonly" /></label>
+        <label v-if="tree.input === 'flat'">{{ messages.treeOrphan }}<select v-model="tree.orphan" :aria-label="messages.treeOrphan" :disabled="readonly"><option value="error">{{ messages.error }}</option><option value="root">{{ messages.treeAsRoot }}</option></select></label>
+      </div>
+      <label>{{ messages.treeValues }}<select v-model="tree.parentValues" :aria-label="messages.treeValues" :disabled="readonly"><option value="source">{{ messages.treeSource }}</option><option value="leaf-aggregate">{{ messages.treeLeaves }}</option></select></label>
+      <template v-if="tree.parentValues === 'leaf-aggregate'">
+        <div v-for="(aggregate, index) in tree.aggregates" :key="index" class="mr-data-layout__measure">
+          <div class="mr-data-layout__pair">
+            <label>{{ messages.measure }}<select v-model="aggregate.field" :aria-label="messages.measure" :disabled="readonly"><option v-for="field in sourceFields" :key="field.field" :value="field.field">{{ field.label }}</option></select></label>
+            <label>{{ messages.aggregate }}<select v-model="aggregate.op" :aria-label="messages.aggregate" :disabled="readonly"><option v-for="op in metadata.aggregates" :key="op" :value="op">{{ messages[op] }}</option></select></label>
+          </div>
+          <label v-if="aggregate.op === 'weightedAvg'">{{ messages.weight }}<select v-model="aggregate.weightField" :aria-label="messages.weight" :disabled="readonly"><option v-for="field in sourceFields" :key="field.field" :value="field.field">{{ field.label }}</option></select></label>
+          <div class="mr-data-layout__pair"><label>{{ messages.numeric }}<select v-model="aggregate.numeric" :aria-label="messages.numeric" :disabled="readonly"><option value="number">{{ messages.number }}</option><option value="decimal">{{ messages.decimal }}</option></select></label><label>{{ messages.digits }}<input v-model.number="aggregate.digits" :aria-label="messages.digits" type="number" min="0" max="100" :disabled="readonly" /></label></div>
+          <button type="button" :disabled="readonly" @click="editor.removeTreeAggregate(index)">{{ messages.remove }}</button>
+        </div>
+        <button type="button" :disabled="readonly || (tree.aggregates?.length ?? 0) >= 32" @click="editor.addTreeAggregate">+ {{ messages.addAggregate }}</button>
+      </template>
+      <details><summary>{{ messages.advanced }}</summary><div class="mr-data-layout__pair"><label>{{ messages.treeRows }}<input v-model.number="tree.maxRows" :aria-label="messages.treeRows" type="number" min="1" max="1000000" :disabled="readonly" /></label><label>{{ messages.treeDepth }}<input v-model.number="tree.maxDepth" :aria-label="messages.treeDepth" type="number" min="1" max="256" :disabled="readonly" /></label></div></details>
+      <p class="mr-data-layout__hint">{{ messages.treeReadonly }}</p>
     </template>
     <template v-else-if="enabled">
       <p class="mr-data-layout__hint">{{ messages.matrixHint }}</p>
@@ -229,7 +261,7 @@ const metadata = getComputationMetadata();
         @click="editor.checkMatrix"
       >
         {{ messages.check }}
-</button><button
+</button><button v-if="enabled && mode === 'tree'" type="button" :disabled="readonly" @click="editor.checkTree">{{ messages.check }}</button><button
         type="button"
         class="mr-data-layout__primary"
         :disabled="readonly"

@@ -6,6 +6,7 @@ import { diffReportTemplates, type ReportTemplateDiff } from "./template-diff";
 import type { RenderPlan } from "../schema/render-plan";
 import { collectTemplateDatasetBindings } from "./template-bindings";
 import { validateReportParams } from "./param-validation";
+import { templateValidationDatasets, templateDatasetRowCount } from "./template-tree-data";
 
 export interface ReportTemplateReviewIssue {
   code: "template" | "compatibility" | "dataset" | "field" | "sample" | "layout" | "output" | "params";
@@ -47,12 +48,15 @@ function checkBindings(template: ReportTemplate, schemas: Readonly<Record<string
 }
 function checkSample(fixture: ReportTemplateFixture, template: ReportTemplate, options: ReportTemplateReviewOptions, issues: ReportTemplateReviewIssue[]): boolean {
   const limit = options.maxSampleRows ?? 1000;
-  const rows = Object.values(fixture.datasets).reduce((sum, values) => sum + values.length, 0);
+  let validationData: DatasetRows;
+  try { validationData = templateValidationDatasets(template, fixture.datasets, { maxRows: limit }); }
+  catch (error) { issues.push({ code: "sample", severity: "error", path: "$.fixtures", fixture: fixture.name, message: error instanceof Error ? error.message : String(error) }); return false; }
+  const rows = Object.values(validationData).reduce((sum, values) => sum + values.length, 0);
   if (rows > limit) { issues.push({ code: "sample", severity: "error", path: "$.fixtures", fixture: fixture.name, message: `样例 ${rows} 行超过预算 ${limit}，请显式选择验收样例` }); return false; }
   const used = new Set(collectTemplateDatasetBindings(template).map((binding) => binding.dataset));
   for (const [name, schema] of Object.entries(options.dataSchemas ?? {}).filter(([name]) => used.has(name))) {
     try {
-      const checked = validateDatasetRows(fixture.datasets[name], schema, { path: `$.datasets.${name}`, maxRows: limit });
+      const checked = validateDatasetRows(validationData[name], schema, { path: `$.datasets.${name}`, maxRows: limit });
       issues.push(...checked.issues.map((issue) => ({ ...issue, code: "sample" as const, severity: "error" as const, fixture: fixture.name })));
       if (!checked.ok) return false;
     } catch (error) { issues.push({ code: "dataset", severity: "error", path: `$.dataSchemas.${name}`, message: String(error) }); return false; }
@@ -79,7 +83,7 @@ function sample(document: ReportTemplateDocument, fixture: ReportTemplateFixture
     const diagnostics = (options.formats ?? ["pdf", "xlsx"]).flatMap((format) => inspectOutputCapabilities(plan, format));
     review.issues.push(...warnings.map((message) => ({ code: "layout" as const, severity: "warning" as const, path: "$.template", fixture: fixture.name, message })));
     review.issues.push(...diagnostics.map((issue) => ({ code: "output" as const, severity: options.strictOutputs ? "error" as const : "warning" as const, ...outputLocation(document.template, plan, issue), fixture: fixture.name, message: `${issue.format}: ${issue.message}` })));
-    review.samples.push({ name: fixture.name, pages: plan.pages.length, rows: Object.values(fixture.datasets).reduce((sum, rows) => sum + rows.length, 0), diagnostics });
+    review.samples.push({ name: fixture.name, pages: plan.pages.length, rows: templateDatasetRowCount(document.template, fixture.datasets), diagnostics });
   } catch (error) { review.issues.push({ code: "layout", severity: "error", path: "$.template", fixture: fixture.name, message: error instanceof Error ? error.message : String(error) }); }
 }
 

@@ -7,10 +7,11 @@ import type { PlanComponent } from "../schema/render-plan";
 import { validateRenderPlan } from "../schema/validate";
 import type { TextMeasurer } from "../layout/textwrap";
 import type { OutputDiagnostic } from "../output/capabilities";
-import { datasetJsonSchema } from "../schema/dataset";
 import type { DatasetRows, ReportTemplate } from "../layout/paginate";
 import { estimateListLayoutCells, PaginateCellLimitError, PaginatePageLimitError } from "../layout/paginate";
 import { createReportTaskReporter, notifyReportTaskEvent, reportTaskId, type ReportTaskEvent } from "../source/task-events";
+import { templateDatasetRowCount, templateDatasetJsonSchema } from "../source/template-tree-data";
+import { TreeRowLimitError } from "../processing/tree";
 
 function definitions(reports: ReportRegistry, ids: string[]) {
   if (ids.length === 0) throw new ReportSourceError("config", "缺少报表 ID");
@@ -33,7 +34,7 @@ function describe(reports: ReportRegistry, ids = Object.keys(reports)): ReportDe
     const id = ids[index]!;
     const params = getReportParamDefs(reports, [id]);
     return { id, params: JSON.parse(JSON.stringify(params)) as typeof params, paramsSchema: reportParamsJsonSchema(params),
-      datasetsSchema: Object.fromEntries(Object.entries(definition.dataSchema ?? {}).map(([name, contract]) => [name, datasetJsonSchema(contract)])), capabilities: {
+      datasetsSchema: Object.fromEntries(Object.entries(definition.dataSchema ?? {}).map(([name, contract]) => [name, templateDatasetJsonSchema(typeof definition.template === "function" ? undefined : definition.template, name, contract)])), capabilities: {
       save: !!definition.provider?.save, export: !!definition.provider?.export, templates: !!definition.provider?.templates
     } };
   });
@@ -84,7 +85,8 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
       }
     }]));
     const source = createReportSource(reports, { maxPages: budget.maxPages, maxCells: budget.maxCells, onDatasets: (id, data, template) => {
-      rows += Object.values(data).reduce((sum, items) => sum + items.length, 0);
+      try { rows += templateDatasetRowCount(template, data, { maxRows: budget.maxRows, signal: input.signal }); }
+      catch (error) { if (error instanceof TreeRowLimitError) throw new ReportRuntimeError("budget", error.message, "$.budget.maxRows"); throw error; }
       assertBudget(budget, "maxRows", rows);
       inputCells += logicalCells(template, data, reports[id]?.pagination);
       assertBudget(budget, "maxCells", inputCells);

@@ -16,3 +16,17 @@ export const RuleEditor = defineAsyncComponent(() => import("./designer/RuleEdit
 export { DEFAULT_RULE_EDITOR_MESSAGES as RULE_EDITOR_MESSAGES } from "./designer/rule-messages";
 export type { RuleEditorMessages } from "./designer/rule-messages";
 export type { RuleEditorOptions } from "./designer/useRuleEditor";
+
+export const ParamEditor = defineAsyncComponent(() => import("./designer/ParamEditor.vue"));
+export { PARAM_EDITOR_MESSAGES } from "./designer/param-messages";
+export type { ParamEditorMessages } from "./designer/param-messages";
+export const ReportBatchPanel = defineAsyncComponent(() => import("./designer/ReportBatchPanel.vue"));
+export type { ReportBatchPanelOptions, ReportBatchReceipt } from "./designer/useReportBatch";
+export { REPORT_BATCH_MESSAGES } from "./designer/batch-messages";
+export type { ReportBatchMessages } from "./designer/batch-messages";
+
+export const ReportTemplateLibrary = defineAsyncComponent(() => import("./designer/ReportTemplateLibrary.vue"));
+export type { TemplateLibraryOptions } from "./designer/useTemplateLibrary";
+export { TEMPLATE_LIBRARY_MESSAGES } from "./designer/library-messages";
+export type { TemplateLibraryMessages } from "./designer/library-messages";
+export type { ParamEditorOptions } from "./designer/useParamEditor";

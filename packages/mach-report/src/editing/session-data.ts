@@ -62,7 +62,7 @@ function bindings(part: ReportEditSessionPart): RowBinding[] {
   const result: RowBinding[] = [];
   for (const page of part.template.pages) for (const component of page.components) {
     if (component.kind !== "list") continue;
-    result.push(component);
+    result.push(component.tree ? { ...component, rowKey: component.tree.idField } : component);
     if (component.detail) result.push({ ...component.detail, relation: { detail: component.detail, parentRows: part.datasets[component.dataset] ?? [] } });
   }
   return result;

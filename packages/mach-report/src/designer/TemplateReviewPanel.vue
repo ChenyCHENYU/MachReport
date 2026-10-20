@@ -6,7 +6,7 @@ import { TEMPLATE_REVIEW_MESSAGES, type TemplateReviewMessages } from "./review-
 const props = defineProps<TemplateReviewOptions & { messages?: Partial<TemplateReviewMessages> }>();
 const emit = defineEmits<{ (event: "locate", value: Pick<ReportTemplateReviewIssue, "path" | "pageIndex" | "componentIndex" | "field">): void }>();
 const m = computed(() => ({ ...TEMPLATE_REVIEW_MESSAGES, ...props.messages }));
-const { report, sampleSize, acknowledged, running, stale, failure, checkedScope, errors, run } = useTemplateReview(props);
+const { report, sampleSize, acknowledged, running, stale, failure, checkedScope, hasTree, errors, run } = useTemplateReview(props);
 function locate(path: string): void {
   const match = /\.pages\[(\d+)\]\.components\[(\d+)\]/.exec(path);
   emit("locate", { path, ...(match ? { pageIndex: Number(match[1]), componentIndex: Number(match[2]) } : {}) });
@@ -16,6 +16,7 @@ function locate(path: string): void {
   <section class="mr-template-review" :aria-label="m.title" :aria-busy="running">
     <header><strong>{{ m.title }}</strong><button type="button" :disabled="running" @click="run">{{ running ? m.running : m.run }}</button></header>
     <div class="mr-review-controls"><label>{{ m.samples }}<select v-model="sampleSize" :aria-label="m.samples" :disabled="running"><option value="0">{{ m.none }}</option><option value="20">{{ m.first20 }}</option><option value="100">{{ m.first100 }}</option><option value="-1">{{ m.all }}</option></select></label></div>
+    <p v-if="hasTree" class="mr-review-note">{{ m.treeHint }}</p>
     <p v-if="failure" class="is-error" role="alert">{{ failure }}</p><p v-if="stale" class="mr-review-stale" role="status">{{ m.stale }}</p><p v-if="!report" class="mr-review-note">{{ m.empty }}</p>
     <template v-else>
       <div v-if="!stale" class="mr-review-summary" role="status"><span :class="{ 'is-error': errors }">{{ errors }} {{ m.errors }}</span><span>{{ report.issues.length - errors }} {{ m.warnings }}</span></div>

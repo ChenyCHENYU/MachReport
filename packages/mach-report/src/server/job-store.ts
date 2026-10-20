@@ -27,7 +27,7 @@ export class ReportJobError extends Error {
   constructor(readonly code: "input" | "conflict" | "missing" | "lease" | "closed" | "capacity", message: string) { super(message); this.name = "ReportJobError"; }
 }
 export function checkJobIdentity(scope: string, id: string): void {
-  if (typeof scope !== "string" || !scope.trim() || scope.length > 256 || typeof id !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(id)) throw new ReportJobError("input", "任务范围应非空，ID应为1–128位安全标识");
+  if (typeof scope !== "string" || !scope.trim() || scope.length > 256 || typeof id !== "string" || id !== id.trim() || !/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(id)) throw new ReportJobError("input", "任务范围应非空，ID应为1–128位安全标识");
 }
 function containerKeys(item: object): string[] {
   const array = Array.isArray(item), prototype = Object.getPrototypeOf(item), keys = Object.keys(item);
@@ -35,7 +35,7 @@ function containerKeys(item: object): string[] {
   if (Object.getOwnPropertySymbols(item).length) throw new ReportJobError("input", "任务不能包含Symbol");
   const names = Object.getOwnPropertyNames(item).filter((key) => !(array && key === "length"));
   if (names.length !== keys.length) throw new ReportJobError("input", "任务不能包含不可枚举属性");
-  if (array && (keys.length !== item.length || keys.some((key) => !/^(0|[1-9]\d*)$/.test(key) || Number(key) >= item.length))) throw new ReportJobError("input", "任务数组不能稀疏或包含额外属性");
+  if (array && (keys.length !== item.length || keys.some((key) => key !== String(Number(key)) || !Number.isSafeInteger(Number(key)) || Number(key) < 0 || Number(key) >= item.length))) throw new ReportJobError("input", "任务数组不能稀疏或包含额外属性");
   return keys.sort();
 }
 function propertyValue(item: object, key: string): unknown {

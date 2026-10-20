@@ -14,6 +14,8 @@ export function useTemplateReview(props: TemplateReviewOptions) {
   const sampleSize = ref("20"), acknowledged = ref(false), running = ref(false);
   const stale = ref(false), failure = ref("");
   const checkedScope = shallowRef<{ requested: string; rows: number; datasets: number; formats: readonly OutputFormat[] }>();
+  const treeDatasets = computed(() => new Set(props.document.template.pages.flatMap(page => page.components).flatMap(component => component.kind === "list" && component.tree ? [component.dataset] : [])));
+  const hasTree = computed(() => treeDatasets.value.size > 0);
   let revision = 0, timer: ReturnType<typeof setTimeout> | undefined;
   function invalidate(): void {
     revision++; clearTimeout(timer); running.value = false;
@@ -34,16 +36,16 @@ export function useTemplateReview(props: TemplateReviewOptions) {
     timer = setTimeout(() => {
       if (job !== revision) return;
       const limit = Number(sampleSize.value);
-      const datasets = Object.fromEntries(Object.entries(props.datasets ?? {}).map(([name, rows]) => [name, limit < 0 ? rows : rows.slice(0, limit)]));
+      const datasets = Object.fromEntries(Object.entries(props.datasets ?? {}).map(([name, rows]) => [name, limit < 0 || treeDatasets.value.has(name) ? rows : rows.slice(0, limit)]));
       try {
         const result = reviewReportTemplate(props.document, { previous: props.previous, dataSchemas: props.dataSchemas, formats: props.formats, allowBreakingChanges: acknowledged.value,
-          fixtures: limit === 0 ? [] : [{ name: sampleSize.value, datasets }] });
+          ...(hasTree.value && limit > 0 ? { maxSampleRows: limit } : {}), fixtures: limit === 0 ? [] : [{ name: sampleSize.value, datasets }] });
         if (job !== revision) return;
         report.value = result; stale.value = false;
-        checkedScope.value = { requested: sampleSize.value, rows: limit === 0 ? 0 : Object.values(datasets).reduce((sum, rows) => sum + rows.length, 0), datasets: limit === 0 ? 0 : Object.keys(datasets).length, formats: [...(props.formats ?? [])] };
+        checkedScope.value = { requested: sampleSize.value, rows: result.samples.reduce((sum, sample) => sum + sample.rows, 0), datasets: limit === 0 ? 0 : Object.keys(datasets).length, formats: [...(props.formats ?? [])] };
       } catch (cause) { failure.value = cause instanceof Error ? cause.message : String(cause); }
       finally { if (job === revision) running.value = false; }
     }, 0);
   }
-  return { report, sampleSize, acknowledged, running, stale, failure, checkedScope, errors, run };
+  return { report, sampleSize, acknowledged, running, stale, failure, checkedScope, hasTree, errors, run };
 }

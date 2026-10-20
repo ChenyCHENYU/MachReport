@@ -79,6 +79,8 @@ export interface MachReportMessages extends Partial<ReportCalculationMessages> {
   paramPromptDescription?: string;
   paramSelectPlaceholder?: string;
   paramTextPlaceholder?: string;
+  paramRangeStart?: string;
+  paramRangeEnd?: string;
   /** 可选搜索进度文案，旧完整 messages 对象无需新增字段。 */
   searching?: string;
   importExcel?: string;
@@ -237,6 +239,8 @@ export const DEFAULT_MESSAGES: MachReportMessages = {
   paramPromptDescription: "填写必填条件后点击查询，即可生成报表。",
   paramSelectPlaceholder: "请选择{label}",
   paramTextPlaceholder: "请输入{label}",
+  paramRangeStart: "开始日期",
+  paramRangeEnd: "结束日期",
   searching: "搜索中…",
   importExcel: "导入 Excel 模板",
   importing: "正在导入 Excel…",

@@ -861,3 +861,5 @@
 }
 
 .mr-designer-arrange { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:9px 0; border-bottom:1px solid #e2e8f0; font-size:11px; }.mr-designer-arrange strong { flex-basis:100%; font-weight:500; color:#64748b; }.mr-designer-arrange small { flex-basis:100%; color:#64748b; }.mr-designer-arrange select { width:100%; }
+
+.mr-designer-flow-note{display:grid;gap:7px;padding:10px;margin-bottom:12px;border:1px solid #d6e6fa;border-radius:7px;background:#f2f7fe;color:#5d7b9f}.mr-designer-flow-note button{justify-self:start;font-size:12px}

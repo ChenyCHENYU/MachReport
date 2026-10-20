@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ReportPreview } from "@agile-team/mach-report/vue";
-import { parseReportTemplate, type ReportTemplateDocument } from "@agile-team/mach-report";
+import { parseReportTemplate, type ReportTemplateDocument, type ReportParamDef } from "@agile-team/mach-report";
 import {
   computed,
   defineAsyncComponent,
@@ -29,6 +29,7 @@ import {
 const ExcelBindingWizard = defineAsyncComponent(
   () => import("./ExcelBindingWizard.vue"),
 );
+const ParamEditor = defineAsyncComponent(() => import("./ParamEditor.vue"));
 const RuleEditor = defineAsyncComponent(() => import("./RuleEditor.vue"));
 const TemplateReviewPanel = defineAsyncComponent(
   () => import("./TemplateReviewPanel.vue"),
@@ -64,6 +65,9 @@ const {
   fetcher,
   messages: m,
 } = editor;
+function acceptParams(definitions: ReportParamDef[]): boolean {
+  return editor.transaction(document => { document.template.params = definitions; });
+}
 const inspector = useTemplateInspector(selected, activeList);
 const { section, activeIndex, activeColumn } = inspector;
 const id = `mr-designer-${getCurrentInstance()?.uid ?? 0}`;
@@ -99,6 +103,9 @@ const {
   canvas,
 } = workspace;
 
+const canvasFlow = computed(() => !!draft.value.template.pages[canvasPage.value]?.flow);
+const fieldFlow = computed(() => !!draft.value.template.pages[lists.value[selected.value]?.pageIndex ?? -1]?.flow);
+function openBinding(): void { section.value = "tools"; tool.value = "excel"; }
 const headingStatus = computed(() =>
   saving.value
     ? m.value.saving
@@ -346,7 +353,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
       >
         <nav class="mr-designer-tool-tabs" :aria-label="m.toolsSection">
           <button
-            v-for="item in ['excel', 'rules', 'review'] as const"
+            v-for="item in ['excel', 'rules', 'params', 'review'] as const"
             :key="item"
             type="button"
             :aria-pressed="tool === item"
@@ -356,6 +363,14 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
 </button><span>{{ m.toolsDescription }}</span>
         </nav>
         <div class="mr-designer-tool-content">
+          <ParamEditor
+            v-if="visitedTools.has('params')"
+            v-show="tool === 'params'"
+            :document="draft"
+            :readonly="editDisabled"
+            :accept="acceptParams"
+            @dirty="editor.setToolPending('params', $event)"
+          />
           <ExcelBindingWizard
             v-if="visitedTools.has('excel')"
             v-show="tool === 'excel'"
@@ -412,6 +427,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
           role="tabpanel"
           :aria-labelledby="`${id}-tab-${section}`"
         >
+          <div v-if="canvasFlow || fieldFlow" class="mr-designer-flow-note"><small>{{ m.flowLayout }}</small><button type="button" @click="openBinding">{{ m.excelTool }} ↗</button></div>
           <template v-if="section === 'fields'">
             <label v-if="lists.length > 1" class="mr-designer-area">{{ m.area
               }}<select :value="selected" @change="chooseRuleList">
@@ -516,6 +532,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
                         min="0.1"
                         step="0.5"
                         :value="activeColumn.column.widthMm"
+                        :disabled="fieldFlow"
                         @change="
                           editor.setColumn(
                             activeColumn.index,
@@ -596,7 +613,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
                     type="button"
                     :aria-label="m.moveColumnLeft"
                     :title="m.moveColumnLeft"
-                    :disabled="activeIndex <= 0"
+                    :disabled="fieldFlow || activeIndex <= 0"
                     @click="moveColumn(-1)"
                   >
                     <ReportIcon name="chevron-left" :size="13" />
@@ -604,7 +621,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
                     type="button"
                     :aria-label="m.moveColumnRight"
                     :title="m.moveColumnRight"
-                    :disabled="activeIndex >= activeList.columns.length - 1"
+                    :disabled="fieldFlow || activeIndex >= activeList.columns.length - 1"
                     @click="moveColumn(1)"
                   >
                     <ReportIcon name="chevron-right" :size="13" />
@@ -613,7 +630,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
                       type="checkbox"
                       :checked="activeColumn.column.hidden !== true"
                       :disabled="
-                        activeColumn.column.hidden !== true &&
+                        fieldFlow || activeColumn.column.hidden !== true &&
                         activeList.columns.filter((column) => !column.hidden)
                           .length === 1
                       "
@@ -767,7 +784,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
             <div class="mr-designer-object-tools">
               <select
                 :aria-label="m.insertComponent"
-                :disabled="editDisabled"
+                :disabled="editDisabled || canvasFlow"
                 @change="insertComponent"
               >
                 <option value="">{{ m.insertComponent }}</option>
@@ -779,7 +796,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
                 type="button"
                 :title="m.duplicateComponent"
                 :aria-label="m.duplicateComponent"
-                :disabled="editDisabled || !canvasActive"
+                :disabled="editDisabled || canvasFlow || !canvasActive"
                 @click="canvas.duplicate"
               >
                 ＋
@@ -787,7 +804,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
                 type="button"
                 :title="m.removeComponent"
                 :aria-label="m.removeComponent"
-                :disabled="editDisabled || !canvasActive"
+                :disabled="editDisabled || canvasFlow || !canvasActive"
                 @click="canvas.remove"
               >
                 <ReportIcon name="close" :size="14" />
@@ -833,13 +850,13 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
                   }}
                 </option>
               </select></label>
-            <div v-if="canvas.selections.value.length" class="mr-designer-arrange"><strong>{{ canvas.selections.value.length }} {{ m.component }}</strong><button type="button" :disabled="editDisabled" @click="canvas.toggleLock">{{ canvas.allLocked.value ? m.unlockSelection : m.lockSelection }}</button><select :aria-label="m.alignSelection" :disabled="editDisabled || canvas.selections.value.length < 2" @change="canvas.align(value($event) as Parameters<typeof canvas.align>[0]); ($event.target as HTMLSelectElement).value = ''"><option value="">{{ m.alignSelection }}</option><option value="left">{{ m.leftEdges }}</option><option value="center">{{ m.centers }}</option><option value="right">{{ m.rightEdges }}</option><option value="top">{{ m.topEdges }}</option><option value="middle">{{ m.middles }}</option><option value="bottom">{{ m.bottomEdges }}</option></select><button type="button" :disabled="editDisabled || canvas.selections.value.length < 3" @click="canvas.distribute('horizontal')">{{ m.horizontalSpacing }}</button><button type="button" :disabled="editDisabled || canvas.selections.value.length < 3" @click="canvas.distribute('vertical')">{{ m.verticalSpacing }}</button><small v-if="canvas.allLocked.value">{{ m.sessionLock }}</small></div>
+            <div v-if="canvas.selections.value.length" class="mr-designer-arrange"><strong>{{ canvas.selections.value.length }} {{ m.component }}</strong><button type="button" :disabled="editDisabled" @click="canvas.toggleLock">{{ canvas.allLocked.value ? m.unlockSelection : m.lockSelection }}</button><select :aria-label="m.alignSelection" :disabled="editDisabled || canvasFlow || canvas.selections.value.length < 2" @change="canvas.align(value($event) as Parameters<typeof canvas.align>[0]); ($event.target as HTMLSelectElement).value = ''"><option value="">{{ m.alignSelection }}</option><option value="left">{{ m.leftEdges }}</option><option value="center">{{ m.centers }}</option><option value="right">{{ m.rightEdges }}</option><option value="top">{{ m.topEdges }}</option><option value="middle">{{ m.middles }}</option><option value="bottom">{{ m.bottomEdges }}</option></select><button type="button" :disabled="editDisabled || canvasFlow || canvas.selections.value.length < 3" @click="canvas.distribute('horizontal')">{{ m.horizontalSpacing }}</button><button type="button" :disabled="editDisabled || canvasFlow || canvas.selections.value.length < 3" @click="canvas.distribute('vertical')">{{ m.verticalSpacing }}</button><small v-if="canvas.allLocked.value">{{ m.sessionLock }}</small></div>
             <template v-if="canvasActive">
               <div class="mr-designer-layer-tools">
                 <button
                   type="button"
                   :disabled="
-                    editDisabled || canvasSelection?.componentIndex === 0
+                    editDisabled || canvasFlow || canvasSelection?.componentIndex === 0
                   "
                   @click="canvas.reorder(-1)"
                 >
@@ -847,7 +864,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
 </button><button
                   type="button"
                   :disabled="
-                    editDisabled ||
+                    editDisabled || canvasFlow ||
                     canvasSelection?.componentIndex ===
                       (draft.template.pages[canvasPage]?.components.length ??
                         0) -
@@ -860,6 +877,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
               </div>
               <CanvasComponentInspector
                 :component="canvasActive"
+                :geometry-disabled="canvasFlow"
                 :disabled="editDisabled || canvas.locked(canvasSelection)"
                 :messages="m"
                 @geometry="canvas.geometry"
@@ -867,7 +885,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
               /><HeaderStructureEditor
                 v-if="canvasActive.kind === 'list'"
                 :list="canvasActive"
-                :disabled="editDisabled"
+                :disabled="editDisabled || canvasFlow"
                 :messages="m"
                 @command="headerCommand"
               />
@@ -951,7 +969,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
           :active-column-index="activeIndex"
           :page-index="canvasPage"
           :datasets="datasets"
-          :disabled="editDisabled || editor.isToolPending('rules')"
+          :disabled="editDisabled || canvasFlow || editor.isToolPending('rules')"
           :messages="m"
           @select="chooseCanvas"
           @geometry="canvas.geometry"

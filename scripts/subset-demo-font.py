@@ -19,7 +19,9 @@ options.name_IDs = ["*"]
 options.name_languages = ["*"]
 options.recalc_timestamp = False
 subsetter = subset.Subsetter(options=options)
-text = (root / "examples/minimal/src/main.ts").read_text()
+sources = sorted(path for path in (root / "examples/minimal/src").rglob("*")
+                 if path.suffix in {".ts", ".vue", ".json"})
+text = "\n".join(path.read_text() for path in sources)
 subsetter.populate(text=text, unicodes=range(0x20, 0x7F))
 subsetter.subset(font)
 

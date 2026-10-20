@@ -36,7 +36,7 @@ export function useRuleEditor(
     ...props.messages,
   }));
   const tab = ref<
-      "computations" | "groups" | "conditions" | "detail" | "matrix"
+      "computations" | "groups" | "conditions" | "detail" | "matrix" | "tree"
     >("computations"),
     error = ref("");
   const selectedComputed = ref(""),

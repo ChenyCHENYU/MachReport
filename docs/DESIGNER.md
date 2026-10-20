@@ -90,3 +90,18 @@ async function canLeave() { return await editor.value?.guardChanges() ?? true; }
 字段映射和可编辑范围仍须符合业务API契约与权限；界面开关不授予后台写权限。画布不是完整Excel应用，宏、任意脚本、完整Excel公式重算和审批控制台不包含在此入口。
 
 启动 `pnpm --filter @agile-team/example-minimal dev` 后访问 `http://localhost:8610/designer.html`。示例使用明确标识的本地数据与内存存储，不连接业务数据库。
+
+## 查询参数、模板库与批量生成
+
+工具中的“查询参数”使用可视化表单维护模板参数；支持排序、必填、默认值、边界与选择项。未应用参数草稿参与离开保护，应用复用模板事务、撤销/重做与版本保存。详见[参数](PARAMETERS.md)。
+
+可选 `ReportTemplateLibrary` 接收一个 `ReportTemplateCatalogProvider`：包内处理搜索/分类、远程分页、取消和过期响应，`open` 返回经过校验的独立模板文档。仅提供真实 `create(document,{signal})` 保存动作后显示复制入口，副本使用新 ID 并清除原修订；持久化与权限由宿主服务处理。库不持有企业账号。
+
+```vue
+<ReportTemplateLibrary :provider="catalogApi" :create="createDraft" @open="openDocument" />
+<ReportBatchPanel :param-defs="paramDefs" :execute="generateInstance" @open-instance="openReceipt" />
+```
+
+批量面板复用查询参数控件，执行前校验所有待运行组；详细契约见[批量生成](BATCH_GENERATION.md)。模板库、设计器、发布与实例的可运行闭环在 `/platform.html`，使用本地有界内存参考适配器。生产存储和后续后端路线见[产品能力](PRODUCT_PLATFORM.md)。
+
+Excel 多区域模板的原始行带、物理列槽位和页尾由绑定配方管理。该页的几何拖动、列宽/顺序/显隐、组件增删及表头结构变更会禁用，并提供回到 Excel 向导的入口；字段、对齐、数值格式、文本样式和业务规则仍可维护。这样不会把预览改成与 Excel 输出不同的结构。自由排版模板不受此限制。

@@ -8,3 +8,4 @@ export * from "./xlsx/workbook-session";
 export * from "./xlsx/bind-template";
 export * from "./xlsx/binding-workflow";
 export * from "./xlsx/binding-preview";
+export * from "./xlsx/region-binding-workflow";

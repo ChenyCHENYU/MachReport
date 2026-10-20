@@ -1,4 +1,6 @@
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from "vue";
+import { useExcelRegionBindings } from "./useExcelRegionBindings";
+import { createExcelRegionBindingDocument, createExcelRegionBindingSession, parseExcelRegionBindingSession, type AnyExcelBindingDocumentResult, type AnyExcelBindingSession } from "../xlsx/region-binding-workflow";
 import { useLocalDraft } from "./useLocalDraft";
 import type { ExcelWorkbookSession } from "../xlsx/workbook-session";
 import type { ExcelWorkbookSheet } from "../xlsx/import-template";
@@ -16,25 +18,21 @@ import {
   validateExcelBindingFields,
   validateExcelBindingRegions,
   type ExcelBindingDataset,
-  type ExcelBindingDocumentResult,
   type ExcelBindingRecipe,
   type ExcelBindingRegion,
-  type ExcelBindingSession,
 } from "../xlsx/binding-workflow";
 import {
   EXCEL_BINDING_MESSAGES,
   type ExcelBindingMessages,
 } from "./excel-binding-messages";
 
-export interface ExcelBindingWizardApply extends ExcelBindingDocumentResult {
-  session: ExcelBindingSession;
-}
+export type ExcelBindingWizardApply = AnyExcelBindingDocumentResult & { session: AnyExcelBindingSession };
 export interface ExcelBindingWizardOptions {
   datasets: readonly ExcelBindingDataset[];
   /** An embedded editor can decline replacement; success is shown only after acceptance. */
   accept?: (result: ExcelBindingWizardApply) => boolean | Promise<boolean>;
   /** Source + exact coordinates + mappings. No File, functions, network credentials, or live result rows. */
-  session?: ExcelBindingSession;
+  session?: AnyExcelBindingSession;
   identity?: { id: string; name: string };
   /** Editor replacement keeps the current persistent ID; standalone creation remains editable. */
   lockId?: boolean;
@@ -63,7 +61,18 @@ export function useExcelBindingWizard(
 ) {
   const imported = shallowRef<ExcelImportResult>();
   const recipe = ref(emptyRecipe());
+  const mode = ref<"table" | "regions">("table");
+  const regionBindings = useExcelRegionBindings(imported, computed(() => recipe.value.sheet), computed(() => disabled.value), () => props.datasets);
   const sheetRecipes = new Map<string, ExcelBindingRecipe>();
+  const regionSheetRecipes = new Map<string, typeof regionBindings.recipe.value>();
+  const cachedDrafts = ref({ table: [] as ExcelBindingRecipe[], regions: [] as typeof regionBindings.recipe.value[] });
+  function clearSheetDrafts(): void { sheetRecipes.clear(); regionSheetRecipes.clear(); cachedDrafts.value = { table: [], regions: [] }; }
+  function cacheCurrentSheet(): void {
+    if (!recipe.value.sheet) return;
+    sheetRecipes.set(recipe.value.sheet, cloneRecipe(recipe.value));
+    regionSheetRecipes.set(recipe.value.sheet, JSON.parse(JSON.stringify(regionBindings.recipe.value)) as typeof regionBindings.recipe.value);
+    cachedDrafts.value = { table: [...sheetRecipes.values()], regions: [...regionSheetRecipes.values()] };
+  }
   const cloneRecipe = (value: ExcelBindingRecipe) => JSON.parse(JSON.stringify(value)) as ExcelBindingRecipe;
   function sheetRecipe(name: string, columns: number): ExcelBindingRecipe { return cloneRecipe(sheetRecipes.get(name) ?? emptyRecipe(name, columns)); }
   const identity = ref({
@@ -72,7 +81,7 @@ export function useExcelBindingWizard(
   });
   const sourceName = ref("");
   const sourceRevision = ref(0);
-  const localDraft = useLocalDraft(() => ({ source: sourceRevision.value, recipe: recipe.value, identity: identity.value }));
+  const localDraft = useLocalDraft(() => ({ source: sourceRevision.value, recipe: recipe.value, mode: mode.value, regions: regionBindings.recipe.value, cached: cachedDrafts.value, identity: identity.value }));
   const sheetChoices = ref<Pick<ExcelWorkbookSheet, "name" | "index">[]>([]);
   let workbook: ExcelWorkbookSession | undefined;
   function releaseWorkbook(): void { workbook?.dispose(); workbook = undefined; }
@@ -111,7 +120,7 @@ export function useExcelBindingWizard(
       ? validateExcelBindingRegions(imported.value, recipe.value)
       : [],
   );
-  const validation = computed(() => {
+  const tableValidation = computed(() => {
     if (!imported.value) return { ok: false, issues: [], mapped: 0, total: 0 };
     const result = validateExcelBindingFields(
       imported.value,
@@ -121,6 +130,7 @@ export function useExcelBindingWizard(
     const issues = [...regionIssues.value, ...result.issues];
     return { ...result, ok: issues.length === 0, issues };
   });
+  const validation = computed(() => mode.value === "regions" ? regionBindings.validation.value : tableValidation.value);
   const mappings = computed(() =>
     recipe.value.fields
       .slice(mappingPage.value * 12, (mappingPage.value + 1) * 12)
@@ -161,10 +171,10 @@ export function useExcelBindingWizard(
     checked.value = false;
     applied.value = false;
   }
-  function loadSession(value: ExcelBindingSession): void {
+  function loadSession(value: AnyExcelBindingSession): void {
     cancel();
     try {
-      const session = parseExcelBindingSession(value);
+      const session = value.version === "2.0" ? parseExcelRegionBindingSession(value) : parseExcelBindingSession(value);
       cancel();
       releaseWorkbook();
       sheetChoices.value = session.source.sheets.map((sheet) => ({
@@ -172,8 +182,11 @@ export function useExcelBindingWizard(
         index: sheet.index,
       }));
       imported.value = session.source;
-      sheetRecipes.clear();
-      recipe.value = session.recipe;
+      clearSheetDrafts();
+      if (session.version === "2.0") {
+        recipe.value = emptyRecipe(session.recipe.sheet, session.source.sheets.find(sheet => sheet.name === session.recipe.sheet)!.columnCount);
+        regionBindings.reset(session.recipe); mode.value = "regions";
+      } else { recipe.value = session.recipe; regionBindings.reset(); mode.value = "table"; }
       identity.value = { ...session.identity, ...(props.lockId && props.identity ? { id: props.identity.id } : {}) };
       sourceName.value = session.recipe.sheet;
       error.value = "";
@@ -197,7 +210,7 @@ export function useExcelBindingWizard(
     },
   );
   watch(
-    [recipe, identity],
+    [recipe, identity, mode, regionBindings.recipe],
     () => {
       checked.value = false;
       applied.value = false;
@@ -240,11 +253,12 @@ export function useExcelBindingWizard(
         name: item.name,
         index: item.index,
       }));
-      sheetRecipes.clear();
+      clearSheetDrafts();
       recipe.value = emptyRecipe(
         result.sheets[0]!.name,
         result.sheets[0]!.columnCount,
       );
+      regionBindings.reset();
       resetPosition();
     } catch (cause) {
       if (job === generation) error.value = text(cause);
@@ -259,13 +273,14 @@ export function useExcelBindingWizard(
   async function chooseSheet(name: string): Promise<void> {
     if (
       disabled.value ||
-      !sheetChoices.value.some((item) => item.name === name)
+      !sheetChoices.value.some((item) => item.name === name) || recipe.value.sheet === name
     )
       return;
-    if (recipe.value.sheet) sheetRecipes.set(recipe.value.sheet, cloneRecipe(recipe.value));
+    cacheCurrentSheet();
     const selected = imported.value?.sheets.find((item) => item.name === name);
     if (selected) {
       recipe.value = sheetRecipe(name, selected.columnCount);
+      regionBindings.reset(regionSheetRecipes.get(name));
       error.value = "";
       resetPosition();
       return;
@@ -281,6 +296,7 @@ export function useExcelBindingWizard(
       if (job !== generation || props.readonly) return;
       imported.value = result;
       recipe.value = sheetRecipe(name, result.sheets[0]!.columnCount);
+      regionBindings.reset(regionSheetRecipes.get(name));
       resetPosition();
     } catch (cause) {
       if (job === generation) error.value = text(cause);
@@ -365,8 +381,9 @@ export function useExcelBindingWizard(
     if (props.readonly) return;
     if (props.session) { loadSession(props.session); return; }
     cancel(); releaseWorkbook(); imported.value = undefined; sheetChoices.value = []; sourceName.value = "";
-    sheetRecipes.clear();
+    clearSheetDrafts();
     recipe.value = emptyRecipe(); identity.value = { id: props.identity?.id ?? "excel-template", name: props.identity?.name ?? "Excel 业务模板" };
+    regionBindings.reset(); mode.value = "table";
     resetPosition(); sourceRevision.value++; localDraft.accept(); error.value = "";
   }
   function check(): void {
@@ -381,25 +398,20 @@ export function useExcelBindingWizard(
     applying.value = true;
     try {
       const targetIdentity = { ...identity.value, ...(props.lockId && props.identity ? { id: props.identity.id } : {}) };
-      const result = createExcelBindingDocument(
-        imported.value,
-        recipe.value,
-        props.datasets,
-        targetIdentity,
-      );
-      const session = createExcelBindingSession(
-        imported.value,
-        recipe.value,
-        targetIdentity,
-      );
+      const result = mode.value === "regions"
+        ? createExcelRegionBindingDocument(imported.value, regionBindings.recipe.value, props.datasets, targetIdentity)
+        : createExcelBindingDocument(imported.value, recipe.value, props.datasets, targetIdentity);
+      const session = mode.value === "regions"
+        ? createExcelRegionBindingSession(imported.value, regionBindings.recipe.value, targetIdentity)
+        : createExcelBindingSession(imported.value, recipe.value, targetIdentity);
       const resultWithSession = { ...result, session };
       const before = localDraft.snapshot();
       if (props.accept && !await props.accept(resultWithSession)) return;
       if (props.readonly) return;
       if (before !== localDraft.snapshot() && localDraft.pending.value) return;
       if (!props.accept) emit(resultWithSession);
+      clearSheetDrafts();
       localDraft.accept();
-      sheetRecipes.clear();
       applied.value = true;
     } catch (cause) {
       error.value = text(cause);
@@ -407,6 +419,7 @@ export function useExcelBindingWizard(
   }
   return {
     imported,
+    mode, regionBindings,
     pendingLocalChanges: localDraft.pending,
     recipe,
     identity,

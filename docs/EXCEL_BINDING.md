@@ -2,7 +2,27 @@
 
 将业务提供的 `.xlsx` 样式模板，转换为可重复取数的 MachReport 模板。来源文件只参与设计；明细数据由宿主数据集提供。
 
-## 交互流程
+## 选择绑定方式
+
+同一向导提供两种明确的模型，旧模板与旧会话保持兼容：
+
+| 方式 | 适用场景 | 布局语义 |
+| --- | --- | --- |
+| 多区域绑定（recipe `2.0`） | 同 Sheet 多来源、顶部产量指标＋下方成本清单、局部单记录 | 每区独立的数据集、主键与字段映射；纵向扩展后，下方静态内容和后续区域自动顺延 |
+| 传统整表（recipe `1.0`） | 一份数据集填充整张明细表 | 完整列宽，标题／表头／明细／静态尾页顺序相邻；尾页仍是独立页面 |
+
+### 多区域绑定
+
+1. 选择文件和工作表，切换「多区域绑定」。
+2. 点击原始网格的起始单元格，Shift 点击终点，或使用键盘 Enter、Shift＋方向键；点击「创建区域」。原始预览仍是有界窗口，不生成整工作簿 DOM。
+3. 为每个区域选择「单记录」或「纵向重复」，指定数据集、稳定业务主键和逐列映射。区域目录可在多组绑定之间切换，不清空另一组的草稿。
+4. 需要表头时选择紧接原型上方的等宽矩形，点击「选区作为表头」。纵向重复区域的表头在分页后重复，连续 Excel 仅保留一次。
+5. 需要每页页尾时，选择来源最后几行的完整列宽，点击「选区作为页尾」。分页引擎在每页为它预留空间。
+6. 校验错误会指明区域和字段路径；校验并使用后仍经过宿主的 `accept` 和已有未保存修改保护，拒绝替换不会显示已应用状态。
+
+单记录区域接收零或一行数据；零行保留空白结构且不伪造业务主键，多行输入明确失败。纵向重复区域每个数据行替换一行原型，按真实行高分页；它必须独占自己的纵向带，不能在旁列放非空静态内容或并排放另一重复区域。局部单记录可以保留旁列静态标签，也可与另一单记录并排；并排区域需使用相同的起止行（包含表头）。
+
+### 传统整表流程
 
 1. 选择 Excel 文件和工作表，检查原始内容、合并表头和导入提示。
 2. 点击行号选择行；使用 Shift 点击、拖动或键盘 Shift + ↑ / ↓ 扩展。分别标记标题、多层表头、样例明细和可选静态尾页。
@@ -61,6 +81,41 @@ function apply(result: ExcelBindingWizardApply) {
 
 `/xlsx` 的纯函数不依赖 Vue，也不请求接口或写入数据库。
 
+### 同 Sheet 多区域、多数据集
+
+以下 `A3:L3` 为一条产量记录，`A5:L5` 为成本明细原型，`A4:L4` 为成本表头；每个来源区域按自身的字段契约填充。示例中的 12 个字段必须与真实接口契约逐项核对，不能通过相似表头猜测。
+
+```ts
+import {
+  importExcelTemplate, createExcelRegionBindingDocument,
+  createExcelRegionBindingSession, parseExcelRegionBindingSession,
+  validateExcelRegionBindings, type ExcelRegionBindingRecipe,
+} from "@agile-team/mach-report/xlsx";
+
+const imported = await importExcelTemplate(bytes, { sheets: ["W4"], layout: "wide" });
+const recipe: ExcelRegionBindingRecipe = {
+  version: "2.0", sheet: "W4",
+  regions: [
+    { id: "production", range: "A3:L3", mode: "record", dataset: "production", rowKey: "id", fields: productionFields },
+    { id: "cost", range: "A5:L5", headerRange: "A4:L4", mode: "repeat", dataset: "cost", rowKey: "id", fields: costFields },
+  ],
+  footerRange: "A6:L6",
+};
+const validation = validateExcelRegionBindings(imported, recipe, datasets);
+if (!validation.ok) throw new Error(validation.issues.map(x => `${x.path}: ${x.message}`).join("\n"));
+const identity = { id: "w4", name: "成本日报" };
+const { document, warnings } = createExcelRegionBindingDocument(imported, recipe, datasets, identity);
+const session = createExcelRegionBindingSession(imported, recipe, identity);
+const restored = parseExcelRegionBindingSession(JSON.stringify(session));
+// 注册 document.template；查询时提供 { production: [...], cost: [...] }。
+```
+
+多区域编译成普通列表、静态网格和显式 `page.flow` 带状排版；同一模板可在浏览器、Worker 或后端 Node 的公共排版入口执行，使用侧无需手算下面区域的位置。每个区域的 `rowKey`、`revisionField`、`sourceTokenField` 都只引用其自身数据集；字段缺失和重复身份仍由数据契约与分页检查。生成列缺省只读，开启预览编辑并不自动开放绑定字段，后续按明确业务规则配置编辑权限。导入的公式不会转换成可写的计算输入。
+
+`auto` / `continuous` Excel 输出识别编译器生成且经过几何核验的区域标记，将分页结果接回同一 Sheet，保留完整物理列位置、旁列静态内容、合并单元格、真实零值和数值类型。重复区域表头、每页页尾在连续 Sheet 只保留一次；`sheetMode: "pages"` 明确保留每页结构。单页的几何合成在分配前限制为 100 万格，超限精确拒绝并提示缩小分页高度或列数；不靠截列、裁剪内容或覆盖同位单元格通过。
+
+### 传统整表 API（保持兼容）
+
 ```ts
 import {
   importExcelTemplate,
@@ -101,7 +156,7 @@ const restored = parseExcelBindingSession(JSON.stringify(session));
 
 `recipe` 可单独与来源资产标识存储。`session` 包含原始导入快照，因此也包含来源文件中的设计样例；它与发布给业务查询的 `document` 是两个独立对象。宿主负责存储权限、来源资产生命周期和实际接口取数，不应把接口返回的完整业务数据塞入会话。
 
-## 规则与边界
+## 传统整表规则与边界
 
 | 规则     | 行为                                                                                                     |
 | -------- | -------------------------------------------------------------------------------------------------------- |
@@ -116,6 +171,16 @@ const restored = parseExcelBindingSession(JSON.stringify(session));
 | 新模板   | 只编译所选工作表，不把其他未绑定工作表的样例带进结果；不隐式覆盖既有模板                                 |
 
 字段契约可以提供最多 100 行代表性 `samples` 进行只读验证（最多 200,000 个字段值）；这些样例用于检查类型、主键和映射，不作为报表实时结果。没有样例时仍能校验结构，实际查询数据应继续走公共数据契约校验。
+
+## 多区域支持边界
+
+- 每份 recipe 选择一个 Sheet，最多 128 个动态区域；同一预览中的多个业务来源由各区域显式引用数据集。
+- 动态区域原型是一行，列范围可局部选择；原型内不支持合并格。区域表头可多行合并，所有选区都必须完整包含跨越边界的合并单元格。
+- 只支持垂直扩展。横向扩展、嵌套重复、同排并行重复、下方区域与上方区域重叠、旁列存在非空内容的重复区，在编译前给出精确错误。
+- 不绑定的来源内容视为静态模板内容并完整保留；只有明确选中的原型值会被移除。不要把真实业务明细当作未绑定静态区域发布。
+- 基础字体、颜色、边框和几何来自原型；内容对齐和数值精度按业务字段契约生成，可在设计器字段属性中进一步明确设置。精确 `decimal` 继续保留文本，不转换为浮点数。
+- 不执行 Excel 公式、宏、外部连接或隐藏脚本。完整电子表格交互和任意 Excel 工作簿无损迁移不属于此绑定模型。
+- 向导复用已有 `openExcelWorkbook` 会话；切 Sheet 不重复解析 ZIP。两种模式与各工作表的绑定草稿分别保留，更换文件、只读和卸载仍遵循原有取消／生命周期约束。
 
 ## 资源和交互
 

@@ -16,6 +16,9 @@ function display(value: unknown): string | undefined {
   return text.length > 160 ? text.slice(0, 157) + "…" : text;
 }
 function category(path: string): ReportTemplateChange["category"] {
+  if (/\.tree\.(?:idField|parentField|childrenField|labelField|input)$/.test(path)) return "binding";
+  if (/\.tree\.parentValues$/.test(path)) return "calculation";
+  if (/\.tree\.indentMm$/.test(path)) return "format";
   if (/\.(?:computed|computeOptions|groups|groupBy|aggregates|grandTotal)(?:\.|\[|$)/.test(path)) return "calculation";
   if (/\.(?:dataset|field|rowKey|revisionField|sourceTokenField|foreignKey|parentKey)$/.test(path)) return "binding";
   if (/\.(?:style|headerStyle|format|rules|align|headerAlign|semanticRole|unit)(?:\.|\[|$)/.test(path)) return "format";

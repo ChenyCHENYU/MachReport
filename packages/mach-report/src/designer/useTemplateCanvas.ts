@@ -26,7 +26,8 @@ export function useTemplateCanvas(
   const mode = ref<"design" | "preview">("preview");
   const selection = ref<CanvasSelection>();
   const pageIndex = ref(0);
-  const multi = useCanvasSelection(draft, selection, transaction);
+  const geometryDisabled = computed(() => !!draft.value.template.pages[selection.value?.pageIndex ?? pageIndex.value]?.flow);
+  const multi = useCanvasSelection(draft, selection, change => geometryDisabled.value ? false : transaction(change));
   const active = computed(() =>
     selectedComponent(draft.value, selection.value),
   );
@@ -52,6 +53,7 @@ export function useTemplateCanvas(
     });
   }
   function geometry(next: CanvasGeometry): void {
+    if (geometryDisabled.value) return;
     mutate((component, document) => {
       const page = document.template.pages[selection.value!.pageIndex]!;
       setCanvasGeometry(
@@ -61,6 +63,7 @@ export function useTemplateCanvas(
     });
   }
   function insert(kind: CanvasInsertKind): void {
+    if (draft.value.template.pages[pageIndex.value]?.flow) return;
     let index = -1;
     const page = pageIndex.value;
     if (
@@ -73,6 +76,7 @@ export function useTemplateCanvas(
       select({ pageIndex: page, componentIndex: index });
   }
   function remove(): void {
+    if (geometryDisabled.value) return;
     const selected = selection.value;
     if (
       selected && !multi.locked(selected) &&
@@ -87,6 +91,7 @@ export function useTemplateCanvas(
     }
   }
   function duplicate(): void {
+    if (geometryDisabled.value) return;
     const selected = selection.value;
     if (!selected) return;
     let index = -1;
@@ -114,6 +119,7 @@ export function useTemplateCanvas(
       select({ pageIndex: selected.pageIndex, componentIndex: index });
   }
   function reorder(delta: -1 | 1): void {
+    if (geometryDisabled.value) return;
     const selected = selection.value;
     if (!selected || multi.locked(selected)) return;
     const next = selected.componentIndex + delta;
@@ -135,6 +141,7 @@ export function useTemplateCanvas(
     selection,
     pageIndex,
     active,
+    geometryDisabled,
     select,
     mutate,
     geometry,

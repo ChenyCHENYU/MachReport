@@ -14,10 +14,15 @@ import { evalStyleRule, formatValue, toExcelNumberFormat } from "../format";
 import { computeDataset, type FormulaAdapter } from "../processing/computed";
 import { aggregateRows, type AggregateDefinition } from "../processing/aggregate";
 import { createMatrixTable, estimateMatrixTable } from "../processing/matrix";
+import { createTreeTable, flattenTreeInput, validateTreeComputed, type TreeRow } from "../processing/tree";
+export { createTreeTable, validateTreeOptions, TreeRowLimitError, type TreeTableOptions, type TreeRow, type TreeTable } from "../processing/tree";
 import { projectListColumns } from "./list-projection";
+import type { ReportPageFlow } from "./flow";
+export type { ReportPageFlow, ReportFlowBand } from "./flow";
+import { paginateFlowPage } from "./flow-layout";
 import { templateRequiresRecalculation } from "./template-calculations";
 import { mergeComponentStyles, resolveFontSize } from "../render/style";
-import { resolveListAutoAlignment, listCellText as cellText, resolveListHeaderStyle } from "./list-cell";
+import { resolveListAutoAlignment, listCellText as cellText, resolveListHeaderStyle, listTreeIndent, applyListTreeMetadata } from "./list-cell";
 
 import type { ListColumn, ListComponent, ListGroupBy } from "./list-model";
 export type { ListAlignment, ListColumn, ListComponent, ListGroupBy, ListGrandTotal, ListDetail } from "./list-model";
@@ -34,6 +39,9 @@ export interface TemplatePage {
   marginLeftMm?: number;
   marginRightMm?: number;
   components: TemplateComponent[];
+  /** Explicit vertical bands preserve source gaps as dynamic regions expand. */
+  flow?: ReportPageFlow;
+  meta?: Record<string, unknown>;
 }
 
 /** 报表参数定义（声明式，模板自描述参数面：渲染组件据此生成查询面板） */
@@ -42,13 +50,13 @@ export interface ReportParamDef {
   field: string;
   /** 显示名（缺省用 field） */
   label?: string;
-  type?: "text" | "number" | "date" | "select";
+  type?: "text" | "number" | "date" | "month" | "year" | "dateRange" | "select";
   /** select 选项 */
   options?: Array<{ label: string; value: string }>;
   defaultValue?: string;
   required?: boolean;
   placeholder?: string;
-  /** 数字上下界；date 参数使用 YYYY-MM-DD 字符串（含边界）。 */
+  /** 数字上下界；日期/月/年使用对应规范字符串；dateRange 对两端使用 YYYY-MM-DD 边界（含边界）。 */
   min?: number | string;
   max?: number | string;
   minLength?: number;
@@ -147,6 +155,7 @@ interface ListInterning {
   textMetrics: WeakMap<ComponentStyle, CellTextMetrics>;
   numberFormats: Array<string | undefined>;
   derivedFields: Set<string>;
+  tree?: { list: ListComponent; rows: WeakMap<DataRow, TreeRow> };
   /** 列表整体边框样式（所有行/表头共享） */
   borderStyle: ComponentStyle;
   headerHeightMm: number;
@@ -291,6 +300,7 @@ function buildRowGridFast(
   measurer: TextMeasurer
 ): { grid: PlanGrid; heightMm: number } {
   const columns = inter.columns;
+  const treeRow = inter.tree?.rows.get(row);
   let height = inter.rowHeightFloorMm;
   const cells: GridCellCompat[] = new Array(columns.length);
   for (let i = 0; i < columns.length; i++) {
@@ -310,13 +320,16 @@ function buildRowGridFast(
     }
     // 格式化、测量和输出只遍历一次列；实际字体放大后，后续行按新高度排布。
     const text = col.format ? formatValue(rawValue, col.format) : cellText(rawValue);
+    const indentMm = treeCellIndent(inter, col, treeRow);
+    style = treeCellStyle(inter, col, style, treeRow);
     const metrics = cellTextMetrics(inter, style);
-    const wrapped = wrapText(text, col.widthMm - inter.paddingMm * 2, metrics.measureOptions, measurer);
+    const wrapped = wrapText(text, Math.max(1, col.widthMm - inter.paddingMm * 2 - indentMm), metrics.measureOptions, measurer);
     height = Math.max(height, wrapped.length * metrics.lineMm + inter.paddingMm * 2);
     const value = rawCellValue(rawValue);
     const cell: GridCell = { text, style };
     if (value !== undefined) cell.value = value;
     applyCellEditMetadata(cell, col, inter.numberFormats[i]);
+    applyTreeCellMetadata(cell, col, inter, treeRow, indentMm);
     if (inter.derivedFields.has(col.field)) { cell.derived = true; cell.editable = false; }
     if (col.visibleWhen && rawValue === null && !evalStyleRule(row, col.visibleWhen)) cell.editable = false;
     cells[i] = cell;
@@ -325,6 +338,20 @@ function buildRowGridFast(
     grid: { cells: [cells], colWidthsMm: inter.colWidthsMm, rowHeightsMm: [height], paddingMm: inter.paddingMm },
     heightMm: height
   };
+}
+
+function treeCellIndent(inter: ListInterningWithFloor, column: ListColumn, row?: TreeRow): number {
+  if (!row || column.field !== inter.tree!.list.tree!.labelField) return 0;
+  return listTreeIndent(inter.tree!.list, column, row, inter.paddingMm);
+}
+function treeCellStyle(inter: ListInterningWithFloor, column: ListColumn, style: ComponentStyle, row?: TreeRow): ComponentStyle {
+  if (!row || column.field !== inter.tree!.list.tree!.labelField || style.align === "left") return style;
+  return { ...style, align: "left" };
+}
+function applyTreeCellMetadata(cell: GridCell, column: ListColumn, inter: ListInterningWithFloor, row?: TreeRow, indentMm = 0): void {
+  if (!row) return;
+  if (indentMm) cell.indentMm = indentMm;
+  applyListTreeMetadata(cell, column, row, inter.tree!.list);
 }
 
 interface GridRow {
@@ -428,11 +455,15 @@ interface ListPageContext {
   signal?: AbortSignal;
   formula?: FormulaAdapter;
   prepared: WeakMap<ListComponent, PreparedListData>;
+  startTop?: number;
+  flow?: boolean;
+  finished?: (bottom: number) => void;
 }
 
 interface ListPageWriter {
   keepTogether(heightMm: number): void;
   setGroupHeader(depth: number, row?: GridRow): void;
+  bottom(): number;
   placeGridRow(row: GridRow, prefix: string, role: PlanTableFragment["role"], source?: PlanTableFragment["source"]): void;
 }
 
@@ -453,16 +484,16 @@ function createListPageWriter(list: ListComponent, inter: ListInterningWithFloor
   const header: PlanComponent = {
     kind: "rect", leftMm: list.leftMm, topMm: 0, widthMm: list.widthMm,
     heightMm: inter.headerHeightMm, grid: inter.headerGrid, nid: nextId("listh"),
-    table: { ...tableBase, role: "header", rowIndex: -1 }, style: inter.borderStyle
+    table: { ...tableBase, role: "header", rowIndex: -1 }, style: inter.borderStyle, ...(list.meta ? { meta: list.meta } : {})
   };
   const placeHeader = (topMm: number) => current.components.push({ ...header, topMm });
-  let y = Math.max(list.topMm, contentTop);
-  placeHeader(y);
-  y += inter.headerHeightMm + context.mmPerRow;
+  if (context.flow && list.header !== false && inter.headerHeightMm > contentBottom() - contentTop + 0.001) throw new Error(`流式列表 ${list.id ?? list.dataset} 的表头高度超出单页可用范围`);
+  let y = Math.max(context.startTop ?? list.topMm, contentTop);
+  if (list.header !== false) { placeHeader(y); y += inter.headerHeightMm + context.mmPerRow; }
 
   function freshTop(): number {
-    const top = Math.max(templatePage.layout === "wide" ? 0 : list.topMm, continuationTop);
-    const headerTop = list.headerEveryPage !== false ? top + inter.headerHeightMm : continuationTop;
+    const top = Math.max(context.flow || templatePage.layout === "wide" ? 0 : list.topMm, continuationTop);
+    const headerTop = list.header !== false && list.headerEveryPage !== false ? top + inter.headerHeightMm : continuationTop;
     return headerTop + [...repeatedHeaders.values()].reduce((sum, row) => sum + row.heightMm, 0);
   }
 
@@ -480,8 +511,8 @@ function createListPageWriter(list: ListComponent, inter: ListInterningWithFloor
       current.marginTopMm = 0;
       current.marginBottomMm = 0;
     }
-    const top = Math.max(templatePage.layout === "wide" ? 0 : list.topMm, continuationTop);
-    if (list.headerEveryPage !== false) {
+    const top = Math.max(context.flow || templatePage.layout === "wide" ? 0 : list.topMm, continuationTop);
+    if (list.header !== false && list.headerEveryPage !== false) {
       placeHeader(top);
       y = top + inter.headerHeightMm;
     } else y = continuationTop;
@@ -490,6 +521,7 @@ function createListPageWriter(list: ListComponent, inter: ListInterningWithFloor
 
   function placeGridRow(row: GridRow, prefix: string, role: PlanTableFragment["role"], source?: PlanTableFragment["source"]): void {
     const available = freshCapacity();
+    if (context.flow && row.heightMm > available + 0.001) throw new Error(`流式列表 ${list.id ?? list.dataset} 的单行高度超出单页可用范围`);
     if (row.heightMm > available) warnings.push(`列表 ${list.id ?? list.dataset} 行高 ${row.heightMm.toFixed(2)}mm 超出单页可用高度 ${available.toFixed(2)}mm，预览与打印可能截断内容`);
     ensureSpace(row.heightMm);
     appendGridRow(row, prefix, role, source);
@@ -501,7 +533,7 @@ function createListPageWriter(list: ListComponent, inter: ListInterningWithFloor
     current.components.push({
       kind: "rect", leftMm: list.leftMm, topMm: y, widthMm: list.widthMm,
       heightMm: row.heightMm, grid: row.grid, nid: nextId(prefix),
-      table: { ...tableBase, ...row.table, role, rowIndex, ...(source ? { source } : {}) }, style: inter.borderStyle
+      table: { ...tableBase, ...row.table, role, rowIndex, ...(source ? { source } : {}) }, style: inter.borderStyle, ...(list.meta ? { meta: list.meta } : {})
     });
     y += row.heightMm;
   }
@@ -510,7 +542,7 @@ function createListPageWriter(list: ListComponent, inter: ListInterningWithFloor
     if (heightMm <= freshCapacity()) ensureSpace(heightMm);
   }
   const setGroupHeader = (depth: number, row?: GridRow) => { if (row) repeatedHeaders.set(depth, row); else repeatedHeaders.delete(depth); };
-  return { keepTogether, placeGridRow, setGroupHeader };
+  return { keepTogether, placeGridRow, setGroupHeader, bottom: () => y };
 }
 
 function rowSource(list: ListComponent, row: DataRow): PlanTableFragment["source"] {
@@ -616,10 +648,33 @@ function resolveMatrix(list: ListComponent, rows: DataRow[]): { list: ListCompon
   if (list.layout === "wide") derived.widthMm = columns.reduce((sum, column) => sum + column.widthMm, 0);
   return { list: derived, rows: result.rows };
 }
-interface PreparedListData { list: ListComponent; rows: DataRow[]; sources?: Map<DataRow, PlanTableFragment["source"]> }
+interface PreparedListData { list: ListComponent; rows: DataRow[]; sources?: Map<DataRow, PlanTableFragment["source"]>; treeRows?: WeakMap<DataRow, TreeRow>; totalRows?: DataRow[] }
+function checkTreeList(list: ListComponent): void {
+  if (list.matrix || list.detail || list.groups?.length || list.groupBy || list.rowVisibleWhen) throw new Error("树形布局不能同时配置普通分组、矩阵、主从或行可见条件");
+  if (list.rowKey && list.rowKey !== list.tree!.idField) throw new Error("树形布局的 rowKey 应与 idField 一致");
+  if (!list.columns.some(column => column.field === list.tree!.labelField && !column.hidden)) throw new Error("树形布局需要可见的标签列");
+  validateTreeComputed(list.tree!, list.computed);
+}
+function prepareTreeData(list: ListComponent, input: DataRow[], context: ListPageContext): PreparedListData {
+  checkTreeList(list);
+  const tree = createTreeTable(input, list.tree!, { signal: context.signal, computed: list.computed?.length ? { fields: list.computed, formula: context.formula } : undefined });
+  const keyed = { ...list, rowKey: list.tree!.idField }, originalSources = checkedRowSources(keyed, tree.entries.map(entry => entry.original));
+  const sources = new Map<DataRow, PlanTableFragment["source"]>(), treeRows = new WeakMap<DataRow, TreeRow>();
+  for (const entry of tree.entries) { sources.set(entry.row, originalSources.get(entry.original)); treeRows.set(entry.row, entry); }
+  return { list: keyed, rows: tree.rows, sources, treeRows, totalRows: tree.leaves };
+}
+function prepareRecordData(list: ListComponent, input: DataRow[]): PreparedListData | undefined {
+  if (list.cardinality !== "record") return;
+  if (input.length > 1) throw new Error(`单记录区域 ${list.id ?? list.dataset} 仅允许 0 或 1 行数据`);
+  if (list.tree || list.matrix || list.detail || list.groups?.length || list.groupBy || list.grandTotal || list.rowVisibleWhen) throw new Error("单记录区域不能配置树、矩阵、主从、分组、总计或行过滤");
+  if (!input.length) return { list: { ...list, columns: list.columns.map(column => ({ ...column, editable: false })) }, rows: [{}], sources: new Map() };
+}
 function prepareListData(list: ListComponent, input: DataRow[], context: ListPageContext): PreparedListData {
   const existing = context.prepared.get(list);
   if (existing) return existing;
+  const record = prepareRecordData(list, input);
+  if (record) { context.prepared.set(list, record); return record; }
+  if (list.tree) { const result = prepareTreeData(list, input, context); context.prepared.set(list, result); return result; }
   let rows = list.computed?.length ? computeDataset(input, { fields: list.computed, signal: context.signal, formula: context.formula }).rows : input;
   const originals = rows === input ? undefined : new Map(rows.map((row, index) => [row, input[index]!]));
   if (list.rowVisibleWhen) rows = rows.filter((row) => evalStyleRule(row, list.rowVisibleWhen!));
@@ -631,13 +686,25 @@ function prepareListData(list: ListComponent, input: DataRow[], context: ListPag
   context.prepared.set(list, result);
   return result;
 }
+function ensureFlowListStart(list: ListComponent, inter: ListInterningWithFloor, rows: DataRow[], context: ListPageContext): void {
+  if (!context.flow) return;
+  const { current, templatePage } = context;
+  const top = Math.max(current.marginTopMm, headerBottom(templatePage));
+  const start = Math.max(context.startTop ?? list.topMm, top);
+  const height = (list.header === false ? 0 : inter.headerHeightMm) + (rows[0] ? buildRowGridFast(inter, rows[0], context.measurer).heightMm : 0);
+  if (start + height <= toContentBottom(templatePage, current) + 0.001 || start <= top + 0.001) return;
+  context.pushCurrent(); current.components = []; current.heightMm = templatePage.heightMm;
+  if (templatePage.layout === "wide") { current.marginTopMm = 0; current.marginBottomMm = 0; }
+  context.startTop = Math.max(current.marginTopMm, headerBottom(templatePage));
+}
 function* paginateList(list: ListComponent, input: DataRow[], context: ListPageContext): Generator<PlanPage> {
   const prepared = prepareListData(list, input, context);
   const rows = prepared.rows;
   list = prepared.list;
   if (list.layout === "wide") context.current.widthMm = Math.max(context.current.widthMm, list.leftMm + list.widthMm + context.current.marginRightMm);
   const sources = prepared.sources ?? checkedRowSources(list, rows), scaled = scaleList(list), groups = groupsFor(scaled);
-  const inter = { ...interList(scaled, context.measurer), rowHeightFloorMm: scaled.rowHeightMm ?? 0 };
+  const inter = { ...interList(scaled, context.measurer), rowHeightFloorMm: scaled.rowHeightMm ?? 0, ...(prepared.treeRows ? { tree: { list: scaled, rows: prepared.treeRows } } : {}) };
+  ensureFlowListStart(scaled, inter, rows, context);
   const writer = createListPageWriter(scaled, inter, context), detail = detailContext(scaled, rows, context);
   let nextRow: GridRow | undefined;
   for (const unit of listRowUnits(rows, groups)) {
@@ -661,7 +728,8 @@ function* paginateList(list: ListComponent, input: DataRow[], context: ListPageC
     } else writer.setGroupHeader(unit.depth);
     yield* context.takePages();
   }
-  placeGrandTotal(scaled, rows, inter, context, writer);
+  placeGrandTotal(scaled, prepared.totalRows ?? rows, inter, context, writer);
+  context.finished?.(writer.bottom());
   yield* context.takePages();
 }
 
@@ -689,7 +757,8 @@ function outputPage(templatePage: TemplatePage, current: WorkingPage, anchors: P
     ...(templatePage.layout === undefined ? {} : { layout: templatePage.layout }),
     marginTopMm: current.marginTopMm, marginBottomMm: current.marginBottomMm,
     marginLeftMm: current.marginLeftMm, marginRightMm: current.marginRightMm,
-    components: current.components
+    components: current.components,
+    ...(templatePage.meta ? { meta: templatePage.meta } : {})
   };
   const replace = (text: string) => {
     const paged = text.replace(/\{page\}/g, String(pageNumber));
@@ -710,6 +779,39 @@ function componentCells(component: PlanComponent): number { return component.gri
 function validatePaginateOptions(options: PaginateOptions): void {
   for (const key of ["maxPages", "maxCells", "knownTotalPages"] as const) if (options[key] !== undefined && (!Number.isSafeInteger(options[key]) || options[key]! < 1)) throw new RangeError(`${key} 应为正安全整数`);
 }
+function flowListHeight(list: ListComponent, context: ListPageContext): number {
+  const prepared = prepareListData(list, context.datasets[list.dataset] ?? [], context);
+  const scaled = scaleList(prepared.list);
+  const inter = { ...interList(scaled, context.measurer), rowHeightFloorMm: scaled.rowHeightMm ?? 0 };
+  return (scaled.header === false ? 0 : inter.headerHeightMm) + prepared.rows.reduce((height, row) => height + buildRowGridFast(inter, row, context.measurer).heightMm, 0);
+}
+function* paginatePageContent(context: ListPageContext): Generator<PlanPage> {
+  const { templatePage, current } = context;
+  const indices = new Map(templatePage.components.map((component, index) => [component, index]));
+  const place = (list: ListComponent, startTop?: number, finished?: (bottom: number) => void) => {
+    const rows = context.datasets[list.dataset];
+    if (!Array.isArray(rows)) context.warnings.push(`数据集 ${list.dataset} 未提供数据，列表 ${list.id ?? ""} 输出为空`);
+    return paginateList(list, Array.isArray(rows) ? rows : [], { ...context, tableId: `${context.tableId}:${indices.get(list)}`, startTop, finished, flow: !!templatePage.flow });
+  };
+  if (templatePage.flow) {
+    yield* paginateFlowPage({ page: templatePage, active: () => checkPaginationAbort(context.signal),
+      top: () => Math.max(current.marginTopMm, headerBottom(templatePage)),
+      bottom: () => toContentBottom(templatePage, current),
+      append: component => { current.components.push(component); },
+      nextPage: () => {
+        context.pushCurrent(); current.components = []; current.heightMm = templatePage.heightMm;
+        if (templatePage.layout === "wide") { current.marginTopMm = 0; current.marginBottomMm = 0; }
+      },
+      takePages: context.takePages, height: list => flowListHeight(list, context), list: place
+    });
+    return;
+  }
+  for (const component of templatePage.components) {
+    if (isPageAnchor(component)) continue;
+    if (component.kind === "list") yield* place(component);
+    else current.components.push(component);
+  }
+}
 /** Internal generator retains the active page plus at most the row transition queue. */
 function* iteratePages(template: ReportTemplate, datasets: DatasetRows, options: PaginateOptions, warnings: string[], totalPages?: number, prepared = new WeakMap<ListComponent, PreparedListData>()): Generator<PlanPage> {
   let sequence = 0, pageNumber = 0, actualCells = 0;
@@ -719,6 +821,7 @@ function* iteratePages(template: ReportTemplate, datasets: DatasetRows, options:
     const current = makeWorkingPage(templatePage), anchors = templatePage.components.filter(isPageAnchor);
     let ready: PlanPage[] = [];
     const pushCurrent = (isFinal = false) => {
+      checkPaginationAbort(options.signal);
       if (options.maxPages !== undefined && pageNumber >= options.maxPages) throw new PaginatePageLimitError(options.maxPages, pageNumber + 1);
       if (options.maxCells !== undefined) {
         actualCells += [...current.components, ...anchors].reduce((sum, component) => sum + componentCells(component), 0);
@@ -727,16 +830,8 @@ function* iteratePages(template: ReportTemplate, datasets: DatasetRows, options:
       ready.push(outputPage(templatePage, current, anchors, ++pageNumber, isFinal, totalPages));
     };
     const takePages = () => { const pages = ready; ready = []; return pages; };
-    for (const [componentIndex, component] of templatePage.components.entries()) {
-      if (isPageAnchor(component)) continue;
-      if (component.kind !== "list") { current.components.push(component); continue; }
-      const rows = datasets[component.dataset];
-      if (!Array.isArray(rows)) warnings.push(`数据集 ${component.dataset} 未提供数据，列表 ${component.id ?? ""} 输出为空`);
-      yield* paginateList(component, Array.isArray(rows) ? rows : [], {
-        templatePage, current, warnings, nextId, pushCurrent, takePages, datasets, signal: options.signal, formula: options.formula, prepared,
-        measurer: options.measurer ?? heuristicMeasurer, mmPerRow: options.mmPerRow ?? 0, tableId: `table:${pageIndex}:${componentIndex}`
-      });
-    }
+    yield* paginatePageContent({ templatePage, current, warnings, nextId, pushCurrent, takePages, datasets, signal: options.signal, formula: options.formula, prepared,
+      measurer: options.measurer ?? heuristicMeasurer, mmPerRow: options.mmPerRow ?? 0, tableId: `table:${pageIndex}` });
     pushCurrent(true); yield* takePages();
   }
 }
@@ -782,7 +877,14 @@ function estimatedSummaryExtras(list: ListComponent): { groups: number; total: n
 }
 
 /** Conservative cell allocation estimate; relation validation rejects duplicate master keys before rendering. */
+function estimateTreeCells(list: ListComponent, datasets: DatasetRows, signal?: AbortSignal): number {
+  checkTreeList(list);
+  const rows = flattenTreeInput(datasets[list.dataset] ?? [], list.tree!, signal), columns = list.columns.filter(column => !column.hidden).length;
+  const headerCells = list.header === false ? 0 : list.headerGrid ? gridCells(list.headerGrid) : columns;
+  return rows.length * columns + headerCells + Number(!!list.grandTotal) * 2 * columns;
+}
 export function estimateListLayoutCells(list: ListComponent, datasets: DatasetRows, options: Pick<PaginateOptions, "formula" | "signal"> = {}): number {
+  if (list.tree) return estimateTreeCells(list, datasets, options.signal);
   if (list.matrix) {
     let rows = datasets[list.dataset] ?? [];
     if (list.computed?.length) rows = computeDataset(rows, { fields: list.computed, ...options }).rows;
@@ -795,7 +897,8 @@ export function estimateListLayoutCells(list: ListComponent, datasets: DatasetRo
   // 首列是度量时，小计/总计标签独立成行，预检预算同样计入。
   const extra = estimatedSummaryExtras(list);
   let cells = (rows * (1 + 2 * groups + extra.groups) + Number(!!list.grandTotal) * (1 + extra.total)) * columns;
-  cells += list.headerGrid ? gridCells(list.headerGrid) : columns;
+  cells += list.header === false ? 0 : list.headerGrid ? gridCells(list.headerGrid) : columns;
+  if (list.cardinality === "record" && rows === 0) cells += columns;
   if (list.detail) {
     const childRows = datasets[list.detail.dataset]?.length ?? 0, childColumns = list.detail.columns.filter((column) => !column.hidden).length;
     cells += (childRows + rows * (Number(list.detail.header !== false) + Number(!!list.detail.label))) * childColumns;

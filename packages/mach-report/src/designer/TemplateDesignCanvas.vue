@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { resolveListSampleCell, resolveListHeaderStyle } from "../layout/list-cell";
+import { designListSamples } from "./tree-samples";
 import { useCanvasViewport } from "./useCanvasViewport";
 import { resolveFontSize } from "../render/style";
 import { computed, onBeforeUnmount, watch } from "vue";
@@ -30,6 +31,7 @@ const props = defineProps<{
   pageIndex: number;
   datasets?: DatasetRows;
   disabled?: boolean;
+  geometryDisabled?: boolean;
   messages?: Partial<TemplateEditorMessages>;
 }>();
 const emit = defineEmits<{
@@ -40,9 +42,10 @@ const emit = defineEmits<{
 }>();
 const m = computed(() => ({ ...TEMPLATE_EDITOR_MESSAGES, ...props.messages }));
 const { viewport, zoom, scale, page, wide, fraction, fit, sync, navigate } = useCanvasViewport({ get document() { return props.document; }, get pageIndex() { return props.pageIndex; }, get selection() { return props.selection; }, get columnIndex() { return props.activeColumnIndex; } });
-const samples = computed(() => page.value.components.map(component => component.kind === "list" ? (props.datasets?.[component.dataset] ?? []).slice(0,3).map(row => component.columns.map(column => resolveListSampleCell(component, column, row))) : []));
+const geometryDisabled = computed(() => props.disabled === true || props.geometryDisabled === true || !!page.value.flow);
+const samples = computed(() => page.value.components.map(component => component.kind === "list" ? designListSamples(component, props.datasets?.[component.dataset] ?? [], page.value.flow || component.cardinality === "record" ? 1 : 3) : []));
 function sampleStyle(cell: ReturnType<typeof resolveListSampleCell>, width: number, hidden?: boolean) {
-  return { width: `${width * scale.value}px`, opacity: hidden ? .35 : 1, textAlign: cell.style?.align, color: cell.style?.color, backgroundColor: cell.style?.backgroundColor, fontWeight: cell.style?.bold ? "700" : "400", fontSize: `${resolveFontSize(cell.style).fontSizePx * zoom.value}px` };
+  return { width: `${width * scale.value}px`, opacity: hidden ? .35 : 1, textAlign: cell.style?.align, paddingLeft: cell.indentMm ? `${cell.indentMm * scale.value}px` : undefined, color: cell.style?.color, backgroundColor: cell.style?.backgroundColor, fontWeight: cell.style?.bold ? "700" : "400", fontSize: `${resolveFontSize(cell.style).fontSizePx * zoom.value}px` };
 }
 function isLocked(index: number): boolean { return props.locked?.({ pageIndex: props.pageIndex, componentIndex: index }) === true; }
 function selectPointer(event: PointerEvent, index: number): void {
@@ -52,7 +55,7 @@ function selectPointer(event: PointerEvent, index: number): void {
 const pointer = useCanvasPointer({
   scale,
   page: () => page.value,
-  disabled: () => props.disabled === true,
+  disabled: () => geometryDisabled.value,
   commit: (value) => emit("geometry", value),
 });
 function selected(index: number): boolean {
@@ -62,16 +65,19 @@ function selected(index: number): boolean {
 }
 function style(index: number) {
   const item = page.value.components[index]!;
+  const id = item.kind === "list" ? item.id : item.nid;
+  const band = page.value.flow?.bands.find(item => item.componentIds.includes(id ?? ""));
+  const height = band && item.kind === "list" ? band.topMm + band.heightMm - item.topMm : componentHeight(item);
   return {
     left: `${item.leftMm * scale.value}px`,
     top: `${item.topMm * scale.value}px`,
     width: `${item.widthMm * scale.value}px`,
-    height: `${componentHeight(item) * scale.value}px`,
+    height: `${height * scale.value}px`,
   };
 }
 function keyboard(event: KeyboardEvent, index: number): void {
   const component = page.value.components[index]!;
-  if (props.disabled || isLocked(index) || !selected(index)) return;
+  if (geometryDisabled.value || isLocked(index) || !selected(index)) return;
   const directions: Record<string, [number, number]> = {
       ArrowLeft: [-1, 0],
       ArrowRight: [1, 0],
@@ -118,7 +124,7 @@ function headerCells(list: ListComponent) {
 }
 let cancelColumn: (() => void) | undefined;
 watch(
-  () => props.disabled,
+  () => geometryDisabled.value,
   (disabled) => {
     if (disabled) cancelColumn?.();
   },
@@ -133,7 +139,7 @@ function resizeColumn(
   list: ListComponent,
   index: number,
 ): void {
-  if (props.disabled || event.button !== 0) return;
+  if (geometryDisabled.value || event.button !== 0) return;
   event.preventDefault();
   event.stopPropagation();
   cancelColumn?.();
@@ -212,7 +218,7 @@ function resizeColumn(
           <template v-if="component.kind === 'list'">
             <div class="mr-canvas-table">
               <div
-                v-if="component.headerGrid"
+                v-if="component.header !== false && component.headerGrid"
                 class="mr-canvas-merged"
                 :style="{
                   height: `${(component.headerGrid.rowHeightsMm?.reduce((a, b) => a + b, 0) ?? component.headerGrid.cells.length * 8) * scale}px`,
@@ -232,7 +238,7 @@ function resizeColumn(
                   {{ box.cell.text }}
                 </div>
               </div>
-              <div v-else class="mr-canvas-table-row is-header">
+              <div v-else-if="component.header !== false" class="mr-canvas-table-row is-header">
                 <div
                   v-for="(column, columnIndex) in component.columns"
                   :key="columnIndex"
@@ -259,13 +265,13 @@ function resizeColumn(
                 </div>
               </div>
               <div
-                v-if="!datasets?.[component.dataset]?.length"
+                v-if="!samples[index]?.length"
                 class="mr-canvas-placeholder"
               >
-                {{ component.dataset }} · {{ m.sampleRows }}
+                {{ component.dataset }} · {{ component.tree && datasets?.[component.dataset]?.length ? m.treeSampleHint : m.sampleRows }}
               </div>
             </div>
-            <template v-if="selected(index) && !disabled && !isLocked(index)">
+            <template v-if="selected(index) && !geometryDisabled && !isLocked(index)">
               <span
                 v-for="(edge, columnIndex) in columnEdges(component)"
                 :key="columnIndex"
@@ -328,7 +334,7 @@ function resizeColumn(
             }}
           </div>
           <span
-            v-if="selected(index) && !disabled && !isLocked(index)"
+            v-if="selected(index) && !geometryDisabled && !isLocked(index)"
             class="mr-canvas-resize"
             :aria-label="m.resizeComponent"
             role="separator"

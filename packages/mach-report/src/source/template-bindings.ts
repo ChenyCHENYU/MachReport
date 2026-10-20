@@ -57,6 +57,10 @@ function listReferences(item: ObjectValue, path: string, binding: TemplateDatase
     fields(item.matrix.columnFields, `${path}.matrix.columnFields`, binding.fields);
     aggregates(item.matrix.measures, `${path}.matrix.measures`, binding);
   }
+  if (object(item.tree)) {
+    for (const key of ["idField", "parentField", "labelField"]) fields(item.tree[key], `${path}.tree.${key}`, binding.fields);
+    aggregates(item.tree.aggregates, `${path}.tree.aggregates`, binding);
+  }
   if (object(item.detail)) fields(item.detail.parentKey, `${path}.detail.parentKey`, binding.fields);
 }
 

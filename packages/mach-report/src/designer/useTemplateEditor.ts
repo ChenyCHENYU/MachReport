@@ -21,8 +21,8 @@ import {
 } from "./useTemplateDiscard";
 import type {
   ExcelBindingDataset,
-  ExcelBindingSession,
 } from "../xlsx/binding-workflow";
+import type { AnyExcelBindingSession } from "../xlsx/region-binding-workflow";
 import {
   TEMPLATE_EDITOR_MESSAGES,
   type TemplateEditorMessages,
@@ -49,7 +49,7 @@ export interface TemplateEditorOptions {
   dataSchemas?: Record<string, DatasetContract>;
   bindingDatasets?: ExcelBindingDataset[];
   /** Optional independently persisted Excel source and binding recipe. */
-  bindingSession?: ExcelBindingSession;
+  bindingSession?: AnyExcelBindingSession;
   readonly?: boolean;
   messages?: Partial<TemplateEditorMessages>;
   preview?: Pick<

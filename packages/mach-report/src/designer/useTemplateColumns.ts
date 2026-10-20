@@ -91,6 +91,8 @@ export function useTemplateColumns(
     value: string | boolean,
   ): void {
     if (!canEdit()) return;
+    const location = lists.value[selected.value];
+    if ((key === "widthMm" || key === "hidden") && location && draft.value.template.pages[location.pageIndex]?.flow) return;
     const column = activeList.value?.columns[index];
     if (!column) return;
     if (

@@ -165,3 +165,32 @@ test("a large source only mounts a bounded 24×12 window and supports keyboard r
     ),
   ).toBe(false);
 });
+
+test("same-Sheet record and repeat regions are selected, mapped, applied and reopened through the product UI", async ({ page }, testInfo) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  await upload(page);
+  await page.getByRole("button", { name: "多区域绑定", exact: true }).click();
+  const panel = page.locator(".mr-binding-multi");
+  async function createRegion(row: number, dataset: string, mode: "record" | "repeat"): Promise<void> {
+    await page.locator(`td[data-source-cell="${row}:1"]`).click();
+    await page.locator(`td[data-source-cell="${row}:3"]`).click({ modifiers: ["Shift"] });
+    await panel.getByRole("button", { name: /^创建区域/ }).click();
+    await panel.getByLabel("填充方式", { exact: true }).selectOption(mode);
+    await panel.getByLabel("业务数据集", { exact: true }).selectOption(dataset);
+    await panel.getByLabel("稳定业务主键", { exact: true }).selectOption("heat");
+    for (const [column, field] of [["A", "heat"], ["B", "weight"], ["C", "energy"]]) await panel.getByLabel(`Excel 列 ${column} · 业务字段`, { exact: true }).selectOption(field!);
+  }
+  await createRegion(3, "summary", "record"); await createRegion(4, "production", "repeat");
+  await expect(panel.locator(".mr-binding-region-entry")).toHaveCount(2);
+  await page.getByRole("button", { name: "校验并使用模板", exact: true }).click();
+  await expect(page.locator(".binding-result")).toContainText("SUMMARY-01");
+  await expect(page.locator(".binding-result")).toContainText("LIVE-001");
+  await expect(page.locator(".binding-result")).toContainText("64200.125");
+  await expect(page.locator(".binding-result")).not.toContainText("SAMPLE");
+  await panel.getByLabel("Excel 列 A · 业务字段", { exact: true }).selectOption("");
+  await page.getByRole("button", { name: "恢复已保存绑定", exact: true }).click();
+  await expect(panel.locator(".mr-binding-region-entry")).toHaveCount(2);
+  await expect(panel.getByLabel("Excel 列 A · 业务字段", { exact: true })).toHaveValue("heat");
+  await testInfo.attach("excel-regions-workbench.png", { body: await page.screenshot(), contentType: "image/png" });
+  expect(errors).toEqual([]);
+});

@@ -3,6 +3,16 @@ import type { ListColumn, ListComponent } from "./list-model";
 import { DEFAULT_FONT_PT } from "../defaults";
 import { evalStyleRule, formatValue, toExcelNumberFormat, type ColumnFormat } from "../format";
 import { mergeComponentStyles } from "../render/style";
+import type { TreeRow } from "../processing/tree";
+export function listTreeIndent(list: ListComponent, column: ListColumn, row: TreeRow, paddingMm = list.paddingMm ?? 1): number {
+  if (column.field !== list.tree!.labelField) return 0;
+  return Math.min(row.depth * (list.tree!.indentMm ?? 3), Math.max(0, column.widthMm - paddingMm * 2 - 4));
+}
+export function applyListTreeMetadata(cell: GridCell, column: ListColumn, row: TreeRow, list: ListComponent): void {
+  const tree = list.tree!;
+  if (tree.input === "nested" || [tree.idField, tree.parentField].includes(column.field)) cell.editable = false;
+  if (row.hasChildren && tree.parentValues === "leaf-aggregate" && tree.aggregates?.some(item => item.field === column.field)) { cell.derived = true; cell.editable = false; }
+}
 /** Shared semantic alignment for the paginator and bounded designer samples. */
 export function resolveListAutoAlignment(value: unknown, format?: ColumnFormat, role?: ListColumn["semanticRole"]): "left" | "center" | "right" {
   if (role === "identifier" || role === "dimension" || role === "date") return "center";
@@ -48,5 +58,12 @@ export function resolveListSampleCell(list: ListComponent, column: ListColumn, r
   sampleValueMetadata(cell, column, value);
   if (list.computed?.some((item) => item.field === column.field)) { cell.derived = true; cell.editable = false; }
   if (hidden) cell.editable = false;
+  return cell;
+}
+export function resolveTreeListSampleCell(list: ListComponent, column: ListColumn, entry: TreeRow): GridCell {
+  const cell = resolveListSampleCell(list, column, entry.row), indentMm = listTreeIndent(list, column, entry);
+  if (column.field === list.tree!.labelField) cell.style = { ...cell.style, align: "left" };
+  if (indentMm) cell.indentMm = indentMm;
+  applyListTreeMetadata(cell, column, entry, list);
   return cell;
 }

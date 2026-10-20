@@ -40,6 +40,26 @@ async function mountPanel(extra: Record<string, unknown> = {}) {
 }
 
 describe("参数面板（使用侧零表单代码）", () => {
+  it("原生月份、四位年份与双日期控件保持字符串接口，拒绝半个区间并正确重置", async () => {
+    const { seen, fetcher } = paramsSpy();
+    const wrapper = mount(ReportPreview, { props: { reportId: "calendar", fetcher, autoLoad: false, paramDefs: [
+      { field: "month", label: "月份", type: "month", defaultValue: "2026-10" },
+      { field: "year", label: "年份", type: "year", min: "2024", max: "2026" },
+      { field: "period", label: "期间", type: "dateRange", min: "2026-10-01", max: "2026-10-31" },
+    ] }, attachTo: document.body });
+    expect((wrapper.get('input[type="month"]').element as HTMLInputElement).value).toBe("2026-10");
+    const year = wrapper.get('input[inputmode="numeric"]'); await year.setValue("2026");
+    const start = wrapper.get('input[aria-label="期间 · 开始日期"]'); const end = wrapper.get('input[aria-label="期间 · 结束日期"]');
+    await start.setValue("2026-10-01"); await wrapper.get(".mrp-param-query").trigger("click");
+    expect(seen).toHaveLength(0); expect(wrapper.get(".mrp-param-error").text()).toContain("完整且有序");
+    expect(document.activeElement).toBe(end.element);
+    await end.setValue("2026-10-20"); await wrapper.get(".mrp-param-query").trigger("click");
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0]).toEqual({ month: "2026-10", year: "2026", period: "2026-10-01/2026-10-20" });
+    await wrapper.findAll(".mrp-params-actions button")[1]!.trigger("click");
+    expect((start.element as HTMLInputElement).value).toBe(""); expect((end.element as HTMLInputElement).value).toBe("");
+    expect((year.element as HTMLInputElement).value).toBe(""); wrapper.unmount();
+  });
   it("范围、日期和Unicode长度校验同源，字段关联错误且焦点落在首个问题项", async () => {
     const { seen, fetcher } = paramsSpy();
     const bounded: ReportParamDef[] = [

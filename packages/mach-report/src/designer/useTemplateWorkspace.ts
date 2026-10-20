@@ -28,7 +28,7 @@ export function useTemplateWorkspace(
     pageIndex: canvasPage,
     active: canvasActive,
   } = canvas;
-  const tool = ref<"excel" | "rules" | "review">("excel");
+  const tool = ref<"excel" | "rules" | "review" | "params">("excel");
   const visitedTools = ref(new Set<string>());
   watch([section, tool], () => {
     if (section.value === "tools")
@@ -90,6 +90,7 @@ export function useTemplateWorkspace(
     }
   }
   function patchCanvas(patch: Record<string, unknown>): void {
+    if (draft.value.template.pages[canvasPage.value]?.flow && ["leftMm", "topMm", "widthMm", "heightMm", "pageAnchor", "grid"].some(key => key in patch)) return;
     canvas.mutate((component, document) => {
       if (
         component.kind !== "list" &&
@@ -122,7 +123,7 @@ export function useTemplateWorkspace(
   }
   function moveColumn(delta: -1 | 1): void {
     const list = activeList.value;
-    if (!list) return;
+    if (!list || draft.value.template.pages[lists.value[selected.value]?.pageIndex ?? -1]?.flow) return;
     const next = JSON.parse(JSON.stringify(list)) as ListComponent;
     try {
       if (
@@ -137,7 +138,7 @@ export function useTemplateWorkspace(
   }
   function headerCommand(command: HeaderCommand): void {
     const location = lists.value[selected.value];
-    if (!location) return;
+    if (!location || draft.value.template.pages[location.pageIndex]?.flow) return;
     editor.transaction((document) => {
       const list =
         document.template.pages[location.pageIndex]!.components[
