@@ -1,81 +1,25 @@
-const DB_NAME = "mach-report-fonts";
-const STORE = "fonts";
-
-/** Node 无头导出通道：无 IndexedDB 的宿主（Node/SSR）自动降级为仅内存缓存 */
-const hasIdb = (): boolean => typeof indexedDB !== "undefined";
-
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function readCache(key: string): Promise<Uint8Array | null> {
-  if (!hasIdb()) return null;
-  let db: IDBDatabase | undefined;
-  try {
-    db = await openDb();
-    return await new Promise((resolve, reject) => {
-      const tx = db!.transaction(STORE, "readonly");
-      const req = tx.objectStore(STORE).get(key);
-      req.onsuccess = () => resolve((req.result as Uint8Array | undefined) ?? null);
-      req.onerror = () => reject(req.error);
-    });
-  } catch {
-    return null;
-  } finally {
-    db?.close();
-  }
-}
-
-async function writeCache(key: string, bytes: Uint8Array): Promise<void> {
-  if (!hasIdb()) return;
-  let db: IDBDatabase | undefined;
-  try {
-    db = await openDb();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db!.transaction(STORE, "readwrite");
-      tx.objectStore(STORE).put(bytes, key);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  } catch {
-    /* 缓存写失败静默降级 */
-  } finally {
-    db?.close();
-  }
-}
-
-/** 删除已知无效的字体缓存；供字体解析失败后修正同 URL 并重试。 */
+import { clearMemoryFonts, deleteMemoryFont, getFontCacheStats, getMemoryFont, putMemoryFont } from "./font-cache";
+import { readPersistentFont, removePersistentFont, writePersistentFont } from "./font-persistent-cache";
+export { configureFontCache, getFontCacheStats } from "./font-cache";
+export type { FontCacheOptions, FontCacheStats } from "./font-cache";
+let epoch = 0, activeLoads = 0;
+let clearing = Promise.resolve();
+const invalidations = new Map<string, Promise<void>>();
+/** Invalidating or clearing also fences late downloads from repopulating the cache. */
 export async function invalidateFontCache(url: string): Promise<void> {
   cacheVersions.set(url, (cacheVersions.get(url) ?? 0) + 1);
-  memory.delete(url);
-  inFlight.delete(url);
-  await cacheWrites.get(url);
-  if (!hasIdb()) return;
-  let db: IDBDatabase | undefined;
-  try {
-    db = await openDb();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db!.transaction(STORE, "readwrite");
-      tx.objectStore(STORE).delete(url);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  } catch {
-    /* 持久缓存不可用时，仍清除内存缓存。 */
-  } finally {
-    db?.close();
-  }
+  deleteMemoryFont(url); inFlight.delete(url);
+  const previous = invalidations.get(url);
+  const task = (async () => { await clearing; await previous; await cacheWrites.get(url); await removePersistentFont(url); })();
+  invalidations.set(url, task);
+  try { await task; } finally { if (invalidations.get(url) === task) invalidations.delete(url); }
 }
-
-const memory = new Map<string, Uint8Array>();
+export async function clearFontCache(): Promise<void> {
+  epoch++; clearMemoryFonts(); inFlight.clear(); cacheVersions.clear();
+  const previous = clearing;
+  const task = (async () => { await previous; await Promise.all(cacheWrites.values()); await removePersistentFont(); })();
+  clearing = task.catch(() => undefined); await task;
+}
 const cacheVersions = new Map<string, number>();
 const cacheWrites = new Map<string, Promise<void>>();
 interface FontData {
@@ -84,11 +28,15 @@ interface FontData {
 }
 /** 并发去重：同一 URL 的并行加载共享同一个 Promise，避免大字体重复拉取 */
 const inFlight = new Map<string, Promise<FontData>>();
+const pendingLoads = new Set<Promise<FontData>>();
+function releaseGenerations(): void { if (!activeLoads && !pendingLoads.size) cacheVersions.clear(); }
 const fontValidations = new WeakMap<Uint8Array, Promise<void>>();
 
 export interface FontLoadOptions {
   /** 校验字体格式与可解析结构，失败抛出带 cause 的诊断；默认保留旧 API 的 null 降级。 */
   strict?: boolean;
+  /** Cancels this subscriber without aborting another subscriber sharing the same URL. */
+  signal?: AbortSignal;
 }
 
 function isHtml(bytes: Uint8Array): boolean {
@@ -127,9 +75,33 @@ function fontLoadError(url: string, cause: unknown, timedOut = false): Error & {
   return Object.assign(new Error(`PDF 字体 ${JSON.stringify(url)} 加载失败：${detail}`), { cause });
 }
 
+function checkFontSize(bytes: number, maxBytes: number): void {
+  if (bytes > maxBytes) throw new Error(`字体文件超过单字体下载预算（${maxBytes}字节）`);
+}
+async function responseFontBytes(response: Response, maxBytes: number, signal: AbortSignal): Promise<Uint8Array> {
+  const declared = Number(response.headers?.get("content-length"));
+  try { if (Number.isFinite(declared)) checkFontSize(declared, maxBytes); }
+  catch (error) { void response.body?.cancel(error).catch(() => undefined); throw error; }
+  if (!response.body) {
+    const bytes = new Uint8Array(await waitForFont(response.arrayBuffer(), signal)); checkFontSize(bytes.byteLength, maxBytes); return bytes;
+  }
+  const reader = response.body.getReader(), chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    while (true) {
+      const item = await waitForFont(reader.read(), signal); if (item.done) break;
+      length += item.value.byteLength; checkFontSize(length, maxBytes); chunks.push(item.value);
+    }
+    const bytes = new Uint8Array(length); let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    return bytes;
+  } catch (error) { void reader.cancel(error).catch(() => undefined); throw error; }
+  finally { reader.releaseLock(); }
+}
 async function fetchFontData(url: string): Promise<FontData> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
+  let timedOut = false;
+  const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 15_000);
   try {
     // 中文字体体积大（~9MB）；慢网 15s 超时，严格模式保留可操作的失败诊断。
     const res = await fetch(url, { signal: controller.signal });
@@ -137,18 +109,20 @@ async function fetchFontData(url: string): Promise<FontData> {
     if (/text\/html|application\/xhtml\+xml/i.test(res.headers?.get("content-type") ?? "")) {
       throw new Error("字体 URL 返回 HTML 页面（可能是 SPA 路由回退），不是字体文件");
     }
-    const bytes = new Uint8Array(await res.arrayBuffer());
+    const bytes = await responseFontBytes(res, getFontCacheStats().maxFontBytes, controller.signal);
     validateBytes(bytes);
     return { bytes, fromCache: false };
   } catch (cause) {
-    throw fontLoadError(url, cause, controller.signal.aborted);
+    controller.abort();
+    throw fontLoadError(url, cause, timedOut);
   } finally {
     clearTimeout(timeout);
   }
 }
 
 async function readFontData(url: string): Promise<FontData> {
-  const cached = await readCache(url);
+  await clearing; await invalidations.get(url);
+  const cached = await readPersistentFont(url);
   if (cached) {
     try {
       validateBytes(cached);
@@ -164,53 +138,68 @@ function sharedFontLoad(url: string): Promise<FontData> {
   const pending = inFlight.get(url);
   if (pending) return pending;
   const task = readFontData(url);
-  inFlight.set(url, task);
+  inFlight.set(url, task); pendingLoads.add(task);
+  const release = () => { if (inFlight.get(url) === task) inFlight.delete(url); pendingLoads.delete(task); releaseGenerations(); };
+  void task.then(release, release);
   return task;
 }
 
-async function storeFontBytes(url: string, bytes: Uint8Array, cacheVersion: number): Promise<void> {
-  if ((cacheVersions.get(url) ?? 0) !== cacheVersion) return;
-  memory.set(url, bytes);
+async function storeFontBytes(url: string, bytes: Uint8Array, cacheVersion: number, loadEpoch: number): Promise<void> {
+  if ((cacheVersions.get(url) ?? 0) !== cacheVersion || epoch !== loadEpoch) return;
+  putMemoryFont(url, bytes);
+  const pending = cacheWrites.get(url); if (pending) { await pending; return; }
   // 等待写入结束，后续失效操作不会被尚未完成的写入覆盖。
-  const writing = writeCache(url, bytes);
+  const writing = writePersistentFont(url, bytes);
   cacheWrites.set(url, writing);
   await writing;
   if (cacheWrites.get(url) === writing) cacheWrites.delete(url);
 }
 
+function abortReason(signal: AbortSignal): unknown { return signal.reason ?? new DOMException("字体加载已取消", "AbortError"); }
+function waitForFont<T>(task: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return task;
+  if (signal.aborted) return Promise.reject(abortReason(signal));
+  return new Promise((resolve, reject) => {
+    const abort = () => { signal.removeEventListener("abort", abort); reject(abortReason(signal)); };
+    signal.addEventListener("abort", abort, { once: true });
+    void task.then((value) => { signal.removeEventListener("abort", abort); resolve(value); }, (error) => { signal.removeEventListener("abort", abort); reject(error); });
+  });
+}
+async function validateLoadedFont(url: string, data: FontData, options: FontLoadOptions, cacheVersion: number, loadEpoch: number): Promise<Uint8Array> {
+  try { await waitForFont(validateFont(data.bytes), options.signal); return data.bytes; }
+  catch (cause) {
+    if (options.signal?.aborted) throw abortReason(options.signal);
+    // Stale validation failures must not invalidate a repaired generation.
+    if ((cacheVersions.get(url) ?? 0) !== cacheVersion || epoch !== loadEpoch) throw fontLoadError(url, cause);
+    await invalidateFontCache(url);
+    if (data.fromCache) return (await loadFontWithCache(url, options))!;
+    throw fontLoadError(url, cause);
+  }
+}
 /**
  * 字体加载（浏览器：IndexedDB 持久缓存 + 内存缓存；Node/SSR：内存缓存 + fetch）：
  * 中文字体体积大（simhei ~9MB），首次 fetch 后缓存，后续导出零网络等待。
  * 双环境兼容——同一引擎可在 Node 做无头导出（定时任务/归档）。
  */
 export async function loadFontWithCache(url: string, options: FontLoadOptions = {}): Promise<Uint8Array | null> {
-  const cacheVersion = cacheVersions.get(url) ?? 0;
-  const memo = memory.get(url);
+  if (options.signal?.aborted) throw abortReason(options.signal);
+  const cacheVersion = cacheVersions.get(url) ?? 0, loadEpoch = epoch;
+  const memo = getMemoryFont(url);
   if (memo && !options.strict) return memo;
-  const task = memo ? inFlight.get(url) : sharedFontLoad(url);
+  const task = memo ? undefined : sharedFontLoad(url);
+  activeLoads++;
   try {
-    const data = memo ? { bytes: memo, fromCache: true } : await task!;
-    if (options.strict) {
-      try {
-        await validateFont(data.bytes);
-      } catch (cause) {
-        // 过期请求只报告自身错误，不能移除已经修复的新代际缓存。
-        if ((cacheVersions.get(url) ?? 0) !== cacheVersion) throw fontLoadError(url, cause);
-        await invalidateFontCache(url);
-        if (data.fromCache) {
-          // 清理旧版本或宽松调用写入的坏缓存，直接重新获取同 URL。
-          if (inFlight.get(url) === task) inFlight.delete(url);
-          return await loadFontWithCache(url, options);
-        }
-        throw fontLoadError(url, cause);
-      }
-    }
-    if (!memo) await storeFontBytes(url, data.bytes, cacheVersion);
-    return data.bytes;
+    const data = memo ? { bytes: memo, fromCache: true } : await waitForFont(task!, options.signal);
+    const bytes = options.strict ? await validateLoadedFont(url, data, options, cacheVersion, loadEpoch) : data.bytes;
+    if (options.signal?.aborted) throw abortReason(options.signal);
+    if (!memo) await waitForFont(storeFontBytes(url, bytes, cacheVersion, loadEpoch), options.signal);
+    return bytes;
   } catch (cause) {
+    if (options.signal?.aborted) throw abortReason(options.signal);
     if (options.strict) throw cause;
     return null;
   } finally {
-    if (inFlight.get(url) === task) inFlight.delete(url);
+    activeLoads--;
+    releaseGenerations();
   }
 }

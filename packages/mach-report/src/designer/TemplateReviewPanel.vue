@@ -1,27 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, shallowRef, watch } from "vue";
-import { reviewReportTemplate, type DatasetContract, type DatasetRows, type OutputFormat, type ReportTemplateDocument, type ReportTemplateReview, type ReportTemplateReviewIssue } from "@agile-team/mach-report";
+import { computed } from "vue";
+import type { ReportTemplateReviewIssue } from "@agile-team/mach-report";
+import { useTemplateReview, type TemplateReviewOptions } from "./useTemplateReview";
 import { TEMPLATE_REVIEW_MESSAGES, type TemplateReviewMessages } from "./review-messages";
-const props = defineProps<{ document: ReportTemplateDocument; previous?: ReportTemplateDocument; datasets?: DatasetRows; dataSchemas?: Readonly<Record<string, DatasetContract>>; formats?: readonly OutputFormat[]; messages?: Partial<TemplateReviewMessages> }>();
+const props = defineProps<TemplateReviewOptions & { messages?: Partial<TemplateReviewMessages> }>();
 const emit = defineEmits<{ (event: "locate", value: Pick<ReportTemplateReviewIssue, "path" | "pageIndex" | "componentIndex" | "field">): void }>();
 const m = computed(() => ({ ...TEMPLATE_REVIEW_MESSAGES, ...props.messages }));
-const report = shallowRef<ReportTemplateReview>();
-const sampleSize = ref("20"), acknowledged = ref(false), running = ref(false);
-const errors = computed(() => report.value?.issues.filter((issue) => issue.severity === "error").length ?? 0);
-let timer: ReturnType<typeof setTimeout> | undefined;
-function clear(): void { clearTimeout(timer); running.value = false; report.value = undefined; acknowledged.value = false; }
-watch(() => props.document, clear);
-onBeforeUnmount(() => clearTimeout(timer));
-function run(): void {
-  clearTimeout(timer); running.value = true;
-  timer = setTimeout(() => {
-    const limit = Number(sampleSize.value);
-    const datasets = Object.fromEntries(Object.entries(props.datasets ?? {}).map(([name, rows]) => [name, limit < 0 ? rows : rows.slice(0, limit)]));
-    report.value = reviewReportTemplate(props.document, { previous: props.previous, dataSchemas: props.dataSchemas, formats: props.formats, allowBreakingChanges: acknowledged.value,
-      fixtures: limit === 0 ? [] : [{ name: limit < 0 ? m.value.all : `${limit} ${m.value.rows} / dataset`, datasets }] });
-    running.value = false;
-  }, 0);
-}
+const { report, sampleSize, acknowledged, running, stale, failure, checkedScope, errors, run } = useTemplateReview(props);
 function locate(path: string): void {
   const match = /\.pages\[(\d+)\]\.components\[(\d+)\]/.exec(path);
   emit("locate", { path, ...(match ? { pageIndex: Number(match[1]), componentIndex: Number(match[2]) } : {}) });
@@ -31,22 +16,23 @@ function locate(path: string): void {
   <section class="mr-template-review" :aria-label="m.title" :aria-busy="running">
     <header><strong>{{ m.title }}</strong><button type="button" :disabled="running" @click="run">{{ running ? m.running : m.run }}</button></header>
     <div class="mr-review-controls"><label>{{ m.samples }}<select v-model="sampleSize" :aria-label="m.samples" :disabled="running"><option value="0">{{ m.none }}</option><option value="20">{{ m.first20 }}</option><option value="100">{{ m.first100 }}</option><option value="-1">{{ m.all }}</option></select></label></div>
-    <p v-if="!report" class="mr-review-note">{{ m.empty }}</p>
+    <p v-if="failure" class="is-error" role="alert">{{ failure }}</p><p v-if="stale" class="mr-review-stale" role="status">{{ m.stale }}</p><p v-if="!report" class="mr-review-note">{{ m.empty }}</p>
     <template v-else>
-      <div class="mr-review-summary" role="status"><span :class="{ 'is-error': errors }">{{ errors }} {{ m.errors }}</span><span>{{ report.issues.length - errors }} {{ m.warnings }}</span></div>
+      <div v-if="!stale" class="mr-review-summary" role="status"><span :class="{ 'is-error': errors }">{{ errors }} {{ m.errors }}</span><span>{{ report.issues.length - errors }} {{ m.warnings }}</span></div>
       <section>
 <h3>{{ m.changes }} <small>{{ report.changes?.totalChanges ?? 0 }}</small></h3><p v-if="!previous" class="mr-review-note">{{ m.baseline }}</p><p v-else-if="!report.changes?.totalChanges" class="mr-review-note">{{ m.noChanges }}</p>
         <ol v-else class="mr-review-list"><li v-for="(change, index) in report.changes?.changes" :key="index"><div><span>{{ m.categories[change.category] }} · {{ m.kinds[change.kind] }}</span><b v-if="change.breaking">{{ m.breaking }}</b><button type="button" @click="locate(change.path)">{{ m.locate }}</button></div><code>{{ change.path }}</code><dl><template v-if="change.before !== undefined"><dt>{{ m.before }}</dt><dd>{{ change.before }}</dd></template><template v-if="change.after !== undefined"><dt>{{ m.after }}</dt><dd>{{ change.after }}</dd></template></dl></li></ol>
         <p v-if="report.changes?.truncated" class="mr-review-note">{{ m.truncated }}</p><label v-if="report.changes?.breakingChanges" class="mr-review-ack"><input v-model="acknowledged" type="checkbox" />{{ m.acknowledge }}</label>
       </section>
       <section><h3>{{ m.issues }}</h3><p v-if="!report.issues.length" class="mr-review-note">{{ m.noIssues }}</p><ol v-else class="mr-review-list"><li v-for="(issue, index) in report.issues" :key="index"><div><span :class="{ 'is-error': issue.severity === 'error' }">{{ issue.severity === 'error' ? m.errors : m.warnings }}</span><button type="button" @click="emit('locate', issue)">{{ m.locate }}</button></div><p>{{ issue.message }}</p><code>{{ issue.path }}</code></li></ol></section>
-      <section v-if="report.samples.length"><h3>{{ m.results }}</h3><p v-for="item in report.samples" :key="item.name">{{ item.name }} · {{ item.rows }} {{ m.rows }} · {{ item.pages }} {{ m.pages }}</p></section>
+      <section v-if="report.samples.length" :class="{ 'is-stale': stale }"><h3>{{ m.results }}</h3><p v-if="checkedScope" class="mr-review-scope">{{ m.scope }} · {{ checkedScope.requested === "-1" ? m.all : checkedScope.requested === "0" ? m.none : checkedScope.requested + " " + m.rows }} · {{ checkedScope.datasets }} {{ m.datasets }} · {{ checkedScope.rows }} {{ m.rows }}<span v-if="checkedScope.formats.length"> · {{ checkedScope.formats.join(" / ") }}</span></p><p v-for="item in report.samples" :key="item.name">{{ item.name }} · {{ item.rows }} {{ m.rows }} · {{ item.pages }} {{ m.pages }}</p></section>
       <p class="mr-review-note">{{ m.checked }}</p>
     </template>
   </section>
 </template>
 <style scoped>
 .mr-template-review { min-width:0; padding:16px; color:var(--mrp-toolbar-fg,#334155); font:12px/1.5 system-ui,sans-serif; display:grid; grid-template-columns:minmax(0,1fr) minmax(280px,.8fr); gap:14px 20px; align-content:start; }
+.mr-review-stale { grid-column:1/-1; margin:0; padding:9px 12px; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:6px; }.is-stale { opacity:.65; }.mr-review-scope { color:#64748b; font-size:11px; }
 .mr-template-review>header,.mr-review-controls,.mr-review-summary,.mr-template-review>.mr-review-note { grid-column:1/-1; }
 .mr-template-review header,.mr-review-list li>div { display:flex; align-items:center; gap:8px; }
 .mr-template-review header { justify-content:space-between; min-height:30px; }.mr-template-review header strong { font-size:14px; }.mr-template-review header button { background:#2563eb; border-color:#2563eb; color:#fff; }

@@ -1,5 +1,7 @@
 /** Optional rule-editor copy; hosts can override without changing core/report messages. */
 export const DEFAULT_RULE_EDITOR_MESSAGES = {
+  restoreDraft: "恢复工具草稿",
+  catalog: "规则与字段", searchFields: "搜索字段、类型或单位", useField: "使用此字段", shown: "显示", explanation: "计算解释", sourceValues: "源值", expression: "表达式", result: "结果", notChecked: "修改后请重新验算", nullReason: "空值依规则保留；空值传播与除零策略见计算边界。", sourceHint: "最多展示 5 条明细；分组和全量聚合以当前验算范围为准。", pending: "未应用配置",
   detail: "主从",
   matrix: "矩阵",
   measureLabel: "显示名称",

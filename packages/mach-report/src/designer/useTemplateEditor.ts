@@ -124,8 +124,15 @@ export function useTemplateEditor(
   });
   const appliedJson = ref(json.value);
   const jsonPending = computed(() => json.value !== appliedJson.value);
+  const localDrafts = ref<Record<string, boolean>>({});
+  const localRevision = ref(0);
+  const toolEpoch = ref(0);
+  const toolPending = computed(() => Object.values(localDrafts.value).some(Boolean));
+  function setToolPending(tool: string, pending: boolean): void {
+    localDrafts.value = { ...localDrafts.value, [tool]: pending }; localRevision.value++;
+  }
   const pendingLocalChanges = computed(
-    () => dirty.value || json.value !== appliedJson.value,
+    () => dirty.value || json.value !== appliedJson.value || toolPending.value,
   );
   const snapshot = () =>
     JSON.stringify({
@@ -170,7 +177,7 @@ export function useTemplateEditor(
     replacement?: ReportTemplateDocument,
   ): Promise<boolean> {
     if (!pendingLocalChanges.value) return true;
-    const before = snapshot();
+    const before = snapshot(), beforeLocal = localRevision.value;
     try {
       const allowed = await discard.request({
         reason,
@@ -180,7 +187,7 @@ export function useTemplateEditor(
         replacement: replacement ? parseReportTemplate(replacement) : undefined,
         pendingLocalChanges: true,
       });
-      return allowed && before === snapshot();
+      return allowed && before === snapshot() && beforeLocal === localRevision.value;
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : String(cause);
       return false;
@@ -195,6 +202,7 @@ export function useTemplateEditor(
     error.value = "";
     selected.value = 0;
     columns.clearSelection();
+    localDrafts.value = {}; localRevision.value++; toolEpoch.value++;
     history.reset(snapshot());
   }
   watch(
@@ -337,6 +345,7 @@ export function useTemplateEditor(
   }
   async function save(): Promise<void> {
     if (!props.save || !canEdit() || !validation.value.ok) return;
+    if (toolPending.value) { error.value = messages.value.toolsPending; return; }
     const job = ++generation;
     controller = new AbortController();
     saving.value = true;
@@ -386,6 +395,10 @@ export function useTemplateEditor(
     undo: () => moveHistory(-1),
     redo: () => moveHistory(1),
     pendingLocalChanges,
+    setToolPending,
+    isToolPending: (tool: string) => localDrafts.value[tool] === true,
+    toolEpoch,
+    toolPending,
     jsonPending,
     blocked,
     confirmation: discard.confirmation,

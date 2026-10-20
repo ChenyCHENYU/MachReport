@@ -76,16 +76,17 @@ const wizard = defineComponent({
     session: { type: Object, default: undefined },
     datasets: { type: Array, default: () => [] },
     readonly: Boolean,
+    accept: { type: Function, default: undefined },
   },
   emits: ["apply"],
-  setup(props, { emit }) {
+  setup(props) {
     return () =>
       h(
         "button",
         {
           disabled: props.readonly,
           onClick: () =>
-            emit("apply", {
+            props.accept?.({
               document: { ...fixture(), id: "bound", name: "绑定" },
               recipe: session.recipe,
               session,

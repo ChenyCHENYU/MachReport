@@ -1,12 +1,14 @@
 import type { ResolvedImportOptions } from "./import-types";
 import { ImportWarnings } from "./import-types";
 import { preflightExcelEntries, type CheckedZipEntry } from "./import-preflight";
+import { assertOutputActive, waitForOutput, type OutputTaskOptions } from "../output/progress";
 
 const EOCD = 0x06054b50;
 const CENTRAL = 0x02014b50;
 const LOCAL = 0x04034b50;
 
-async function inputBytes(input: ArrayBuffer | Uint8Array | Blob, limit: number): Promise<Uint8Array> {
+async function inputBytes(input: ArrayBuffer | Uint8Array | Blob, limit: number, signal?: AbortSignal): Promise<Uint8Array> {
+  assertOutputActive(signal);
   if (input instanceof Uint8Array) {
     if (input.byteLength > limit) throw new Error("Excel 文件超过导入大小上限");
     // Buffer is a Uint8Array subclass whose slice keeps the original pooled backing store.
@@ -18,7 +20,7 @@ async function inputBytes(input: ArrayBuffer | Uint8Array | Blob, limit: number)
   }
   if (typeof Blob !== "undefined" && input instanceof Blob) {
     if (input.size > limit) throw new Error("Excel 文件超过导入大小上限");
-    return new Uint8Array(await input.arrayBuffer());
+    return new Uint8Array(await waitForOutput(input.arrayBuffer(), signal));
   }
   throw new Error("Excel 导入需要 ArrayBuffer、Uint8Array 或 Blob");
 }
@@ -71,8 +73,9 @@ function warnEntry(name: string, warnings: ImportWarnings): void {
 }
 
 /** Check declared allocation sizes before ExcelJS inflates/parses workbook XML. */
-export async function checkedExcelBytes(input: ArrayBuffer | Uint8Array | Blob, options: ResolvedImportOptions, warnings: ImportWarnings): Promise<Uint8Array> {
-  const bytes = await inputBytes(input, options.limits.maxFileBytes);
+export async function checkedExcelBytes(input: ArrayBuffer | Uint8Array | Blob, options: ResolvedImportOptions, warnings: ImportWarnings, task: OutputTaskOptions = {}): Promise<Uint8Array> {
+  const bytes = await inputBytes(input, options.limits.maxFileBytes, task.signal);
+  assertOutputActive(task.signal);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (bytes.length < 22) throw new Error("Excel 文件为空或格式无效；仅支持 .xlsx");
   const directory = centralDirectory(view, endRecord(view));
@@ -81,6 +84,7 @@ export async function checkedExcelBytes(input: ArrayBuffer | Uint8Array | Blob, 
   const names = new Set<string>();
   const entries: CheckedZipEntry[] = [];
   for (let index = 0; index < directory.entries; index++) {
+    assertOutputActive(task.signal);
     const entry = readEntry(bytes, view, offset, directory.start + directory.size, directory.start);
     if (names.has(entry.name)) throw new Error("Excel ZIP 条目名称重复");
     names.add(entry.name);
@@ -93,6 +97,6 @@ export async function checkedExcelBytes(input: ArrayBuffer | Uint8Array | Blob, 
   if (offset !== directory.start + directory.size || !names.has("xl/workbook.xml") || !names.has("[Content_Types].xml")) {
     throw new Error("文件不是受支持的 .xlsx 工作簿");
   }
-  await preflightExcelEntries(bytes, entries, options);
+  await preflightExcelEntries(bytes, entries, options, task);
   return bytes;
 }

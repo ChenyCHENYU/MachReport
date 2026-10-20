@@ -1,5 +1,6 @@
 /** Optional wizard labels remain independent of the general designer configuration. */
 export const EXCEL_BINDING_MESSAGES = {
+  restoreDraft: "恢复工具草稿",
   title: "Excel 业务绑定",
   intro: "保留模板版式，明确数据来源",
   upload: "选择 Excel 模板",

@@ -13,7 +13,7 @@ MachReport 支持生成真正的 `.xlsx` 工作簿。入口是 `@agile-team/mach
 | 标题 | 合并到当前页表格的实际列数 | 纯文本页使用单列，绝对坐标转为组件顺序 |
 | 字体与样式 | 共享字号规则、字体族、加粗/斜体/下划线、颜色、水平/垂直对齐、换行、底色、边框开关/颜色 | 边框线型为细线，不映射旋转、透明度等 |
 | 单元格值 | text 模式写显示文本；raw 模式写原始 primitive 和数字格式 | Date/对象回退显示文本，不猜数字字符串 |
-| 图片与复杂内容 | 返回跳过告警 | 图片、条码、二维码、图表、嵌套组件、无文本回退的富文本等未导出 |
+| 图片与复杂内容 | PNG/JPEG data URI 的 Logo、图片型二维码/条码/图表可嵌入，重复媒体复用 | 图片使用独立流式行带；SVG、嵌套组件、无文本回退富文本仍告警或 strict 阻止 |
 | 打印配置 | 普通页 auto 识别 A3/A4/A5；wide 默认不强制纸型，可显式 paperSize | 纸型仅影响打印；不是 PDF 坐标复刻 |
 | 运行环境 | `/xlsx` 支持浏览器、Node.js；`/xlsx/node` 提供 Node 流式数据导出 | `/xlsx` 的计划、工作簿与 buffer 仍在内存中；流式入口直接消费数据行，不复刻页面布局 |
 
@@ -63,7 +63,7 @@ const { plan } = paginateTemplate(template, { detail: productionRows });
 const { buffer, warnings } = await renderPlanToXlsx(plan);
 ```
 
-不需要另写数据 Sheet、拼接页或删除重复表头。包内按稳定表 ID、逻辑行序、角色与列身份重组；标题和表头只写一次，明细、组头、小计、总计保持顺序。连续表自动冻结标题和表头，打印时重复这些行。不同报表即使字段相同也保持独立工作表。
+不需要另写数据 Sheet、拼接页或删除重复表头。包内按稳定表 ID、逻辑行序、角色与列身份重组；标题和表头只写一次，明细、组头、小计、总计保持顺序。标记 `pageAnchor: "header"` 的内容只取首段，`pageAnchor: "footer"` 只取末段；这一规则同时适用于文本和图片。未标记锚点的内容按原组件顺序保留，不推测它们是否重复。连续表自动冻结标题和表头，打印时重复这些行。不同报表即使字段相同也保持独立工作表。
 
 `sheetMode` 有三个值：
 
@@ -160,4 +160,24 @@ await writeRowsToXlsx(queryRows({ signal }), {
 
 ## 结构化输出诊断
 
-`renderPlanToXlsx` 保留原有 `warnings`，并返回 `diagnostics`；可传 `onDiagnostic` 接收格式、页 / 组件索引及稳定错误码。核心 `inspectOutputCapabilities(plan, "xlsx")` 可提前列出图片、图表、形状、富文本和嵌套组件的降级范围；预检不会创建工作簿，也不会把未支持组件变成已支持。
+`renderPlanToXlsx` 保留原有 `warnings`，并返回 `diagnostics`；可传 `onDiagnostic` 接收格式、页 / 组件索引及稳定错误码。核心 `inspectOutputCapabilities(plan, "xlsx")` 可提前列出缺少图片数据、SVG/非PNG/JPEG图片、形状、富文本和嵌套组件的降级范围；预检不会创建工作簿，也不会把未支持组件变成已支持。
+
+
+## Logo 与图片型二维码
+
+普通 `/xlsx` 导出直接保留 `imageData` 为 PNG/JPEG base64 data URI 的图片型组件（`image` / `qrcode` / `barcode` / `chart`），不需要宿主另写一份 Excel 图片逻辑。二维码等应先由已有资产适配器生成图片；这里不捆绑二维码或图表引擎。
+
+图片按组件顺序占一个独立行带，行高总和对应 `heightMm`，超过 Excel 409pt 单行上限时拆成多个占位行，后续文字和数据从下一行开始。图片宽高以 96dpi 进行毫米转换，水平位置按最终共享列宽拆成列索引和列内偏移；`topMm` 不映射成绝对工作表坐标。多个组件会依次排布，不复刻 PDF 的叠放、裁剪或自由页面坐标。同一 Sheet 的多个网格共享列宽，转换仍受默认 Calibri 11 字符度量近似影响。
+
+```ts
+const result = await renderPlanToXlsx(planWithLogo, {
+  fidelity: 'strict',
+  maxImageBytes: 16 * 1024 * 1024,
+  maxTotalImageBytes: 32 * 1024 * 1024,
+  maxImages: 1000,
+});
+```
+
+这些是默认预算，按**唯一媒体**计数和累计解码字节，重复 Logo 的多个位置共用一个媒体对象；PNG MIME 大小写、JPG/JPEG 别名会规范化。超出预算、无效 base64 或类型签名不匹配会明确失败，不裁剪图片、不悄悄省略。SVG 和普通网络 URL 仍返回结构化 `unsupported-image-format` 诊断及跳过告警，`fidelity: 'strict'` 会在创建工作簿前阻止导出。图片型组件尚无 `imageData` 时继续返回 `missing-image`。
+
+宽表连续 Sheet 同样支持图片，重复页头/页尾按上文锚点规则只输出一次；列表列数、逻辑行序和原始值完整保留。实际回归通过 ExcelJS 重新加载生成的工作簿检查媒体字节、锚点、行高和连续数据；这不代表所有 Microsoft Office 阅读器已完成视觉验收。`/xlsx/node` 的逐行数据出口仍不嵌入图片，继续保留其流式数据边界。

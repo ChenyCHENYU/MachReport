@@ -37,9 +37,10 @@ describe("output capability preflight", () => {
     expect(inspectOutputCapabilities(input, "dom")).toEqual([]);
     expect(inspectOutputCapabilities(input, "canvas")).toEqual([]);
     expect(inspectOutputCapabilities(input, "pdf")[0]?.code).toBe("unsupported-image-format");
-    expect(inspectOutputCapabilities(input, "xlsx")[0]?.code).toBe("unsupported-component");
+    expect(inspectOutputCapabilities(input, "xlsx")[0]?.code).toBe("unsupported-image-format");
     input.pages[0]!.components[0]!.imageData = "data:image/png;base64,aGVsbG8=";
     expect(inspectOutputCapabilities(input, "pdf")).toEqual([]);
+    expect(inspectOutputCapabilities(input, "xlsx")).toEqual([]);
   });
 
   it("reports rich text and nested components without loading a renderer", () => {

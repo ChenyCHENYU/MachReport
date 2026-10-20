@@ -228,13 +228,13 @@ const { pdfFont, getPdfExporter, checkPdfFont, retryPdfFont, cancelFontCheck } =
 
 async function onToolChange(key: ReportPreviewTool, enabled: boolean): Promise<void> {
   // 不因隐藏编辑工具丢弃输入；验证或保存失败时保留编辑能力和原值。
-  if (key === "editing" && !enabled && !await editing.commit()) return;
+  if (key === "editing" && !enabled && !await editing.settle()) return;
   tools.setEnabled(key, enabled);
   emit("preferences-change", Object.freeze({ ...toolState.value }));
 }
 
 async function resetTools(): Promise<void> {
-  if (!await editing.commit()) return;
+  if (!await editing.settle()) return;
   tools.reset();
   sessionInteraction.value = {};
   emit("preferences-change", Object.freeze({ ...toolState.value }));
@@ -243,7 +243,8 @@ async function toggleSettings(section: "general" | "tools" | "advanced" = "gener
   if (settingsOpen.value) { settingsOpen.value = false; return; }
   // Wait for the active editor before moving focus into an aria-modal dialog.
   // A rejected save must keep both the input and its focus available for correction.
-  if (!await editing.commit() || destroyed || !effectiveShowSettings.value) return;
+  const ready = editing.settle();
+  if (!(typeof ready === "boolean" ? ready : await ready) || destroyed || !effectiveShowSettings.value) return;
   settingsSection.value = section;
   settingsOpen.value = true;
 }
@@ -257,6 +258,7 @@ function editErrorMessage(cause: unknown): string {
       limit: resolvedMessages.value.clipboardLimit,
       readonly: resolvedMessages.value.editReadOnly,
       missing: resolvedMessages.value.editMissing,
+      recalculation: resolvedMessages.value.editRecalculationUnavailable,
       duplicate: resolvedMessages.value.editDuplicate,
       clipboard: resolvedMessages.value.clipboardInvalid
     };
@@ -303,6 +305,10 @@ function onBeforeUnload(event: BeforeUnloadEvent): void {
   event.preventDefault(); event.returnValue = "";
 }
 function cancelTask(): void { task.cancel(); }
+function locateEdit(edit: ReportCellEdit): void {
+  const address = editing.resolveAddress(edit);
+  if (address) void cells.focusCell(address);
+}
 async function locateTarget(target: ReportFieldTarget): Promise<void> {
   if (!await cells.focusField(target)) exportNotice.value = { kind: "warning", message: resolvedMessages.value.locateFieldMissing ?? "Field not found" };
 }
@@ -537,6 +543,7 @@ function gotoPage(n: number): void {
 
 const exportApi = usePrintExport(plan, {
   getPdfExporter,
+  beforeOutput: () => editing.settle(),
   onTask: (value) => task.receive(value, () => exportApi.cancel()),
   onDiagnostic: diagnostics.add,
   getXlsxOptions: () => resolved.value.xlsx,
@@ -565,18 +572,20 @@ const exportApi = usePrintExport(plan, {
 const { releasePrintFrame, dispose } = exportApi;
 async function print(): Promise<void> {
   if (loading.value || importing.value) return;
-  if (editing.active.value && !await editing.commit()) return;
+  const ready = editing.settle();
+  if (!(typeof ready === "boolean" ? ready : await ready)) return;
   lastError.value = null;
   if (outputAllowed("html")) await exportApi.print();
 }
 async function exportAs(format: string): Promise<void> {
   if (loading.value || importing.value) return;
-  if (editing.active.value && !await editing.commit()) return;
+  const ready = editing.settle();
+  if (!(typeof ready === "boolean" ? ready : await ready)) return;
   lastError.value = null;
   if (outputAllowed(format)) await exportApi.exportAs(format);
 }
 function openPdfWindow(): void {
-  if (loading.value || importing.value || editing.active.value) {
+  if (loading.value || importing.value || editing.active.value || editing.saving.value) {
     exportNotice.value = { kind: "warning", message: resolvedMessages.value.editingHint ?? "请先确认单元格修改" };
     return;
   }
@@ -959,7 +968,7 @@ defineExpose({ ...controller, state });
     </ReportSettings>
     <ReportNavigation :plan="plan" @locate-target="locateTarget" v-if="sections.length > 1 && pageCount > 0 && effectiveInteraction.navigation !== false" :sections="sections" :current-page="currentPage" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @goto="gotoPage" @locate="locateField" />
     <ReportImportSummary v-if="importedResult" :result="importedResult" :messages="resolvedMessages" />
-    <ReportEditBar v-if="effectiveEditable && pageCount > 0" :differences="editing.differences.value" :conflicts="editing.conflicts.value" :messages="resolvedMessages" :saving="editing.saving.value" :can-undo="editing.canUndo.value" :can-redo="editing.canRedo.value" :persisted="persistedEditing" :busy="!!exporting || printing" @undo="editing.undo" @redo="editing.redo" @restore="editing.restore" @locate="cells.focusCell($event.address)" />
+    <ReportEditBar v-if="effectiveEditable && pageCount > 0" :differences="editing.differences.value" :conflicts="editing.conflicts.value" :messages="resolvedMessages" :saving="editing.saving.value" :can-undo="editing.canUndo.value" :can-redo="editing.canRedo.value" :persisted="persistedEditing" :busy="!!exporting || printing" @undo="editing.undo" @redo="editing.redo" @restore="editing.restore" @locate="locateEdit" />
     <input v-if="effectiveExcelImport" ref="importInputRef" class="mrp-import-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden @change="onImportFile" />
     <div v-if="effectiveEditable && pageCount > 0" class="mrp-edit-hint" role="status">{{ editing.saving.value ? resolvedMessages.saving : resolvedMessages.editingHint }}</div>
     <div v-if="exportNotice" class="mrp-export-notice" :class="`mrp-export-${exportNotice.kind}`" role="alert">

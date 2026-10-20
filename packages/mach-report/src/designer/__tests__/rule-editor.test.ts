@@ -161,8 +161,7 @@ describe("declarative rule editor", () => {
         props: { list, datasets: { detail: [{ qty: 2, price: 3 }] } },
       });
     expect(wrapper.findAll('[role="tab"]')).toHaveLength(5);
-    const inputs = wrapper.findAll('input:not([type="checkbox"])');
-    await inputs[0]!.setValue("total");
+    await wrapper.get('input[aria-label="结果字段"]').setValue("total");
     const apply = wrapper
       .findAll("button")
       .find((button) => button.text() === "应用规则")!;
@@ -235,4 +234,17 @@ describe("declarative rule editor", () => {
     expect(wrapper.findAll("select").every((control) => !!control.attributes("aria-label")?.trim())).toBe(true);
     wrapper.unmount();
   });
+});
+
+it("keeps unapplied computed and condition drafts when navigating rules, and applying groups does not erase them", async () => {
+  const original = component(); original.computed = [{ field: "copy", expression: { field: "qty" } }];
+  const { editor, props, wrapper } = setup({ list: original });
+  editor.formula.value.field = "unapplied"; editor.formula.value.expression = { op: "multiply", args: [{ field: "qty" }, { value: 4 }] };
+  editor.loadComputed("copy"); expect(editor.pendingLocalChanges.value).toBe(true);
+  editor.loadComputed(""); expect(editor.formula.value.field).toBe("unapplied");
+  editor.when.value.value = 99; editor.column.value = "price"; editor.loadCondition(-1); editor.column.value = "qty"; editor.loadCondition(-1);
+  expect(editor.when.value.value).toBe(99);
+  editor.addGroup(); editor.applyGroups(); await nextTick(); expect(props.list.groups).toHaveLength(1);
+  expect(editor.formula.value.field).toBe("unapplied"); expect(editor.when.value.value).toBe(99); expect(editor.pendingLocalChanges.value).toBe(true);
+  editor.resetDraft(); expect(editor.pendingLocalChanges.value).toBe(false); wrapper.unmount();
 });

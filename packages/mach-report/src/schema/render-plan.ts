@@ -71,6 +71,8 @@ export interface GridCell {
   /** 单元格级编辑控制；预览仍需显式开启 editing。 */
   editable?: boolean;
   source?: ReportCellSource;
+  /** SDK 派生结果不映射业务来源，始终只读（包括覆盖同名源字段的计算）。 */
+  derived?: boolean;
   /** Excel 公式保留元数据；当前引擎不计算公式，公式格始终只读。 */
   formula?: string;
   children?: PlanComponent[];
@@ -143,6 +145,8 @@ export interface PlanPage {
 
 export interface RenderPlan {
   schemaVersion: string;
+  /** 编辑需要模板重算上下文；跨 Worker/JSON 保留要求，但不声明本地会话可用。 */
+  requiresRecalculation?: boolean;
   pages: PlanPage[];
 }
 

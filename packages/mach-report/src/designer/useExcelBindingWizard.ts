@@ -1,4 +1,6 @@
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from "vue";
+import { useLocalDraft } from "./useLocalDraft";
+import type { ExcelWorkbookSession } from "../xlsx/workbook-session";
 import type { ExcelWorkbookSheet } from "../xlsx/import-template";
 import type {
   ExcelImportOptions,
@@ -29,6 +31,8 @@ export interface ExcelBindingWizardApply extends ExcelBindingDocumentResult {
 }
 export interface ExcelBindingWizardOptions {
   datasets: readonly ExcelBindingDataset[];
+  /** An embedded editor can decline replacement; success is shown only after acceptance. */
+  accept?: (result: ExcelBindingWizardApply) => boolean | Promise<boolean>;
   /** Source + exact coordinates + mappings. No File, functions, network credentials, or live result rows. */
   session?: ExcelBindingSession;
   identity?: { id: string; name: string };
@@ -59,24 +63,31 @@ export function useExcelBindingWizard(
 ) {
   const imported = shallowRef<ExcelImportResult>();
   const recipe = ref(emptyRecipe());
+  const sheetRecipes = new Map<string, ExcelBindingRecipe>();
+  const cloneRecipe = (value: ExcelBindingRecipe) => JSON.parse(JSON.stringify(value)) as ExcelBindingRecipe;
+  function sheetRecipe(name: string, columns: number): ExcelBindingRecipe { return cloneRecipe(sheetRecipes.get(name) ?? emptyRecipe(name, columns)); }
   const identity = ref({
     id: props.identity?.id ?? "excel-template",
     name: props.identity?.name ?? "Excel 业务模板",
   });
   const sourceName = ref("");
+  const sourceRevision = ref(0);
+  const localDraft = useLocalDraft(() => ({ source: sourceRevision.value, recipe: recipe.value, identity: identity.value }));
   const sheetChoices = ref<Pick<ExcelWorkbookSheet, "name" | "index">[]>([]);
-  let sourceFile: File | undefined;
+  let workbook: ExcelWorkbookSession | undefined;
+  function releaseWorkbook(): void { workbook?.dispose(); workbook = undefined; }
   const error = ref("");
   const loading = ref(false);
   const checked = ref(false);
   const applied = ref(false);
+  const applying = ref(false);
   const row = ref(1),
     column = ref(1),
     anchor = ref<number>(),
     end = ref<number>();
   const mappingPage = ref(0);
   const m = computed(() => ({ ...EXCEL_BINDING_MESSAGES, ...props.messages }));
-  const disabled = computed(() => !!props.readonly || loading.value);
+  const disabled = computed(() => !!props.readonly || loading.value || applying.value);
   const sheet = computed(() =>
     imported.value?.sheets.find((item) => item.name === recipe.value.sheet),
   );
@@ -155,17 +166,19 @@ export function useExcelBindingWizard(
     try {
       const session = parseExcelBindingSession(value);
       cancel();
-      sourceFile = undefined;
+      releaseWorkbook();
       sheetChoices.value = session.source.sheets.map((sheet) => ({
         name: sheet.name,
         index: sheet.index,
       }));
       imported.value = session.source;
+      sheetRecipes.clear();
       recipe.value = session.recipe;
       identity.value = { ...session.identity, ...(props.lockId && props.identity ? { id: props.identity.id } : {}) };
       sourceName.value = session.recipe.sheet;
       error.value = "";
       resetPosition();
+      sourceRevision.value++; localDraft.accept();
     } catch (cause) {
       error.value = text(cause);
     }
@@ -180,7 +193,7 @@ export function useExcelBindingWizard(
   watch(
     () => props.readonly,
     (readonly) => {
-      if (readonly) cancel();
+      if (readonly) { cancel(); releaseWorkbook(); }
     },
   );
   watch(
@@ -198,7 +211,7 @@ export function useExcelBindingWizard(
       applied.value = false;
     },
   );
-  onBeforeUnmount(cancel);
+  onBeforeUnmount(() => { cancel(); releaseWorkbook(); });
   async function importFile(file: File): Promise<void> {
     if (props.readonly) return;
     cancel();
@@ -210,31 +223,24 @@ export function useExcelBindingWizard(
     controller = new AbortController();
     loading.value = true;
     error.value = "";
+    let opened: ExcelWorkbookSession | undefined;
     try {
-      const { inspectExcelWorkbook, importExcelTemplate } = await import(
-        "../xlsx/import-template"
-      );
+      const { openExcelWorkbook } = await import("../xlsx/workbook-session");
       if (job !== generation || props.readonly) return;
-      const inspection = await inspectExcelWorkbook(file, {
-        ...props.importOptions,
-        signal: controller.signal,
-      });
+      opened = await openExcelWorkbook(file, { ...props.importOptions, signal: controller.signal });
       if (job !== generation || props.readonly) return;
-      const choices = inspection.sheets.filter((item) => item.visible);
+      const choices = opened.inspect().sheets.filter((item) => item.visible);
       if (!choices.length) throw new Error("Excel 中没有可导入的可见工作表");
-      const result = await importExcelTemplate(file, {
-        ...props.importOptions,
-        sheets: [choices[0]!.name],
-        signal: controller.signal,
-      });
+      const result = await opened.importTemplate({ sheets: [choices[0]!.name], signal: controller.signal });
       if (job !== generation || props.readonly) return;
-      imported.value = result;
+      releaseWorkbook(); workbook = opened; opened = undefined;
+      imported.value = result; sourceRevision.value++;
       sourceName.value = file.name;
-      sourceFile = file;
       sheetChoices.value = choices.map((item) => ({
         name: item.name,
         index: item.index,
       }));
+      sheetRecipes.clear();
       recipe.value = emptyRecipe(
         result.sheets[0]!.name,
         result.sheets[0]!.columnCount,
@@ -243,6 +249,7 @@ export function useExcelBindingWizard(
     } catch (cause) {
       if (job === generation) error.value = text(cause);
     } finally {
+      opened?.dispose();
       if (job === generation) {
         loading.value = false;
         controller = undefined;
@@ -255,30 +262,25 @@ export function useExcelBindingWizard(
       !sheetChoices.value.some((item) => item.name === name)
     )
       return;
+    if (recipe.value.sheet) sheetRecipes.set(recipe.value.sheet, cloneRecipe(recipe.value));
     const selected = imported.value?.sheets.find((item) => item.name === name);
     if (selected) {
-      recipe.value = emptyRecipe(name, selected.columnCount);
+      recipe.value = sheetRecipe(name, selected.columnCount);
       error.value = "";
       resetPosition();
       return;
     }
-    if (!sourceFile) return;
+    if (!workbook || workbook.disposed) return;
     cancel();
     const job = ++generation;
     controller = new AbortController();
     loading.value = true;
     error.value = "";
     try {
-      const { importExcelTemplate } = await import("../xlsx/import-template");
-      if (job !== generation || props.readonly) return;
-      const result = await importExcelTemplate(sourceFile, {
-        ...props.importOptions,
-        sheets: [name],
-        signal: controller.signal,
-      });
+      const result = await workbook.importTemplate({ sheets: [name], signal: controller.signal });
       if (job !== generation || props.readonly) return;
       imported.value = result;
-      recipe.value = emptyRecipe(name, result.sheets[0]!.columnCount);
+      recipe.value = sheetRecipe(name, result.sheets[0]!.columnCount);
       resetPosition();
     } catch (cause) {
       if (job === generation) error.value = text(cause);
@@ -359,15 +361,24 @@ export function useExcelBindingWizard(
         Math.min(sourceRange.value.right, column.value + delta),
       );
   }
+  function restoreDraft(): void {
+    if (props.readonly) return;
+    if (props.session) { loadSession(props.session); return; }
+    cancel(); releaseWorkbook(); imported.value = undefined; sheetChoices.value = []; sourceName.value = "";
+    sheetRecipes.clear();
+    recipe.value = emptyRecipe(); identity.value = { id: props.identity?.id ?? "excel-template", name: props.identity?.name ?? "Excel 业务模板" };
+    resetPosition(); sourceRevision.value++; localDraft.accept(); error.value = "";
+  }
   function check(): void {
     checked.value = true;
     error.value = "";
   }
-  function apply(): void {
+  async function apply(): Promise<void> {
     if (disabled.value || !imported.value) return;
     checked.value = true;
     error.value = "";
     if (!validation.value.ok) return;
+    applying.value = true;
     try {
       const targetIdentity = { ...identity.value, ...(props.lockId && props.identity ? { id: props.identity.id } : {}) };
       const result = createExcelBindingDocument(
@@ -381,14 +392,22 @@ export function useExcelBindingWizard(
         recipe.value,
         targetIdentity,
       );
-      emit({ ...result, session });
+      const resultWithSession = { ...result, session };
+      const before = localDraft.snapshot();
+      if (props.accept && !await props.accept(resultWithSession)) return;
+      if (props.readonly) return;
+      if (before !== localDraft.snapshot() && localDraft.pending.value) return;
+      if (!props.accept) emit(resultWithSession);
+      localDraft.accept();
+      sheetRecipes.clear();
       applied.value = true;
     } catch (cause) {
       error.value = text(cause);
-    }
+    } finally { applying.value = false; }
   }
   return {
     imported,
+    pendingLocalChanges: localDraft.pending,
     recipe,
     identity,
     sourceName,
@@ -421,6 +440,7 @@ export function useExcelBindingWizard(
     regionAt,
     moveWindow,
     check,
+    restoreDraft,
     apply,
   };
 }

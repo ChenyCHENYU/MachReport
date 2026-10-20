@@ -130,6 +130,7 @@ export interface MachReportMessages extends Partial<ReportCalculationMessages> {
   conflicts?: string;
   editReadOnly?: string;
   editMissing?: string;
+  editRecalculationUnavailable?: string;
   editDuplicate?: string;
   clipboardInvalid?: string;
   editSaved?: string;
@@ -274,6 +275,7 @@ export const DEFAULT_MESSAGES: MachReportMessages = {
   conflicts: "保存冲突",
   editReadOnly: "选区包含只读或无权限单元格，本次修改未应用。",
   editMissing: "选区超出报表范围或缺少业务来源，请重新选择。",
+  editRecalculationUnavailable: "此报表缺少重算会话或稳定数据来源，暂不支持编辑；请使用 reports/本地数据源重新加载。",
   editDuplicate: "选区包含同一业务字段的重复单元格，请缩小选区。",
   clipboardInvalid: "剪贴板内容无法识别，请使用矩形表格文本重新粘贴。",
   editSaved: "修改已通过保存回调确认",

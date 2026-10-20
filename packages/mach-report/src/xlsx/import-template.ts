@@ -1,4 +1,4 @@
-import { assertOutputActive, outputCheckpoint } from "../output/progress";
+import { assertOutputActive, outputCheckpoint, waitForOutput, type OutputTaskOptions } from "../output/progress";
 import ExcelJSRuntime from "exceljs";
 import type * as ExcelJS from "exceljs";
 import type { TemplatePage } from "../layout/paginate";
@@ -155,7 +155,7 @@ function warnSheetFeatures(sheet: ExcelJS.Worksheet, warnings: ImportWarnings): 
   if (Object.keys(featureSource.dataValidations?.model ?? {}).length) warnings.add(`${sheet.name}: Excel 数据验证与下拉输入规则不导入；业务校验应由宿主配置`);
 }
 
-function importSheet(sheet: ExcelJS.Worksheet, range: CellRange, workbook: ExcelJS.Workbook, options: ResolvedImportOptions, warnings: ImportWarnings, index: number): TemplatePage[] {
+async function importSheet(sheet: ExcelJS.Worksheet, range: CellRange, workbook: ExcelJS.Workbook, options: ResolvedImportOptions, warnings: ImportWarnings, index: number, task: OutputTaskOptions): Promise<TemplatePage[]> {
   warnSheetFeatures(sheet, warnings);
   const merges = selectedMerges(sheet, range);
   const groups = mergeRowGroups(range, merges);
@@ -172,18 +172,25 @@ function importSheet(sheet: ExcelJS.Worksheet, range: CellRange, workbook: Excel
     merges: mergeLookup(merges), style: styleImporter(importTheme(workbook), sheet.name, warnings, geometry.scale),
     date1904: workbook.properties.date1904 === true, tableId: `xlsx:${index}:${sheet.name}`, headerBottom: groups[0]!.bottom
   };
-  return segments.map((segment) => segmentPage(context, segment));
+  const pages: TemplatePage[] = [];
+  for (const segment of segments) {
+    assertOutputActive(task.signal);
+    pages.push(segmentPage(context, segment));
+    // Conversion checkpoints yield without mixing segments into public Sheet progress.
+    if (pages.length % 8 === 0) await outputCheckpoint({ signal: task.signal }, pages.length, segments.length);
+  }
+  return pages;
 }
 
 /** Common ZIP budgets and parsing for sheet inspection and actual grid import. */
-async function loadImportWorkbook(input: ArrayBuffer | Uint8Array | Blob, options: ExcelImportOptions, warnings: ImportWarnings): Promise<{ workbook: ExcelJS.Workbook; resolved: ResolvedImportOptions }> {
+export async function loadImportWorkbook(input: ArrayBuffer | Uint8Array | Blob, options: ExcelImportOptions, warnings: ImportWarnings): Promise<{ workbook: ExcelJS.Workbook; resolved: ResolvedImportOptions }> {
   assertOutputActive(options.signal);
   const resolved = resolveImportOptions(options);
-  const bytes = await checkedExcelBytes(input, resolved, warnings);
+  const bytes = await checkedExcelBytes(input, resolved, warnings, options);
   assertOutputActive(options.signal);
   const workbook = new ExcelJSRuntime.Workbook();
-  try { await workbook.xlsx.load(bytes as unknown as ExcelJS.Buffer); }
-  catch { throw new Error("Excel 文件解析失败；请确认它是未加密且完整的 .xlsx 文件"); }
+  try { await waitForOutput(workbook.xlsx.load(bytes as unknown as ExcelJS.Buffer), options.signal); }
+  catch { assertOutputActive(options.signal); throw new Error("Excel 文件解析失败；请确认它是未加密且完整的 .xlsx 文件"); }
   assertOutputActive(options.signal);
   if (workbook.worksheets.length > resolved.limits.maxSheets) throw new Error("Excel 工作表数量超过导入上限");
   return { workbook, resolved };
@@ -197,16 +204,20 @@ export interface ExcelWorkbookSheet {
   visible: boolean;
 }
 export interface ExcelWorkbookInspection { sheets: ExcelWorkbookSheet[]; warnings: string[] }
-/** Inspect sheet metadata before selecting a bounded import; does not construct any template grids. */
-export async function inspectExcelWorkbook(input: ArrayBuffer | Uint8Array | Blob, options: ExcelImportOptions = {}): Promise<ExcelWorkbookInspection> {
-  const warnings = new ImportWarnings();
-  const { workbook } = await loadImportWorkbook(input, options, warnings);
+/** Internal shared conversion; the public session never exposes the mutable Workbook. */
+export function inspectLoadedWorkbook(workbook: ExcelJS.Workbook, options: ExcelImportOptions, warnings: ImportWarnings): ExcelWorkbookInspection {
   const sheets = workbook.worksheets.map((sheet, index) => {
     const range = selectedRange(sheet, sheetRangeOption(options, sheet.name));
     return { name: sheet.name, index: index + 1, range: rangeName(range), rowCount: range.bottom - range.top + 1, columnCount: range.right - range.left + 1, visible: sheet.state === "visible" };
   });
   assertOutputActive(options.signal);
   return { sheets, warnings: warnings.result() };
+}
+/** Inspect sheet metadata before selecting a bounded import; does not construct any template grids. */
+export async function inspectExcelWorkbook(input: ArrayBuffer | Uint8Array | Blob, options: ExcelImportOptions = {}): Promise<ExcelWorkbookInspection> {
+  const warnings = new ImportWarnings();
+  const { workbook } = await loadImportWorkbook(input, options, warnings);
+  return inspectLoadedWorkbook(workbook, options, warnings);
 }
 /**
  * Import saved .xlsx cell values and common styles as a reusable JSON report template.
@@ -215,6 +226,12 @@ export async function inspectExcelWorkbook(input: ArrayBuffer | Uint8Array | Blo
 export async function importExcelTemplate(input: ArrayBuffer | Uint8Array | Blob, options: ExcelImportOptions = {}): Promise<ExcelImportResult> {
   const warnings = new ImportWarnings();
   const { workbook, resolved } = await loadImportWorkbook(input, options, warnings);
+  return importLoadedWorkbook(workbook, options, resolved, warnings);
+}
+
+/** Internal conversion reused by a bounded session without repeating ZIP/ExcelJS parsing. */
+export async function importLoadedWorkbook(workbook: ExcelJS.Workbook, options: ExcelImportOptions, resolved: ResolvedImportOptions, warnings: ImportWarnings): Promise<ExcelImportResult> {
+  assertOutputActive(options.signal);
   const selected = selectSheets(workbook, options);
   if (!selected.length) throw new Error("Excel 中没有可导入的可见工作表；可通过 sheets 显式选择隐藏工作表");
   const template: ExcelImportResult["template"] = { schemaVersion: RENDER_PLAN_SCHEMA_VERSION, pages: [] };
@@ -224,7 +241,7 @@ export async function importExcelTemplate(input: ArrayBuffer | Uint8Array | Blob
     const range = selectedRange(sheet, sheetRangeOption(options, sheet.name));
     remaining -= checkedRange(range, resolved, remaining);
     const index = workbook.worksheets.indexOf(sheet) + 1;
-    const pages = importSheet(sheet, range, workbook, resolved, warnings, index);
+    const pages = await importSheet(sheet, range, workbook, resolved, warnings, index, options);
     sheets.push({ name: sheet.name, index, range: rangeName(range), rowCount: range.bottom - range.top + 1, columnCount: range.right - range.left + 1, pageStart: template.pages.length, pageCount: pages.length });
     template.pages.push(...pages);
     await outputCheckpoint(options, sheets.length, selected.length);

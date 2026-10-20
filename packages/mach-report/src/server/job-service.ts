@@ -1,3 +1,4 @@
+import { jobByteLength, jobRequestHash, type ReportJobPruneOptions, type ReportJobPruneResult } from "./job-retention";
 import { createReportJobHeartbeat } from "./job-heartbeat";
 import {
   cloneJob,
@@ -9,6 +10,10 @@ import {
   type ReportJobRequest,
   type ReportJobStore,
 } from "./job-store";
+
+class ReportJobResultBudgetError extends ReportJobError {
+  constructor() { super("capacity", "任务结果超过独立预算，请保存文件引用"); }
+}
 
 export interface ReportJobExecutionContext {
   scope: string;
@@ -27,6 +32,8 @@ export interface ReportJobServiceOptions {
   leaseMs?: number;
   heartbeatMs?: number;
   now?: () => number;
+  /** Result references have a separate byte budget; default 256KiB. */
+  maxResultBytes?: number;
 }
 export interface ReportJobService {
   submit(
@@ -43,14 +50,17 @@ export interface ReportJobService {
   runNext(workerId: string): Promise<ReportJobRecord | undefined>;
   /** Stops new dispatch, signals active handlers and waits until their actual completion. */
   close(): Promise<void>;
+  /** Archive terminal payloads and retain bounded idempotency fingerprints; never removes active work. */
+  prune(options: Omit<ReportJobPruneOptions, "now">): Promise<ReportJobPruneResult>;
   readonly active: number;
 }
 function jobOptions(options: ReportJobServiceOptions) {
   const concurrency = options.concurrency ?? 1,
     leaseMs = options.leaseMs ?? 30_000,
-    heartbeatMs = options.heartbeatMs ?? 10_000;
+    heartbeatMs = options.heartbeatMs ?? 10_000,
+    maxResultBytes = options.maxResultBytes ?? 256 * 1024;
   if (
-    ![concurrency, leaseMs, heartbeatMs].every(
+    ![concurrency, leaseMs, heartbeatMs, maxResultBytes].every(
       (item) => Number.isSafeInteger(item) && item > 0,
     ) ||
     heartbeatMs * 2 > leaseMs
@@ -70,7 +80,7 @@ function jobOptions(options: ReportJobServiceOptions) {
       throw new ReportJobError("input", "任务时钟应返回非负整数毫秒");
     return value;
   };
-  return { concurrency, leaseMs, heartbeatMs, now };
+  return { concurrency, leaseMs, heartbeatMs, maxResultBytes, now };
 }
 async function required(
   store: ReportJobStore,
@@ -213,6 +223,7 @@ async function executeJob(
         reportProgress,
       });
       result = JSON.parse(serializeJobJson(value)) as ReportJobJson;
+      if (jobByteLength(result) > settings.maxResultBytes) throw new ReportJobResultBudgetError();
     }
   } catch (error) {
     failure = error ?? new Error("报表任务执行失败");
@@ -235,7 +246,7 @@ async function executeJob(
   else if (failure !== undefined) {
     next.status = "failed";
     next.error = {
-      code: failure instanceof ReportJobError ? failure.code : "execution",
+      code: failure instanceof ReportJobResultBudgetError ? "result-budget" : failure instanceof ReportJobError ? failure.code : "execution",
       message:
         failure instanceof Error
           ? failure.message.slice(0, 500)
@@ -255,7 +266,26 @@ async function executeJob(
       message: "任务结果与请求的组合超过存储预算，请保存文件引用而非文件内容",
     };
   }
-  return mutate(options.store, record, next, ["lease"]);
+  return persistJobOutcome(options.store, record, next);
+}
+
+async function persistJobOutcome(store: ReportJobStore, record: ReportJobRecord, next: ReportJobRecord): Promise<ReportJobRecord> {
+  try { return await mutate(store, record, next, ["lease"]); }
+  catch (error) {
+    if (!(error instanceof ReportJobError) || error.code !== "capacity" || next.status !== "completed") throw error;
+    // The store reserves the small failed state at admission; oversized artifacts never strand accepted work.
+    delete next.result;
+    next.status = "failed";
+    next.error = { code: "result-budget", message: "任务结果超过存储剩余预算，请保存文件引用而非文件内容" };
+    return mutate(store, record, next, ["lease", "result"]);
+  }
+}
+
+async function archivedSubmission(store: ReportJobStore, scope: string, id: string, request: ReportJobRequest): Promise<ReportJobRecord | undefined> {
+  const value = await store.readTombstone?.(scope, id);
+  if (!value) return;
+  if (value.requestHash !== await jobRequestHash(request)) throw new ReportJobError("conflict", "相同任务ID不能提交不同内容（幂等保留期内）");
+  return { scope, id, revision: value.revision, request: cloneJob(request), status: value.status, createdAt: value.createdAt, updatedAt: value.updatedAt, attempt: value.attempt, archived: true };
 }
 
 /** Durable at-least-once dispatch; export/artifact handlers must be idempotent by scope+taskId. */
@@ -295,6 +325,8 @@ export function createReportJobService(
         throw new ReportJobError("conflict", "相同任务ID不能提交不同内容");
       return previous;
     }
+    const archived = await archivedSubmission(options.store, input.scope, input.id, request);
+    if (archived) return archived;
     const now = settings.now();
     const next: ReportJobRecord = {
       scope: input.scope,
@@ -315,6 +347,8 @@ export function createReportJobService(
         serializeJobJson(raced.request) === serializeJobJson(request)
       )
         return raced;
+      const retained = await archivedSubmission(options.store, input.scope, input.id, request);
+      if (retained) return retained;
       throw new ReportJobError("conflict", "报表任务提交发生冲突");
     }
     return cloneJob(next);
@@ -382,6 +416,10 @@ export function createReportJobService(
       delete next.error;
       delete next.progress;
       return mutate(options.store, record, next, ["error", "progress"]);
+    },
+    prune: async (input) => {
+      if (!options.store.prune || !options.store.readTombstone) throw new ReportJobError("input", "当前任务适配器未实现可选终态保留能力");
+      return options.store.prune({ ...input, now: settings.now() });
     },
     close: async () => {
       closed = true;

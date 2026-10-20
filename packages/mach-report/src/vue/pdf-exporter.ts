@@ -166,7 +166,7 @@ export function createDefaultPdfExporter(
     let font: Uint8Array | null = null;
     if (options.fontUrl) {
       try {
-        font = await waitForOutput(pdfModule.loadFontWithCache(options.fontUrl, { strict: true }), task.signal);
+        font = await waitForOutput(pdfModule.loadFontWithCache(options.fontUrl, { strict: true, signal: task.signal }), task.signal);
         if (!font?.byteLength) throw new Error("字体文件为空或加载失败");
       } catch (cause) {
         const detail = cause instanceof Error ? cause.message : String(cause);

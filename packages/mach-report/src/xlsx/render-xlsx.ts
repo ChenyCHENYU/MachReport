@@ -3,6 +3,8 @@ import ExcelJSRuntime from "exceljs";
 import type * as ExcelJS from "exceljs";
 import type { RenderPlan } from "../schema/render-plan";
 import type { ComponentStyle, GridCell, PlanComponent, PlanPage } from "../schema/render-plan";
+import { isImageBackedComponent } from "../schema/render-plan";
+import { createXlsxImageWriter, type XlsxImageOptions, type XlsxImageWriter } from "./image-xlsx";
 import { resolveGridLayout, type GridLayout } from "../render/grid-geometry";
 import { mergeComponentStyles, resolveFontSize } from "../render/style";
 import { mmToExcelColumnWidth } from "./column-width";
@@ -17,7 +19,7 @@ import { reportOutputDiagnostics, type OutputDiagnostic, type OutputDiagnosticOp
  * - 未支持组件、富文本专有内容与单元格嵌套组件跳过并计入 warnings
  */
 
-export interface XlsxRenderOptions extends OutputDiagnosticOptions {
+export interface XlsxRenderOptions extends OutputDiagnosticOptions, XlsxImageOptions {
   /** 工作表命名（连续表默认使用标题，其余默认 "Sheet1" 起序）。 */
   sheetName?: (sheetIndex: number) => string;
   /** auto 默认将 wide 逻辑表合并为连续 Sheet；pages 保留逐页；continuous 要求明确的表来源。 */
@@ -128,7 +130,7 @@ function tablePage(page: PlanPage): TablePage | undefined {
       if (!comp.grid || comp.table.id !== first.id) return undefined;
       continue;
     }
-    if (comp.grid || comp.kind !== "text") return undefined;
+    if (comp.grid || comp.kind !== "text" && !isImageBackedComponent(comp)) return undefined;
     if (comp.richParagraphs?.length && !comp.text && !comp.lines?.length) return undefined;
   }
   return { id: first.id, title: first.title, wide: first.layout === "wide" || page.layout === "wide" };
@@ -264,7 +266,9 @@ interface SheetContents {
 }
 
 function sheetContents(unit: SheetUnit): SheetContents {
-  const components = unit.pages.flatMap(({ page, index }) => page.components.map((comp) => ({ comp, pageIndex: index })));
+  const components = unit.pages.flatMap(({ page, index }, position) => page.components
+    .filter((comp) => !unit.continuous || (comp.pageAnchor !== "header" || position === 0) && (comp.pageAnchor !== "footer" || position === unit.pages.length - 1))
+    .map((comp) => ({ comp, pageIndex: index })));
   const grids = new Map<PlanComponent, GridLayout>();
   let columnCount = 1;
   let textWidthMm = 0;
@@ -319,12 +323,15 @@ interface SheetWriter {
   valueMode: XlsxRenderOptions["valueMode"];
 }
 
-function configureGridDimensions(writer: SheetWriter, layout: GridLayout, cursorRow: number): void {
+function configureGridColumns(writer: SheetWriter, layout: GridLayout): void {
   for (const [index, column] of layout.columns.entries()) {
     const target = writer.sheet.getColumn(index + 1);
     const width = writer.limits.column(mmToExcelColumnWidth(column.size));
     if (target.width == null || target.width < width) target.width = width;
   }
+}
+
+function configureGridDimensions(writer: SheetWriter, layout: GridLayout, cursorRow: number): void {
   // 行高属于网格几何，不能仅遍历可见单元格；被 rowSpan 覆盖的行也必须写入。
   for (const [index, source] of layout.rows.entries()) {
     const row = writer.sheet.getRow(cursorRow + index);
@@ -383,10 +390,12 @@ function freezeHeader(sheet: ExcelJS.Worksheet, cursorRow: number, rowCount: num
   sheet.pageSetup.printTitlesRow = `1:${frozenRows}`;
 }
 
-function writeSheet(writer: SheetWriter, contents: SheetContents, continuous: boolean): void {
+function writeSheet(writer: SheetWriter, contents: SheetContents, continuous: boolean, images: XlsxImageWriter): void {
   if (!contents.grids.size && contents.textWidthMm > 0) {
     writer.sheet.getColumn(1).width = writer.limits.column(mmToExcelColumnWidth(contents.textWidthMm));
   }
+  // Image anchors must use final shared widths even when the logo precedes the first grid.
+  for (const layout of contents.grids.values()) configureGridColumns(writer, layout);
   let cursorRow = 1;
   let headerWritten = false;
   for (const { comp, pageIndex } of contents.components) {
@@ -399,6 +408,8 @@ function writeSheet(writer: SheetWriter, contents: SheetContents, continuous: bo
       cursorRow = writeGrid(writer, comp, layout, cursorRow, pageIndex);
     } else if (comp.kind === "text") {
       cursorRow = writeText(writer, comp, cursorRow, contents.columnCount, pageIndex);
+    } else if (isImageBackedComponent(comp)) {
+      cursorRow = images.write(writer.sheet, comp, cursorRow);
     } else {
       writer.warnings.push(`page ${pageIndex + 1} ${comp.nid ?? comp.kind}: 组件类型 ${comp.kind} 暂不支持 xlsx 导出，已跳过`);
     }
@@ -423,6 +434,7 @@ export async function renderPlanToXlsx(plan: RenderPlan, options: XlsxRenderOpti
   const diagnostics = reportOutputDiagnostics(plan, "xlsx", options);
   const workbook = new ExcelJSRuntime.Workbook();
   const warnings: string[] = [];
+  const images = createXlsxImageWriter(workbook, options, warnings);
   const limits = dimensionLimits(warnings);
   const units = sheetUnits(plan, options.sheetMode, warnings);
   const usedNames = new Set<string>();
@@ -435,7 +447,7 @@ export async function renderPlanToXlsx(plan: RenderPlan, options: XlsxRenderOpti
     const sheet = workbook.addWorksheet(name, worksheetOptions(unit, options.paperSize, warnings));
     const valueMode = options.valueMode ?? (isWidePage(page) || unit.continuous ? "raw" : "text");
     assertOutputActive(options.signal);
-    writeSheet({ sheet, warnings, limits, valueMode }, contents, unit.continuous);
+    writeSheet({ sheet, warnings, limits, valueMode }, contents, unit.continuous, images);
     await outputCheckpoint(options, sheetIndex + 1, units.length);
   }
   assertOutputActive(options.signal);

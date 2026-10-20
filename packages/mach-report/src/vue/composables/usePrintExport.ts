@@ -139,6 +139,8 @@ export function usePrintExport(
   hooks: {
     /** 按导出开始时的配置快照处理，避免输出过程中跟随路由配置变化。 */
     getXlsxOptions?: () => XlsxRenderOptions;
+    /** Flush the active editor and await source-backed calculation/persistence before capturing the output plan. */
+    beforeOutput?: () => boolean | Promise<boolean>;
     getPdfExporter: () => PdfExporter;
     onError: (message: string, code?: string) => void;
     onWarning?: (message: string) => void;
@@ -152,7 +154,8 @@ export function usePrintExport(
   /** 打印进行中标记：重入直接忽略（防连点产生多个打印iframe） */
   let printing = false;
   let disposed = false;
-  let planEpoch = 0;
+  let planEpoch = 0, outputGeneration = 0;
+  const preparingWindows = new Set<Window>();
   const busyTasks = new Map<object, { plan: RenderPlan; epoch: number; format: string; run: OutputRun }>();
   let printRun: OutputRun | null = null;
   const pendingWindows = new Map<Window, { plan: RenderPlan; epoch: number }>();
@@ -199,7 +202,8 @@ export function usePrintExport(
   }
 
   /** A replacement can begin before a new plan exists (for example a fallible Excel import). */
-  function invalidatePending(): void {
+  function invalidatePending(cancelPreparation = true): void {
+    if (cancelPreparation) { outputGeneration++; for (const window of preparingWindows) window.close(); preparingWindows.clear(); }
     for (const task of busyTasks.values()) task.run.finish("cancelled");
     printRun?.finish("cancelled");
     planEpoch++;
@@ -208,7 +212,7 @@ export function usePrintExport(
     closePendingWindows();
   }
 
-  const stopPlanWatch = watch(plan, invalidatePending, { flush: "sync" });
+  const stopPlanWatch = watch(plan, () => invalidatePending(false), { flush: "sync" });
 
   function releasePrintFrame(): void {
     printFrame?.remove();
@@ -260,7 +264,24 @@ export function usePrintExport(
     return true;
   }
 
-  async function print(): Promise<void> {
+  function outputReady(): boolean | Promise<boolean> {
+    const generation = outputGeneration;
+    const active = (success: boolean) => success && !disposed && generation === outputGeneration;
+    const failed = (error: unknown) => {
+      if (!disposed && generation === outputGeneration) hooks.onError(error instanceof Error ? error.message : "报表修改尚未完成", "export");
+      return false;
+    };
+    try {
+      const result = hooks.beforeOutput?.() ?? true;
+      return typeof result === "boolean" ? active(result) : result.then(active, failed);
+    } catch (error) { return failed(error); }
+  }
+  function afterOutputReady(operation: () => Promise<void>): Promise<void> {
+    const result = outputReady();
+    return typeof result === "boolean" ? result ? operation() : Promise.resolve() : result.then((success) => success ? operation() : undefined);
+  }
+
+  async function printPrepared(): Promise<void> {
     if (printing) return;
     const p = plan.value;
     if (disposed || !p || p.pages.length === 0) return;
@@ -370,7 +391,7 @@ export function usePrintExport(
   }
 
   /** 导出图片（每页一张，page_N.png；复用位图管线，含并发去重） */
-  async function exportImages(): Promise<void> {
+  async function exportPreparedImages(): Promise<void> {
     const p = plan.value;
     if (disposed || !p || p.pages.length === 0) return;
     const epoch = planEpoch;
@@ -425,9 +446,12 @@ export function usePrintExport(
       if (isActive(p, epoch)) hooks.onError(error instanceof Error ? `导出失败: ${error.message}` : "导出失败", "export");
     } finally { endBusy(token); }
   }
-  async function exportWord(): Promise<void> { await exportMarkup("word"); }
+  async function exportPreparedWord(): Promise<void> { await exportMarkup("word"); }
+  function print(): Promise<void> { return afterOutputReady(printPrepared); }
+  function exportImages(): Promise<void> { return afterOutputReady(exportPreparedImages); }
+  function exportWord(): Promise<void> { return afterOutputReady(exportPreparedWord); }
 
-  async function exportAs(format: string): Promise<void> {
+  async function exportPreparedAs(format: string): Promise<void> {
     const p = plan.value;
     if (disposed || !p || p.pages.length === 0) return;
     if (format === "pdf") {
@@ -439,11 +463,11 @@ export function usePrintExport(
       return;
     }
     if (format === "png" || format === "image") {
-      await exportImages();
+      await exportPreparedImages();
       return;
     }
     if (format === "word" || format === "doc") {
-      await exportWord();
+      await exportPreparedWord();
       return;
     }
     if (format !== "html") {
@@ -453,16 +477,12 @@ export function usePrintExport(
     await exportMarkup("html");
   }
 
-  function openPdfWindow(): void {
+  function exportAs(format: string): Promise<void> { return afterOutputReady(() => exportPreparedAs(format)); }
+
+  function fillPdfWindow(w: Window): void {
     const p = plan.value;
-    if (disposed || !p || p.pages.length === 0) return;
+    if (disposed || !p || !p.pages.length) { w.close(); return; }
     const epoch = planEpoch;
-    // 先同步打开空窗口，避免异步生成 PDF 后被浏览器当成弹窗拦截。
-    const w = window.open("", "_blank");
-    if (!w) {
-      hooks.onError("浏览器拦截了弹窗，请允许弹窗后重试", "pdf");
-      return;
-    }
     pendingWindows.set(w, { plan: p, epoch });
     const token = beginBusy(p, epoch, "PDF");
     void getPdfBytes(p, epoch, busyTasks.get(token)!.run).then((bytes) => {
@@ -488,6 +508,21 @@ export function usePrintExport(
       pendingWindows.delete(w);
       if (isActive(p, epoch)) hooks.onError(error instanceof Error ? `PDF 预览失败: ${error.message}` : "PDF 预览失败", "pdf");
     }).finally(() => endBusy(token));
+  }
+
+  function openPdfWindow(): void {
+    if (disposed || !plan.value?.pages.length) return;
+    // Preserve the original user gesture even when committing input and recalculating takes time.
+    const window = globalThis.window.open("", "_blank");
+    if (!window) { hooks.onError("浏览器拦截了弹窗，请允许弹窗后重试", "pdf"); return; }
+    const readiness = outputReady();
+    if (typeof readiness === "boolean") { if (readiness) fillPdfWindow(window); else window.close(); return; }
+    preparingWindows.add(window);
+    void readiness.then((ready) => {
+      const owned = preparingWindows.delete(window);
+      if (!ready || !owned || window.closed) { window.close(); return; }
+      fillPdfWindow(window);
+    });
   }
 
   return {

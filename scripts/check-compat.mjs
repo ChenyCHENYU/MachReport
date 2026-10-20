@@ -77,13 +77,25 @@ void [props, input, task, controller, createReportRuntime, ReportTemplateEditor]
   writeFileSync(resolve(scratch, "tsconfig.json"), JSON.stringify({ compilerOptions: { module: "NodeNext", moduleResolution: "NodeNext", target: "ES2022", lib: ["ES2022", "DOM", "DOM.Iterable"], strict: true, skipLibCheck: false, noEmit: true, types: [] }, files: ["consumer.mts", "consumer.cts"] }));
   console.log(run(node, [compilerRequire.resolve("typescript/bin/tsc"), "-p", "tsconfig.json"]));
   const entries = ["", "/pdf", "/xlsx", "/sql", "/server", "/server/node", "/worker", "/analytics", "/xlsx/node", "/vue", "/vue/async", "/designer"];
-  writeFileSync(resolve(scratch, "smoke.cjs"), `${entries.map((entry) => `require('@agile-team/mach-report${entry}');`).join("\n")}\nconsole.log('CommonJS OK');`);
+  writeFileSync(resolve(scratch, "smoke.cjs"), `${entries.map((entry) => `require('@agile-team/mach-report${entry}');`).join("\n")}
+(async()=>{
+ const {createMemoryReportJobStore,createReportJobService}=require('@agile-team/mach-report/server');
+ const service=createReportJobService({store:createMemoryReportJobStore(),now:()=>1000,handlers:{export:()=>null}});
+ const input={scope:'compat',id:'cjs-job',kind:'export',payload:{zero:0,text:'中文'}};
+ await service.submit(input); await service.runNext('cjs-worker');
+ if((await service.prune({terminalBefore:1000})).archived!==1 || !(await service.submit(input)).archived) throw Error('CommonJS durable archive');
+ await service.close(); console.log('CommonJS imports and durable SHA-256 archive OK');
+})().catch(error=>{console.error(error);process.exitCode=1});`);
   writeFileSync(resolve(scratch, "smoke.mjs"), `
 import { createSSRApp } from 'vue';
 import { renderToString } from '@vue/server-renderer';
 import { ReportPreview, machReportPlugin } from '@agile-team/mach-report/vue';
 import { createTableTemplate } from '@agile-team/mach-report';
-import { createReportRuntime } from '@agile-team/mach-report/server';
+import { createReportRuntime,createMemoryReportJobStore,createReportJobService } from '@agile-team/mach-report/server';
+import { openFileReportJobStore } from '@agile-team/mach-report/server/node';
+import { mkdtemp,rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 ${entries.map((entry) => `await import('@agile-team/mach-report${entry}');`).join("\n")}
 const template = createTableTemplate({columns:[{field:'id',header:'ID'}]});
 const reports = {sample:{template,datasets:{detail:[{id:'0001'}]}}};
@@ -108,6 +120,28 @@ if(supportsRaw) {
  if(!message.includes('Node.js 22+')) throw Error('Missing explicit safe-import compatibility error: '+message);
  console.log('Safe Excel import: expected explicit deflate-raw compatibility error on this Node');
 }
+// Execute file scripts on the selected runtime: Node 18 has no global WebCrypto here.
+const jobInput={scope:'compat',id:'archive-job',kind:'export',payload:{zero:0,text:'中文😀'}};
+async function checkArchive(store){
+ const service=createReportJobService({store,now:()=>1000,handlers:{export:()=>({reference:'artifact'})}});
+ await service.submit(jobInput); await service.runNext('compat-worker');
+ if((await service.prune({terminalBefore:1000})).archived!==1) throw Error('durable archive count');
+ if(!(await service.submit(jobInput)).archived) throw Error('durable archive replay');
+ let conflict=false; try{await service.submit({...jobInput,payload:{zero:1}})}catch(error){conflict=error.code==='conflict'}
+ if(!conflict) throw Error('durable archive conflict');
+ await service.close();
+}
+await checkArchive(createMemoryReportJobStore());
+const directory=await mkdtemp(path.join(tmpdir(),'report-compat-jobs-'));
+try{
+ let store=await openFileReportJobStore({directory});
+ await checkArchive(store); await store.close();
+ store=await openFileReportJobStore({directory});
+ const service=createReportJobService({store,now:()=>1000,handlers:{export:()=>null}});
+ if(!(await service.submit(jobInput)).archived) throw Error('durable file archive restart');
+ await service.close(); await store.close();
+}finally{await rm(directory,{recursive:true,force:true})}
+console.log('Durable memory/file SHA-256 archive, conflict and restart OK; global crypto='+typeof globalThis.crypto);
 const app=createSSRApp(ReportPreview,{reportIds:['sample'],autoLoad:false});
 app.use(machReportPlugin,{reports});
 const html=await renderToString(app);

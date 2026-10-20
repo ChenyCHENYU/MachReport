@@ -39,9 +39,8 @@ const IMAGE_KINDS = new Set(["image", "chart", "barcode", "qrcode"]);
 function componentIssue(comp: PlanComponent, format: OutputFormat): Pick<OutputDiagnostic, "code" | "message"> | undefined {
   if (comp.grid) return undefined;
   if (isImageBackedComponent(comp)) {
-    if (format === "xlsx") return { code: "unsupported-component", message: "XLSX data export omits image-backed components; use PDF or PNG for visual output." };
-    if (format === "pdf" && !/^data:image\/(png|jpe?g);base64,/i.test(comp.imageData!)) {
-      return { code: "unsupported-image-format", message: "PDF accepts PNG or JPEG data URLs; convert this image before exporting." };
+    if ((format === "pdf" || format === "xlsx") && !/^data:image\/(png|jpe?g);base64,/i.test(comp.imageData!)) {
+      return { code: "unsupported-image-format", message: `${format.toUpperCase()} accepts PNG or JPEG data URLs; convert this image before exporting.` };
     }
     return undefined;
   }

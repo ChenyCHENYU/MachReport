@@ -3,7 +3,11 @@ import { RENDER_PLAN_SCHEMA_VERSION, type PlanComponent, type RenderPlan } from 
 import { validateRenderPlan } from "../schema/validate";
 import { getReportParamDefs } from "./report-params";
 import { ReportTemplateError, validateReportTemplate } from "./template-registry";
+import { templateRequiresRecalculation } from "../layout/template-calculations";
 import { assertReportParams } from "./param-validation";
+import { registerReportEditSession } from "../editing/session";
+import { reflowReportTemplate } from "../editing/session-pagination";
+import type { ReportEditSessionPart } from "../editing/session-data";
 import { createReportTaskReporter, type ReportTaskMonitoring } from "./task-events";
 import type { ReportProvider, ReportQueryResult } from "./provider";
 import { validateDatasetRows, type DatasetContract, type DatasetValidationOptions } from "../schema/dataset";
@@ -229,6 +233,26 @@ function appendTablePages(pages: RenderPlan["pages"], plan: RenderPlan, reportIn
   });
 }
 
+/** Editing reuses the exact templates, limits and namespace order of the completed query. */
+async function reflowSource(parts: readonly ReportEditSessionPart[], definitions: readonly ReportDefinition[], reportIds: readonly string[], limits: { maxPages?: number; maxCells?: number }, signal?: AbortSignal): Promise<RenderPlan> {
+  const pages: RenderPlan["pages"] = [];
+  let usedCells = 0;
+  for (const [index, part] of parts.entries()) {
+    checkAbort(signal);
+    const remainingPages = limits.maxPages === undefined ? undefined : limits.maxPages - pages.length;
+    const remainingCells = limits.maxCells === undefined ? undefined : limits.maxCells - usedCells;
+    if (remainingPages !== undefined && remainingPages < 1 && part.template.pages.length) throw new PaginatePageLimitError(limits.maxPages!, pages.length + 1);
+    const plan = await reflowReportTemplate(part.template, part.datasets, sourcePagination(definitions[index]?.pagination, remainingPages, remainingCells, signal));
+    usedCells += planCells(plan);
+    if (limits.maxCells !== undefined && usedCells > limits.maxCells) throw new PaginateCellLimitError(limits.maxCells, usedCells);
+    appendTablePages(pages, plan, index, reportIds[index]!);
+  }
+  const plan = { schemaVersion: RENDER_PLAN_SCHEMA_VERSION, ...(parts.some((part) => templateRequiresRecalculation(part.template)) ? { requiresRecalculation: true } : {}), pages };
+  const validation = validateRenderPlan(plan);
+  if (!validation.ok) throw new ReportSourceError("validate", `重算渲染计划校验失败：${validation.errors[0]?.message}`);
+  return plan;
+}
+
 /**
  * 框架无关的报表数据源：注册一次模板与取数，包内完成分页、校验、按 ID 顺序合并。
  * 不缓存业务结果、不推断接口包装、不自动重试；鉴权与完整数据范围由宿主决定。
@@ -259,6 +283,7 @@ export function createReportSource(
       definition.params ?? (typeof definition.template === "function" ? [] : definition.template.params) ?? [], requestedParams
     )));
     const pages: RenderPlan["pages"] = [];
+    const editParts: ReportEditSessionPart[] = [];
     let usedCells = 0;
     const warnings: string[] = [];
     for (const [index, definition] of definitions.entries()) {
@@ -278,17 +303,22 @@ export function createReportSource(
       checkAbort(signal);
       const result = reporter.runSync("layout", () => paginateReport(template, data, definition, reportId, { maxPages: options.maxPages, usedPages: pages.length, maxCells: options.maxCells, usedCells }, signal), reportId);
       usedCells += result.cells;
+      editParts.push({ template, datasets: data });
       appendTablePages(pages, result.plan, index, reportId);
       warnings.push(...result.warnings.map((message) => `${reportId}: ${message}`));
     }
     checkAbort(signal);
-    const plan: RenderPlan = { schemaVersion: RENDER_PLAN_SCHEMA_VERSION, pages };
+    const plan: RenderPlan = { schemaVersion: RENDER_PLAN_SCHEMA_VERSION, ...(editParts.some((part) => templateRequiresRecalculation(part.template)) ? { requiresRecalculation: true } : {}), pages };
     const validation = reporter.runSync("validate", () => {
       const result = validateRenderPlan(plan);
       if (!result.ok) throw new ReportSourceError("validate", `渲染计划校验失败：${result.errors.slice(0, 3).map((error) => `${error.path}: ${error.message}`).join("; ")}`);
       return result;
     });
     warnings.push(...validation.warnings.map((warning) => `${warning.path}: ${warning.message}`));
+    const reflowDefinitions = definitions.map((definition) => ({ ...definition, pagination: { ...definition.pagination } }));
+    const reflowLimits = { maxPages: options.maxPages, maxCells: options.maxCells };
+    try { registerReportEditSession(plan, { parts: editParts, rebuild: (parts, editSignal) => reflowSource(parts, reflowDefinitions, requestedIds, reflowLimits, editSignal) }); }
+    catch { warnings.push("来源数据无法建立本地重算口径；当前预览仅支持计划内编辑，请使用可序列化模板数据启用规则重算"); }
     const warn = onWarning ?? options.onWarning ?? ((message: string) => console.warn("[mach-report]", message));
     for (const message of warnings) {
       checkAbort(signal);

@@ -1,4 +1,7 @@
 import { defineConfig } from "@playwright/test";
+import { assertBrowserLaunchAllowed } from "./scripts/browser-preflight.mjs";
+
+assertBrowserLaunchAllowed();
 
 export default defineConfig({
   testDir: "./e2e",

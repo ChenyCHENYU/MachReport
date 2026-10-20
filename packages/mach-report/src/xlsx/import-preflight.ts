@@ -1,5 +1,6 @@
 import { parseImportRange } from "./import-range";
 import type { ResolvedImportOptions } from "./import-types";
+import { assertOutputActive, waitForOutput, outputCheckpoint, type OutputTaskOptions } from "../output/progress";
 
 export interface CheckedZipEntry { name: string; start: number; compressed: number; method: number }
 
@@ -72,28 +73,38 @@ function inflatedStream(bytes: Uint8Array, entry: CheckedZipEntry): ReadableStre
 }
 
 /** Count actual streamed bytes, never trust ZIP directory sizes or inflate an unbounded entry. */
-export async function preflightExcelEntries(bytes: Uint8Array, entries: CheckedZipEntry[], options: ResolvedImportOptions): Promise<void> {
+export async function preflightExcelEntries(bytes: Uint8Array, entries: CheckedZipEntry[], options: ResolvedImportOptions, task: OutputTaskOptions = {}): Promise<void> {
   let total = 0;
   const budget: XmlBudget = { cells: 0, rows: 0, mergedCells: 0, styles: 0, strings: 0 };
   const worksheets = entries.filter((entry) => /^xl\/worksheets\/[^/]+\.xml$/i.test(entry.name));
   if (worksheets.length > options.limits.maxSheets) throw new Error("Excel 工作表数量超过导入上限");
-  for (const entry of entries) {
+  for (const [entryIndex, entry] of entries.entries()) {
+    assertOutputActive(task.signal);
     const reader = inflatedStream(bytes, entry).getReader();
+    const cancel = () => { void reader.cancel(task.signal?.reason).catch(() => undefined); };
+    task.signal?.addEventListener("abort", cancel, { once: true });
+    if (task.signal?.aborted) cancel();
     const worksheet = /^xl\/worksheets\/[^/]+\.xml$/i.test(entry.name);
     const scan = /\.xml$/i.test(entry.name) ? xmlScanner(options, budget, worksheet, entry.name === "xl/styles.xml", entry.name === "xl/sharedStrings.xml") : undefined;
     const decoder = scan ? new TextDecoder("utf-8", { fatal: true }) : undefined;
+    let chunks = 0;
     try {
       while (true) {
-        const chunk = await reader.read();
+        const chunk = await waitForOutput(reader.read(), task.signal);
+        assertOutputActive(task.signal);
         if (chunk.done) break;
         total += chunk.value.byteLength;
         if (total > options.limits.maxUncompressedBytes) throw new Error("Excel 实际解压内容超过导入大小上限");
         if (scan && decoder) scan(decoder.decode(chunk.value, { stream: true }));
+        if (++chunks % 16 === 0) await outputCheckpoint({ signal: task.signal }, chunks, chunks);
       }
       if (scan && decoder) scan(decoder.decode(), true);
     } finally {
-      await reader.cancel().catch(() => undefined);
+      task.signal?.removeEventListener("abort", cancel);
+      // A custom stream may never settle cancel(); cancellation must still release our waiter.
+      void reader.cancel().catch(() => undefined);
       reader.releaseLock();
     }
+    await outputCheckpoint({ signal: task.signal }, entryIndex + 1, entries.length);
   }
 }

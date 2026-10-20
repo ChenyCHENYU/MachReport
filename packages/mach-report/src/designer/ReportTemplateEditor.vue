@@ -89,7 +89,7 @@ const {
   visitedTools,
   editDisabled,
   dataSchema,
-  chooseCanvas,
+  chooseCanvas: chooseCanvasUnchecked,
   insertComponent,
   patchCanvas,
   changeList,
@@ -156,14 +156,25 @@ defineExpose({
   reset: editor.reset,
   save: editor.save,
 });
-async function acceptExcel(result: ExcelBindingWizardApply): Promise<void> {
+async function acceptExcel(result: ExcelBindingWizardApply): Promise<boolean> {
   // Binding inside an editor replaces content, never the persistent template identity or CAS revision.
   const candidate = { ...result.document, id: draft.value.id };
   if (draft.value.revision === undefined) delete candidate.revision;
   else candidate.revision = draft.value.revision;
-  if (!await editor.replaceDocument(candidate)) return;
+  if (!await editor.replaceDocument(candidate)) return false;
   const document = parseReportTemplate(editor.draft.value);
   emit("excel-bound", { ...result, document, session: { ...result.session, identity: { id: document.id, name: document.name } } });
+  return true;
+}
+async function chooseCanvas(selection: Parameters<typeof chooseCanvasUnchecked>[0]): Promise<void> {
+  const target = lists.value.findIndex(item => item.pageIndex === selection.pageIndex && item.componentIndex === selection.componentIndex);
+  if (target >= 0 && target !== selected.value && editor.isToolPending("rules") && !await editor.guardChanges()) return;
+  chooseCanvasUnchecked(selection);
+}
+async function chooseRuleList(event: Event): Promise<void> {
+  const target = event.target as HTMLSelectElement, next = Number(target.value);
+  if (editor.isToolPending("rules") && !await editor.guardChanges()) { target.value = String(selected.value); return; }
+  selected.value = next;
 }
 function value(event: Event): string {
   return (event.target as HTMLInputElement).value;
@@ -258,7 +269,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
             :aria-label="m.undo"
             :title="m.undo"
             :disabled="readonly || blocked || !canUndo"
-            @click="editor.undo"
+            @click="canvas.clearLocks(); editor.undo()"
           >
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M4 10h10a6 6 0 0 1 0 12M4 10l5-5M4 10l5 5" />
@@ -270,7 +281,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
             :aria-label="m.redo"
             :title="m.redo"
             :disabled="readonly || blocked || !canRedo"
-            @click="editor.redo"
+            @click="canvas.clearLocks(); editor.redo()"
           >
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M20 10H10a6 6 0 0 0 0 12m10-12-5-5m5 5-5 5" />
@@ -293,6 +304,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
             readonly ||
             blocked ||
             jsonPending ||
+            editor.toolPending.value ||
             !validation.ok ||
             !pendingLocalChanges
           "
@@ -329,6 +341,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
       <div
         v-if="visitedTools.size"
         v-show="section === 'tools'"
+        :key="editor.toolEpoch.value"
         class="mr-designer-tools"
       >
         <nav class="mr-designer-tool-tabs" :aria-label="m.toolsSection">
@@ -351,7 +364,8 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
             :identity="{ id: draft.id, name: draft.name }"
             lock-id
             :readonly="editDisabled"
-            @apply="acceptExcel"
+            :accept="acceptExcel"
+            @dirty="editor.setToolPending('excel', $event)"
           /><TemplateReviewPanel
             v-if="visitedTools.has('review')"
             v-show="tool === 'review'"
@@ -367,7 +381,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
             class="mr-designer-rule-workspace"
           >
             <label v-if="lists.length > 1">{{ m.area
-              }}<select v-model="selected">
+              }}<select :value="selected" @change="chooseRuleList">
                 <option
                   v-for="(item, index) in lists"
                   :key="index"
@@ -383,6 +397,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
               :dataset-schemas="dataSchemas"
               :readonly="editDisabled"
               @change="changeList"
+              @dirty="editor.setToolPending('rules', $event)"
             />
             <p v-else class="mr-designer-note">{{ m.rulesNeedList }}</p>
           </div>
@@ -399,7 +414,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
         >
           <template v-if="section === 'fields'">
             <label v-if="lists.length > 1" class="mr-designer-area">{{ m.area
-              }}<select v-model="selected">
+              }}<select :value="selected" @change="chooseRuleList">
                 <option
                   v-for="(item, index) in lists"
                   :key="index"
@@ -818,6 +833,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
                   }}
                 </option>
               </select></label>
+            <div v-if="canvas.selections.value.length" class="mr-designer-arrange"><strong>{{ canvas.selections.value.length }} {{ m.component }}</strong><button type="button" :disabled="editDisabled" @click="canvas.toggleLock">{{ canvas.allLocked.value ? m.unlockSelection : m.lockSelection }}</button><select :aria-label="m.alignSelection" :disabled="editDisabled || canvas.selections.value.length < 2" @change="canvas.align(value($event) as Parameters<typeof canvas.align>[0]); ($event.target as HTMLSelectElement).value = ''"><option value="">{{ m.alignSelection }}</option><option value="left">{{ m.leftEdges }}</option><option value="center">{{ m.centers }}</option><option value="right">{{ m.rightEdges }}</option><option value="top">{{ m.topEdges }}</option><option value="middle">{{ m.middles }}</option><option value="bottom">{{ m.bottomEdges }}</option></select><button type="button" :disabled="editDisabled || canvas.selections.value.length < 3" @click="canvas.distribute('horizontal')">{{ m.horizontalSpacing }}</button><button type="button" :disabled="editDisabled || canvas.selections.value.length < 3" @click="canvas.distribute('vertical')">{{ m.verticalSpacing }}</button><small v-if="canvas.allLocked.value">{{ m.sessionLock }}</small></div>
             <template v-if="canvasActive">
               <div class="mr-designer-layer-tools">
                 <button
@@ -844,7 +860,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
               </div>
               <CanvasComponentInspector
                 :component="canvasActive"
-                :disabled="editDisabled"
+                :disabled="editDisabled || canvas.locked(canvasSelection)"
                 :messages="m"
                 @geometry="canvas.geometry"
                 @patch="patchCanvas"
@@ -930,9 +946,12 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
           v-if="mode === 'design' && validation.ok"
           :document="draft"
           :selection="canvasSelection"
+          :selections="canvas.selections.value"
+          :locked="canvas.locked"
+          :active-column-index="activeIndex"
           :page-index="canvasPage"
           :datasets="datasets"
-          :disabled="editDisabled"
+          :disabled="editDisabled || editor.isToolPending('rules')"
           :messages="m"
           @select="chooseCanvas"
           @geometry="canvas.geometry"

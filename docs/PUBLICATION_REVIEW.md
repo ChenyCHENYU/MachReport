@@ -9,14 +9,14 @@ import { reviewReportTemplate } from '@agile-team/mach-report';
 const review = reviewReportTemplate(draft, {
   previous: published,
   dataSchemas,
-  fixtures: [{ name: '零值与空值', datasets: sampleDatasets }],
+  fixtures: [{ name: '零值与空值', datasets: sampleDatasets, params: { reportDate: '2026-10-20' } }],
   maxSampleRows: 1000,
   maxPages: 100,
   maxCells: 250_000
 });
 ```
 
-样例必须显式提供，不查询业务接口。浏览器可选每个数据集前20行、前100行、仅结构或全部当前数据，样例总量上限默认1000行；不静默截断全量数据并冒充完整验收。没有样例会明确标记尚未验证排版和输出。默认最多20组样例、100页、25万渲染格。
+样例必须显式提供，不查询业务接口。每组 `fixture.params` 与真实数据源共用 `validateReportParams`，检查必填、有效日期、数值范围与枚举；失败定位到 `$.fixtures[index].params.field` 并停止该样例排版。省略的可选参数使用同一默认值规则；带必填参数的模板必须提供有效参数，浏览器与服务端预检一致。浏览器可选每个数据集前20行、前100行、仅结构或全部当前数据，样例总量上限默认1000行；不静默截断全量数据并冒充完整验收。没有样例会明确标记尚未验证排版和输出。默认最多20组样例、100页、25万渲染格。
 
 ## 服务端真实文件验收
 

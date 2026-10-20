@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { watch } from "vue";
 import { getComputationMetadata } from "../processing/computed";
 import {
   useRuleDataLayout,
@@ -6,7 +7,7 @@ import {
 } from "./useRuleDataLayout";
 import type { ListComponent } from "../layout/paginate";
 const props = defineProps<RuleDataLayoutOptions>();
-const emit = defineEmits<{ (event: "change", list: ListComponent): void }>();
+const emit = defineEmits<{ (event: "change", list: ListComponent): void; (event: "dirty", value: boolean): void }>();
 const editor = useRuleDataLayout(props, (list) => emit("change", list));
 const {
   enabled,
@@ -18,6 +19,7 @@ const {
   error,
   preview,
 } = editor;
+watch([editor.pendingLocalChanges, enabled, detail, matrix], () => emit("dirty", editor.pendingLocalChanges.value), { immediate: true, deep: true, flush: "sync" });
 const metadata = getComputationMetadata();
 </script>
 <template>

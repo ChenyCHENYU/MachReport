@@ -12,6 +12,7 @@ export function validateEditableMetadata(value: Record<string, unknown>, path: s
 
 export function validateGridCellEditingMetadata(cell: Record<string, unknown>, path: string, errors: ValidationError[]): void {
   validateEditableMetadata(cell, path, errors);
+  if (cell.derived !== undefined && typeof cell.derived !== "boolean") errors.push({ path: `${path}.derived`, message: "派生结果标记应为布尔值" });
   validateBusinessSource(cell.source, `${path}.source`, errors, true);
   if (cell.formula !== undefined && typeof cell.formula !== "string") {
     errors.push({ path: `${path}.formula`, message: "单元格公式应为字符串" });

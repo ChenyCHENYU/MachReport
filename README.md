@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.9.1-2563eb" alt="Source version 2.9.1" />
+  <img src="https://img.shields.io/badge/source-2.10.0-2563eb" alt="Source version 2.10.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -44,8 +44,8 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 明细与汇总 | 自动分页、多级分组与加权小计、业务键主从明细、动态矩阵、重复页眉页脚 |
 | 数据呈现 | 表头与内容独立对齐、类型自动对齐、数值 / 百分比 / 日期格式化、条件格式 |
 | 预览交互 | 右下分页、分组导出菜单、内容搜索与字段目录、跨页选区、冻结窗格、Sheet 导航 |
-| 内容编辑 | 默认只读；双击与批量粘贴、原子保存、撤销 / 重做、恢复与变更清单 |
-| Excel 导入 | 多 Sheet、完整宽表、合并单元格、基础样式与缓存公式值转换为可复用模板 |
+| 内容编辑 | 默认只读；双击与批量粘贴、原子保存、编辑后重算、撤销 / 重做、恢复与变更清单 |
+| Excel 导入 | 多 Sheet 会话复用、可取消预检、完整宽表、合并样式与缓存公式值转换为模板 |
 | 模板配置 | 可视化画布、Excel 业务绑定向导、计算与规则、变更对比与发布验收、CAS 历史 / 回滚 |
 | 输出 | 浏览器打印、HTML、PDF、真正的 `.xlsx`、逐页 PNG、Word 兼容 HTML `.doc` |
 | 工程接入 | 局部组件、全局插件、异步入口、分层配置、结构化错误与导出告警 |
@@ -58,13 +58,13 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 
 | 工作 | 包内提供 | 宿主只需提供 |
 | --- | --- | --- |
-| 可视化设计 | 毫米画布、拖动 / 缩放 / 吸附、组件层级、列宽 / 顺序、多层表头 | 模板文档与保存回调 |
+| 可视化设计 | 毫米画布、样例对齐、适宽 / 选区、多选对齐 / 分布、组件锁定、列宽与多层表头 | 模板文档与保存回调 |
 | Excel 业务化 | 选Sheet → 标题 / 表头 / 明细 / 页尾区域 → 字段映射 → 预览，支持重开会话 | 工作簿、数据集与字段契约 |
 | 计算与复杂单据 | 声明式表达式、精确十进制、多级分组、主从关系与动态矩阵 | 业务数据与口径 |
 | 发布验收 | 变更分类、字段依赖检查、显式样例、服务端真实PDF/XLSX编码 | 验收样例、字体、原子CAS存储 |
-| 大任务 | 逐页生成、增量编辑历史、租约 / 幂等 / 取消 / 失败重试 | 调度、文件归档；多实例数据库CAS适配 |
+| 大任务 | 逐页生成、增量编辑历史、租约 / 幂等 / 取消 / 失败重试、有界终态归档 | 调度、文件归档；多实例数据库CAS适配 |
 
-常规预览页面的接入保持不变。设计工具只在打开时加载；画布拖动在松手时提交一次模板事务，样例计算与验收按按钮执行。逐页生成不保留全部输出页，输入数据和分组索引仍受预算管理。
+常规预览页面的接入保持不变。稳定业务键的数据源自动维护编辑重算会话；派生列只读，保存前准备重算，成功后更新公式、条件样式与汇总，导出等待在途编辑。工作簿公式继续仅显示缓存结果。设计工具只在打开时加载；画布拖动在松手时提交一次模板事务，样例计算与验收按按钮执行。逐页生成不保留全部输出页，输入数据和分组索引仍受预算管理。
 
 操作与边界见[设计器](./docs/DESIGNER.md)、[Excel绑定](./docs/EXCEL_BINDING.md)、[复杂报表](./docs/COMPLEX_REPORTS.md)、[发布验收](./docs/PUBLICATION_REVIEW.md)、[持久任务](./docs/DURABLE_JOBS.md)。
 
@@ -623,7 +623,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.9.1`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.10.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

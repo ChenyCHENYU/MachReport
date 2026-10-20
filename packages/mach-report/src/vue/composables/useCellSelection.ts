@@ -1,9 +1,10 @@
-import { nextTick, shallowRef, type Ref } from "vue";
+import { nextTick, shallowRef, watch, type Ref } from "vue";
 import { createReportCellResolver, formatReportClipboard, getReportCellContext, parseReportClipboard, ReportCellEditError, type PlanComponent, type RenderPlan, type ReportCellAddress, type ReportCellContext, type ReportCellEdit, type ReportCellInput } from "@agile-team/mach-report";
 import { resolveGridLayout } from "../../render/grid-geometry";
 import { reportCellAddress } from "./useCellEditing";
 import { selectionAddressResolver, selectionCoordinate } from "./selection-grid";
 import { focusAdjacentControl } from "./focus-order";
+import { createEditAddressResolver } from "./edit-recalculation";
 
 export interface ReportCellSelection { anchor: ReportCellAddress; focus: ReportCellAddress }
 export interface ReportFieldTarget { field: string; datasetId?: string; rowKey?: string | number; tableId?: string }
@@ -92,13 +93,32 @@ export function useCellSelection(host: SelectionHost) {
   const tableAddresses = new WeakMap<HTMLTableElement, TableAddress>();
   const cellPaints = new WeakMap<HTMLTableCellElement, CellPaint>();
   let previousDifferences: readonly ReportCellEdit[] | null = null;
+  let previousPlan: RenderPlan | null = null;
   let modifiedKeys = new Set<string>();
+  function selectionEdit(plan: RenderPlan, address: ReportCellAddress): ReportCellEdit | null {
+    const context = getReportCellContext(plan, address);
+    if (!context || plan.requiresRecalculation && !context.source) return null;
+    return { address: context.address, source: context.source, table: context.table, value: context.value, previousValue: context.value, text: context.cell.text ?? "", previousText: context.cell.text ?? "" };
+  }
+  watch(host.plan, (next, previous) => {
+    const current = selection.value;
+    if (!current) return;
+    if (!next || !previous) { selection.value = null; return; }
+    const anchorEdit = selectionEdit(previous, current.anchor), focusEdit = selectionEdit(previous, current.focus);
+    const resolve = createEditAddressResolver(next);
+    const anchor = anchorEdit && resolve(anchorEdit), focus = focusEdit && resolve(focusEdit);
+    selection.value = anchor && focus ? { anchor, focus } : null;
+  }, { flush: "sync" });
   function refresh(scope = host.root.value ?? undefined): void {
     if (!scope) return;
     const current = selection.value;
     const plan = host.plan.value;
     const differences = host.differences();
-    if (differences !== previousDifferences) { previousDifferences = differences; modifiedKeys = new Set(differences.map((edit) => addressKey(edit.address))); }
+    if (differences !== previousDifferences || plan !== previousPlan) {
+      previousDifferences = differences; previousPlan = plan;
+      const locate = plan && differences.length ? createEditAddressResolver(plan) : null;
+      modifiedKeys = new Set(differences.flatMap((edit) => locate ? locate.all(edit).map(addressKey) : []));
+    }
     const bounds = current && plan ? selectionBounds(plan, current) : null;
     if (scope instanceof HTMLTableElement) refreshTable(scope, plan, bounds);
     for (const table of scope.querySelectorAll<HTMLTableElement>("table")) refreshTable(table, plan, bounds);

@@ -43,6 +43,11 @@ export function useTemplateWorkspace(
     );
     if (index >= 0) selected.value = index;
   });
+  watch([activeIndex, selected, mode, section], () => {
+    if (mode.value !== "design" || section.value !== "fields") return;
+    const location = lists.value[selected.value];
+    if (location && (canvasSelection.value?.pageIndex !== location.pageIndex || canvasSelection.value.componentIndex !== location.componentIndex)) canvas.select({ pageIndex: location.pageIndex, componentIndex: location.componentIndex });
+  });
   const editDisabled = computed(
     () => editor.editingReadonly.value || blocked.value || jsonPending.value,
   );

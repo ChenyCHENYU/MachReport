@@ -109,3 +109,21 @@ const result = await renderPlanToPdf(plan, {
 结果新增结构化 `diagnostics`，包含格式、页号索引、组件索引、类型及错误码；`fidelityWarnings` 继续兼容。`inspectOutputCapabilities(plan, "pdf")` 可在加载 PDF 引擎前检查静态能力，图片解码和字体覆盖仍由实际导出核实。PDF 页面、字体和最终字节仍在内存中生成，取消在异步准备及组件 / 页面边界生效，不能中断底层库正在执行的同步操作。
 
 PDF / XLSX 为独立按需入口；只读状态、HEAD 诊断和普通预览不会提前加载两种导出引擎。接口取数和组件接入见 [项目接入指南](./INTEGRATION.md)。
+
+## 有界字体缓存与下载
+
+固定字体无需增加配置：内存与 IndexedDB 默认均采用最近使用淘汰，最多 8 个字体、总计 64MiB；单次字体下载最多 24MiB。IndexedDB 不可用时自动使用内存缓存。旧持久缓存读取兼容，后续写入按同一预算清理。
+
+```ts
+import { configureFontCache, getFontCacheStats, clearFontCache, loadFontWithCache } from '@agile-team/mach-report/pdf';
+
+// 可选的进程/页面级配置；不需要在每张报表重复传递。
+configureFontCache({ maxFonts: 8, maxBytes: 64 * 1024 * 1024, maxFontBytes: 24 * 1024 * 1024 });
+const stats = getFontCacheStats(); // 当前内存 fonts/bytes 与生效预算
+const bytes = await loadFontWithCache('/fonts/report.otf', { strict: true, signal });
+await clearFontCache(); // 清理内存与持久缓存，并隔离迟到加载
+```
+
+下载会先检查 Content-Length；没有长度或服务端误报时，继续逐块累计，在超限时取消响应读取，不会先读完整大文件再判断。15 秒超时覆盖响应头与正文读取。严格模式给出 URL 和预算诊断，旧接口仍以 `null` 降级。
+
+同一 URL 的并发调用共享下载。`signal` 只取消当前订阅；其他调用继续等待同一请求，取消以 AbortError（或调用者提供的 reason）拒绝，即使未设置 `strict` 也不会伪装成普通字体缺失。缓存淘汰只移除包持有的引用，已经交给 PDF 导出的字节仍可继续使用。`clearFontCache` / `invalidateFontCache` 会阻止旧请求重新填充已清理的缓存。

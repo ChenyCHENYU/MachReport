@@ -4,6 +4,7 @@ import { createTableTemplate } from "../builder/table-template";
 import { defineReportTemplate } from "../source/template-registry";
 import { diffReportTemplates } from "../source/template-diff";
 import { reviewReportTemplate } from "../source/template-review";
+import { createReportSource } from "../source/report-source";
 import { createMemoryTemplateStore, createTemplateManager } from "../source/template-store";
 
 const document = () => defineReportTemplate({ id: "review", name: "Daily", template: createTableTemplate({ columns: [{ field: "code", header: "炉号" }, { field: "weight", header: "重量", format: { kind: "number", digits: 3 } }] }) });
@@ -33,6 +34,28 @@ describe("template publication review", () => {
     expect(wrong.ok).toBe(false); expect(wrong.issues).toContainEqual(expect.objectContaining({ code: "field", field: "weight" }));
     const typed = reviewReportTemplate(document(), { dataSchemas: schema, fixtures: [{ name: "bad", datasets: { detail: [{ code: "001", weight: "0" }] } }] });
     expect(typed.ok).toBe(false); expect(typed.samples).toHaveLength(0);
+  });
+
+  it("validates fixture query parameters with the same contract as runtime and reports the exact fixture path", async () => {
+    const current = document();
+    current.template.params = [{ field: "reportDate", type: "date", required: true }, { field: "limit", type: "number", min: 1, max: 10, defaultValue: "3" }];
+    const datasets = { detail: [{ code: "001", weight: 0 }] };
+    const invalid = reviewReportTemplate(current, { fixtures: [{ name: "bad-date", datasets, params: { reportDate: "wrong" } }, { name: "missing-date", datasets, params: { limit: "0" } }] });
+    expect(invalid.ok).toBe(false); expect(invalid.samples).toEqual([]);
+    expect(invalid.issues).toContainEqual(expect.objectContaining({ code: "params", field: "reportDate", path: "$.fixtures[0].params.reportDate", fixture: "bad-date" }));
+    expect(invalid.issues).toContainEqual(expect.objectContaining({ code: "params", field: "reportDate", path: "$.fixtures[1].params.reportDate", fixture: "missing-date" }));
+    expect(invalid.issues).toContainEqual(expect.objectContaining({ code: "params", field: "limit", path: "$.fixtures[1].params.limit" }));
+    const runtime = createReportSource({ review: { template: current.template, datasets } });
+    await expect(runtime({ reportIds: ["review"], params: { reportDate: "wrong" } })).rejects.toMatchObject({ code: "params" });
+    expect(reviewReportTemplate(current, { fixtures: [{ name: "valid", datasets, params: { reportDate: "2026-10-20" } }] }).ok).toBe(true);
+  });
+
+  it("stops actual server publication before encoding when fixture parameters are invalid", async () => {
+    const current = document(); current.template.params = [{ field: "reportDate", type: "date", required: true }];
+    const { reviewReportPublication } = await import("../server/publication");
+    const review = await reviewReportPublication(current, { formats: ["xlsx"], fixtures: [{ name: "bad-date", params: { reportDate: "2026-02-30" }, datasets: { detail: [{ code: "001", weight: 0 }] } }] });
+    expect(review.ok).toBe(false); expect(review.issues).toContainEqual(expect.objectContaining({ code: "params", path: "$.fixtures[0].params.reportDate" }));
+    expect(review.artifacts).toEqual([]);
   });
 
   it("marks an untested template honestly and does not silently truncate samples", () => {

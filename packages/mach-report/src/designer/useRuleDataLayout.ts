@@ -1,4 +1,5 @@
 import { computed, ref, watch } from "vue";
+import { useLocalDraft } from "./useLocalDraft";
 import type {
   DatasetRows,
   ListComponent,
@@ -9,9 +10,11 @@ import {
   createMatrixTable,
   type MatrixTableOptions,
 } from "../processing/matrix";
+import { validateReportTemplate } from "../source/template-registry";
 import type { RuleEditorMessages } from "./rule-messages";
 export interface RuleDataLayoutOptions {
   list: ListComponent;
+  accept?: (list: ListComponent) => boolean;
   mode: "detail" | "matrix";
   datasets?: DatasetRows;
   datasetSchema?: DatasetContract;
@@ -37,6 +40,8 @@ export function useRuleDataLayout(
     columnFields: [],
     measures: [],
   });
+  const localDraft = useLocalDraft(() => ({ enabled: enabled.value, detail: detail.value, matrix: matrix.value }));
+  let committed: string | undefined;
   const preview = ref<{ columns: string[]; rows: unknown[][] }>();
   const datasets = computed(() => [
     ...new Set([
@@ -63,6 +68,7 @@ export function useRuleDataLayout(
     return [...map].map(([field, label]) => ({ field, label }));
   }
   function reset(): void {
+    if (committed === JSON.stringify(props.list)) { committed = undefined; return; }
     enabled.value =
       props.mode === "detail" ? !!props.list.detail : !!props.list.matrix;
     const first =
@@ -92,8 +98,9 @@ export function useRuleDataLayout(
     matrix.value.measures = matrix.value.measures.map((measure) => ({ ...measure, numeric: measure.numeric ?? "number" }));
     error.value = "";
     preview.value = undefined;
+    localDraft.accept();
   }
-  watch(() => [props.list, props.mode], reset, { immediate: true });
+  watch(() => [props.mode, props.list.dataset, props.mode === "detail" ? props.list.detail : props.list.matrix], reset, { immediate: true });
   function chooseDataset(dataset: string): void {
     detail.value.dataset = dataset;
     detail.value.columns = [];
@@ -183,10 +190,16 @@ export function useRuleDataLayout(
       delete next.groupBy;
       delete next.grandTotal;
     }
-    change(next);
+    const result = validateReportTemplate({ pages: [{ widthMm: Math.max(1, next.leftMm + next.widthMm), heightMm: 297, components: [next] }] });
+    if (!result.ok) { error.value = result.errors.slice(0, 3).map(issue => issue.message).join("；"); return; }
+    if (props.accept && !props.accept(next)) return;
+    committed = JSON.stringify(next);
+    if (!props.accept) change(next);
+    localDraft.accept();
   }
   return {
     enabled,
+    pendingLocalChanges: localDraft.pending,
     detail,
     matrix,
     datasets,

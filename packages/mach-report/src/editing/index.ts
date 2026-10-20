@@ -10,3 +10,5 @@ export * from "./batch";
 export * from "./clipboard";
 export * from "./result";
 export * from "./fields";
+export { createReportEditSession, registerReportEditSession, getReportEditSession, type ReportEditSession, type ReportPreparedEdit, type ReportEditPreparationOptions, type ReportHistoryPreparation, type ReportEditSessionRegistration } from "./session";
+export { relocateReportCellEdits } from "./session-context";

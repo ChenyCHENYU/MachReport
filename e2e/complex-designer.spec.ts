@@ -283,6 +283,7 @@ test("规则工具实际配置精确小数公式与分组，预览/Excel一致�
   await expect(editor.locator(".mr-rule-editor__results")).toContainText(
     "9007199254740993.10",
   );
+  await page.screenshot({ path: info.outputPath("rule-editor-calculation.png"), fullPage: true });
   await editor.getByRole("button", { name: "应用规则", exact: true }).click();
   await expect
     .poll(async () => (await currentList(page)).computed?.[0]?.field)

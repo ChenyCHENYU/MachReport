@@ -1,4 +1,5 @@
 import { computed, ref, watch, type Ref } from "vue";
+import { useCanvasSelection } from "./useCanvasSelection";
 import type {
   ReportTemplateDocument,
   TemplateComponent,
@@ -25,6 +26,7 @@ export function useTemplateCanvas(
   const mode = ref<"design" | "preview">("preview");
   const selection = ref<CanvasSelection>();
   const pageIndex = ref(0);
+  const multi = useCanvasSelection(draft, selection, transaction);
   const active = computed(() =>
     selectedComponent(draft.value, selection.value),
   );
@@ -33,7 +35,7 @@ export function useTemplateCanvas(
     if (!draft.value.template.pages[pageIndex.value]) pageIndex.value = 0;
   });
   function select(next: CanvasSelection): void {
-    selection.value = next;
+    multi.select(next);
     pageIndex.value = next.pageIndex;
   }
   function mutate(
@@ -43,7 +45,7 @@ export function useTemplateCanvas(
     ) => void,
   ): boolean {
     const selected = selection.value;
-    if (!selected) return false;
+    if (!selected || multi.locked(selected)) return false;
     return transaction((document) => {
       const component = selectedComponent(document, selected);
       if (component) change(component, document);
@@ -73,15 +75,16 @@ export function useTemplateCanvas(
   function remove(): void {
     const selected = selection.value;
     if (
-      selected &&
+      selected && !multi.locked(selected) &&
       transaction((document) => {
         document.template.pages[selected.pageIndex]!.components.splice(
           selected.componentIndex,
           1,
         );
       })
-    )
-      selection.value = undefined;
+    ) {
+      multi.remap(selected.pageIndex, selected.componentIndex); selection.value = undefined;
+    }
   }
   function duplicate(): void {
     const selected = selection.value;
@@ -112,7 +115,7 @@ export function useTemplateCanvas(
   }
   function reorder(delta: -1 | 1): void {
     const selected = selection.value;
-    if (!selected) return;
+    if (!selected || multi.locked(selected)) return;
     const next = selected.componentIndex + delta;
     if (!draft.value.template.pages[selected.pageIndex]?.components[next])
       return;
@@ -121,10 +124,13 @@ export function useTemplateCanvas(
         const list = document.template.pages[selected.pageIndex]!.components;
         list.splice(next, 0, list.splice(selected.componentIndex, 1)[0]!);
       })
-    )
+    ) {
+      multi.remap(selected.pageIndex, selected.componentIndex, next);
       select({ pageIndex: selected.pageIndex, componentIndex: next });
+    }
   }
   return {
+    ...multi,
     mode,
     selection,
     pageIndex,

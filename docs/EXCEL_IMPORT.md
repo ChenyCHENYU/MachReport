@@ -118,6 +118,28 @@ const printable = await importExcelTemplate(file, {
 
 纵向分段默认目标为 80 行，同时受每段 10,000 个单元格的约束；列很多时会自动减少每段行数。跨行合并保持完整，无法安全容纳的超大合并区域会明确拒绝，避免一次构建过量 DOM。
 
+## 反复选择 Sheet：一次解析，会话复用
+
+设计器绑定向导默认使用包内工作簿会话。自建向导也可直接复用，界面只保存当前会话和选项：
+
+```ts
+import { openExcelWorkbook } from "@agile-team/mach-report/xlsx";
+
+const session = await openExcelWorkbook(file, { signal, limits: { maxCells: 250_000 } });
+try {
+  const directory = session.inspect(); // 同步元数据，无二次解析
+  const result = await session.importTemplate({ sheets: [directory.sheets[0]!.name] });
+  // 切换 Sheet 时继续调用 session.importTemplate({ sheets: [...] })。
+  // result 是独立模板；释放会话不会修改已经生成的结果。
+} finally {
+  session.dispose(); // 替换文件或界面卸载时释放
+}
+```
+
+`limits` 在打开时固定，转换选项不接受它，避免切换 Sheet 时绕过源工作簿预算。一次会话同时只允许一个转换；失败或单次取消后可以重试，`dispose()` 会取消在途转换并拒绝后续操作。会话持有完整解析工作簿，宿主应在替换文件和卸载时释放，不建立全局无界文件缓存。标准设计器已处理这些生命周期。
+
+ZIP 预检逐项、逐块检查 `signal`，取消会主动结束当前读取并停止后续条目；等待文件读取或第三方解析时可及时拒绝并隔离迟到结果。第三方解析中已经开始的同步 CPU 工作不能被主线程抢占；需要硬取消时在受控 Worker 或后端执行。`onProgress` 保持已转换 Sheet 数 / 选中 Sheet 总数的含义，预检不会混入这个进度。
+
 ## 持久化和业务闭环
 
 小模板可用 `defineReportTemplate()` 和 `serializeReportTemplate()` 保存版本化 JSON。模板文档 API 另有 200,000 个 JSON 节点与 1,000 万字符的校验预算，大 Excel 展开后的模板可能超过该预算；导入成功不代表一定可序列化为受管模板文档。大模板建议保存原始 `.xlsx`、导入参数和版本，在受控环境转换后分页展示。模板名称、修订、文件来源、权限和审批由应用维护。选择文件与转换本身不会上传文件、修改数据库或执行工作簿中的代码。

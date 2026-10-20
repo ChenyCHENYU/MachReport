@@ -248,3 +248,25 @@ test("设计器列排序/显隐/拖宽、多层表头合并拆分与组件命令
     fullPage: true,
   });
 });
+
+test("画布适宽适页、多选对齐与位置锁保持模板和视口一致", async ({ page }, testInfo) => {
+  const root = await mountCanvas(page);
+  const viewport = root.locator(".mr-canvas-scroll"), paper = root.locator(".mr-canvas-paper");
+  await root.getByRole("button", { name: "适宽", exact: true }).click();
+  expect(await paper.evaluate(node => node.getBoundingClientRect().width)).toBeLessThanOrEqual((await viewport.evaluate(node => node.clientWidth)) - 39);
+  await root.getByRole("button", { name: "适页", exact: true }).click();
+  expect(await paper.evaluate(node => node.getBoundingClientRect().height)).toBeLessThanOrEqual((await viewport.evaluate(node => node.clientHeight)) - 39);
+  await root.locator('[data-canvas-component="0"]').click({ position: { x: 5, y: 5 } });
+  await root.locator('[data-canvas-component="1"]').click({ position: { x: 8, y: 25 }, modifiers: ["Control"] });
+  await root.getByRole("tab", { name: "组件", exact: true }).click();
+  await expect(root.locator(".mr-canvas-component.is-selected")).toHaveCount(2);
+  await root.getByRole("combobox", { name: "对齐选区" }).selectOption("left");
+  const lefts = await page.evaluate(() => (window as CanvasWindow).__canvasFixture.document.template.pages[0]!.components.map(item => item.leftMm));
+  expect(lefts[0]).toBe(lefts[1]);
+  await root.getByRole("button", { name: "锁定位置", exact: true }).click();
+  await expect(root.locator(".mr-canvas-component.is-locked")).toHaveCount(2);
+  const before = await page.evaluate(() => (window as CanvasWindow).__canvasFixture.changes);
+  await root.locator('[data-canvas-component="0"]').focus(); await page.keyboard.press("ArrowRight");
+  expect(await page.evaluate(() => (window as CanvasWindow).__canvasFixture.changes)).toBe(before);
+  await root.screenshot({ path: testInfo.outputPath("canvas-selection-lock.png") });
+});

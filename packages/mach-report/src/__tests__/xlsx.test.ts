@@ -212,7 +212,7 @@ describe("renderPlanToXlsx（./xlsx 子路径）", () => {
     expect(sheet.model.merges?.length).toBeGreaterThan(0);
   });
 
-  it("图片等不支持组件计入保真告警", async () => {
+  it("SVG等不支持图片格式计入保真告警", async () => {
     const plan: RenderPlan = {
       schemaVersion: "t",
       pages: [
@@ -220,7 +220,7 @@ describe("renderPlanToXlsx（./xlsx 子路径）", () => {
           pageWidthMm: 210,
           pageHeightMm: 297,
           components: [
-            { kind: "image", leftMm: 10, topMm: 10, widthMm: 20, heightMm: 20, imageData: "data:image/png;base64,x" }
+            { kind: "image", leftMm: 10, topMm: 10, widthMm: 20, heightMm: 20, imageData: "data:image/svg+xml,%3Csvg/%3E" }
           ]
         }
       ]

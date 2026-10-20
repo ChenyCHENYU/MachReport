@@ -111,6 +111,9 @@ export interface ListDetail {
   parentKey: string;
   foreignKey: string;
   rowKey?: string;
+  /** 子表独立的并发契约；省略时不继承主表字段。 */
+  revisionField?: string;
+  sourceTokenField?: string;
   columns: ListColumn[];
   rowHeightMm?: number;
   header?: boolean;

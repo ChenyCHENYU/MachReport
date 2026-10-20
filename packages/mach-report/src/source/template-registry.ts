@@ -362,7 +362,7 @@ function validateListComplex(list: JsonObject, path: string, errors: ValidationE
   const detail = list.detail, here = `${path}.detail`;
   if (!isObject(detail)) { errors.push({ path: here, message: "主从关联应为对象" }); return; }
   for (const key of ["dataset", "parentKey", "foreignKey"]) stringField(detail, key, here, errors, true);
-  stringField(detail, "rowKey", here, errors, detail.rowKey !== undefined);
+  for (const key of ["rowKey", "revisionField", "sourceTokenField"]) stringField(detail, key, here, errors, detail[key] !== undefined);
   stringField(detail, "label", here, errors);
   booleanField(detail, "header", here, errors);
   numberField(detail, "rowHeightMm", here, errors, Number.MIN_VALUE);

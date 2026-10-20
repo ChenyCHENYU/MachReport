@@ -149,3 +149,20 @@ describe("可视化设计命令", () => {
     ]);
   });
 });
+
+describe("multi selection arrangement and locks", () => {
+  it("aligns/distributes in one transaction, skips locked objects and remaps locks after layer changes", () => {
+    const scope = effectScope(), document = fixture().document;
+    document.template.pages[0]!.components = [0, 1, 2].map(index => ({ ...createCanvasComponent("text"), leftMm: index === 1 ? 55 : index * 60, topMm: 10 + index * 10, widthMm: 20 }));
+    const draft = ref(document); let transactions = 0;
+    const canvas = scope.run(() => useTemplateCanvas(draft, change => { const next = JSON.parse(JSON.stringify(draft.value)) as typeof draft.value; change(next); draft.value = next; transactions++; return true; }))!;
+    canvas.select({ pageIndex: 0, componentIndex: 0 }); canvas.select({ pageIndex: 0, componentIndex: 1, additive: true }); canvas.select({ pageIndex: 0, componentIndex: 2, additive: true });
+    expect(canvas.selections.value).toHaveLength(3);
+    canvas.align("top"); expect(transactions).toBe(1); expect(draft.value.template.pages[0]!.components.map(item => item.topMm)).toEqual([10, 10, 10]);
+    canvas.distribute("horizontal"); expect(transactions).toBe(2); expect(draft.value.template.pages[0]!.components.map(item => item.leftMm)).toEqual([0, 60, 120]);
+    canvas.select({ pageIndex: 0, componentIndex: 1 }); canvas.toggleLock(); const lockedBefore = JSON.stringify(draft.value);
+    canvas.geometry({ leftMm: 1, topMm: 1, widthMm: 20, heightMm: 10 }); canvas.remove(); canvas.reorder(1); expect(JSON.stringify(draft.value)).toBe(lockedBefore); expect(transactions).toBe(2);
+    canvas.select({ pageIndex: 0, componentIndex: 0 }); canvas.remove(); expect(canvas.locked({ pageIndex: 0, componentIndex: 0 })).toBe(true); expect(draft.value.template.pages[0]!.components).toHaveLength(2);
+    scope.stop();
+  });
+});

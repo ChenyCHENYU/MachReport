@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { resolveListSampleCell, resolveListHeaderStyle } from "../layout/list-cell";
+import { useCanvasViewport } from "./useCanvasViewport";
 import { resolveFontSize } from "../render/style";
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, onBeforeUnmount, watch } from "vue";
 import {
   resolveGridLayout,
   type DatasetRows,
@@ -9,7 +11,6 @@ import {
   type ReportTemplateDocument,
 } from "@agile-team/mach-report";
 import {
-  CANVAS_MM_TO_PX,
   componentGeometry,
   componentHeight,
   type CanvasGeometry,
@@ -23,6 +24,9 @@ import {
 const props = defineProps<{
   document: ReportTemplateDocument;
   selection?: CanvasSelection;
+  selections?: readonly CanvasSelection[];
+  locked?: (selection: CanvasSelection) => boolean;
+  activeColumnIndex?: number;
   pageIndex: number;
   datasets?: DatasetRows;
   disabled?: boolean;
@@ -35,9 +39,16 @@ const emit = defineEmits<{
   (event: "width", index: number, value: number): void;
 }>();
 const m = computed(() => ({ ...TEMPLATE_EDITOR_MESSAGES, ...props.messages }));
-const zoom = ref(0.8),
-  scale = computed(() => zoom.value * CANVAS_MM_TO_PX);
-const page = computed(() => props.document.template.pages[props.pageIndex]!);
+const { viewport, zoom, scale, page, wide, fraction, fit, sync, navigate } = useCanvasViewport({ get document() { return props.document; }, get pageIndex() { return props.pageIndex; }, get selection() { return props.selection; }, get columnIndex() { return props.activeColumnIndex; } });
+const samples = computed(() => page.value.components.map(component => component.kind === "list" ? (props.datasets?.[component.dataset] ?? []).slice(0,3).map(row => component.columns.map(column => resolveListSampleCell(component, column, row))) : []));
+function sampleStyle(cell: ReturnType<typeof resolveListSampleCell>, width: number, hidden?: boolean) {
+  return { width: `${width * scale.value}px`, opacity: hidden ? .35 : 1, textAlign: cell.style?.align, color: cell.style?.color, backgroundColor: cell.style?.backgroundColor, fontWeight: cell.style?.bold ? "700" : "400", fontSize: `${resolveFontSize(cell.style).fontSizePx * zoom.value}px` };
+}
+function isLocked(index: number): boolean { return props.locked?.({ pageIndex: props.pageIndex, componentIndex: index }) === true; }
+function selectPointer(event: PointerEvent, index: number): void {
+  emit("select", { pageIndex: props.pageIndex, componentIndex: index, additive: event.ctrlKey || event.metaKey || event.shiftKey });
+  if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !isLocked(index)) pointer.start(event, page.value.components[index]!);
+}
 const pointer = useCanvasPointer({
   scale,
   page: () => page.value,
@@ -46,8 +57,7 @@ const pointer = useCanvasPointer({
 });
 function selected(index: number): boolean {
   return (
-    props.selection?.pageIndex === props.pageIndex &&
-    props.selection.componentIndex === index
+    (props.selections ?? (props.selection ? [props.selection] : [])).some(item => item.pageIndex === props.pageIndex && item.componentIndex === index)
   );
 }
 function style(index: number) {
@@ -61,7 +71,7 @@ function style(index: number) {
 }
 function keyboard(event: KeyboardEvent, index: number): void {
   const component = page.value.components[index]!;
-  if (props.disabled || !selected(index)) return;
+  if (props.disabled || isLocked(index) || !selected(index)) return;
   const directions: Record<string, [number, number]> = {
       ArrowLeft: [-1, 0],
       ArrowRight: [1, 0],
@@ -167,15 +177,15 @@ function resizeColumn(
 <template>
   <div class="mr-canvas">
     <div class="mr-canvas-heading">
-      <span>{{ m.canvasHint }}</span><label>{{ m.zoom
-        }}<select v-model.number="zoom">
+      <span>{{ m.canvasHint }}</span><nav class="mr-canvas-view-tools"><button type="button" @click="fit('width')">{{ m.fitWidth }}</button><button type="button" @click="fit('page')">{{ m.fitPage }}</button><button type="button" :disabled="!selection" @click="fit('selection')">{{ m.fitSelection }}</button></nav><label>{{ m.zoom
+        }}<select v-model.number="zoom" :aria-label="m.zoom"><option v-if="![.5,.8,1,1.25].includes(zoom)" :value="zoom">{{ Math.round(zoom * 100) }}%</option>
           <option :value="0.5">50%</option>
           <option :value="0.8">80%</option>
           <option :value="1">100%</option>
           <option :value="1.25">125%</option>
         </select></label>
     </div>
-    <div class="mr-canvas-scroll">
+    <div ref="viewport" class="mr-canvas-scroll" @scroll.passive="sync">
       <div
         class="mr-canvas-paper"
         :style="{
@@ -187,19 +197,16 @@ function resizeColumn(
           v-for="(component, index) in page.components"
           :key="index"
           class="mr-canvas-component"
-          :class="{ 'is-selected': selected(index) }"
+          :class="{ 'is-selected': selected(index), 'is-locked': isLocked(index) }"
           :data-canvas-component="index"
           :style="style(index)"
           role="button"
           :aria-label="`${m.component} ${index + 1} ${component.kind}`"
           :aria-pressed="selected(index)"
           :tabindex="selected(index) ? 0 : -1"
-          @focus="emit('select', { pageIndex, componentIndex: index })"
-          @pointerdown="
-            emit('select', { pageIndex, componentIndex: index });
-            pointer.start($event, component);
-          "
-          @click="emit('select', { pageIndex, componentIndex: index })"
+          @focus="!selected(index) && emit('select', { pageIndex, componentIndex: index })"
+          @pointerdown="selectPointer($event, index)"
+          @click="($event.detail === 0 && !selected(index)) && emit('select', { pageIndex, componentIndex: index })"
           @keydown="keyboard($event, index)"
         >
           <template v-if="component.kind === 'list'">
@@ -229,10 +236,7 @@ function resizeColumn(
                 <div
                   v-for="(column, columnIndex) in component.columns"
                   :key="columnIndex"
-                  :style="{
-                    width: `${column.widthMm * scale}px`,
-                    opacity: column.hidden ? 0.35 : 1,
-                  }"
+                  :style="sampleStyle({ text: column.header, style: resolveListHeaderStyle(component, column) }, column.widthMm, column.hidden)"
                   @pointerdown.stop="
                     emit('select', { pageIndex, componentIndex: index });
                     emit('column', columnIndex);
@@ -242,21 +246,16 @@ function resizeColumn(
                 </div>
               </div>
               <div
-                v-for="(row, rowIndex) in (
-                  datasets?.[component.dataset] ?? []
-                ).slice(0, 3)"
+                v-for="(row, rowIndex) in samples[index]"
                 :key="rowIndex"
                 class="mr-canvas-table-row"
               >
                 <div
                   v-for="(column, columnIndex) in component.columns"
                   :key="columnIndex"
-                  :style="{
-                    width: `${column.widthMm * scale}px`,
-                    opacity: column.hidden ? 0.35 : 1,
-                  }"
+                  :style="sampleStyle(row[columnIndex]!, column.widthMm, column.hidden)"
                 >
-                  {{ row[column.field] ?? "—" }}
+                  {{ row[columnIndex]!.text }}
                 </div>
               </div>
               <div
@@ -266,7 +265,7 @@ function resizeColumn(
                 {{ component.dataset }} · {{ m.sampleRows }}
               </div>
             </div>
-            <template v-if="selected(index) && !disabled">
+            <template v-if="selected(index) && !disabled && !isLocked(index)">
               <span
                 v-for="(edge, columnIndex) in columnEdges(component)"
                 :key="columnIndex"
@@ -329,7 +328,7 @@ function resizeColumn(
             }}
           </div>
           <span
-            v-if="selected(index) && !disabled"
+            v-if="selected(index) && !disabled && !isLocked(index)"
             class="mr-canvas-resize"
             :aria-label="m.resizeComponent"
             role="separator"
@@ -338,6 +337,7 @@ function resizeColumn(
         </div>
       </div>
     </div>
+    <footer v-if="wide" class="mr-canvas-navigator"><span>{{ m.wideNavigation }}</span><input type="range" min="0" max="100" :value="fraction" :aria-label="m.wideNavigation" @input="navigate(Number(($event.target as HTMLInputElement).value))" /><span>{{ fraction }}%</span></footer>
   </div>
 </template>
 <style scoped>
@@ -362,6 +362,7 @@ function resizeColumn(
   color: #64748b;
   font-size: 11px;
 }
+.mr-canvas-view-tools { display:flex; gap:4px; margin-left:auto; }.mr-canvas-view-tools button { border:1px solid #dbe3ec; background:#fff; color:inherit; border-radius:4px; padding:3px 7px; font:inherit; cursor:pointer; }.mr-canvas-view-tools button:disabled { opacity:.5; }.mr-canvas-navigator { display:flex; align-items:center; gap:10px; padding:5px 12px; background:#fff; border-top:1px solid #e2e8f0; font-size:11px; color:#64748b; }.mr-canvas-navigator input { flex:1; min-width:80px; height:16px; accent-color:#3b82f6; }.mr-canvas-component.is-locked { cursor:default; border-style:solid; border-color:#94a3b8; }
 .mr-canvas-heading label {
   display: flex;
   align-items: center;

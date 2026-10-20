@@ -10,12 +10,14 @@ import type {
 import { RENDER_PLAN_SCHEMA_VERSION } from "../schema/render-plan";
 import { DEFAULT_FONT_FAMILY, DEFAULT_FONT_PT, LINE_HEIGHT } from "../defaults";
 import { heuristicMeasurer, wrapText, type TextMeasureOptions, type TextMeasurer } from "./textwrap";
-import { evalStyleRule, formatValue, toExcelNumberFormat, type ColumnFormat } from "../format";
+import { evalStyleRule, formatValue, toExcelNumberFormat } from "../format";
 import { computeDataset, type FormulaAdapter } from "../processing/computed";
 import { aggregateRows, type AggregateDefinition } from "../processing/aggregate";
 import { createMatrixTable, estimateMatrixTable } from "../processing/matrix";
 import { projectListColumns } from "./list-projection";
+import { templateRequiresRecalculation } from "./template-calculations";
 import { mergeComponentStyles, resolveFontSize } from "../render/style";
+import { resolveListAutoAlignment, listCellText as cellText, resolveListHeaderStyle } from "./list-cell";
 
 import type { ListColumn, ListComponent, ListGroupBy } from "./list-model";
 export type { ListAlignment, ListColumn, ListComponent, ListGroupBy, ListGrandTotal, ListDetail } from "./list-model";
@@ -131,18 +133,6 @@ function headerBottom(page: TemplatePage): number {
   return page.components.reduce((bottom, component) => component.kind !== "list" && component.pageAnchor === "header" ? Math.max(bottom, component.topMm + component.heightMm) : bottom, 0);
 }
 
-function cellText(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "number") return String(value);
-  if (typeof value === "boolean") return value ? "是" : "否";
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
 
 /** 列表级驻留产物：热路径（万行循环）中不再逐行/逐格新建样式对象 */
 interface ListInterning {
@@ -156,6 +146,7 @@ interface ListInterning {
   ruleStyles: Array<Array<Record<"left" | "center" | "right", ComponentStyle>> | undefined>;
   textMetrics: WeakMap<ComponentStyle, CellTextMetrics>;
   numberFormats: Array<string | undefined>;
+  derivedFields: Set<string>;
   /** 列表整体边框样式（所有行/表头共享） */
   borderStyle: ComponentStyle;
   headerHeightMm: number;
@@ -191,14 +182,6 @@ function cellTextMetrics(inter: ListInterning, style: ComponentStyle): CellTextM
   return metrics;
 }
 
-function autoAlignment(value: unknown, format?: ColumnFormat, role?: ListColumn["semanticRole"]): "left" | "center" | "right" {
-  if (role === "identifier" || role === "dimension" || role === "date") return "center";
-  if (role === "measure") return "right";
-  if (role === "text") return "left";
-  if (format?.kind === "number" || format?.kind === "percent") return "right";
-  if (format?.kind === "date" || value instanceof Date || typeof value === "boolean") return "center";
-  return typeof value === "number" && Number.isFinite(value) ? "right" : "left";
-}
 
 function rawCellValue(value: unknown): GridCell["value"] {
   if (value === null || typeof value === "string" || typeof value === "boolean") return value;
@@ -234,19 +217,7 @@ function interList(list: ListComponent, measurer: TextMeasurer): ListInterning {
   }));
 
   // 表头单元格样式（含底色/加粗），同样驻留
-  const headerCellStyles = list.columns.map((col) => {
-    let style: ComponentStyle = mergeComponentStyles({
-      fontSize: fontSizePt,
-      bold: list.headerBold ?? true,
-      align: "center",
-      verticalAlign: "middle",
-      backgroundColor: list.headerBackgroundColor
-    }, col.style);
-    if (list.headerAlign !== undefined) style.align = list.headerAlign;
-    style = mergeComponentStyles(style, list.headerStyle);
-    if (col.headerAlign !== undefined) style.align = col.headerAlign;
-    return mergeComponentStyles(style, col.headerStyle);
-  });
+  const headerCellStyles = list.columns.map((col) => resolveListHeaderStyle(list, col));
 
   const headerTexts = list.columns.map((col) => col.header);
   let headerHeight = list.rowHeightMm ?? 0;
@@ -284,6 +255,7 @@ function interList(list: ListComponent, measurer: TextMeasurer): ListInterning {
     ruleStyles,
     textMetrics: new WeakMap(),
     numberFormats: list.columns.map((column) => toExcelNumberFormat(column.format)),
+    derivedFields: new Set(list.computed?.map((field) => field.field)),
     borderStyle,
     headerHeightMm: headerGrid.rowHeightsMm!.reduce((sum, height) => sum + height, 0),
     headerGrid,
@@ -324,7 +296,7 @@ function buildRowGridFast(
   for (let i = 0; i < columns.length; i++) {
     const col = columns[i]!;
     const rawValue = col.visibleWhen && !evalStyleRule(row, col.visibleWhen) ? null : row[col.field];
-    const alignment = inter.autoStyles[i] ? autoAlignment(rawValue, col.format, col.semanticRole) : "left";
+    const alignment = inter.autoStyles[i] ? resolveListAutoAlignment(rawValue, col.format, col.semanticRole) : "left";
     let style = inter.autoStyles[i]?.[alignment] ?? inter.cellStyles[i]!;
     // 条件格式首个命中生效；所有变体在列表级驻留，热路径不构造样式对象。
     if (col.rules) {
@@ -345,6 +317,7 @@ function buildRowGridFast(
     const cell: GridCell = { text, style };
     if (value !== undefined) cell.value = value;
     applyCellEditMetadata(cell, col, inter.numberFormats[i]);
+    if (inter.derivedFields.has(col.field)) { cell.derived = true; cell.editable = false; }
     if (col.visibleWhen && rawValue === null && !evalStyleRule(row, col.visibleWhen)) cell.editable = false;
     cells[i] = cell;
   }
@@ -397,7 +370,7 @@ function summaryValues(columns: ListColumn[], rows: DataRow[], fields: string[],
 
 function labelSpanFor(columns: ListColumn[], fields: string[]): number {
   const first = columns.findIndex((column) => fields.includes(column.field));
-  return first > 0 ? first : 1;
+  return first < 0 ? 1 : first;
 }
 
 function buildSpanRow(
@@ -409,17 +382,27 @@ function buildSpanRow(
   labelSpanTo: number
 ): GridRow {
   const cells: GridCellCompat[] = [];
-  const span = Math.max(1, Math.min(labelSpanTo, inter.columns.length));
+  const span = Math.max(0, Math.min(labelSpanTo, inter.columns.length));
   const summaryStyle = mergeComponentStyles({ fontSize: inter.fontSizePt }, style);
-  cells.push({ text: label, colSpan: span, style: { bold: true, ...summaryStyle } });
+  if (span) cells.push({ text: label, colSpan: span, style: { bold: true, ...summaryStyle } });
   for (let i = span; i < inter.columns.length; i++) {
     const col = inter.columns[i]!;
     const valueCell = values.get(col.field);
-    const columnStyle = inter.autoStyles[i]?.[autoAlignment(valueCell?.value, col.format)] ?? inter.cellStyles[i];
+    const columnStyle = inter.autoStyles[i]?.[resolveListAutoAlignment(valueCell?.value, col.format)] ?? inter.cellStyles[i];
     cells.push({ ...valueCell, text: valueCell?.text ?? "", style: mergeComponentStyles(columnStyle, style) });
   }
-  let height = inter.rowHeightFloorMm;
-  let columnIndex = 0;
+  // 度量占首列时，标签单独成行；不牺牲任何请求的汇总值，raw Excel 仍保留数字。
+  const labelCell = { text: label, colSpan: inter.columns.length, style: { bold: true, ...summaryStyle } };
+  const rows = span ? [cells] : [[labelCell], cells];
+  const heights = rows.map((row) => measureSummaryRow(inter, row, measurer));
+  return {
+    grid: { cells: rows, colWidthsMm: inter.colWidthsMm, rowHeightsMm: heights, paddingMm: inter.paddingMm },
+    heightMm: heights.reduce((sum, height) => sum + height, 0)
+  };
+}
+
+function measureSummaryRow(inter: ListInterningWithFloor, cells: GridCell[], measurer: TextMeasurer): number {
+  let height = inter.rowHeightFloorMm, columnIndex = 0;
   for (const cell of cells) {
     let widthMm = 0;
     const endColumn = columnIndex + (cell.colSpan ?? 1);
@@ -428,10 +411,7 @@ function buildSpanRow(
     const lines = wrapText(cell.text ?? "", widthMm - inter.paddingMm * 2, metrics.measureOptions, measurer);
     height = Math.max(height, lines.length * metrics.lineMm + inter.paddingMm * 2);
   }
-  return {
-    grid: { cells: [cells], colWidthsMm: inter.colWidthsMm, rowHeightsMm: [height], paddingMm: inter.paddingMm },
-    heightMm: height
-  };
+  return height;
 }
 
 interface ListPageContext {
@@ -517,7 +497,7 @@ function createListPageWriter(list: ListComponent, inter: ListInterningWithFloor
   function appendGridRow(row: GridRow, prefix: string, role: PlanTableFragment["role"], source?: PlanTableFragment["source"]): void {
     const id = row.table?.id ?? tableBase.id;
     const rowIndex = role === "header" ? -1 : rowIndices.get(id) ?? 0;
-    if (role !== "header") rowIndices.set(id, rowIndex + 1);
+    if (role !== "header") rowIndices.set(id, rowIndex + row.grid.cells.length);
     current.components.push({
       kind: "rect", leftMm: list.leftMm, topMm: y, widthMm: list.widthMm,
       heightMm: row.heightMm, grid: row.grid, nid: nextId(prefix),
@@ -594,17 +574,23 @@ function detailContext(list: ListComponent, rows: DataRow[], context: ListPageCo
   if (!detail) return undefined;
   const parentKeys = new Set<string>();
   for (const row of rows) { const key = relationKey(row[detail.parentKey]); if (parentKeys.has(key)) throw new Error("主从明细的主表关联键重复"); parentKeys.add(key); }
-  const children = context.datasets[detail.dataset] ?? [], buckets = new Map<string, DataRow[]>();
+  const children = context.datasets[detail.dataset] ?? [], buckets = new Map<string, DataRow[]>(), matched: DataRow[] = [];
   for (const row of children) {
-    const key = relationKey(row[detail.foreignKey]);
+    const value = row[detail.foreignKey];
+    if (!validRelationKey(value) && detail.unmatched === "ignore") continue;
+    const key = relationKey(value);
     if (!parentKeys.has(key)) { if (detail.unmatched !== "ignore") throw new Error(`明细数据集 ${detail.dataset} 存在未关联的业务键`); continue; }
     const bucket = buckets.get(key); if (bucket) bucket.push(row); else buckets.set(key, [row]);
+    matched.push(row);
   }
-  const childList = scaleList({ ...list, id: `${list.id ?? list.dataset}:detail`, dataset: detail.dataset, rowKey: detail.rowKey, columns: detail.columns, headerGrid: undefined, rowHeightMm: detail.rowHeightMm ?? list.rowHeightMm, detail: undefined });
-  return { list: childList, inter: { ...interList(childList, context.measurer), rowHeightFloorMm: childList.rowHeightMm ?? 0 }, rows: buckets, sources: checkedRowSources(childList, children) };
+  const childList = scaleList({ ...list, id: `${list.id ?? list.dataset}:detail`, dataset: detail.dataset, rowKey: detail.rowKey, revisionField: detail.revisionField, sourceTokenField: detail.sourceTokenField, computed: undefined, columns: detail.columns, headerGrid: undefined, rowHeightMm: detail.rowHeightMm ?? list.rowHeightMm, detail: undefined });
+  return { list: childList, inter: { ...interList(childList, context.measurer), rowHeightFloorMm: childList.rowHeightMm ?? 0 }, rows: buckets, sources: checkedRowSources(childList, matched) };
+}
+function validRelationKey(value: unknown): boolean {
+  return typeof value === "string" && !!value.trim() || typeof value === "number" && Number.isFinite(value);
 }
 function relationKey(value: unknown): string {
-  if ((typeof value !== "string" || !value.trim()) && !(typeof value === "number" && Number.isFinite(value))) throw new Error("主从关联键必须是非空字符串或有限数字");
+  if (!validRelationKey(value)) throw new Error("主从关联键必须是非空字符串或有限数字");
   return groupingKey(value);
 }
 function* placeDetails(master: ListComponent, row: DataRow, detail: DetailContext | undefined, context: ListPageContext, writer: ListPageWriter): Generator<PlanPage> {
@@ -630,13 +616,18 @@ function resolveMatrix(list: ListComponent, rows: DataRow[]): { list: ListCompon
   if (list.layout === "wide") derived.widthMm = columns.reduce((sum, column) => sum + column.widthMm, 0);
   return { list: derived, rows: result.rows };
 }
-interface PreparedListData { list: ListComponent; rows: DataRow[] }
+interface PreparedListData { list: ListComponent; rows: DataRow[]; sources?: Map<DataRow, PlanTableFragment["source"]> }
 function prepareListData(list: ListComponent, input: DataRow[], context: ListPageContext): PreparedListData {
   const existing = context.prepared.get(list);
   if (existing) return existing;
   let rows = list.computed?.length ? computeDataset(input, { fields: list.computed, signal: context.signal, formula: context.formula }).rows : input;
+  const originals = rows === input ? undefined : new Map(rows.map((row, index) => [row, input[index]!]));
   if (list.rowVisibleWhen) rows = rows.filter((row) => evalStyleRule(row, list.rowVisibleWhen!));
-  const result = resolveMatrix(list, rows);
+  const result: PreparedListData = resolveMatrix(list, rows);
+  if (!list.matrix) {
+    const sourceRows = checkedRowSources(list, originals ? rows.map((row) => originals.get(row)!) : rows);
+    result.sources = originals ? new Map(rows.map((row) => [row, sourceRows.get(originals.get(row)!)])) : sourceRows;
+  }
   context.prepared.set(list, result);
   return result;
 }
@@ -645,7 +636,7 @@ function* paginateList(list: ListComponent, input: DataRow[], context: ListPageC
   const rows = prepared.rows;
   list = prepared.list;
   if (list.layout === "wide") context.current.widthMm = Math.max(context.current.widthMm, list.leftMm + list.widthMm + context.current.marginRightMm);
-  const sources = checkedRowSources(list, rows), scaled = scaleList(list), groups = groupsFor(scaled);
+  const sources = prepared.sources ?? checkedRowSources(list, rows), scaled = scaleList(list), groups = groupsFor(scaled);
   const inter = { ...interList(scaled, context.measurer), rowHeightFloorMm: scaled.rowHeightMm ?? 0 };
   const writer = createListPageWriter(scaled, inter, context), detail = detailContext(scaled, rows, context);
   let nextRow: GridRow | undefined;
@@ -778,7 +769,16 @@ export function paginateTemplate(template: ReportTemplate, datasets: DatasetRows
   const pages = [...iteratePages(template, datasets, options, warnings, options.knownTotalPages)];
   for (const page of pages) page.components = page.components.map((component) => isPageAnchor(component) ? mapAnchorText(component, (text) => text.replace(/\{totalPages\}/g, String(pages.length))) : component);
   warnings.forEach((warning) => options.onWarning?.(warning));
-  return { plan: { schemaVersion: RENDER_PLAN_SCHEMA_VERSION, pages }, warnings };
+  return { plan: { schemaVersion: RENDER_PLAN_SCHEMA_VERSION, ...(templateRequiresRecalculation(template) ? { requiresRecalculation: true } : {}), pages }, warnings };
+}
+
+function estimatedSummaryExtras(list: ListComponent): { groups: number; total: number } {
+  const first = list.columns.find((column) => !column.hidden)?.field;
+  if (!first) return { groups: 0, total: 0 };
+  const groups = groupsFor(list);
+  const includes = (fields: string[] = [], aggregates: AggregateDefinition[] = []) => fields.includes(first) || aggregates.some((aggregate) => aggregate.field === first);
+  const total = typeof list.grandTotal === "object" ? list.grandTotal : undefined;
+  return { groups: groups.filter((group) => includes(group.subtotal, group.aggregates)).length, total: Number(includes(total?.fields ?? groups[0]?.subtotal, total?.aggregates ?? groups[0]?.aggregates)) };
 }
 
 /** Conservative cell allocation estimate; relation validation rejects duplicate master keys before rendering. */
@@ -792,7 +792,9 @@ export function estimateListLayoutCells(list: ListComponent, datasets: DatasetRo
   }
   const rows = datasets[list.dataset]?.length ?? 0, columns = list.columns.filter((column) => !column.hidden).length;
   const groups = groupsFor(list).length;
-  let cells = (rows * (1 + 2 * groups) + Number(!!list.grandTotal)) * columns;
+  // 首列是度量时，小计/总计标签独立成行，预检预算同样计入。
+  const extra = estimatedSummaryExtras(list);
+  let cells = (rows * (1 + 2 * groups + extra.groups) + Number(!!list.grandTotal) * (1 + extra.total)) * columns;
   cells += list.headerGrid ? gridCells(list.headerGrid) : columns;
   if (list.detail) {
     const childRows = datasets[list.detail.dataset]?.length ?? 0, childColumns = list.detail.columns.filter((column) => !column.hidden).length;

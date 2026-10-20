@@ -1,14 +1,16 @@
 <script setup lang="ts">
+import { computed, ref, watch } from "vue";
 import {
   getComputationMetadata,
   type ReportExpression,
 } from "../analytics/computed";
+import { useRuleExplanation } from "./useRuleExplanation";
 import RuleDataLayout from "./RuleDataLayout.vue";
 import ReportExpressionEditor from "./ReportExpressionEditor.vue";
 import { useRuleEditor, type RuleEditorOptions } from "./useRuleEditor";
 import type { ListComponent } from "../layout/paginate";
 const props = defineProps<RuleEditorOptions>();
-const emit = defineEmits<{ (event: "change", value: ListComponent): void }>();
+const emit = defineEmits<{ (event: "change", value: ListComponent): void; (event: "dirty", value: boolean): void }>();
 const editor = useRuleEditor(props, (value) => emit("change", value));
 const {
   m,
@@ -29,12 +31,21 @@ const {
   diagnostics,
   selectedComputed,
 } = editor;
+const layoutDirty = ref<Record<string, boolean>>({});
+const layoutEpoch = ref(0);
+function restoreDraft(): void { editor.resetDraft(); layoutDirty.value = {}; layoutEpoch.value++; }
+const pending = computed(() => editor.pendingLocalChanges.value || Object.values(layoutDirty.value).some(Boolean));
+watch([pending, editor.draftSnapshot, layoutDirty], () => emit("dirty", pending.value), { immediate: true, deep: true, flush: "sync" });
+defineExpose({ get pendingLocalChanges() { return pending.value; } });
+const explanation = useRuleExplanation(props, editor.formula, m);
+const { query: fieldQuery, matches: fieldMatches, fieldWindow, expression: expressionText, sources } = explanation;
 const metadata = getComputationMetadata();
 </script>
 
 <template>
   <section class="mr-rule-editor" :aria-label="m.settings">
-    <div class="mr-rule-editor__tabs" role="tablist" :aria-label="m.settings">
+    <aside class="mr-rule-editor__directory">
+<div class="mr-rule-editor__tabs" role="tablist" :aria-label="m.settings">
       <button
         v-for="item in [
           'computations',
@@ -58,6 +69,8 @@ const metadata = getComputationMetadata();
         }}</span>
       </button>
     </div>
+    <div class="mr-rule-editor__catalog"><strong>{{ m.catalog }}</strong><button v-if="pending" type="button" :disabled="readonly" @click="restoreDraft">{{ m.restoreDraft }}</button><label>{{ m.searchFields }}<input v-model="fieldQuery" type="search" :aria-label="m.searchFields" /></label><div class="mr-rule-editor__field-list"><button v-for="field in fieldWindow" :key="field.field" type="button" :disabled="readonly || tab !== 'computations'" :title="m.useField" @click="editor.setExpression({ field: field.field })"><strong>{{ field.label }}</strong><code>{{ field.field }}</code><small>{{ field.meta }}</small></button></div><small v-if="fieldMatches.length > 50">{{ m.shown }} 50 / {{ fieldMatches.length }}</small></div>
+</aside>
     <div v-if="tab === 'computations'" class="mr-rule-editor__panel">
       <label>{{ m.existing
         }}<select
@@ -173,15 +186,7 @@ const metadata = getComputationMetadata();
           {{ m.remove }}
         </button>
       </div>
-      <div v-if="preview.length" class="mr-rule-editor__results">
-        <p>{{ m.sample }}</p>
-        <dl>
-          <template v-for="item in preview" :key="item.row">
-<dt>{{ item.row }}</dt>
-            <dd>{{ item.value ?? "—" }}</dd>
-</template>
-        </dl>
-      </div>
+
       <p
         v-if="!diagnostics.valid && formula.field"
         class="mr-rule-editor__error"
@@ -444,31 +449,35 @@ const metadata = getComputationMetadata();
       </div>
     </div>
     <RuleDataLayout
-      v-else
+      v-for="layout in ['detail', 'matrix'] as const"
+      v-show="tab === layout"
+      :key="`${layout}-${layoutEpoch}`"
       :list="list"
-      :mode="tab === 'detail' ? 'detail' : 'matrix'"
+      :mode="layout"
       :datasets="datasets"
       :dataset-schema="datasetSchema"
       :dataset-schemas="datasetSchemas"
       :readonly="readonly"
       :messages="m"
-      @change="editor.applyLayout"
+      :accept="editor.applyLayout"
+      @dirty="layoutDirty = { ...layoutDirty, [layout]: $event }"
     />
-    <p v-if="error" class="mr-rule-editor__error" role="alert">{{ error }}</p>
+    <aside class="mr-rule-editor__explanation"><header><strong>{{ m.explanation }}</strong><span v-if="pending">{{ m.pending }}</span></header><p>{{ m.sourceHint }}</p><template v-if="tab === 'computations'"><h4>{{ m.expression }}</h4><code>{{ expressionText }}</code><div class="mr-rule-editor__results"><h4>{{ m.sourceValues }} → {{ m.result }}</h4><div v-for="source in sources" :key="source.row" class="mr-rule-editor__trace"><small>#{{ source.row }}</small><code>{{ source.values }}</code><strong>{{ preview.find(item => item.row === source.row)?.value ?? (preview.length ? '—' : m.notChecked) }}</strong></div><p v-if="preview.some(item => item.value == null)">{{ m.nullReason }}</p><p v-if="preview.length">{{ m.sample }}</p></div></template><p v-if="error" class="mr-rule-editor__error" role="alert">{{ error }}</p></aside>
   </section>
 </template>
 
 <style scoped>
 .mr-rule-editor {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(150px,.6fr) minmax(260px,1.3fr) minmax(200px,.9fr);
+  align-items: start;
   min-height: 0;
-  gap: 12px;
+  gap: 16px;
   font: inherit;
   color: inherit;
 }
 .mr-rule-editor__tabs {
-  display: flex;
+  display: grid;
   background: #f4f7fb;
   padding: 3px;
   border-radius: 7px;
@@ -491,6 +500,7 @@ const metadata = getComputationMetadata();
   opacity: 0.6;
 }
 .mr-rule-editor__panel {
+  grid-column: 2; grid-row: 1;
   display: grid;
   gap: 12px;
   min-width: 0;
@@ -649,4 +659,8 @@ const metadata = getComputationMetadata();
 .mr-rule-editor__results dt {
   color: #94a3b8;
 }
+.mr-rule-editor__directory { min-width:0; display:grid; gap:16px; grid-column:1; grid-row:1; }
+.mr-rule-editor__catalog { display:grid; gap:8px; font-size:11px; }.mr-rule-editor__catalog>strong { font-size:12px; }.mr-rule-editor__field-list { max-height:340px; overflow:auto; display:grid; gap:4px; }.mr-rule-editor__field-list button { height:auto; display:grid; text-align:left; gap:2px; padding:7px 9px; white-space:normal; border-color:transparent; background:#f8fafc; }.mr-rule-editor__field-list button:hover { background:#eff6ff; }.mr-rule-editor__field-list strong { font-weight:500; }.mr-rule-editor__field-list :is(code,small) { font-size:10px; color:#64748b; overflow-wrap:anywhere; }.mr-rule-editor__explanation { grid-column:3; grid-row:1; min-width:0; background:#f7faff; border:1px solid #dce8f7; border-radius:8px; padding:13px; font-size:11px; }.mr-rule-editor__explanation header { display:flex; justify-content:space-between; gap:6px; }.mr-rule-editor__explanation header span { color:#92400e; }.mr-rule-editor__explanation h4 { margin:14px 0 6px; font-size:11px; font-weight:500; }.mr-rule-editor__explanation p { color:#64748b; line-height:1.6; margin:7px 0; }.mr-rule-editor__explanation code { display:block; white-space:pre-wrap; overflow-wrap:anywhere; color:#334155; font-size:11px; }.mr-rule-editor__trace { display:grid; gap:5px; margin-top:7px; padding:8px; background:#fff; border:1px solid #e5edf8; border-radius:5px; }.mr-rule-editor__trace small { color:#64748b; }.mr-rule-editor__trace strong { color:#1d4ed8; font-weight:500; }.mr-rule-editor>.mr-data-layout { grid-column:2; grid-row:1; }
+@media(max-width:1000px) { .mr-rule-editor { grid-template-columns:150px minmax(0,1fr); }.mr-rule-editor__explanation { grid-column:2; grid-row:2; } }
+@media(max-width:620px) { .mr-rule-editor { grid-template-columns:minmax(0,1fr); }.mr-rule-editor__directory { grid-column:1; grid-row:auto; }.mr-rule-editor__tabs { display:flex; flex-wrap:wrap; }.mr-rule-editor__catalog { display:none; }.mr-rule-editor__panel,.mr-rule-editor>.mr-data-layout,.mr-rule-editor__explanation { grid-column:1; grid-row:auto; } }
 </style>

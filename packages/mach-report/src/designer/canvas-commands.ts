@@ -14,6 +14,8 @@ export interface HeaderCommand {
   last: number;
 }
 export interface CanvasSelection {
+  /** Ctrl/Command/Shift toggles the selection without changing the report schema. */
+  additive?: boolean;
   pageIndex: number;
   componentIndex: number;
 }

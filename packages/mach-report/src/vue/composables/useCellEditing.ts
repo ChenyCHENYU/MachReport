@@ -1,6 +1,6 @@
 import { computed, onScopeDispose, shallowRef, watch, type Ref } from "vue";
 import {
-  getReportCellContext, validateReportCellFieldDefinition,
+  createReportCellEditBatch, getReportCellContext, ReportCellEditError, validateReportCellFieldDefinition,
   type RenderPlan, type ReportCellAddress, type ReportCellEdit
 } from "@agile-team/mach-report";
 import type { ReportEditingOptions } from "../editing";
@@ -8,6 +8,7 @@ import { cloneReportSnapshot } from "../snapshot";
 import { useEditHistory } from "./useEditHistory";
 import { resolveCellField } from "../cell-field";
 import { createCellEditor, type CellEditor } from "../cell-editor";
+import { assertRecalculationReady, createEditAddressResolver } from "./edit-recalculation";
 
 interface EditorSession {
   plan: RenderPlan;
@@ -87,7 +88,7 @@ export function useCellEditing(host: CellEditingHost) {
   async function commit(): Promise<boolean> {
     if (pending) return pending;
     const session = active.value;
-    if (!session) return true;
+    if (!session) return history.settle();
     if (!isCurrent(session)) { cancel(); return false; }
     inputChanged.value = session.editor.input.value !== session.editor.initialInput;
     session.editor.input.disabled = true;
@@ -98,16 +99,26 @@ export function useCellEditing(host: CellEditingHost) {
     return result;
   }
 
+  function settle(): boolean | Promise<boolean> { return active.value || pending ? commit() : history.settle(); }
+
   function onEditorKey(event: KeyboardEvent): void {
     event.stopPropagation();
     if (event.isComposing) return;
     if (event.key === "Escape") { event.preventDefault(); cancel(); }
     if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
       event.preventDefault();
-      const address = active.value?.address;
-      void commit().then((success) => { if (success && address) host.onNavigate?.(address, event.key as "Enter" | "Tab", event.shiftKey); });
+      const session = active.value;
+      const context = session && getReportCellContext(session.plan, session.address);
+      const edit = session && context ? createReportCellEditBatch(session.plan, [{ address: session.address, value: context.value }], "navigation").edits[0] : undefined;
+      void commit().then((success) => {
+        if (!success || !session || !host.plan.value) return;
+        const address = host.plan.value === session.plan ? session.address : edit && createEditAddressResolver(host.plan.value)(edit);
+        if (address) host.onNavigate?.(address, event.key as "Enter" | "Tab", event.shiftKey);
+      });
     }
   }
+
+  function reportFailure(cause: unknown): void { host.onError(host.errorMessage?.(cause) ?? (cause instanceof Error ? cause.message : "无法编辑单元格"), cause); }
 
   async function editCell(cell: HTMLElement): Promise<void> {
     if (!host.options.value || host.blocked()) return;
@@ -119,6 +130,8 @@ export function useCellEditing(host: CellEditingHost) {
     try {
       const context = getReportCellContext(plan, address);
       if (!context?.editable || options.canEdit?.(context) === false) return;
+      assertRecalculationReady(plan, !!context.source);
+      if (options.requireSource && !context.source) throw new ReportCellEditError("missing");
       const field = resolveCellField(context, options);
       if (field) validateReportCellFieldDefinition(context, field);
       const editor = createCellEditor(cell, host.label(), context, field);
@@ -131,7 +144,7 @@ export function useCellEditing(host: CellEditingHost) {
       input.addEventListener("blur", () => { if (!saving.value && !host.suspendBlur?.()) void commit(); });
       editor.focus();
     } catch (cause) {
-      host.onError(cause instanceof Error ? cause.message : "无法编辑单元格", cause);
+      reportFailure(cause);
     }
   }
 
@@ -152,7 +165,7 @@ export function useCellEditing(host: CellEditingHost) {
   }, { flush: "sync" });
   onScopeDispose(reset);
   return {
-    ...history, active, saving, changes, pendingLocalChanges, cancel, reset, commit, onDoubleClick, editCell,
+    ...history, active, saving, changes, pendingLocalChanges, cancel, reset, commit, settle, onDoubleClick, editCell,
     getChanges: (): ReportCellEdit[] => cloneReportSnapshot(changes.value)
   };
 }

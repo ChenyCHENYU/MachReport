@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import ReportIcon from "../vue/ReportIcon.vue";
 import type { ExcelBindingRegion } from "../xlsx/binding-workflow";
 import {
@@ -11,6 +11,7 @@ import {
 const props = defineProps<ExcelBindingWizardOptions>();
 const emit = defineEmits<{
   (event: "apply", result: ExcelBindingWizardApply): void;
+  (event: "dirty", value: boolean): void;
 }>();
 const wizard = useExcelBindingWizard(props, (result) => emit("apply", result));
 const {
@@ -37,6 +38,7 @@ const {
   rowKeys,
   selection,
 } = wizard;
+watch([wizard.pendingLocalChanges, recipe, identity], () => emit("dirty", wizard.pendingLocalChanges.value), { immediate: true, deep: true, flush: "sync" });
 const input = ref<HTMLInputElement>();
 const dragging = ref(false);
 const regions: ExcelBindingRegion[] = ["title", "header", "detail", "footer"];
@@ -111,6 +113,7 @@ function number(event: Event, axis: "row" | "column"): void {
     );
 }
 defineExpose({
+  get pendingLocalChanges() { return wizard.pendingLocalChanges.value; },
   importFile: wizard.importFile,
   apply: wizard.apply,
   cancel: wizard.cancel,
@@ -491,7 +494,7 @@ defineExpose({
               : validation.ok
                 ? m.ready
                 : `${m.coverage} ${validation.mapped}/${validation.total}`
-        }}</span><button type="button" :disabled="disabled" @click="wizard.check">
+        }}</span><button v-if="wizard.pendingLocalChanges.value" type="button" :disabled="disabled" @click="wizard.restoreDraft">{{ m.restoreDraft }}</button><button type="button" :disabled="disabled" @click="wizard.check">
           {{ m.check }}
 </button><button
           type="button"

@@ -5,9 +5,10 @@ import { parseReportTemplate, type ReportTemplateDocument } from "./template-reg
 import { diffReportTemplates, type ReportTemplateDiff } from "./template-diff";
 import type { RenderPlan } from "../schema/render-plan";
 import { collectTemplateDatasetBindings } from "./template-bindings";
+import { validateReportParams } from "./param-validation";
 
 export interface ReportTemplateReviewIssue {
-  code: "template" | "compatibility" | "dataset" | "field" | "sample" | "layout" | "output";
+  code: "template" | "compatibility" | "dataset" | "field" | "sample" | "layout" | "output" | "params";
   severity: "error" | "warning";
   path: string;
   message: string;
@@ -68,7 +69,10 @@ function outputLocation(template: ReportTemplate, plan: RenderPlan, issue: Outpu
   }
   return { path: "$.template" };
 }
-function sample(document: ReportTemplateDocument, fixture: ReportTemplateFixture, options: ReportTemplateReviewOptions, review: ReportTemplateReview): void {
+function sample(document: ReportTemplateDocument, fixture: ReportTemplateFixture, index: number, options: ReportTemplateReviewOptions, review: ReportTemplateReview): void {
+  const params = validateReportParams(document.template.params ?? [], fixture.params ?? {});
+  review.issues.push(...params.issues.map((issue) => ({ ...issue, code: "params" as const, severity: "error" as const, fixture: fixture.name, path: issue.path.replace(/^\$\.params/, `$.fixtures[${index}].params`) })));
+  if (!params.ok) return;
   if (!checkSample(fixture, document.template, options, review.issues)) return;
   try {
     const { plan, warnings } = paginateTemplate(document.template, fixture.datasets, { maxPages: options.maxPages ?? 100, maxCells: options.maxCells ?? 250_000 });
@@ -91,7 +95,7 @@ export function reviewReportTemplate(input: unknown, options: ReportTemplateRevi
       if (review.changes.breakingChanges && !options.allowBreakingChanges) review.issues.push({ code: "compatibility", severity: "error", path: "$.template", message: `${review.changes.breakingChanges} 项字段或结构变更需要明确确认兼容性` });
     }
     if (options.dataSchemas) checkBindings(document.template, options.dataSchemas, review.issues);
-    for (const fixture of options.fixtures ?? []) sample(document, fixture, options, review);
+    for (const [index, fixture] of (options.fixtures ?? []).entries()) sample(document, fixture, index, options, review);
     if (!options.fixtures?.length) review.issues.push({ code: "sample", severity: "warning", path: "$.fixtures", message: "未提供验收样例，仅完成结构和字段检查，尚未验证排版与输出" });
   } catch (error) { review.issues.push({ code: "template", severity: "error", path: "$", message: error instanceof Error ? error.message : String(error) }); }
   review.ok = review.issues.every((issue) => issue.severity !== "error");

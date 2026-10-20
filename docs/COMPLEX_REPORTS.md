@@ -38,6 +38,8 @@ list.computed = [
 - 独立数据处理可从 `/analytics` 使用 `computeDataset`、`validateComputedFields`、`getComputationMetadata`。元数据包含字段类型、函数参数数量、聚合和边界规则。
 - 字符串公式需要运行时显式提供受信任的 `FormulaAdapter`，并通过 `dependsOn` 声明依赖。引擎不执行 `eval`、宏、SQL 或外部工作簿引用；设计器以声明式公式为默认。
 
+计算输出格始终只读并带 `derived` 标记，不生成业务字段补丁；即使源数据原有同名字段或列显式配置 `editable: true` 也不能解除保护。计算显示替换业务键时，其他源字段继续保留原始业务键定位。模板来源编辑的事务重算见[单元格编辑](./CELL_EDITING.md)。
+
 设计器只在点击“样例验算”时计算前 1000 行，并明确标识这是样例结果，避免输入过程中不断扫描大数据集。该样例不能代替全量业务汇总。
 
 ## 多级分组和分页
@@ -62,7 +64,7 @@ list.groups = [
 
 分组按外层到内层排列，保留源数据第一次出现的顺序，维度身份区分数字与文本。每级可配置组头、组尾聚合、跨页重复组头和组头防孤行；只要“嵌套组头 + 首行”能放入新页，就会保持同页。组合本身超出整页时使用明确的溢出告警，避免无限换页。旧版单层 `groupBy` 和 `subtotal` 继续支持。
 
-总计可使用 `grandTotal: { aggregates: [...] }`。合计读取原始参与行；平均值和加权平均不会通过“平均各组平均值”得到错误结果。
+总计可使用 `grandTotal: { aggregates: [...] }`。合计读取原始参与行；平均值和加权平均不会通过“平均各组平均值”得到错误结果。首列也是合计度量时，标签单独占一行，下一行保留所有度量；不会用“小计/合计”覆盖首列数值，连续 Excel 的逻辑行号也随两行同步推进。
 
 ## 以业务键关联主从明细
 
@@ -72,6 +74,8 @@ list.detail = {
   parentKey: 'orderId',
   foreignKey: 'orderId',
   rowKey: 'lineId',
+  revisionField: 'lineRevision',
+  sourceTokenField: 'lineToken',
   header: true,
   label: '订单明细',
   unmatched: 'error',
@@ -82,7 +86,7 @@ list.detail = {
 };
 ```
 
-主键和外键必须是非空字符串或有限数字，主表关联键必须唯一。实现先建立索引，以线性时间匹配，避免每个主记录再次扫描全部明细。明细编辑身份使用明细自己的 `dataset + rowKey + field`，不会借用主表显示行号。未匹配明细默认报错，确有业务需要可显式 `unmatched: 'ignore'`。
+主键和外键必须是非空字符串或有限数字，主表关联键必须唯一。实现先建立索引，以线性时间匹配，避免每个主记录再次扫描全部明细。明细编辑身份使用明细自己的 `dataset + rowKey + field`，不会借用主表显示行号。未匹配明细默认报错，确有业务需要可显式 `unmatched: 'ignore'`，忽略后不再校验未参与明细的主键；实际匹配的明细仍拒绝非法或重复主键。子表 `revisionField/sourceTokenField` 独立声明，省略时不继承主表同名字段。
 
 主从布局属于混合逻辑表；Excel 默认保留安全的逐页布局，不猜测把多张逻辑表拼成单一连续表。显式要求 `sheetMode: 'continuous'` 时会给出不支持混合表的可操作错误。
 

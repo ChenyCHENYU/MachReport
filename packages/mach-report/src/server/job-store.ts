@@ -1,3 +1,5 @@
+import { archiveJob, jobByteLength, jobChargedBytes, jobStoreBudget, pruneSettings, terminalJob, type ReportJobPruneOptions, type ReportJobPruneResult, type ReportJobStoreBudgetOptions, type ReportJobTombstone } from "./job-retention";
+export type { ReportJobPruneOptions, ReportJobPruneResult, ReportJobStoreBudgetOptions, ReportJobTombstone } from "./job-retention";
 export type ReportJobJson = null | boolean | number | string | ReportJobJson[] | { [key: string]: ReportJobJson };
 export type ReportJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 export interface ReportJobRequest { kind: string; payload: ReportJobJson }
@@ -8,12 +10,17 @@ export interface ReportJobRecord {
   cancelRequested?: boolean;
   progress?: { completed: number; total?: number };
   result?: ReportJobJson;
+  /** Idempotent submit after terminal archival; result/error payloads are no longer retained. */
+  archived?: boolean;
   error?: { code: string; message: string };
 }
 /** CAS must be atomic across all worker instances; candidate enumeration is advisory only. */
 export interface ReportJobStore {
   read(scope: string, id: string): Promise<ReportJobRecord | undefined>;
   candidates(now: number, limit: number): Promise<ReportJobRecord[]>;
+  /** Optional bounded retention capability; existing database adapters remain compatible. */
+  readTombstone?(scope: string, id: string): Promise<ReportJobTombstone | undefined>;
+  prune?(options: ReportJobPruneOptions): Promise<ReportJobPruneResult>;
   compareAndSwap(scope: string, id: string, expectedRevision: number | null, next: ReportJobRecord): Promise<boolean>;
 }
 export class ReportJobError extends Error {
@@ -80,18 +87,44 @@ export function validateJobTransition(previous: ReportJobRecord | undefined, nex
 export function runnableJob(record: ReportJobRecord, now: number): boolean { return record.status === "queued" || record.status === "running" && (record.lease?.expiresAt ?? 0) <= now; }
 
 /** Reference store for tests; use a database CAS or the single-process durable Node adapter in production. */
-export function createMemoryReportJobStore(): ReportJobStore {
-  const records = new Map<string, ReportJobRecord>();
+export function createMemoryReportJobStore(options: ReportJobStoreBudgetOptions = {}): ReportJobStore {
+  const records = new Map<string, ReportJobRecord>(), tombstones = new Map<string, ReportJobTombstone>(), budget = jobStoreBudget(options);
+  let bytes = 0, tombstoneBytes = 0, pending = Promise.resolve();
   const key = (scope: string, id: string) => JSON.stringify([scope, id]);
+  const enqueue = <T>(operation: () => Promise<T>): Promise<T> => { const task = pending.then(operation); pending = task.then(() => undefined, () => undefined); return task; };
   return {
-    read: async (scope, id) => { const record = records.get(key(scope, id)); return record ? cloneJob(record) : undefined; },
-    candidates: async (now, limit) => Array.from(records.values()).filter((record) => runnableJob(record, now)).sort((a, b) => a.createdAt - b.createdAt).slice(0, limit).map(cloneJob),
+    read: async (scope, id) => { await pending; const record = records.get(key(scope, id)); return record ? cloneJob(record) : undefined; },
+    readTombstone: async (scope, id) => { await pending; const value = tombstones.get(key(scope, id)); return value ? cloneJob(value) : undefined; },
+    candidates: async (now, limit) => { await pending; return Array.from(records.values()).filter((record) => runnableJob(record, now)).sort((a, b) => a.createdAt - b.createdAt).slice(0, limit).map(cloneJob); },
     compareAndSwap: async (scope, id, revision, next) => {
       validateJobRecord(next, scope, id, revision);
-      const previous = records.get(key(scope, id));
-      if ((previous?.revision ?? null) !== revision) return false;
-      validateJobTransition(previous, next);
-      records.set(key(scope, id), cloneJob(next)); return true;
+      const snapshot = cloneJob(next);
+      return enqueue(async () => {
+        const identity = key(scope, id), previous = records.get(identity);
+        if ((previous?.revision ?? null) !== revision || tombstones.has(identity)) return false;
+        validateJobTransition(previous, snapshot);
+        const total = bytes - (previous ? jobChargedBytes(previous, budget) : 0) + jobChargedBytes(snapshot, budget);
+        if (total > budget.maxBytes || !previous && records.size >= budget.maxRecords) throw new ReportJobError("capacity", "任务容量已满，请清理终态任务或扩大显式预算");
+        records.set(identity, snapshot); bytes = total; return true;
+      });
+    },
+    prune: async (options) => {
+      const settings = pruneSettings(options);
+      return enqueue(async () => {
+        const result = { archived: 0, expired: 0 };
+        for (const [identity, value] of tombstones) {
+          if (value.expiresAt > settings.now || result.expired >= settings.limit) continue;
+          tombstones.delete(identity); tombstoneBytes -= jobByteLength(value); result.expired++;
+        }
+        for (const [identity, record] of records) {
+          if (!terminalJob(record) || record.updatedAt > settings.terminalBefore || result.archived + result.expired >= settings.limit) continue;
+          const value = await archiveJob(record, settings.now + settings.tombstoneRetentionMs), size = jobByteLength(value);
+          if (tombstones.size >= budget.maxTombstones || tombstoneBytes + size > budget.maxTombstoneBytes) break;
+          tombstones.set(identity, value); tombstoneBytes += size;
+          records.delete(identity); bytes -= jobChargedBytes(record, budget); result.archived++;
+        }
+        return result;
+      });
     }
   };
 }

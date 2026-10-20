@@ -14,11 +14,16 @@ import {
 import { RENDER_PLAN_SCHEMA_VERSION } from "../../schema/render-plan";
 import ExcelBindingWizard from "../ExcelBindingWizard.vue";
 const load = vi.hoisted(() => vi.fn());
-vi.mock("../../xlsx/import-template", () => ({
-  importExcelTemplate: load,
-  inspectExcelWorkbook: async () => ({
-    sheets: [{ name: "日报", index: 1, visible: true }],
-  }),
+const opened = vi.hoisted(() => vi.fn());
+const disposed = vi.hoisted(() => vi.fn());
+vi.mock("../../xlsx/workbook-session", () => ({
+  openExcelWorkbook: (...args: unknown[]) => {
+    opened(...args);
+    return Promise.resolve({ disposed: false, dispose: disposed,
+      inspect: () => ({ sheets: [{ name: "日报", index: 1, visible: true }, { name: "第二页", index: 2, visible: true }] }),
+      importTemplate: (...args: unknown[]) => load(...args),
+    });
+  },
 }));
 const source: ExcelImportResult = {
   warnings: [],
@@ -237,5 +242,32 @@ describe("Excel binding wizard interaction", () => {
     complete(source);
     await pending;
     expect(wizard.imported.value).toBeUndefined();
+  });
+});
+
+describe("binding session and acceptance closure", () => {
+  it("one workbook owner serves sheet changes and releases only on replacement or unmount", async () => {
+    const beforeOpen = opened.mock.calls.length, beforeDispose = disposed.mock.calls.length;
+    load.mockResolvedValueOnce(source).mockResolvedValueOnce({ ...source, sheets: [{ ...source.sheets[0]!, name: "第二页" }] }).mockResolvedValueOnce(source);
+    const { wizard, wrapper } = harness({ datasets });
+    await wizard.importFile(new File(["xlsx"], "multi.xlsx"));
+    wizard.chooseDataset("rows"); wizard.setMapping(0, "id");
+    await wizard.chooseSheet("第二页");
+    expect(opened.mock.calls.length - beforeOpen).toBe(1);
+    expect(load.mock.calls.at(-1)![0]).toMatchObject({ sheets: ["第二页"] });
+    await wizard.chooseSheet("日报"); expect(wizard.recipe.value.fields[0]).toBe("id");
+    expect(opened.mock.calls.length - beforeOpen).toBe(1);
+    expect(disposed.mock.calls.length - beforeDispose).toBe(0);
+    expect(wizard.pendingLocalChanges.value).toBe(true);
+    wrapper.unmount(); expect(disposed.mock.calls.length - beforeDispose).toBe(1);
+  });
+  it("declined asynchronous replacement keeps dirty state and never reports applied", async () => {
+    const accept = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const { wizard, wrapper, emitted } = harness({ datasets, session: session(), accept });
+    wizard.identity.value.name = "修改后的绑定";
+    expect(wizard.pendingLocalChanges.value).toBe(true);
+    await wizard.apply(); expect(wizard.applied.value).toBe(false); expect(wizard.pendingLocalChanges.value).toBe(true); expect(emitted).not.toHaveBeenCalled();
+    await wizard.apply(); expect(wizard.applied.value).toBe(true); expect(wizard.pendingLocalChanges.value).toBe(false); expect(accept).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
   });
 });

@@ -20,7 +20,7 @@ export interface ReportCellTableIdentity {
   columnKey?: string;
 }
 
-export type ReportCellReadOnlyReason = "cell" | "formula" | "complex" | "structure";
+export type ReportCellReadOnlyReason = "cell" | "formula" | "complex" | "structure" | "derived";
 
 export interface ReportCellContext {
   address: ReportCellAddress;
@@ -72,6 +72,7 @@ function inferValueType(cell: GridCell, value: ReportCellValue): ReportCellValue
 }
 
 function readOnlyReason(cell: GridCell, component: PlanComponent): ReportCellReadOnlyReason | undefined {
+  if (cell.derived) return "derived";
   if (cell.editable === false) return "cell";
   if (cell.formula !== undefined) return "formula";
   if (cell.children?.length) return "complex";
@@ -91,6 +92,7 @@ function tableIdentity(component: PlanComponent, address: ReportCellAddress): Re
 }
 
 function sourceIdentity(cell: GridCell, component: PlanComponent, address: ReportCellAddress): ReportCellSource | undefined {
+  if (cell.derived) return undefined;
   if (cell.source) return { ...cell.source };
   const source = component.table?.source;
   const field = component.table?.columnKeys[address.columnIndex];

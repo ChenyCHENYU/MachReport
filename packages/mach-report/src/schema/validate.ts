@@ -168,6 +168,7 @@ export function validateRenderPlan(input: unknown): ValidationResult {
   const errors: ValidationError[] = [];
   const warnings: ValidationError[] = [];
   const pages = isObj(input) ? input["pages"] : undefined;
+  if (isObj(input) && input["requiresRecalculation"] !== undefined && typeof input["requiresRecalculation"] !== "boolean") errors.push({ path: "$.requiresRecalculation", message: "重算能力要求应为布尔值" });
   if (!Array.isArray(pages)) {
     errors.push({
       path: "$.pages",

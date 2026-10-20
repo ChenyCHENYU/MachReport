@@ -164,14 +164,20 @@ return { conflicts: [{
 | 布尔 | 按布尔值处理，不作为任意文本保存 |
 | 空单元格 | 根据 `valueType` 或已有数字格式确定输入类型，否则按文本 |
 | 表头、组头、小计、总计 | 默认只读，业务明确设置单元格 `editable: true` 可选开放 |
-| 公式单元格 | 始终只读，使用已有缓存结果，不进行重算 |
+| SDK `computed` 派生单元格 | 始终只读，无业务来源；覆盖同名源字段也不开放编辑 |
+| 业务稳定主键 | 模板重算事务中保持只读，避免改变后端定位身份 |
+| Excel 公式单元格 | 始终只读，使用已有缓存结果，不执行 Excel 公式引擎 |
 | Excel 导入的日期格 | 保留序列和显示格式，目前保持只读 |
 | 带嵌套内容的复杂单元格 | 保持只读，避免文本输入破坏内部结构 |
 | 单元格 `editable: false` | 始终只读，即使整个预览开启编辑 |
 
 模板静态网格和列表列可通过 `editable` / `valueType` 声明策略。例如数量列可以用 `editable: true, valueType: "number"`，不可修改的编号列设为 `editable: false`。只读约束不能被 `canEdit` 绕过，后者仅能进一步收紧权限。
 
-这是报表内容编辑能力。编辑数值不会重新执行后端汇总逻辑，也不会自动重算 Excel 公式、列表小计或跨表依赖。需要这些规则时，由业务保存接口计算并重新查询报表。单元格继续使用模板中的尺寸和样式，超长内容应通过模板行高、换行或后续查询排版处理。
+通过 `createReportSource` / `createLocalFetcher` 注册的模板与稳定 `rowKey`，由 SDK 统一执行“编辑 → 声明式计算 → 分组/总计 → 条件与行筛选 → 重新排版”。整批重算先于业务保存；重算失败不会调用保存，保存失败不发布待提交计划。撤销、重做和恢复按稳定来源定位，即使修改导致原行被 `rowVisibleWhen` 隐藏，也能安全恢复；宿主权限与字段校验仍执行。
+
+重排是有预算的整表计算，复用逐页引擎，每 8 页让出执行，支持取消；不会对每个只读预览额外执行一轮排版。模板数据在首次修改前被宿主原地改变会报告冲突，重新查询即可恢复。首笔成功后使用私有快照与 COW 更新，宿主数据和模板不受修改；来源口径指纹与首次快照最多100万个节点，首次快照最多32 MiB文本。数据应为普通数据属性（标准 Date 支持）；自定义 `toJSON`、getter、函数或 Symbol 不作为可重算来源，避免隐藏源数据变化。不要把此能力解读为无限数据增量公式引擎。
+
+后端 KPI、持久化规则和 Excel 原生公式继续由对应业务/公式引擎负责；SDK 不猜测后台口径。`requiresRecalculation` 是随 JSON/Worker 保留的编辑要求，不代表本地模板会话仍可用。没有稳定业务身份、直接使用 RenderPlan、或者跨 Worker/JSON 丢失会话的计算报表，预览会阻止编辑并提示改为模板接入或保存后重新查询，避免导出旧计算结果。无计算的旧计划保留原有计划内编辑行为。
 
 ## 父页面读取与批量保存
 
@@ -218,3 +224,48 @@ const updatedBatchPlan = applyReportCellEditBatch(plan, batch);
 ```
 
 合并单元格使用左上角的物理网格坐标。创建补丁会检查类型与只读规则，应用补丁会检查原值冲突；带逻辑表身份的镜像单元格同步更新。其他框架可自行提供输入界面，把同一更新计划交给渲染和导出 API。
+
+## 其他框架的计算事务
+
+核心会话无需 Vue。模板来源的计划可用 `getReportEditSession(plan)` 读取已登记会话；独立使用时：
+
+```ts
+import { createReportEditSession, createReportCellEditBatch } from '@agile-team/mach-report';
+const session = createReportEditSession({ template, datasets, pagination: { maxPages: 100, maxCells: 250_000 } });
+const plan = session.plan;
+const batch = createReportCellEditBatch(plan, inputs, requestId);
+const prepared = await session.prepare(plan, batch, { signal });
+// prepared.plan 已验算，但尚未发布；宿主先执行同一原子保存契约。
+const result = await saveBatch(batch, { signal, requestId });
+const nextPlan = prepared.commit(result);
+```
+
+重算失败、取消、重复提交同一个 prepared、或另一笔事务已经提交后再提交旧 prepared，均不改变当前会话。`commit` 推进成功结果的并发令牌。`prepareHistory(plan, edits, 'previousValue' | 'value', requestId, { signal })` 返回 `{ batch, contexts, prepared }`，用于稳定来源的隐藏行恢复；宿主必须先对每个 `contexts` 再执行权限/字段校验和保存，成功后才 commit。`relocateReportCellEdits` 仅定位当前可见格，找不到即明确报错，绝不沿用旧坐标修改其他行。
+
+## Vue 默认计算闭环
+
+`ReportPreview` 对来源会话自动执行“字段与权限校验 → 准备计算及排版 → 原子保存回调 → 发布”。宿主继续使用已有 `editable` / `save` / `saveBatch`，不需要自行调度重算，也不需要在页面维护第二份数据。派生值、合计、条件样式和显隐规则均随同一成功事务更新；失败或取消会保留原计划、原会话与历史，失败重试复用原请求身份。
+
+撤销、重做和恢复按业务来源解析当前目标，包含被 `rowVisibleWhen` 隐藏的行。权限和字段规则在这些操作中仍会执行，不能通过历史恢复绕过。变化导致位置移动时，差异定位、修改标记、选区和编辑后的键盘导航使用新来源坐标；当前已隐藏的项不会误跳或标记到占据旧位置的其他业务行。
+
+打印及全部导出会先提交当前编辑器，并等待正在进行的批量编辑、保存和重算；失败时不输出旧的派生结果。没有待处理编辑时保留即时工具响应。PDF 窗口保留用户手势的同步开窗规则；预览界面在仍有输入或保存时提示先完成修改。
+
+通过 JSON、Worker 或宿主自定义转换传输的计划会保留 `requiresRecalculation` 标记，却无法传输内存中的来源会话。此类需要计算的计划会拒绝编辑，提示由 `messages.editRecalculationUnavailable` 配置；应使用 `reports` / `createReportSource` 保留模板与数据来源，或显式建立核心编辑会话。没有计算依赖的旧静态计划仍沿用原编辑模式。导入 Excel 原公式仍只读，不因此获得通用 Excel 公式计算能力。
+
+已有 Worker/执行器的计划可显式登记原模板与数据，无需初次再排版：
+
+```ts
+import { getReportEditSession, registerReportEditSession } from '@agile-team/mach-report';
+if (!getReportEditSession(plan)) {
+  registerReportEditSession(plan, {
+    parts: [{ template, datasets }],
+    rebuild: async ([next], signal) => {
+      // 复用宿主已有的有界 Worker/执行器；此回调仅在真实编辑后执行。
+      const result = await executor.prepare(next.template, next.datasets, signal);
+      return result.plan;
+    }
+  });
+}
+```
+
+`executor.prepare` 代表宿主已有的执行器适配函数，并非新增通用方法。必须使用回调收到的 `next` 模板/数据及 `signal`，不能闭包回旧来源；返回计划应保留同一业务身份、预算和 `requiresRecalculation` 要求。非 Worker 的 `createReportRuntime.prepare` 已自动登记，不需要重复接线。

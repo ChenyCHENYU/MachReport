@@ -1,4 +1,5 @@
 import { computed, ref, watch } from "vue";
+import { useLocalDraft } from "./useLocalDraft";
 import type {
   ListComponent,
   ListGroupBy,
@@ -56,6 +57,14 @@ export function useRuleEditor(
     bold: false,
   });
   const preview = ref<Array<{ row: number; value: unknown }>>([]);
+  const formulaDraft = useLocalDraft(() => formula.value);
+  const groupDraft = useLocalDraft(() => groups.value);
+  const conditionDraft = useLocalDraft(() => ({ when: when.value, style: style.value }));
+  const computedDrafts = ref(new Map<string, ComputedField>());
+  const conditionDrafts = ref(new Map<string, { when: StyleRule["when"]; style: typeof style.value }>());
+  let conditionKey = "", resetting = false;
+  const pendingLocalChanges = computed(() => formulaDraft.pending.value || groupDraft.pending.value || conditionDraft.pending.value || computedDrafts.value.size > 0 || conditionDrafts.value.size > 0);
+  let committed: string | undefined;
   const fields = computed(() => {
     const map = new Map<string, string>();
     for (const field of props.datasetSchema?.fields ?? [])
@@ -74,6 +83,8 @@ export function useRuleEditor(
   );
   const diagnostics = computed(() => validateComputedFields(candidateFields()));
   function reset(): void {
+    if (committed === JSON.stringify(props.list)) { committed = undefined; return; }
+    resetting = true; computedDrafts.value = new Map(); conditionDrafts.value = new Map();
     groups.value = clone(
       props.list.groups ?? (props.list.groupBy ? [props.list.groupBy] : []),
     );
@@ -84,9 +95,13 @@ export function useRuleEditor(
     preview.value = [];
     loadComputed(selectedComputed.value);
     loadCondition(-1);
+    groupDraft.accept(); resetting = false;
   }
   watch(() => props.list, reset, { immediate: true });
+  watch(formula, () => { preview.value = []; }, { deep: true });
+  watch(() => props.datasets, () => { preview.value = []; }, { deep: true });
   function loadComputed(field: string): void {
+    if (!resetting && formulaDraft.pending.value) computedDrafts.value = new Map(computedDrafts.value).set(selectedComputed.value, clone(formula.value));
     selectedComputed.value = field;
     formula.value = clone(
       props.list.computed?.find((item) => item.field === field) ?? {
@@ -98,6 +113,9 @@ export function useRuleEditor(
     formula.value.numeric ??= "number";
     preview.value = [];
     error.value = "";
+    formulaDraft.accept();
+    const cached = computedDrafts.value.get(field);
+    if (cached) { formula.value = clone(cached); const cache = new Map(computedDrafts.value); cache.delete(field); computedDrafts.value = cache; }
   }
   function candidateFields(): ComputedField[] {
     const current = props.list.computed ?? [];
@@ -125,6 +143,7 @@ export function useRuleEditor(
       return false;
     }
     error.value = "";
+    committed = JSON.stringify(next);
     change(next);
     return true;
   }
@@ -150,7 +169,10 @@ export function useRuleEditor(
             : { digits: formula.value.digits }),
         },
       });
-    if (commit(next)) selectedComputed.value = formula.value.field;
+    if (commit(next)) {
+      const cache = new Map(computedDrafts.value); cache.delete(selectedComputed.value); cache.delete(formula.value.field); computedDrafts.value = cache;
+      selectedComputed.value = formula.value.field; formulaDraft.accept();
+    }
   }
   function removeComputed(): void {
     if (!selectedComputed.value) return;
@@ -158,7 +180,7 @@ export function useRuleEditor(
     next.computed = (next.computed ?? []).filter(
       (item) => item.field !== selectedComputed.value,
     );
-    if (commit(next)) loadComputed("");
+    if (commit(next)) { const cache = new Map(computedDrafts.value); cache.delete(selectedComputed.value); computedDrafts.value = cache; formulaDraft.accept(); loadComputed(""); }
   }
   function check(): void {
     preview.value = [];
@@ -231,9 +253,11 @@ export function useRuleEditor(
     const next = clone(props.list);
     next.groups = clone(groups.value);
     delete next.groupBy;
-    commit(next);
+    if (commit(next)) groupDraft.accept();
   }
   function loadCondition(index: number): void {
+    if (!resetting && conditionDraft.pending.value) conditionDrafts.value = new Map(conditionDrafts.value).set(conditionKey, { when: clone(when.value), style: { ...style.value } });
+    conditionKey = `${column.value}|${effect.value}|${index}`;
     conditionIndex.value = index;
     const condition =
       effect.value === "cell"
@@ -248,6 +272,9 @@ export function useRuleEditor(
       backgroundColor: String(existing?.backgroundColor ?? "#fff1f2"),
       bold: existing?.bold === true,
     };
+    conditionDraft.accept();
+    const cached = conditionDrafts.value.get(conditionKey);
+    if (cached) { when.value = clone(cached.when); style.value = { ...cached.style }; const cache = new Map(conditionDrafts.value); cache.delete(conditionKey); conditionDrafts.value = cache; }
   }
   function setThreshold(value: string): void {
     const contract = props.datasetSchema?.fields.find(
@@ -295,10 +322,12 @@ export function useRuleEditor(
           style: { ...style.value },
         };
     }
-    commit(next);
+    if (commit(next)) { const cache = new Map(conditionDrafts.value); cache.delete(conditionKey); conditionDrafts.value = cache; conditionDraft.accept(); }
   }
   return {
     m,
+    pendingLocalChanges,
+    draftSnapshot: () => JSON.stringify({ formula: formula.value, groups: groups.value, when: when.value, style: style.value, computedDrafts: [...computedDrafts.value], conditionDrafts: [...conditionDrafts.value] }),
     tab,
     fields,
     formula,
@@ -330,5 +359,6 @@ export function useRuleEditor(
     setThreshold,
     applyCondition,
     applyLayout: commit,
+    resetDraft: () => { committed = undefined; reset(); },
   };
 }
