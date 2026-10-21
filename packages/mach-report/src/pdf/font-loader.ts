@@ -85,7 +85,10 @@ async function responseFontBytes(response: Response, maxBytes: number, signal: A
   if (!response.body) {
     const bytes = new Uint8Array(await waitForFont(response.arrayBuffer(), signal)); checkFontSize(bytes.byteLength, maxBytes); return bytes;
   }
-  const reader = response.body.getReader(), chunks: Uint8Array[] = [];
+  return readFontStream(response.body, maxBytes, signal);
+}
+async function readFontStream(stream: ReadableStream<Uint8Array>, maxBytes: number, signal: AbortSignal): Promise<Uint8Array> {
+  const reader = stream.getReader(), chunks: Uint8Array[] = [];
   let length = 0;
   try {
     while (true) {
@@ -98,6 +101,15 @@ async function responseFontBytes(response: Response, maxBytes: number, signal: A
   } catch (error) { void reader.cancel(error).catch(() => undefined); throw error; }
   finally { reader.releaseLock(); }
 }
+async function decodeFontBytes(bytes: Uint8Array, maxBytes: number, signal: AbortSignal): Promise<Uint8Array> {
+  // fetch 已按 Content-Encoding 解压时直接复用真实字体；也支持普通静态服务器原样返回 .gz 文件。
+  if (bytes[0] !== 0x1f || bytes[1] !== 0x8b) return bytes;
+  if (typeof DecompressionStream === "undefined") throw new Error("当前环境不支持 gzip 字体解压，请使用未压缩的字体 URL 或支持 DecompressionStream 的浏览器 / Node 环境");
+  const compressed = new ReadableStream<BufferSource>({ start(controller) { controller.enqueue(bytes as BufferSource); controller.close(); } });
+  const decoded = compressed.pipeThrough(new DecompressionStream("gzip"));
+  // 压缩包与解压结果使用同一上限；读流时即可拒绝膨胀包，超时也覆盖解压等待。
+  return readFontStream(decoded, maxBytes, signal);
+}
 async function fetchFontData(url: string): Promise<FontData> {
   const controller = new AbortController();
   let timedOut = false;
@@ -109,7 +121,9 @@ async function fetchFontData(url: string): Promise<FontData> {
     if (/text\/html|application\/xhtml\+xml/i.test(res.headers?.get("content-type") ?? "")) {
       throw new Error("字体 URL 返回 HTML 页面（可能是 SPA 路由回退），不是字体文件");
     }
-    const bytes = await responseFontBytes(res, getFontCacheStats().maxFontBytes, controller.signal);
+    const maxBytes = getFontCacheStats().maxFontBytes;
+    const downloaded = await responseFontBytes(res, maxBytes, controller.signal);
+    const bytes = await decodeFontBytes(downloaded, maxBytes, controller.signal);
     validateBytes(bytes);
     return { bytes, fromCache: false };
   } catch (cause) {
