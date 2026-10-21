@@ -128,6 +128,7 @@ export function useTemplateEditor(
   const localRevision = ref(0);
   const toolEpoch = ref(0);
   const toolPending = computed(() => Object.values(localDrafts.value).some(Boolean));
+  const pendingTools = computed(() => Object.keys(localDrafts.value).filter(tool => localDrafts.value[tool]));
   function setToolPending(tool: string, pending: boolean): void {
     localDrafts.value = { ...localDrafts.value, [tool]: pending }; localRevision.value++;
   }
@@ -399,6 +400,7 @@ export function useTemplateEditor(
     isToolPending: (tool: string) => localDrafts.value[tool] === true,
     toolEpoch,
     toolPending,
+    pendingTools,
     jsonPending,
     blocked,
     confirmation: discard.confirmation,

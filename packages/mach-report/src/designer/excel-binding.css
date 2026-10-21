@@ -30,9 +30,13 @@
 .mr-binding-region-entry { display: flex; align-items: stretch; border: 1px solid #e5ebf4; border-radius: 7px; overflow: hidden; background: #fafcff; }
 .mr-binding-region-entry.is-active { border-color: #a9c7f4; background: #f0f6ff; }
 .mr-binding-region-entry > button:first-child { display: grid; grid-template-columns: 1fr auto; text-align: left; flex: 1; min-width: 0; gap: 3px 8px; padding: 8px; border: 0; background: transparent; }
-.mr-binding-region-entry strong { font-size: 10px; font-weight: 600; }
+.mr-binding-region-entry strong { font-size: 10px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mr-binding-region-entry code { font-size: 10px; color: #5276a4; }
-.mr-binding-region-entry small { grid-column: 1 / -1; color: #8391a5; font-size: 9px; }
+.mr-binding-region-entry small { grid-column: 1; color: #8391a5; font-size: 9px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mr-binding-region-state { grid-column: 2; grid-row: 2; justify-self: end; color: #9c762f; font-size: 9px; white-space: nowrap; }
+.mr-binding-region-entry[data-state="ready"] .mr-binding-region-state { color: #278466; }
+.mr-binding-region-entry[data-state="error"] .mr-binding-region-state { color: #b75e47; }
+.mr-binding-region-state::before { content: ""; display: inline-block; width: 5px; height: 5px; margin-right: 5px; border-radius: 50%; background: currentColor; vertical-align: 1px; }
 .mr-binding-region-entry > button:last-child { min-width: 27px; padding: 0; border: 0; background: transparent; color: #8fa0b7; }
 .mr-binding-region-tools { display: flex; align-items: center; gap: 6px; margin: 10px 0 0; }
 .mr-binding-region-tools button { padding: 0 7px; min-height: 25px; font-size: 10px; }
@@ -505,6 +509,10 @@
   background: #fff;
 }
 .mr-binding-actions > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   margin-right: auto;
   color: #8694a7;
   font-size: 11px;
@@ -534,8 +542,18 @@
   font-size: 11px;
   font-weight: 500;
 }
+.mr-binding-issues summary { cursor: pointer; font-weight: 500; }
+.mr-binding-issues ul { list-style: none; padding: 0; }
+.mr-binding .mr-binding-issue-link { display: flex; width: 100%; min-width: 0; min-height: 27px; gap: 8px; padding: 4px 5px; border: 0; background: transparent; color: #97622e; text-align: left; justify-content: flex-start; }
+.mr-binding .mr-binding-issue-link:hover { background: #fff0df; }
+.mr-binding-issue-link strong { flex-shrink: 0; font-size: 10px; }
+.mr-binding-issue-link span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.mr-binding-issue-link svg { flex-shrink: 0; }
+.mr-binding-issue-pages { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.mr-binding-issue-pages button { padding: 0 4px; min-height: 22px; background: transparent; }
+.mr-binding label[tabindex="-1"]:focus { outline: 2px solid #8bb5ee; outline-offset: 3px; border-radius: 3px; }
 .mr-binding-issues ul {
-  padding-left: 17px;
+  padding-left: 0;
   margin: 5px 0;
 }
 .mr-binding-issues code {

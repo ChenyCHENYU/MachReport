@@ -21,6 +21,8 @@ export interface ReportBatchRow {
   status: "pending" | "running" | ReportBatchOutcome<ReportBatchReceipt>["status"];
   receipt?: ReportBatchReceipt;
   error?: string;
+  /** A changed request must never reuse the identity of a previously submitted intent. */
+  submitted?: boolean;
 }
 
 /** Extract a bounded receipt; never retain an arbitrary business response or generated file. */
@@ -44,6 +46,8 @@ export function useReportBatch(props: ReportBatchPanelOptions) {
   let nextKey = 0;
   const toRow = (item: ReportBatchCase): ReportBatchRow => ({ key: ++nextKey, item: { id: item.id, params: { ...item.params } }, status: "pending" });
   const initial = initialCases(props);
+  const initialIds = new Set(initial.cases.map(item => item.id));
+  let nextCaseId = initial.cases.length + 1;
   const rows = ref<ReportBatchRow[]>(initial.cases.map(toRow));
   const running = ref(false), cancelling = ref(false), attempted = ref(false), error = ref(initial.error);
   const invalidKey = ref<number>();
@@ -51,26 +55,33 @@ export function useReportBatch(props: ReportBatchPanelOptions) {
   const m = computed(() => ({ ...REPORT_BATCH_MESSAGES, ...props.messages }));
   const validations = computed(() => rows.value.map(row => validateReportParams(props.paramDefs, row.item.params)));
   const failures = computed(() => rows.value.filter(row => row.status === "failed").length);
+  const unfinished = computed(() => rows.value.filter(row => row.status === "pending" || row.status === "cancelled").length);
+  const cancelled = computed(() => rows.value.filter(row => row.status === "cancelled").length);
   const maximum = computed(() => props.maxCases ?? 100);
   let controller: AbortController | undefined, generation = 0;
   function newCase(values = initialValues(props.paramDefs)): ReportBatchCase {
-    let index = nextKey + 1;
-    while (rows.value.some(row => row.item.id === `case-${index}`)) index++;
-    return { id: `case-${index}`, params: { ...values } };
+    while (initialIds.has(`case-${nextCaseId}`)) nextCaseId++;
+    const id = `case-${nextCaseId++}`;
+    return { id, params: { ...values } };
   }
-  function add(copy?: ReportBatchRow): void {
+  function add(copy?: ReportBatchRow): ReportBatchRow | undefined {
     if (props.readonly || running.value) return;
     if (rows.value.length >= maximum.value) { error.value = m.value.batchLimit.replace("{count}", String(maximum.value)); return; }
-    rows.value.push(toRow(newCase(copy?.item.params))); error.value = "";
+    const row = toRow(newCase(copy?.item.params));
+    rows.value.push(row); error.value = ""; return row;
   }
   function remove(key: number): void { if (!running.value && !props.readonly) rows.value = rows.value.filter(row => row.key !== key); }
   function setParams(key: number, params: Record<string, string>): void {
     if (running.value || props.readonly) return;
     const row = rows.value.find(item => item.key === key);
-    if (row) { row.item.params = { ...params }; row.status = "pending"; delete row.receipt; delete row.error; }
+    if (!row || row.status === "completed" || JSON.stringify(row.item.params) === JSON.stringify(params)) return;
+    row.item = row.submitted ? newCase(params) : { ...row.item, params: { ...params } };
+    row.submitted = false; row.status = "pending"; delete row.receipt; delete row.error;
   }
   function cancel(): void { if (running.value) { cancelling.value = true; controller?.abort(); } }
-  function selectedRows(retry: boolean): ReportBatchRow[] { return rows.value.filter(row => !retry || row.status === "failed"); }
+  function selectedRows(retry: boolean): ReportBatchRow[] {
+    return rows.value.filter(row => retry ? row.status === "failed" : row.status === "pending" || row.status === "cancelled");
+  }
   function runInputs(selected: ReportBatchRow[]): ReportBatchCase[] | undefined {
     const checked = selected.map(row => validateReportParams(props.paramDefs, row.item.params));
     const invalid = checked.findIndex(result => !result.ok);
@@ -100,7 +111,7 @@ export function useReportBatch(props: ReportBatchPanelOptions) {
     const input = runInputs(selected); if (!input) return;
     const job = ++generation, execute = props.execute; controller = new AbortController(); running.value = true; cancelling.value = false;
     progress.value = { completed: 0, total: selected.length, failed: 0, cancelled: 0 };
-    for (const row of selected) { row.status = "pending"; delete row.receipt; delete row.error; }
+    for (const row of selected) { row.status = "pending"; row.submitted = true; delete row.receipt; delete row.error; }
     try {
       const outcomes = await runReportBatch(input, (item, context) => executeRow(selected[context.index]!, item, context, job, execute), {
         concurrency: props.concurrency, maxCases: maximum.value, signal: controller.signal,
@@ -114,5 +125,5 @@ export function useReportBatch(props: ReportBatchPanelOptions) {
     if (running.value) { cancel(); error.value = m.value.batchChanged; }
   });
   onBeforeUnmount(() => { generation++; controller?.abort(); });
-  return { m, rows, validations, running, cancelling, attempted, error, progress, failures, maximum, invalidKey, add, remove, setParams, cancel, run };
+  return { m, rows, validations, running, cancelling, attempted, error, progress, failures, unfinished, cancelled, maximum, invalidKey, add, remove, setParams, cancel, run };
 }

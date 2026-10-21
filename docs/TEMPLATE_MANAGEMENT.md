@@ -163,4 +163,8 @@ Manager可配置 `beforePublish({ document, previous, signal })` 门禁，发布
 
 `ReportTemplateCatalogProvider.search/get` 独立承载分类、标签和远程分页元数据；`createLocalTemplateCatalog` 是最多 1000 项的本地参考实现，`cloneReportTemplate(document,{id,name})` 会校验新 ID 并去除来源修订。模板文档继续只保存设计，不混入企业账号、查询凭据或生成数据。
 
+目录可附加 `draftRevision` / `publishedRevision`，默认打开最新可编辑草稿；查看发布版显式传 `get(id,{mode:'published'})`。`ReportTemplateLibrary` 按状态提供“继续编辑草稿”和“查看发布版”，`open(document,{mode})` 传递意图；宿主将发布版编辑器设为只读，返回编辑时重新读草稿。未声明生命周期的旧 Provider 仍可使用原来的打开行为。搜索、打开、复制失败各自重试原操作；复制重试沿用相同的新 ID 与独立候选快照，持久层仍需 CAS/幂等处理未知写入结果。
+
+`createLocalTemplateCatalog([{document,draftRevision,published,publishedRevision}])` 的 `document` 是可编辑文档，优先最新草稿；`published` 可保存独立的旧发布快照。只有发布版时可只传 `document` 和同一 `publishedRevision`。不同发布修订必须传对应文档，不能把草稿标成已发布。目录修订与文档需要来自一致状态；远程 Provider 的 `get` 应再次校验可见性，不把列表缓存当权限依据。
+
 模板历史不是报表实例。实例使用 `/server` 的 `ReportInstanceStore`、`createReportInstanceManager` 和 `createReportGenerationService`：明确保存渲染快照、参数、模板/数据修订，追加版本和当前指针必须处于同一 CAS 事务。预览保持只读，业务单元格落库仍经 Provider.save。存储责任、参考预算和未来平台能力见[产品能力](PRODUCT_PLATFORM.md)。

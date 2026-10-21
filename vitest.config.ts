@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [vue()],
   test: {
     environment: "happy-dom",
-    include: ["packages/*/src/**/*.test.ts", "packages/*/tests/**/*.test.ts"],
+    include: ["packages/*/src/**/*.test.ts", "packages/*/tests/**/*.test.ts", "examples/*/src/**/*.test.ts"],
     globals: false,
     setupFiles: ["./scripts/test-env.ts"],
     /** 失败直接暴露，发布与 CI 不以重试掩盖时序或性能回归。 */

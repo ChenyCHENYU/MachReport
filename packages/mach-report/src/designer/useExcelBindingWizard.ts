@@ -20,11 +20,13 @@ import {
   type ExcelBindingDataset,
   type ExcelBindingRecipe,
   type ExcelBindingRegion,
+  type ExcelBindingIssue,
 } from "../xlsx/binding-workflow";
 import {
   EXCEL_BINDING_MESSAGES,
   type ExcelBindingMessages,
 } from "./excel-binding-messages";
+import { bindingTargetRange, excelTableIssueTarget, type ExcelBindingTarget } from "./excel-binding-guidance";
 
 export type ExcelBindingWizardApply = AnyExcelBindingDocumentResult & { session: AnyExcelBindingSession };
 export interface ExcelBindingWizardOptions {
@@ -97,6 +99,7 @@ export function useExcelBindingWizard(
   const mappingPage = ref(0);
   const m = computed(() => ({ ...EXCEL_BINDING_MESSAGES, ...props.messages }));
   const disabled = computed(() => !!props.readonly || loading.value || applying.value);
+  const canCheck = computed(() => !loading.value && !applying.value);
   const sheet = computed(() =>
     imported.value?.sheets.find((item) => item.name === recipe.value.sheet),
   );
@@ -131,6 +134,45 @@ export function useExcelBindingWizard(
     return { ...result, ok: issues.length === 0, issues };
   });
   const validation = computed(() => mode.value === "regions" ? regionBindings.validation.value : tableValidation.value);
+  const tableFocus = ref<{ target: ExcelBindingTarget; sequence: number }>();
+  const focusTarget = computed(() => mode.value === "regions" ? regionBindings.focusTarget.value : tableFocus.value);
+  function issueTarget(issue: ExcelBindingIssue): ExcelBindingTarget { return mode.value === "regions" ? regionBindings.target(issue) : excelTableIssueTarget(issue, recipe.value); }
+  function targetLabel(target: ExcelBindingTarget): string {
+    const labels: Record<string, string> = { dataset: m.value.dataset, contract: m.value.dataContract, rowKey: m.value.rowKey, range: m.value.regionCoordinates, field: m.value.mapping, fields: m.value.mapping, footer: m.value.flowFooter, header: m.value.headerRegion, detail: m.value.detailRegion, title: m.value.titleRegion, sheet: m.value.sheet, regions: mode.value === "regions" ? m.value.multiRegions : m.value.regionLegend, revisionField: m.value.revisionField, sourceTokenField: m.value.sourceTokenField };
+    const range = bindingTargetRange(target);
+    const field = target.fieldIndex === undefined ? "" : ` ${columnName(range?.left ?? target.fieldIndex + 1)}`;
+    return `${target.regionId ? `${target.regionId} · ` : ""}${labels[target.control] ?? m.value.regionCoordinates}${field}`;
+  }
+  const issueEntries = computed(() => validation.value.issues.map(issue => ({
+    issue, label: targetLabel(issueTarget(issue)),
+    message: issue.message.replace(/\$\.recipe\.regions\[(\d+)\]/g, (_path, index: string) => regionBindings.recipe.value.regions[Number(index)]?.id ?? m.value.regionProperties),
+  })));
+  function nextStep(target?: ExcelBindingTarget): string {
+    if (!target) return mode.value === "regions" ? m.value.nextRegion : m.value.nextHeader;
+    const hints: Record<string, string> = { dataset: m.value.nextDataset, rowKey: m.value.nextRowKey, field: m.value.nextField, fields: m.value.nextField, range: m.value.nextRange, regions: m.value.nextRegion, footer: m.value.nextFooter, header: m.value.nextHeader, detail: m.value.nextHeader, title: m.value.nextHeader };
+    return hints[target.control] ?? m.value.nextContract;
+  }
+  const guidance = computed(() => {
+    if (props.readonly) return m.value.readonly;
+    if (loading.value) return m.value.loading;
+    if (applying.value) return m.value.applying;
+    if (applied.value) return m.value.applied;
+    if (validation.value.ok) return m.value.ready;
+    return nextStep(validation.value.issues[0] ? issueTarget(validation.value.issues[0]) : undefined);
+  });
+  watch(focusTarget, value => {
+    const range = value && bindingTargetRange(value.target);
+    if (!range || !sourceRange.value) return;
+    row.value = Math.max(sourceRange.value.top, Math.min(sourceRange.value.bottom, range.top));
+    column.value = Math.max(sourceRange.value.left, Math.min(sourceRange.value.right, range.left));
+  });
+  function locateIssue(issue: ExcelBindingIssue): void {
+    if (mode.value === "regions") { regionBindings.locate(issue); return; }
+    const target = issueTarget(issue), range = bindingTargetRange(target);
+    if (range) { anchor.value = range.top; end.value = range.bottom; }
+    if (target.fieldIndex !== undefined) mappingPage.value = Math.floor(target.fieldIndex / 12);
+    tableFocus.value = { target, sequence: (tableFocus.value?.sequence ?? 0) + 1 };
+  }
   const mappings = computed(() =>
     recipe.value.fields
       .slice(mappingPage.value * 12, (mappingPage.value + 1) * 12)
@@ -355,6 +397,8 @@ export function useExcelBindingWizard(
       applied.value = false;
     }
   }
+  function setRowKey(value: string): void { if (!disabled.value) recipe.value.rowKey = value; }
+  function setIdentity(key: "id" | "name", value: string): void { if (!disabled.value && !(key === "id" && props.lockId)) identity.value[key] = value; }
   function regionAt(number: number): ExcelBindingRegion | undefined {
     for (const role of ["title", "header", "detail", "footer"] as const) {
       const range = recipe.value.regions[role];
@@ -387,6 +431,7 @@ export function useExcelBindingWizard(
     resetPosition(); sourceRevision.value++; localDraft.accept(); error.value = "";
   }
   function check(): void {
+    if (!canCheck.value) return;
     checked.value = true;
     error.value = "";
   }
@@ -434,11 +479,13 @@ export function useExcelBindingWizard(
     mappingPage,
     m,
     disabled,
+    canCheck,
     sheet,
     sourceRange,
     dataset,
     window,
     validation,
+    focusTarget, issueEntries, guidance, locateIssue,
     mappings,
     rowKeys,
     selection,
@@ -450,6 +497,7 @@ export function useExcelBindingWizard(
     markRegion,
     clearRegion,
     setMapping,
+    setRowKey, setIdentity,
     regionAt,
     moveWindow,
     check,

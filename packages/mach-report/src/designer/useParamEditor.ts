@@ -25,6 +25,18 @@ export interface ParamDraft {
 }
 export const PARAM_TYPES = ["text", "number", "date", "month", "year", "dateRange", "select"] as const;
 export const PARAM_WIRE_FORMAT = { text: "string", number: "string → number", date: "YYYY-MM-DD", month: "YYYY-MM", year: "YYYY", dateRange: "YYYY-MM-DD/YYYY-MM-DD", select: "option.value" };
+export type ParamControl = "field" | "type" | "defaultValue" | "min" | "max" | "minLength" | "maxLength" | "options";
+
+/** Shared validator messages stay intact; the form adds precise, local control locations. */
+function issueControls(message: string): ParamControl[] {
+  if (/^(默认值|必填参数的默认值)/.test(message)) return ["defaultValue"];
+  if (message.includes("参数名")) return ["field"];
+  if (message.includes("选项")) return ["options"];
+  if (message.startsWith("最小边界")) return ["min", "max"];
+  if (message.startsWith("最小长度")) return ["minLength", "maxLength"];
+  const bound = /^(minLength|maxLength|min|max) /.exec(message)?.[1] as ParamControl | undefined;
+  return bound ? [bound] : ["type"];
+}
 
 function cloneDefinitions(defs: readonly ReportParamDef[]): ReportParamDef[] { return JSON.parse(JSON.stringify(defs)) as ReportParamDef[]; }
 function toDraft(def: ReportParamDef): ParamDraft {
@@ -63,8 +75,22 @@ export function useParamEditor(props: ParamEditorOptions) {
   const pending = computed(() => JSON.stringify(rows.value) !== initialDraft.value);
   const conflicted = computed(() => source() !== baseline.value);
   const issues = computed(() => validateReportParamDefinitions(definitions.value));
+  const issuesByRow = computed(() => {
+    const result = new Map<number, Array<{ message: string; controls: ParamControl[] }>>();
+    for (const issue of issues.value) {
+      const index = Number(issue.path.split(".").at(-1));
+      const entries = result.get(index) ?? [];
+      entries.push({ message: issue.message, controls: issueControls(issue.message) });
+      result.set(index, entries);
+    }
+    return result;
+  });
+  const firstIssueIndex = computed(() => issuesByRow.value.keys().next().value as number | undefined);
   const current = computed(() => rows.value[selected.value]);
   const currentIssues = computed(() => issues.value.filter(issue => issue.path === `$.paramDefs.${selected.value}`));
+  function controlIssues(control: ParamControl): string[] {
+    return (issuesByRow.value.get(selected.value) ?? []).filter(issue => issue.controls.includes(control)).map(issue => issue.message);
+  }
   const changes = computed(() => {
     const before = (JSON.parse(baseline.value) as ReportParamDef[]).map(def => def.field);
     const after = definitions.value.map(def => def.field);
@@ -104,5 +130,5 @@ export function useParamEditor(props: ParamEditorOptions) {
       return true;
     } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); return false; }
   }
-  return { m, rows, selected, current, definitions, issues, currentIssues, changes, pending, conflicted, error, reset, add, remove, move, setType, apply };
+  return { m, rows, selected, current, definitions, issues, issuesByRow, firstIssueIndex, controlIssues, currentIssues, changes, pending, conflicted, error, reset, add, remove, move, setType, apply };
 }

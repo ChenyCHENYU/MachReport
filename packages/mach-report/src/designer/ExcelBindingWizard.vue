@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
+import { bindingTargetRange } from "./excel-binding-guidance";
 import ExcelRegionBindingPanel from "./ExcelRegionBindingPanel.vue";
 import ReportIcon from "../vue/ReportIcon.vue";
 import type { ExcelBindingRegion } from "../xlsx/binding-workflow";
@@ -25,7 +26,6 @@ const {
   error,
   loading,
   checked,
-  applied,
   row,
   column,
   mappingPage,
@@ -42,6 +42,22 @@ const {
 } = wizard;
 watch([wizard.pendingLocalChanges, recipe, identity], () => emit("dirty", wizard.pendingLocalChanges.value), { immediate: true, deep: true, flush: "sync" });
 const input = ref<HTMLInputElement>();
+const element = ref<HTMLElement>();
+const issuePage = ref(0);
+const issuePages = computed(() => Math.max(1, Math.ceil(wizard.issueEntries.value.length / 12)));
+const visibleIssues = computed(() => wizard.issueEntries.value.slice(issuePage.value * 12, (issuePage.value + 1) * 12));
+watch(issuePages, count => { issuePage.value = Math.min(issuePage.value, count - 1); });
+watch(wizard.focusTarget, async value => {
+  if (!value) return;
+  await nextTick();
+  const range = bindingTargetRange(value.target);
+  if (range) element.value?.querySelector<HTMLElement>(`td[data-source-cell="${range.top}:${range.left}"]`)?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  if (mode.value === "regions") return;
+  const control = value.target.control === "field" ? `field-${value.target.fieldIndex}` : value.target.control === "contract" ? "dataset" : value.target.control;
+  const target = element.value?.querySelector<HTMLElement>(`.mr-binding-table-editor [data-binding-control="${control}"]`);
+  const focus = disabled.value ? target?.closest<HTMLElement>("label") : target;
+  focus?.focus(); focus?.scrollIntoView?.({ block: "nearest" });
+});
 const dragging = ref(false);
 const regions: ExcelBindingRegion[] = ["title", "header", "detail", "footer"];
 const regionLabel = computed(() => ({
@@ -143,6 +159,7 @@ defineExpose({
 
 <template>
   <section
+    ref="element"
     class="mr-binding"
     :aria-label="m.title"
     :aria-busy="loading"
@@ -324,6 +341,7 @@ defineExpose({
                   :min="viewport.source.top"
                   :max="viewport.source.bottom"
                   :value="row"
+                  :aria-label="m.rowStart"
                   @change="number($event, 'row')"
 /></label><button
                 type="button"
@@ -348,6 +366,7 @@ defineExpose({
                   :min="viewport.source.left"
                   :max="viewport.source.right"
                   :value="column"
+                  :aria-label="m.columnStart"
                   @change="number($event, 'column')"
 /></label><button
                 type="button"
@@ -362,7 +381,7 @@ defineExpose({
         </div>
         <div class="mr-binding-inspector">
           <ExcelRegionBindingPanel v-if="mode === 'regions'" :controller="regionBindings" :datasets="datasets" :disabled="disabled" :messages="m" />
-          <fieldset v-show="mode === 'table'" :disabled="disabled">
+          <fieldset v-show="mode === 'table'" :disabled="disabled" class="mr-binding-table-editor">
             <section class="mr-binding-group">
               <h3><b>1</b>{{ m.regionLegend }}</h3>
               <div
@@ -380,6 +399,8 @@ defineExpose({
                 <button
                   type="button"
                   :aria-label="`${m.selectRegion} · ${regionLabel[role]}`"
+                  :data-binding-control="role"
+                  :title="!selection ? m.emptySelection : `${m.selectRegion} · ${regionLabel[role]}`"
                   :disabled="!selection"
                   @click="wizard.markRegion(role)"
                 >
@@ -405,8 +426,9 @@ defineExpose({
                 <b>2</b>{{ m.mapping
                 }}<span>{{ validation.mapped }}/{{ validation.total }}</span>
               </h3>
-              <label class="mr-binding-label">{{ m.dataset
+              <label class="mr-binding-label" tabindex="-1">{{ m.dataset
                 }}<select
+                  data-binding-control="dataset"
                   :value="recipe.dataset"
                   :aria-label="m.dataset"
                   @change="wizard.chooseDataset(value($event))"
@@ -423,8 +445,8 @@ defineExpose({
               <p v-if="!datasets.length" class="mr-binding-note">
                 {{ m.noContract }}
               </p>
-              <label v-if="dataset" class="mr-binding-label">{{ m.rowKey
-                }}<select v-model="recipe.rowKey" :aria-label="m.rowKey">
+              <label v-if="dataset" class="mr-binding-label" tabindex="-1">{{ m.rowKey
+                }}<select data-binding-control="rowKey" :value="recipe.rowKey" :aria-label="m.rowKey" @change="wizard.setRowKey(value($event))">
                   <option value="">{{ m.chooseRowKey }}</option>
                   <option
                     v-for="field in rowKeys"
@@ -439,9 +461,11 @@ defineExpose({
                   v-for="item in mappings"
                   :key="item.index"
                   class="mr-binding-map"
+                  tabindex="-1"
                   ><span>{{ item.physical }}</span>
                   <div>
                     <select
+                      :data-binding-control="`field-${item.index}`"
                       :aria-label="`${m.physical} ${item.physical} · ${m.business}`"
                       :value="item.field"
                       @change="wizard.setMapping(item.index, value($event))"
@@ -484,29 +508,28 @@ defineExpose({
             <section class="mr-binding-group">
               <h3>{{ m.identity }}</h3>
               <label class="mr-binding-label">{{ m.templateId
-                }}<input :value="lockId ? props.identity?.id ?? identity.id : identity.id" autocomplete="off" :readonly="lockId" @input="identity.id = ($event.target as HTMLInputElement).value" /></label><label class="mr-binding-label">{{ m.templateName
-                }}<input v-model="identity.name" autocomplete="off" /></label>
+                }}<input :value="lockId ? props.identity?.id ?? identity.id : identity.id" autocomplete="off" :readonly="lockId" @input="wizard.setIdentity('id', value($event))" /></label><label class="mr-binding-label">{{ m.templateName
+                }}<input :value="identity.name" autocomplete="off" @input="wizard.setIdentity('name', value($event))" /></label>
             </section>
           </fieldset>
         </div>
       </div>
-      <div
+      <details
         v-if="checked && validation.issues.length"
         class="mr-binding-issues"
-        role="alert"
+        open
       >
-        <strong>{{ m.issues }} · {{ validation.issues.length }}
-          {{ m.errors }}</strong>
+        <summary>{{ m.issues }} · {{ validation.issues.length }} {{ m.errors }}</summary>
         <ul>
           <li
-            v-for="(issue, index) in validation.issues.slice(0, 12)"
-            :key="index"
+            v-for="entry in visibleIssues"
+            :key="`${entry.issue.path}:${entry.issue.message}`"
           >
-            <code>{{ issue.path }}</code>{{ issue.message }}
+            <button type="button" class="mr-binding-issue-link" :aria-label="`${m.locateIssue} · ${entry.label}`" @click="wizard.locateIssue(entry.issue)"><strong>{{ entry.label }}</strong><span>{{ entry.message }}</span><ReportIcon name="arrow-right" :size="12" /></button>
           </li>
         </ul>
-        <span v-if="validation.issues.length > 12">+ {{ validation.issues.length - 12 }}</span>
-      </div>
+        <div v-if="issuePages > 1" class="mr-binding-issue-pages"><button type="button" :disabled="issuePage === 0" :aria-label="m.previousIssues" @click="issuePage--"><ReportIcon name="chevron-left" :size="12" /></button><span>{{ issuePage + 1 }}/{{ issuePages }}</span><button type="button" :disabled="issuePage + 1 >= issuePages" :aria-label="m.nextIssues" @click="issuePage++"><ReportIcon name="chevron-right" :size="12" /></button></div>
+      </details>
       <details v-if="imported.warnings.length" class="mr-binding-warnings">
         <summary>
           {{ m.inspectWarning }} · {{ imported.warnings.length }}
@@ -518,20 +541,13 @@ defineExpose({
         </ul>
       </details>
       <footer class="mr-binding-actions">
-        <span :class="{ 'is-ready': validation.ok }" role="status">{{
-          readonly
-            ? m.readonly
-            : applied
-              ? m.applied
-              : validation.ok
-                ? m.ready
-                : `${m.coverage} ${validation.mapped}/${validation.total}`
-        }}</span><button v-if="wizard.pendingLocalChanges.value" type="button" :disabled="disabled" @click="wizard.restoreDraft">{{ m.restoreDraft }}</button><button type="button" :disabled="disabled" @click="wizard.check">
+        <span :class="{ 'is-ready': validation.ok }" role="status" :title="wizard.guidance.value">{{ wizard.guidance.value }}</span><button v-if="wizard.pendingLocalChanges.value" type="button" :disabled="disabled" @click="wizard.restoreDraft">{{ m.restoreDraft }}</button><button type="button" :disabled="!wizard.canCheck.value" @click="wizard.check">
           {{ m.check }}
 </button><button
           type="button"
           class="mr-binding-primary"
           :disabled="disabled || !validation.ok"
+          :title="wizard.guidance.value"
           @click="wizard.apply"
         >
           {{ m.apply }}

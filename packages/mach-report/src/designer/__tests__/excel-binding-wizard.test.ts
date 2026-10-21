@@ -13,6 +13,7 @@ import {
 } from "../useExcelBindingWizard";
 import { RENDER_PLAN_SCHEMA_VERSION } from "../../schema/render-plan";
 import ExcelBindingWizard from "../ExcelBindingWizard.vue";
+import type { ExcelRegionBindingSession } from "../../xlsx/region-binding-types";
 const load = vi.hoisted(() => vi.fn());
 const opened = vi.hoisted(() => vi.fn());
 const disposed = vi.hoisted(() => vi.fn());
@@ -108,7 +109,85 @@ function harness(options: ExcelBindingWizardOptions) {
   );
   return { wizard, emitted, wrapper, state };
 }
+function guidanceSession(): { session: ExcelRegionBindingSession; datasets: ExcelBindingDataset[] } {
+  const imported = structuredClone(source);
+  Object.assign(imported.sheets[0]!, { range: "A1:Z40", rowCount: 40, columnCount: 26 });
+  const component = imported.template.pages[0]!.components[0]!;
+  if (component.kind !== "rect") throw new Error("Expected source grid");
+  Object.assign(component, { widthMm: 780, heightMm: 240, meta: { xlsxSheet: "日报", xlsxRange: "A1:Z40" }, grid: { colWidthsMm: Array(26).fill(30), rowHeightsMm: Array(40).fill(6), cells: Array.from({ length: 40 }, () => Array.from({ length: 26 }, () => ({ text: "" }))) } });
+  imported.template.pages[0]!.widthMm = 780; imported.template.pages[0]!.heightMm = 300;
+  const fields = [...datasets[0]!.fields, ...Array.from({ length: 12 }, (_, index) => ({ field: `f${index + 2}`, type: "number" as const }))];
+  return { datasets: [{ id: "rows", fields }], session: { version: "2.0", source: imported, identity: { id: "guided", name: "定位测试" }, recipe: { version: "2.0", sheet: "日报", regions: [
+    { id: "production", range: "A3:B3", mode: "record", dataset: "rows", rowKey: "id", fields: ["id", "weight"] },
+    { id: "cost", range: "M30:Z30", mode: "record", dataset: "rows", rowKey: "", fields: fields.map((field, index) => index === 13 ? "" : field.field) },
+  ] } } };
+}
 describe("Excel binding wizard interaction", () => {
+  it("locates a multi-region issue across source and field windows, then updates pending regions to ready", async () => {
+    const options = guidanceSession();
+    const wrapper = mount(ExcelBindingWizard, { props: options, attachTo: document.body });
+    const directory = wrapper.findAll(".mr-binding-region-entry");
+    expect(directory.map(item => item.attributes("data-state"))).toEqual(["ready", "pending"]);
+    expect(wrapper.get(".mr-binding-primary").attributes("title")).toContain("逐列字段映射");
+    await wrapper.findAll("button").find(button => button.text() === "校验绑定")!.trigger("click");
+    expect(wrapper.get(".mr-binding-issues").text()).not.toContain("$.recipe");
+    await wrapper.get('button[aria-label="定位并修正 · cost · 逐列映射 Z"]').trigger("click");
+    await flushPromises();
+    expect(directory[1]!.classes()).toContain("is-active");
+    expect((wrapper.get('input[aria-label="预览起始行"]').element as HTMLInputElement).value).toBe("30");
+    expect((wrapper.get('input[aria-label="预览起始列"]').element as HTMLInputElement).value).toBe("26");
+    expect(wrapper.get('td[data-source-cell="30:26"]').classes()).toContain("is-cell-selected");
+    const mapping = wrapper.get('select[aria-label="Excel 列 Z · 业务字段"]');
+    expect(document.activeElement).toBe(mapping.element);
+    expect(wrapper.findAll(".mr-binding-map")).toHaveLength(2);
+    expect(wrapper.findAll(".mr-binding-grid td").length).toBeLessThanOrEqual(24 * 12);
+    await mapping.setValue("f13");
+    await wrapper.findAll("button").find(button => button.text() === "校验绑定")!.trigger("click");
+    await wrapper.get('button[aria-label="定位并修正 · cost · 稳定业务主键"]').trigger("click"); await flushPromises();
+    const key = wrapper.get('.mr-binding-multi select[aria-label="稳定业务主键"]');
+    expect(document.activeElement).toBe(key.element);
+    await key.setValue("id");
+    expect(directory[1]!.attributes("data-state")).toBe("ready");
+    expect(wrapper.get(".mr-binding-primary").attributes("disabled")).toBeUndefined();
+    expect(wrapper.get(".mr-binding-actions").text()).toContain("绑定校验通过");
+    wrapper.unmount();
+  });
+  it("marks geometric errors separately and permits read-only diagnostic navigation without changing the draft", async () => {
+    const options = guidanceSession();
+    options.session.recipe.regions[1]!.range = "A3:N3";
+    const wrapper = mount(ExcelBindingWizard, { props: { ...options, readonly: true }, attachTo: document.body });
+    expect(wrapper.findAll(".mr-binding-region-entry")[1]!.attributes("data-state")).toBe("error");
+    await wrapper.findAll("button").find(button => button.text() === "校验绑定")!.trigger("click");
+    expect(wrapper.get(".mr-binding-issues").text()).not.toContain("$.recipe");
+    await wrapper.get('button[aria-label="定位并修正 · cost · 原型范围"]').trigger("click"); await flushPromises();
+    expect(wrapper.get('.mr-binding-multi input[aria-label="原型范围"]').element).toHaveProperty("value", "A3:N3");
+    const exposed = wrapper.vm as unknown as { pendingLocalChanges: boolean };
+    expect(exposed.pendingLocalChanges).toBe(false);
+    expect(document.activeElement?.tagName).toBe("LABEL");
+    const range = wrapper.get('.mr-binding-multi input[aria-label="原型范围"]');
+    await range.setValue("A4:N4");
+    const key = wrapper.get('.mr-binding-multi select[aria-label="稳定业务主键"]');
+    await key.setValue("id");
+    expect(exposed.pendingLocalChanges).toBe(false);
+    expect(wrapper.get(".mr-binding-primary").attributes("disabled")).toBeDefined();
+    expect(wrapper.emitted("apply")).toBeUndefined();
+    wrapper.unmount();
+  });
+  it("marks every region that shares an invalid sample contract and guards stale read-only field events", async () => {
+    const options = guidanceSession();
+    options.datasets[0]!.samples = [{ id: "duplicate", weight: 1 }, { id: "duplicate", weight: 2 }];
+    const { wizard, wrapper, state } = harness(options);
+    expect(wizard.regionBindings.directory.value.map(entry => entry.state)).toEqual(["error", "error"]);
+    const issue = wizard.validation.value.issues.find(item => item.code === "row-key")!;
+    expect(wizard.regionBindings.target(issue)).toMatchObject({ regionId: "production", control: "rowKey" });
+    state.readonly = true;
+    const before = JSON.stringify(wizard.regionBindings.recipe.value);
+    wizard.regionBindings.property("rowKey", "weight"); wizard.regionBindings.property("mode", "repeat");
+    wizard.regionBindings.mapping(0, "weight"); wizard.regionBindings.clearHeader();
+    expect(JSON.stringify(wizard.regionBindings.recipe.value)).toBe(before);
+    expect(wizard.pendingLocalChanges.value).toBe(false);
+    wrapper.unmount();
+  });
   it("reuses one workbook owner when switching Sheets and retains independent region drafts in dirty protection", async () => {
     const other = structuredClone(source); other.sheets[0]!.name = "第二页";
     for (const component of other.template.pages[0]!.components) if (component.kind !== "list" && component.meta) component.meta.xlsxSheet = "第二页";

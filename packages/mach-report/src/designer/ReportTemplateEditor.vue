@@ -106,6 +106,29 @@ const {
 const canvasFlow = computed(() => !!draft.value.template.pages[canvasPage.value]?.flow);
 const fieldFlow = computed(() => !!draft.value.template.pages[lists.value[selected.value]?.pageIndex ?? -1]?.flow);
 function openBinding(): void { section.value = "tools"; tool.value = "excel"; }
+type PendingTarget = "excel" | "rules" | "params" | "json";
+const pendingConfigurations = computed(() => {
+  const tools = (["excel", "rules", "params"] as const)
+    .filter(item => editor.pendingTools.value.includes(item))
+    .map(target => ({ target: target as PendingTarget, label: m.value[`${target}Tool`] }));
+  if (jsonPending.value) tools.push({ target: "json", label: m.value.json });
+  return tools;
+});
+const saveReason = computed(() => {
+  if (saving.value) return m.value.saving;
+  if (props.readonly) return m.value.saveReadonly;
+  if (blocked.value) return m.value.saveConfirmation;
+  if (pendingConfigurations.value.length) return pendingConfigurations.value.map(item => `${item.label} · ${m.value.unapplied}`).join("；");
+  if (!validation.value.ok) return m.value.saveInvalid;
+  return pendingLocalChanges.value ? "" : m.value.saveUnchanged;
+});
+async function openPending(target: PendingTarget): Promise<void> {
+  if (target === "json") section.value = "advanced";
+  else { section.value = "tools"; tool.value = target; }
+  await nextTick();
+  const selector = target === "json" ? `#${id}-panel-advanced textarea` : `#${id}-tool-${target}`;
+  document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
+}
 const headingStatus = computed(() =>
   saving.value
     ? m.value.saving
@@ -251,6 +274,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
           @keydown="navigateSection"
         >
           {{ m[`${item}Section`] }}
+          <span v-if="(item === 'tools' && editor.toolPending.value) || (item === 'advanced' && jsonPending)" class="mr-designer-pending-dot" aria-hidden="true"></span>
         </button>
       </nav>
       <div class="mr-designer-mode" role="group" :aria-label="m.design">
@@ -307,6 +331,8 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
           v-if="save"
           type="button"
           class="mr-designer-save"
+          :title="saveReason || m.save"
+          :aria-describedby="pendingConfigurations.length ? `${id}-pending` : saveReason ? `${id}-save-reason` : undefined"
           :disabled="
             readonly ||
             blocked ||
@@ -319,8 +345,14 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
         >
           <ReportIcon name="file" :size="13" />{{ saving ? m.saving : m.save }}
         </button>
+        <span v-if="save && saveReason && !pendingConfigurations.length" :id="`${id}-save-reason`" class="mr-designer-save-reason">{{ saveReason }}</span>
       </div>
     </header>
+    <div v-if="pendingConfigurations.length" :id="`${id}-pending`" class="mr-designer-pending" role="status">
+      <span>{{ m.pendingToolsLabel }}</span>
+      <button v-for="item in pendingConfigurations" :key="item.target" type="button" :aria-label="`${item.label} · ${m.unapplied} · ${m.returnToConfiguration}`" @click="openPending(item.target)">{{ item.label }}<span>{{ m.unapplied }} ↗</span></button>
+      <small>{{ m.pendingToolsHint }}</small>
+    </div>
     <div
       v-if="confirmation"
       role="alertdialog"
@@ -355,11 +387,14 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
           <button
             v-for="item in ['excel', 'rules', 'params', 'review'] as const"
             :key="item"
+            :id="`${id}-tool-${item}`"
             type="button"
             :aria-pressed="tool === item"
+            :aria-describedby="editor.isToolPending(item) ? `${id}-pending` : undefined"
             @click="tool = item"
           >
             {{ m[`${item}Tool`] }}
+            <span v-if="editor.isToolPending(item)" class="mr-designer-pending-dot" aria-hidden="true"></span>
 </button><span>{{ m.toolsDescription }}</span>
         </nav>
         <div class="mr-designer-tool-content">
