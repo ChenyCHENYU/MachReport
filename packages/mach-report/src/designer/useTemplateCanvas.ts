@@ -31,8 +31,12 @@ export function useTemplateCanvas(
   const active = computed(() =>
     selectedComponent(draft.value, selection.value),
   );
+  watch(pageIndex, (page) => {
+    if (selection.value?.pageIndex !== page) { selection.value = undefined; multi.selections.value = []; }
+  });
   watch(draft, () => {
     if (!active.value) selection.value = undefined;
+    multi.selections.value = multi.selections.value.filter(item => !!selectedComponent(draft.value, item));
     if (!draft.value.template.pages[pageIndex.value]) pageIndex.value = 0;
   });
   function select(next: CanvasSelection): void {
@@ -63,13 +67,16 @@ export function useTemplateCanvas(
     });
   }
   function insert(kind: CanvasInsertKind): void {
-    if (draft.value.template.pages[pageIndex.value]?.flow) return;
+    if (draft.value.template.pages[pageIndex.value]?.flow || kind === "list" && draft.value.template.repeat) return;
     let index = -1;
     const page = pageIndex.value;
     if (
       transaction((document) => {
         const components = document.template.pages[page]!.components;
-        components.push(createCanvasComponent(kind));
+        const component = createCanvasComponent(kind);
+        setCanvasGeometry(component, constrainGeometry(componentGeometry(component), document.template.pages[page]!, component.kind === "list"));
+        if (component.kind === "qrcode") component.widthMm = component.heightMm = Math.min(component.widthMm, component.heightMm);
+        components.push(component);
         index = components.length - 1;
       })
     )

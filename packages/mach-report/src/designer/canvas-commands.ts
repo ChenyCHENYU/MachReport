@@ -25,7 +25,7 @@ export interface CanvasGeometry {
   widthMm: number;
   heightMm: number;
 }
-export type CanvasInsertKind = "text" | "list" | "image" | "rect";
+export type CanvasInsertKind = "text" | "list" | "image" | "rect" | "qrcode" | "barcode";
 export const CANVAS_MM_TO_PX = 96 / 25.4;
 export function componentHeight(component: TemplateComponent): number {
   return component.kind === "list"
@@ -64,6 +64,8 @@ export function createCanvasComponent(
   dataset = "detail",
 ): TemplateComponent {
   const base = { leftMm: 10, topMm: 10, widthMm: 60, heightMm: 10 };
+  if (kind === "qrcode") return { ...base, kind, widthMm: 22, heightMm: 22, code: { value: "MACHREPORT", errorCorrection: "M", quietZoneModules: 4 } };
+  if (kind === "barcode") return { ...base, kind, widthMm: 50, heightMm: 16, code: { value: "MR20261022", symbology: "code128", quietZoneModules: 10, showText: true } };
   if (kind === "list")
     return {
       kind,

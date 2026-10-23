@@ -35,7 +35,7 @@ try {
   symlinkSync(nodeTypes, resolve(scratch, "node_modules/@types/node"), "dir");
   const nodeTypesRequire = createRequire(resolve(nodeTypes, "package.json"));
   symlinkSync(dirname(nodeTypesRequire.resolve("undici-types/package.json")), resolve(scratch, "node_modules/undici-types"), "dir");
-  const frameworkFreeEntries = ["", "/pdf", "/xlsx", "/sql", "/server", "/server/node", "/worker", "/analytics", "/xlsx/node"];
+  const frameworkFreeEntries = ["", "/pdf", "/xlsx", "/sql", "/server", "/server/node", "/worker", "/analytics", "/xlsx/node", "/codes"];
   writeFileSync(resolve(scratch, "without-vue.mjs"), frameworkFreeEntries.map((path) => `await import("@agile-team/mach-report${path}");`).join("\n"));
   writeFileSync(resolve(scratch, "without-vue.cjs"), frameworkFreeEntries.map((path) => `require("@agile-team/mach-report${path}");`).join("\n"));
   run(process.execPath, ["without-vue.mjs"]);
@@ -43,6 +43,16 @@ try {
   symlinkSync(dirname(packageRequire.resolve("vue/package.json")), resolve(scratch, "node_modules/vue"), "dir");
 
   const runtime = `
+const labelTemplate = core.createLabelTemplate({ dataset: "labels", rowKey: "id", components: [
+  { kind: "text", leftMm: 2, topMm: 2, widthMm: 60, heightMm: 6, binding: { field: "id" } },
+  { kind: "qrcode", leftMm: 30, topMm: 15, widthMm: 25, heightMm: 25, binding: { field: "id" } }
+] });
+const labels = core.paginateTemplate(labelTemplate, { labels: [{ id: "000001" }, { id: "000002" }] }).plan;
+const codes = await import("@agile-team/mach-report/codes");
+const encodedLabels = await core.resolvePlanAssets(labels, { assetRenderers: codes.createCodeAssetRenderers() });
+if (encodedLabels.plan.pages.length !== 2 || !encodedLabels.plan.pages[0].components[1].imageData.startsWith("data:image/png;base64,")) throw new Error("Packed record labels/codes failed");
+const labelPdf = await pdf.renderPlanToPdf(encodedLabels.plan);
+if (labelPdf.bytes[0] !== 37) throw new Error("Packed label PDF failed");
 const template = core.createTemplate().page("a4").text("Consumer", { leftMm: 10, topMm: 10, widthMm: 80, heightMm: 8 }).build();
 const { plan } = core.paginateTemplate(template, {});
 const tableTemplate = core.createTableTemplate({ title: "Consumer", columns: [{ header: "Name", field: "name" }, { header: "Qty", field: "qty", widthMm: 25 }] });
@@ -116,6 +126,7 @@ if (!isolated.plan.pages.length) throw new Error("Packed Node Worker did not ret
   run(process.execPath, ["smoke.cjs"]);
 
   const consumer = `import { createTemplate, paginateTemplate, paginateTemplatePages, reviewReportTemplate } from "@agile-team/mach-report";
+import { createCodeAssetRenderers } from "@agile-team/mach-report/codes";
 import { renderPlanToXlsx } from "@agile-team/mach-report/xlsx";
 import { renderPlanToPdf } from "@agile-team/mach-report/pdf";
 import { compileDynamicSql } from "@agile-team/mach-report/sql";
@@ -129,6 +140,8 @@ import { ReportTemplateEditor, ExcelBindingWizard, RuleEditor, TemplateReviewPan
 import { computeDataset, createCrossTable, createChartComponents } from "@agile-team/mach-report/analytics";
 import { Writable } from "node:stream";
 async function consume() {
+  const assets = createCodeAssetRenderers({ dpi: 203 });
+  void assets;
   const builder: ReturnType<typeof createTemplate> = createVueTemplate();
   const definition = defineReport({
     template: builder.page("a4").build(),

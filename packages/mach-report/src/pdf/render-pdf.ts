@@ -1,6 +1,6 @@
 import { outputCheckpoint, type OutputTaskOptions } from "../output/progress";
-import fontkit from "@pdf-lib/fontkit";
-import { PDFDocument, PDFName, PDFRawStream, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
+import { createPdfFontEmbedding, type PdfFontEmbedding } from "./font-embedding";
 import type { ComponentStyle, PlanComponent, RenderPlan } from "../schema/render-plan";
 import { reportOutputDiagnostics, type OutputDiagnostic } from "../output/capabilities";
 import { resolvePlanAssets, type AssetRenderOptions } from "../output/assets";
@@ -56,31 +56,6 @@ const MM_TO_PT = 72 / 25.4;
 /** 分页 mm→PDF pt 的浮点往返误差；小于可见排版差异，不能吞掉真实高度不足。 */
 const TEXT_HEIGHT_EPSILON_PT = 0.01;
 
-function isOpenTypeContainer(input: Uint8Array | ArrayBuffer | undefined): boolean {
-  if (!input) return false;
-  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
-  return bytes[0] === 0x4f && bytes[1] === 0x54 && bytes[2] === 0x54 && bytes[3] === 0x4f;
-}
-
-// pdf-lib 依赖 font.cff，fontkit 当前只暴露 CFF 表；补齐标识，避免把 OTF 当作 TrueType。
-const compatibleFontkit = {
-  create(bytes: Uint8Array, postscriptName?: string) {
-    const font = fontkit.create(bytes, postscriptName);
-    if (isOpenTypeContainer(bytes)) font.cff = true;
-    return font;
-  }
-};
-
-async function preserveOpenTypeContainer(document: PDFDocument): Promise<void> {
-  await document.flush();
-  // 完整 OTF 包含 OTTO 容器，不是裸 CFF 数据；FontFile3 必须声明 OpenType。
-  for (const [, object] of document.context.enumerateIndirectObjects()) {
-    if (object instanceof PDFRawStream && object.dict.get(PDFName.of("Subtype")) === PDFName.of("CIDFontType0C")) {
-      object.dict.set(PDFName.of("Subtype"), PDFName.of("OpenType"));
-    }
-  }
-}
-
 function mmToPt(mm: number): number {
   return (mm || 0) * MM_TO_PT;
 }
@@ -123,6 +98,7 @@ interface PdfRenderer {
   fonts: { regular: PDFFont; bold: PDFFont; italic: PDFFont; boldItalic: PDFFont };
   customFont?: PDFFont;
   customFontFaces?: PdfRenderOptions["customFontFaces"];
+  embedding: PdfFontEmbedding;
   measurer: TextMeasurer;
   imageCache: Map<string, Promise<PDFImage | null>>;
   fidelityWarnings: string[];
@@ -382,12 +358,13 @@ async function drawComponent(renderer: PdfRenderer, page: PDFPage, comp: PlanCom
 }
 
 async function createRenderer(document: PDFDocument, options: PdfRenderOptions): Promise<PdfRenderer> {
+  const embedding = createPdfFontEmbedding(document);
   const regularBytes = options.customFontFaces?.regular ?? options.customFontBytes;
   const fontCache = new Map<Uint8Array | ArrayBuffer, Promise<PDFFont>>();
   const customFont = regularBytes
     // fontkit 的子集重写可能损坏 CJK 轮廓：字符可提取却在阅读器中不可见。
     // 完整嵌入优先保证输出可见性；宿主仍可提供预先验证的字体子集来控制体积。
-    ? await embedFontBytes(document, regularBytes, fontCache)
+    ? await embedFontBytes(embedding, regularBytes, fontCache)
     : undefined;
   const [regular, bold, italic, boldItalic] = await Promise.all([
     document.embedFont(StandardFonts.Helvetica), document.embedFont(StandardFonts.HelveticaBold),
@@ -395,24 +372,24 @@ async function createRenderer(document: PDFDocument, options: PdfRenderOptions):
   ]);
   const fonts = customFont ? {
     regular: customFont,
-    bold: await embedFace(document, options.customFontFaces?.bold, customFont, fontCache),
-    italic: await embedFace(document, options.customFontFaces?.italic, customFont, fontCache),
-    boldItalic: await embedFace(document, options.customFontFaces?.boldItalic, customFont, fontCache)
+    bold: await embedFace(embedding, options.customFontFaces?.bold, customFont, fontCache),
+    italic: await embedFace(embedding, options.customFontFaces?.italic, customFont, fontCache),
+    boldItalic: await embedFace(embedding, options.customFontFaces?.boldItalic, customFont, fontCache)
   } : { regular, bold, italic, boldItalic };
   return {
-    document, fonts, customFont, customFontFaces: options.customFontFaces,
+    document, fonts, customFont, customFontFaces: options.customFontFaces, embedding,
     measurer: options.measurer ?? heuristicMeasurer,
     imageCache: new Map(), fidelityWarnings: [], styleWarnings: new Set(), unsupportedTextCount: 0
   };
 }
 
-async function embedFace(document: PDFDocument, bytes: Uint8Array | ArrayBuffer | undefined, fallback: PDFFont, cache: Map<Uint8Array | ArrayBuffer, Promise<PDFFont>>): Promise<PDFFont> {
-  return bytes ? embedFontBytes(document, bytes, cache) : fallback;
+async function embedFace(embedding: PdfFontEmbedding, bytes: Uint8Array | ArrayBuffer | undefined, fallback: PDFFont, cache: Map<Uint8Array | ArrayBuffer, Promise<PDFFont>>): Promise<PDFFont> {
+  return bytes ? embedFontBytes(embedding, bytes, cache) : fallback;
 }
 
-function embedFontBytes(document: PDFDocument, bytes: Uint8Array | ArrayBuffer, cache: Map<Uint8Array | ArrayBuffer, Promise<PDFFont>>): Promise<PDFFont> {
+function embedFontBytes(embedding: PdfFontEmbedding, bytes: Uint8Array | ArrayBuffer, cache: Map<Uint8Array | ArrayBuffer, Promise<PDFFont>>): Promise<PDFFont> {
   let font = cache.get(bytes);
-  if (!font) { font = document.embedFont(bytes as unknown as ArrayBuffer, { subset: false }); cache.set(bytes, font); }
+  if (!font) { font = embedding.embed(bytes); cache.set(bytes, font); }
   return font;
 }
 
@@ -421,7 +398,6 @@ export async function renderPlanToPdf(plan: RenderPlan, options: PdfRenderOption
   plan = prepared.plan;
   const diagnostics = [...prepared.diagnostics, ...reportOutputDiagnostics(plan, "pdf", options)];
   const pdfDoc = await PDFDocument.create();
-  pdfDoc.registerFontkit(compatibleFontkit);
   const renderer = await createRenderer(pdfDoc, options);
   const pageErrors: string[] = [];
   for (const [pageIndex, planPage] of plan.pages.entries()) {
@@ -443,9 +419,8 @@ export async function renderPlanToPdf(plan: RenderPlan, options: PdfRenderOption
     }
     await outputCheckpoint(options, pageIndex + 1, plan.pages.length);
   }
-  const fontBytes = [options.customFontBytes, ...Object.values(options.customFontFaces ?? {})];
   checkCancelled(options.signal);
-  if (fontBytes.some(isOpenTypeContainer)) await preserveOpenTypeContainer(pdfDoc);
+  await renderer.embedding.finalize();
   const bytes = await pdfDoc.save();
   checkCancelled(options.signal);
   return {

@@ -52,7 +52,7 @@ export default tseslint.config(
         {
           patterns: [
             { group: ["../pdf/*", "../pdf", "../sql/*", "../sql", "../xlsx/*", "../xlsx", "../vue/*", "../vue", "./pdf/*", "./sql/*", "./xlsx/*", "./vue/*", "../designer/*", "./designer/*"], message: "Engine core must not depend on optional output/framework domains." },
-            { group: ["@agile-team/mach-report/pdf", "@agile-team/mach-report/sql", "@agile-team/mach-report/xlsx", "@agile-team/mach-report/xlsx/*", "@agile-team/mach-report/vue", "@agile-team/mach-report/vue/*", "@agile-team/mach-report/designer", "node:*", "vue", "exceljs", "pdf-lib", "node-sql-parser"], message: "Engine core must remain browser-safe and framework-independent." }
+            { group: ["@agile-team/mach-report/pdf", "@agile-team/mach-report/sql", "@agile-team/mach-report/xlsx", "@agile-team/mach-report/xlsx/*", "@agile-team/mach-report/vue", "@agile-team/mach-report/vue/*", "@agile-team/mach-report/designer", "@agile-team/mach-report/codes", "../codes/*", "../codes", "./codes/*", "node:*", "vue", "exceljs", "pdf-lib", "node-sql-parser", "@bwip-js/*", "fast-png"], message: "Engine core must remain browser-safe and framework-independent." }
           ]
         }
       ]

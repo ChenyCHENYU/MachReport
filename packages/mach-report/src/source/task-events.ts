@@ -2,7 +2,7 @@
 export interface ReportTaskEvent {
   taskId: string;
   correlationId?: string;
-  stage: "query" | "validate" | "layout" | "encode";
+  stage: "query" | "validate" | "layout" | "assets" | "encode";
   status: "started" | "completed" | "failed";
   reportId?: string;
   completed?: number;

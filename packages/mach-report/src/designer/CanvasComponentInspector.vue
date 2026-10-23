@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { resolveFontSize } from "../render/style";
 import { computed, ref } from "vue";
-import type { TemplateComponent } from "@agile-team/mach-report";
+import type { DatasetContract, ReportTemplate, TemplateComponent } from "@agile-team/mach-report";
+import ComponentDataBinding from "./ComponentDataBinding.vue";
+import CodeComponentInspector from "./CodeComponentInspector.vue";
 import AlignmentControl from "./AlignmentControl.vue";
 import { componentGeometry, type CanvasGeometry } from "./canvas-commands";
 import {
@@ -13,6 +15,8 @@ const props = defineProps<{
   disabled?: boolean;
   /** Region layout is owned by the Excel binding recipe; styles/content remain editable. */
   geometryDisabled?: boolean;
+  repeat?: ReportTemplate["repeat"];
+  schema?: DatasetContract;
   messages?: Partial<TemplateEditorMessages>;
 }>();
 const emit = defineEmits<{
@@ -32,7 +36,9 @@ function geometry(key: keyof CanvasGeometry, event: Event): void {
   if (props.disabled || props.geometryDisabled) return;
   const number = Number((event.target as HTMLInputElement).value);
   if (!Number.isFinite(number)) return;
-  emit("geometry", { ...componentGeometry(props.component), [key]: number });
+  const next = { ...componentGeometry(props.component), [key]: number };
+  if (props.component.kind === "qrcode" && (key === "widthMm" || key === "heightMm")) next.widthMm = next.heightMm = number;
+  emit("geometry", next);
 }
 function style(key: string, value: unknown): void {
   if (props.component.kind === "list") return;
@@ -98,7 +104,7 @@ async function upload(event: Event): Promise<void> {
           @change="geometry(key, $event)"
       /></label>
     </div>
-    <label v-if="component.kind !== 'list'">{{ m.repeatPage
+    <label v-if="component.kind !== 'list' && !repeat">{{ m.repeatPage
       }}<select
         :value="component.pageAnchor ?? ''"
         :disabled="geometryDisabled"
@@ -109,14 +115,15 @@ async function upload(event: Event): Promise<void> {
         <option value="footer">{{ m.repeatFooter }}</option>
       </select></label>
     <h3>{{ m.componentContent }}</h3>
-    <label v-if="component.kind === 'text'">{{ m.componentText
+    <ComponentDataBinding v-if="['text', 'image', 'barcode', 'qrcode'].includes(component.kind) && component.kind !== 'list' && !component.grid" :component="component" :repeat="repeat" :schema="schema" :disabled="disabled" :messages="m" @change="emit('patch', { binding: $event, ...(['barcode', 'qrcode'].includes(component.kind) ? { imageData: undefined } : {}) })" />
+    <label v-if="component.kind === 'text' && !component.binding">{{ m.componentText
       }}<textarea
         rows="4"
         :value="component.text"
         @change="emit('patch', { text: input($event) })"
       />
     </label>
-    <template v-if="component.kind === 'image'">
+    <template v-if="component.kind === 'image' && !component.binding">
       <label>{{ m.imageSource
         }}<textarea
           rows="2"
@@ -131,6 +138,7 @@ async function upload(event: Event): Promise<void> {
       /></label>
       <p v-if="error" role="alert">{{ error }}</p>
     </template>
+    <CodeComponentInspector v-if="component.kind === 'barcode' || component.kind === 'qrcode'" :component="component" :disabled="disabled" :messages="m" @change="emit('patch', { code: $event, imageData: undefined })" />
     <div v-if="component.kind === 'text'" class="mr-component-type">
       <h3>{{ m.textFormat }}</h3>
       <div class="mr-component-dimensions">

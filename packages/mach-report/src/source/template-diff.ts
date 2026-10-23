@@ -16,6 +16,7 @@ function display(value: unknown): string | undefined {
   return text.length > 160 ? text.slice(0, 157) + "…" : text;
 }
 function category(path: string): ReportTemplateChange["category"] {
+  if (/\.(?:repeat|binding)(?:\.|$)/.test(path)) return /\.format(?:\.|$)/.test(path) ? "format" : "binding";
   if (/\.tree\.(?:idField|parentField|childrenField|labelField|input)$/.test(path)) return "binding";
   if (/\.tree\.parentValues$/.test(path)) return "calculation";
   if (/\.tree\.indentMm$/.test(path)) return "format";

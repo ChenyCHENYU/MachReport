@@ -192,6 +192,11 @@ function validateDataContract(definition: ReportDefinition, data: DatasetRows, r
 }
 
 interface SourcePaginationBudget { maxPages?: number; usedPages: number; maxCells?: number; usedCells: number }
+function emptyRepeatedDataset(template: ReportTemplate, datasets: DatasetRows): boolean {
+  if (!template.repeat) return false;
+  const rows = Object.prototype.hasOwnProperty.call(datasets, template.repeat.dataset) ? datasets[template.repeat.dataset] : undefined;
+  return Array.isArray(rows) && rows.length === 0;
+}
 function planCells(plan: RenderPlan): number {
   const count = (component: PlanComponent): number => component.grid?.cells.reduce((sum, row) => sum + row.reduce((size, cell) => size + (cell ? 1 + (cell.children?.reduce((total, child) => total + count(child), 0) ?? 0) : 0), 0), 0) ?? 0;
   return plan.pages.reduce((sum, page) => sum + page.components.reduce((size, component) => size + count(component), 0), 0);
@@ -205,7 +210,7 @@ function paginateReport(template: ReportTemplate, data: DatasetRows, definition:
   const remainingPages = budget.maxPages === undefined ? undefined : budget.maxPages - budget.usedPages;
   const remainingCells = budget.maxCells === undefined ? undefined : budget.maxCells - budget.usedCells;
   try {
-    if (remainingPages !== undefined && remainingPages < 1 && template.pages.length) throw new PaginatePageLimitError(0, 1);
+    if (remainingPages !== undefined && remainingPages < 1 && template.pages.length && !emptyRepeatedDataset(template, data)) throw new PaginatePageLimitError(0, 1);
     const pagination = sourcePagination(definition.pagination, remainingPages, remainingCells, signal);
     const result = paginateTemplate(template, data, pagination);
     const cells = planCells(result.plan);
@@ -245,7 +250,7 @@ async function reflowSource(parts: readonly ReportEditSessionPart[], definitions
     checkAbort(signal);
     const remainingPages = limits.maxPages === undefined ? undefined : limits.maxPages - pages.length;
     const remainingCells = limits.maxCells === undefined ? undefined : limits.maxCells - usedCells;
-    if (remainingPages !== undefined && remainingPages < 1 && part.template.pages.length) throw new PaginatePageLimitError(limits.maxPages!, pages.length + 1);
+    if (remainingPages !== undefined && remainingPages < 1 && part.template.pages.length && !emptyRepeatedDataset(part.template, part.datasets)) throw new PaginatePageLimitError(limits.maxPages!, pages.length + 1);
     const plan = await reflowReportTemplate(part.template, part.datasets, sourcePagination(definitions[index]?.pagination, remainingPages, remainingCells, signal));
     usedCells += planCells(plan);
     if (limits.maxCells !== undefined && usedCells > limits.maxCells) throw new PaginateCellLimitError(limits.maxCells, usedCells);

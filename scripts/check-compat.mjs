@@ -76,7 +76,7 @@ void [props, input, task, controller, createReportRuntime, ReportTemplateEditor]
   writeFileSync(resolve(scratch, "consumer.cts"), readFileSync(resolve(scratch, "consumer.mts"), "utf8"));
   writeFileSync(resolve(scratch, "tsconfig.json"), JSON.stringify({ compilerOptions: { module: "NodeNext", moduleResolution: "NodeNext", target: "ES2022", lib: ["ES2022", "DOM", "DOM.Iterable"], strict: true, skipLibCheck: false, noEmit: true, types: [] }, files: ["consumer.mts", "consumer.cts"] }));
   console.log(run(node, [compilerRequire.resolve("typescript/bin/tsc"), "-p", "tsconfig.json"]));
-  const entries = ["", "/pdf", "/xlsx", "/sql", "/server", "/server/node", "/worker", "/analytics", "/xlsx/node", "/vue", "/vue/async", "/designer"];
+  const entries = ["", "/pdf", "/xlsx", "/sql", "/server", "/server/node", "/worker", "/analytics", "/xlsx/node", "/vue", "/vue/async", "/designer", "/codes"];
   writeFileSync(resolve(scratch, "smoke.cjs"), `${entries.map((entry) => `require('@agile-team/mach-report${entry}');`).join("\n")}
 (async()=>{
  const {createMemoryReportJobStore,createReportJobService}=require('@agile-team/mach-report/server');

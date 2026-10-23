@@ -26,12 +26,12 @@ describe("mach-report 引擎发布产物（零运行时依赖单包）", () => {
   });
 
   it.skipIf(!built)("公开入口 × 双格式 × 双声明齐备", () => {
-    for (const name of ["index", "pdf", "sql", "xlsx", "vue", "vue-async", "server", "server-node", "worker", "analytics", "designer", "xlsx-node"]) {
+    for (const name of ["index", "pdf", "sql", "xlsx", "vue", "vue-async", "server", "server-node", "worker", "analytics", "designer", "xlsx-node", "codes"]) {
       for (const suffix of [".js", ".cjs"]) {
         expect(existsSync(resolve(dist, `${name}${suffix}`)), `缺 dist/${name}${suffix}`).toBe(true);
       }
     }
-    for (const name of ["index", "pdf", "sql", "xlsx", "vue/index", "vue/async", "server", "server/node", "worker", "analytics", "designer", "xlsx/node"]) {
+    for (const name of ["index", "pdf", "sql", "xlsx", "vue/index", "vue/async", "server", "server/node", "worker", "analytics", "designer", "xlsx/node", "codes"]) {
       for (const suffix of [".d.ts", ".d.cts"]) expect(existsSync(resolve(dist, `${name}${suffix}`)), `缺 dist/${name}${suffix}`).toBe(true);
     }
   });
@@ -39,11 +39,20 @@ describe("mach-report 引擎发布产物（零运行时依赖单包）", () => {
   it.skipIf(!built)("主入口产物不含 pdf-lib / sql-parser 代码，子路径产物包含", () => {
     const indexJs = readFileSync(resolve(dist, "index.js"), "utf8");
     expect(indexJs).not.toContain("PDFDocument");
+    expect(indexJs).not.toMatch(/bwip|BWIPP|fast-png|BarcodeWriter|pngEncode/);
     expect(indexJs).not.toMatch(/(?:from\s*|import\s*\()['"](?:vue|node:|exceljs|@agile-team\/mach-report\/(?:pdf|xlsx|server|designer))/);
     const pdfJs = readFileSync(resolve(dist, "pdf.js"), "utf8");
     expect(pdfJs.length).toBeGreaterThan(100_000); // pdf-lib 已内联（~数百 KB）
     const sqlJs = readFileSync(resolve(dist, "sql.js"), "utf8");
     expect(sqlJs.length).toBeGreaterThan(100_000); // node-sql-parser 已内联
+  });
+
+  it.skipIf(!built)("码图引擎只通过独立入口提供，不被框架默认入口加载", () => {
+    for (const name of ["index", "vue", "vue-async", "designer"]) {
+      const code = readFileSync(resolve(dist, `${name}.js`), "utf8");
+      expect(code).not.toMatch(/(?:from\s*|import\s*\()['"][^'"]*(?:\/codes|@bwip-js|fast-png)/);
+    }
+    expect(readFileSync(resolve(dist, "codes.js"), "utf8")).toContain("createCodeAssetRenderers");
   });
 
   it.skipIf(!built)("设计器产物兼容缺少原生克隆API的门户", () => {

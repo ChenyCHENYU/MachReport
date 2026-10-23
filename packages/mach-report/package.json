@@ -1,6 +1,6 @@
 {
   "name": "@agile-team/mach-report",
-  "version": "2.11.2",
+  "version": "2.12.0",
   "description": "独立的 TypeScript 报表引擎：模板分页、DOM/Canvas/PDF/Excel 输出与 Vue 3 预览组件",
   "type": "module",
   "sideEffects": [
@@ -22,7 +22,8 @@
     "./xlsx/node": "./src/xlsx/node.ts",
     "./analytics": "./src/analytics.ts",
     "./worker": "./src/worker.ts",
-    "./server/node": "./src/server/node.ts"
+    "./server/node": "./src/server/node.ts",
+    "./codes": "./src/codes.ts"
   },
   "publishConfig": {
     "access": "public",
@@ -151,6 +152,16 @@
           "types": "./dist/server/node.d.cts",
           "default": "./dist/server-node.cjs"
         }
+      },
+      "./codes": {
+        "import": {
+          "types": "./dist/codes.d.ts",
+          "default": "./dist/codes.js"
+        },
+        "require": {
+          "types": "./dist/codes.d.cts",
+          "default": "./dist/codes.cjs"
+        }
       }
     }
   },
@@ -159,7 +170,8 @@
   },
   "files": [
     "dist",
-    "LICENSING.md"
+    "LICENSING.md",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
     "build": "vite build && vite build --config vite.node.config.ts && node scripts/copy-dcts.mjs",
@@ -188,7 +200,9 @@
     "vite": "^7.3.6",
     "vite-plugin-dts": "^4.5.0",
     "vue": "^3.5.0",
-    "vue-tsc": "^3.0.0"
+    "vue-tsc": "^3.0.0",
+    "@bwip-js/generic": "4.11.4",
+    "fast-png": "6.4.0"
   },
   "license": "SEE LICENSE IN LICENSE",
   "author": "ChenyCHENYU (Agile Team)",

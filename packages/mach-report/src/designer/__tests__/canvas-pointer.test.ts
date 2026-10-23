@@ -3,14 +3,14 @@ import { defineComponent, h, ref } from "vue";
 import { describe, expect, it, vi } from "vitest";
 import { useCanvasPointer } from "../useCanvasPointer";
 import type { PlanComponent } from "../../index";
-function fixture(disabled = false) {
+function fixture(disabled = false, resize = false, kind: "text" | "qrcode" = "text") {
   const commit = vi.fn(),
     component: PlanComponent = {
-      kind: "text",
+      kind,
       leftMm: 10,
       topMm: 10,
       widthMm: 20,
-      heightMm: 10,
+      heightMm: kind === "qrcode" ? 20 : 10,
       text: "Text",
     };
   const wrapper = mount(
@@ -32,7 +32,7 @@ function fixture(disabled = false) {
             style:
               "position:absolute;left:20px;top:20px;width:40px;height:20px",
             onPointerdown: (event: PointerEvent) =>
-              pointer.start(event, component),
+              pointer.start(event, component, resize),
           });
       },
     }),
@@ -44,6 +44,13 @@ function fixture(disabled = false) {
   return { wrapper, component, commit, down };
 }
 describe("画布热交互", () => {
+  it("二维码角点横向缩放保持正方形且只在结束提交", () => {
+    const { wrapper, commit, down } = fixture(false, true, "qrcode");
+    down(); window.dispatchEvent(new PointerEvent("pointermove", { clientX: 40, clientY: 20 }));
+    expect(commit).not.toHaveBeenCalled(); window.dispatchEvent(new PointerEvent("pointerup"));
+    expect(commit).toHaveBeenCalledExactlyOnceWith({ leftMm: 10, topMm: 10, widthMm: 30, heightMm: 30 });
+    wrapper.unmount();
+  });
   it("连续100次pointermove只在结束时提交一笔，不修改原始模板", () => {
     const { wrapper, component, commit, down } = fixture();
     down();

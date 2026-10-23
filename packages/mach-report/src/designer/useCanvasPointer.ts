@@ -13,6 +13,13 @@ interface PointerOptions {
   disabled: () => boolean;
   commit: (geometry: CanvasGeometry) => void;
 }
+function resizedGeometry(initial: CanvasGeometry, x: number, y: number, square: boolean): CanvasGeometry {
+  if (square) {
+    const delta = Math.abs(x) >= Math.abs(y) ? x : y, size = Math.round((initial.widthMm + delta) * 2) / 2;
+    return { ...initial, widthMm: size, heightMm: size };
+  }
+  return { ...initial, widthMm: Math.round((initial.widthMm + x) * 2) / 2, heightMm: Math.round((initial.heightMm + y) * 2) / 2 };
+}
 /** pointermove 不写入模板、不生成历史、不重新分页；每帧仅更新当前节点的 CSS。 */
 export function useCanvasPointer(options: PointerOptions) {
   let cancel: (() => void) | undefined;
@@ -83,15 +90,12 @@ export function useCanvasPointer(options: PointerOptions) {
       guideY = resize ? undefined : vertical.guide;
       next = constrainGeometry(
         resize
-          ? {
-              ...initial,
-              widthMm: Math.round((initial.widthMm + x) * 2) / 2,
-              heightMm: Math.round((initial.heightMm + y) * 2) / 2,
-            }
+          ? resizedGeometry(initial, x, y, component.kind === "qrcode")
           : { ...initial, leftMm: horizontal.value, topMm: vertical.value },
         options.page(),
         component.kind === "list",
       );
+      if (resize && component.kind === "qrcode") next.widthMm = next.heightMm = Math.min(next.widthMm, next.heightMm);
       if (!frame) frame = requestAnimationFrame(render);
     };
     const stop = (commit: boolean) => {

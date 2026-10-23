@@ -10,7 +10,7 @@ pnpm typecheck                # tsc 项目图 + vue-tsc（mach-report/federation
 pnpm lint / lint:fix          # ESLint（0 错 0 警是门禁）
 pnpm test                     # Vitest 单测（全绿门禁；纯逻辑文件用 // @vitest-environment node 头分流）
 pnpm test:coverage            # 覆盖率（关注 layout/ render/ format.ts）
-pnpm build                    # 全工作区构建（mach-report 十二代码入口 ESM+CJS + federation + examples）
+pnpm build                    # 全工作区构建（mach-report 十三代码入口 ESM+CJS + federation + examples）
 pnpm check:docs               # 文档相对链接、README 发布同步与 SVG 资源检查
 pnpm check:consumer           # 实际 npm 包隔离消费，ESM/CJS 运行与严格类型检查
 pnpm check:compat             # 实际包的 Node/Vue 严格类型与运行消费（支持 --archive/--node/--vue）
@@ -26,10 +26,11 @@ pnpm release                  # 已提交版本的发版：clean gate → instal
 
 - 单 npm 包 `packages/mach-report`（唯一发布物；workspace 另有 federation 部署件与 examples）
 - `src/`：`layout/`（分页+折行）`render/`（DOM/Canvas/几何/样式/虚拟化）`schema/` `builder/` `format.ts`（值格式化/条件规则）
-- 子路径域：`src/pdf` `src/sql` `src/xlsx` `src/vue`——重依赖（pdf-lib/node-sql-parser/exceljs）与框架代码只存在于子路径产物；ExcelJS 声明内联，唯一依赖 `@types/node` 用于公开 Workbook 的 Node 类型签名
+- 子路径域：`src/pdf` `src/sql` `src/xlsx` `src/vue` `src/codes`——重依赖（pdf-lib/node-sql-parser/exceljs/BWIPP/PNG）与框架代码只存在于子路径产物；ExcelJS 声明内联，唯一依赖 `@types/node` 用于公开 Workbook 的 Node 类型签名
 - `source/` 管数据来源、参数与模板版本；`editing/` 是纯事务逻辑；`vue/composables/` 管选区、历史、冻结、搜索和生命周期，不把业务身份绑定到DOM行号。
 - `server/` 是共用Runtime/预算/队列，`worker/` 是可序列化RPC桥；Node线程与流式Excel分别在 `/server/node`、`/xlsx/node`，使用独立Node构建。节点声明在临时子目录聚合后移入dist，避免覆盖浏览器声明。
 - `processing/` 是纯计算/聚合/矩阵公共层，`analytics/` 保留按需公共外观与基础图元；`output/` 管能力诊断与资源；`designer/` 为独立可选Vue画布/向导/规则/验收组件，复用预览与模板管理，不进入核心入口。
+- `layout/record-pages` 为固定标签逐记录/份数/版面惰性展开，`record-bindings`只读自有标量字段；`/codes`用成熟BWIPP编码为跨平台PNG，静区/模块/载荷/缓存有界，禁止假码。Runtime的本地`assets`在执行器内部配置，不序列化函数。
 - `source/template-review` 做显式样例预检；`server/publication` 做真实文件编码验收。持久任务使用 `server/job-service` 的租约/attempt围栏，文件适配器仅单进程；多实例原子CAS由宿主实现。
 - 数据来源通过 `PlanFetcher({ reportIds, params })` 注入；不得在插件中内置某个项目的接口路径、鉴权或响应格式
 - 常规接入使用插件 `reports` 或核心 `createReportSource`：宿主只定义模板、取数和字段映射，包内统一分页、参数元数据、校验与页合并。Vue 入口重导出核心 API；保留旧 fetcher 逃生口，signal / onWarning 为可选增强。

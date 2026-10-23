@@ -9,8 +9,10 @@ export function useCanvasViewport(props: CanvasViewportOptions) {
   const page = computed(() => props.document.template.pages[props.pageIndex]!);
   const wide = computed(() => page.value.widthMm * scale.value > width.value - 40);
   let observer: ResizeObserver | undefined;
-  function fit(mode: "width" | "page" | "selection"): void {
+  let automatic = !!props.document.template.repeat;
+  function fitTo(mode: "width" | "page" | "selection"): void {
     const node = viewport.value; if (!node) return;
+    if (node.clientWidth <= 40 || node.clientHeight <= 40) return;
     let box = { leftMm: 0, topMm: 0, widthMm: page.value.widthMm, heightMm: page.value.heightMm };
     const selected = props.selection?.pageIndex === props.pageIndex ? page.value.components[props.selection.componentIndex] : undefined;
     if (mode === "selection" && selected) box = componentGeometry(selected);
@@ -18,6 +20,11 @@ export function useCanvasViewport(props: CanvasViewportOptions) {
     const vertical = (node.clientHeight - 40) / (box.heightMm * CANVAS_MM_TO_PX);
     zoom.value = Math.max(.05, Math.min(2, mode === "width" ? horizontal : Math.min(horizontal, vertical)));
     void nextTick(() => { node.scrollLeft = box.leftMm * scale.value; node.scrollTop = box.topMm * scale.value; });
+  }
+  function fit(mode: "width" | "page" | "selection"): void { automatic = false; fitTo(mode); }
+  function setZoom(value: number): void {
+    if (!Number.isFinite(value)) return;
+    automatic = false; zoom.value = Math.max(.05, Math.min(2, value));
   }
   function sync(): void {
     const node = viewport.value; if (!node) return;
@@ -27,6 +34,10 @@ export function useCanvasViewport(props: CanvasViewportOptions) {
   function navigate(value: number): void {
     const node = viewport.value; if (node) node.scrollLeft = (node.scrollWidth - node.clientWidth) * value / 100;
     fraction.value = value;
+  }
+  function refresh(): void {
+    sync();
+    if (automatic && props.document.template.repeat) fitTo("page");
   }
   async function reveal(): Promise<void> {
     await nextTick(); const node = viewport.value, selected = props.selection;
@@ -47,7 +58,9 @@ export function useCanvasViewport(props: CanvasViewportOptions) {
     sync();
   }
   watch(() => [props.selection, props.columnIndex, props.pageIndex], () => { void reveal(); });
-  onMounted(() => { sync(); if (typeof ResizeObserver !== "undefined" && viewport.value) { observer = new ResizeObserver(sync); observer.observe(viewport.value); } });
+  watch(() => props.document.id, () => { automatic = !!props.document.template.repeat; void nextTick(refresh); });
+  watch(() => [!!props.document.template.repeat, props.pageIndex, page.value.widthMm, page.value.heightMm], () => { void nextTick(refresh); });
+  onMounted(() => { refresh(); if (typeof ResizeObserver !== "undefined" && viewport.value) { observer = new ResizeObserver(refresh); observer.observe(viewport.value); } });
   onBeforeUnmount(() => observer?.disconnect());
-  return { viewport, zoom, scale, page, wide, fraction, fit, sync, navigate };
+  return { viewport, zoom, scale, page, wide, fraction, fit, setZoom, sync, navigate };
 }

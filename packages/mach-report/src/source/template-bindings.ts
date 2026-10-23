@@ -67,9 +67,17 @@ function listReferences(item: ObjectValue, path: string, binding: TemplateDatase
 /** Required source references include formulas/conditions/relations, not just displayed columns. */
 export function collectTemplateDatasetBindings(template: ReportTemplate): TemplateDatasetBinding[] {
   const result: TemplateDatasetBinding[] = [];
+  const repeat = template.repeat;
+  const records: TemplateDatasetBinding | undefined = repeat ? { dataset: repeat.dataset, path: "$.template.repeat", fields: [], generated: new Set(), summaries: new Set() } : undefined;
+  if (records && repeat) {
+    fields(repeat.rowKey, "$.template.repeat.rowKey", records.fields);
+    if (typeof repeat.copies === "object") fields(repeat.copies.field, "$.template.repeat.copies.field", records.fields);
+    result.push(records);
+  }
   function visit(value: unknown, path: string): void {
     if (Array.isArray(value)) { value.forEach((item, index) => visit(item, `${path}[${index}]`)); return; }
     if (!object(value)) return;
+    if (records && object(value.binding)) fields(value.binding.field, `${path}.binding.field`, records.fields);
     if (typeof value.dataset === "string" && Array.isArray(value.columns)) {
       const binding: TemplateDatasetBinding = { dataset: value.dataset, path, fields: [], generated: new Set(), summaries: new Set() };
       listReferences(value, path, binding);

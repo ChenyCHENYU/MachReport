@@ -8,6 +8,7 @@ import { isReportTemporalBound } from "./param-temporal";
 import { validateReportPageFlow, type ReportPageFlow } from "../layout/flow";
 import type { TemplateComponent } from "../layout/paginate";
 import { validateListTree } from "./template-tree-validation";
+import { validateTemplateRepeat } from "./template-repeat-validation";
 
 /** 模板存储文档版本；与渲染计划版本独立演进。 */
 export const REPORT_TEMPLATE_DOCUMENT_VERSION = "1.0";
@@ -461,6 +462,7 @@ export function validateReportTemplate(input: unknown): ValidationResult {
       errors.push({ path: "$.schemaVersion", message: "不支持的模板 schemaVersion" });
     }
     validateParams(input.params, "$.params", errors);
+    validateTemplateRepeat(input, errors);
     if (!Array.isArray(input.pages) || input.pages.length === 0) errors.push({ path: "$.pages", message: "模板至少需要一页" });
     else input.pages.forEach((page, index) => {
       const path = `$.pages.${index}`;

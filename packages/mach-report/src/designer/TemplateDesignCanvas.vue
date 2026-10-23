@@ -3,7 +3,9 @@ import { resolveListSampleCell, resolveListHeaderStyle } from "../layout/list-ce
 import { designListSamples } from "./tree-samples";
 import { useCanvasViewport } from "./useCanvasViewport";
 import { resolveFontSize } from "../render/style";
-import { computed, onBeforeUnmount, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { canvasContentSample, canvasRulerMarks } from "./canvas-samples";
+import { pageName } from "./page-commands";
 import {
   resolveGridLayout,
   type DatasetRows,
@@ -41,9 +43,13 @@ const emit = defineEmits<{
   (event: "width", index: number, value: number): void;
 }>();
 const m = computed(() => ({ ...TEMPLATE_EDITOR_MESSAGES, ...props.messages }));
-const { viewport, zoom, scale, page, wide, fraction, fit, sync, navigate } = useCanvasViewport({ get document() { return props.document; }, get pageIndex() { return props.pageIndex; }, get selection() { return props.selection; }, get columnIndex() { return props.activeColumnIndex; } });
+const { viewport, zoom, scale, page, wide, fraction, fit, setZoom, sync, navigate } = useCanvasViewport({ get document() { return props.document; }, get pageIndex() { return props.pageIndex; }, get selection() { return props.selection; }, get columnIndex() { return props.activeColumnIndex; } });
 const geometryDisabled = computed(() => props.disabled === true || props.geometryDisabled === true || !!page.value.flow);
 const samples = computed(() => page.value.components.map(component => component.kind === "list" ? designListSamples(component, props.datasets?.[component.dataset] ?? [], page.value.flow || component.cardinality === "record" ? 1 : 3) : []));
+const contentSamples = computed(() => page.value.components.map(component => canvasContentSample(component, props.document, props.datasets)));
+const rulers = ref(true);
+const horizontalMarks = computed(() => canvasRulerMarks(page.value.widthMm, scale.value));
+const verticalMarks = computed(() => canvasRulerMarks(page.value.heightMm, scale.value));
 function sampleStyle(cell: ReturnType<typeof resolveListSampleCell>, width: number, hidden?: boolean) {
   return { width: `${width * scale.value}px`, opacity: hidden ? .35 : 1, textAlign: cell.style?.align, paddingLeft: cell.indentMm ? `${cell.indentMm * scale.value}px` : undefined, color: cell.style?.color, backgroundColor: cell.style?.backgroundColor, fontWeight: cell.style?.bold ? "700" : "400", fontSize: `${resolveFontSize(cell.style).fontSizePx * zoom.value}px` };
 }
@@ -183,13 +189,27 @@ function resizeColumn(
 <template>
   <div class="mr-canvas">
     <div class="mr-canvas-heading">
-      <span>{{ m.canvasHint }}</span><nav class="mr-canvas-view-tools"><button type="button" @click="fit('width')">{{ m.fitWidth }}</button><button type="button" @click="fit('page')">{{ m.fitPage }}</button><button type="button" :disabled="!selection" @click="fit('selection')">{{ m.fitSelection }}</button></nav><label>{{ m.zoom
-        }}<select v-model.number="zoom" :aria-label="m.zoom"><option v-if="![.5,.8,1,1.25].includes(zoom)" :value="zoom">{{ Math.round(zoom * 100) }}%</option>
+      <div class="mr-canvas-sheet-info">
+        <strong :title="pageName(page, pageIndex, m.page)">{{ pageName(page, pageIndex, m.page) }}</strong>
+        <span>{{ page.widthMm }} × {{ page.heightMm }} mm</span>
+        <small v-if="document.template.repeat" :title="document.template.repeat.dataset">{{ m.designSample }} · {{ document.template.repeat.dataset }}</small>
+      </div>
+      <span class="mr-canvas-gesture-hint">{{ m.canvasHint }}</span>
+      <div class="mr-canvas-toolbar">
+        <nav class="mr-canvas-view-tools">
+          <button type="button" :aria-pressed="rulers" @click="rulers = !rulers">{{ m.rulerToggle }}</button>
+          <button type="button" @click="fit('width')">{{ m.fitWidth }}</button>
+          <button type="button" @click="fit('page')">{{ m.fitPage }}</button>
+          <button type="button" :disabled="!selection" @click="fit('selection')">{{ m.fitSelection }}</button>
+        </nav>
+        <label>{{ m.zoom }}<select :value="zoom" :aria-label="m.zoom" @change="setZoom(Number(($event.target as HTMLSelectElement).value))">
+          <option v-if="![.5,.8,1,1.25].includes(zoom)" :value="zoom">{{ Math.round(zoom * 100) }}%</option>
           <option :value="0.5">50%</option>
           <option :value="0.8">80%</option>
           <option :value="1">100%</option>
           <option :value="1.25">125%</option>
         </select></label>
+      </div>
     </div>
     <div ref="viewport" class="mr-canvas-scroll" @scroll.passive="sync">
       <div
@@ -199,6 +219,8 @@ function resizeColumn(
           height: `${page.heightMm * scale}px`,
         }"
       >
+        <svg v-if="rulers" class="mr-canvas-ruler is-horizontal" :width="page.widthMm * scale" height="17" :aria-label="m.rulerLabel" role="img"><g v-for="mark in horizontalMarks" :key="mark.mm" :transform="`translate(${mark.position}, 0)`"><line y1="12" y2="17" /><text x="3" y="9">{{ mark.mm }}</text></g></svg>
+        <svg v-if="rulers" class="mr-canvas-ruler is-vertical" width="17" :height="page.heightMm * scale" aria-hidden="true"><g v-for="mark in verticalMarks" :key="mark.mm" :transform="`translate(0, ${mark.position})`"><line x1="12" x2="17" /><text x="3" y="10">{{ mark.mm }}</text></g></svg>
         <div
           v-for="(component, index) in page.components"
           :key="index"
@@ -310,27 +332,31 @@ function resizeColumn(
               class="mr-canvas-grid-limit"
               >{{ m.canvasGridLimited }}</span>
           </div>
+          <div v-else-if="(component.kind === 'barcode' || component.kind === 'qrcode') && !contentSamples[index]?.image" class="mr-canvas-code" :class="{ 'is-error': contentSamples[index]?.error }" :title="contentSamples[index]?.error ?? m.codePreviewHint">
+            <svg viewBox="0 0 32 24" aria-hidden="true"><rect x="3" y="3" width="26" height="18" rx="2" /><path d="M10 8 6 12l4 4m12-8 4 4-4 4m-8 2 4-12" /></svg><strong>{{ component.kind === 'qrcode' ? m.insertQrcode : (component.code?.symbology ?? 'code128').toUpperCase() }}</strong><span>{{ contentSamples[index]?.text || m.codePlaceholder }}</span><small v-if="contentSamples[index]?.bound">{{ component.binding?.field }}</small>
+          </div>
           <img
-            v-else-if="component.imageData"
-            :src="component.imageData"
+            v-else-if="contentSamples[index]?.image"
+            :src="contentSamples[index]?.image"
             alt=""
             draggable="false"
           />
           <div
             v-else
             class="mr-canvas-content"
+            :class="{ 'is-binding-error': contentSamples[index]?.error, 'is-bound-image': component.kind === 'image' && component.binding }"
+            :title="contentSamples[index]?.error === 'image-binding' ? m.bindingImageHint : contentSamples[index]?.error"
             :style="{
               color: component.style?.color,
               backgroundColor: component.style?.backgroundColor,
               fontWeight: component.style?.bold ? '700' : '400',
               fontSize: `${resolveFontSize(component.style).fontSizePx * zoom}px`,
               textAlign: component.style?.align,
+              justifyContent: component.style?.verticalAlign === 'bottom' ? 'flex-end' : component.style?.verticalAlign === 'middle' ? 'center' : 'flex-start',
             }"
           >
             {{
-              component.text ??
-              component.fallbackText ??
-              (component.kind === "rect" ? "" : component.kind)
+              contentSamples[index]?.text || (component.kind === "rect" ? "" : component.kind === "image" && component.binding ? m.boundImagePlaceholder : "")
             }}
           </div>
           <span
@@ -348,6 +374,9 @@ function resizeColumn(
 </template>
 <style scoped>
 .mr-canvas {
+  container-type: inline-size;
+  container-name: mr-design-canvas;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -361,14 +390,33 @@ function resizeColumn(
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
   padding: 8px 12px;
   background: #fff;
   border-bottom: 1px solid #e2e8f0;
   color: #64748b;
   font-size: 11px;
 }
-.mr-canvas-view-tools { display:flex; gap:4px; margin-left:auto; }.mr-canvas-view-tools button { border:1px solid #dbe3ec; background:#fff; color:inherit; border-radius:4px; padding:3px 7px; font:inherit; cursor:pointer; }.mr-canvas-view-tools button:disabled { opacity:.5; }.mr-canvas-navigator { display:flex; align-items:center; gap:10px; padding:5px 12px; background:#fff; border-top:1px solid #e2e8f0; font-size:11px; color:#64748b; }.mr-canvas-navigator input { flex:1; min-width:80px; height:16px; accent-color:#3b82f6; }.mr-canvas-component.is-locked { cursor:default; border-style:solid; border-color:#94a3b8; }
+.mr-canvas-sheet-info { display:flex; align-items:center; gap:8px; flex:0 1 280px; min-width:0; white-space:nowrap; }
+.mr-canvas-sheet-info strong { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; font-size:11px; font-weight:600; color:#47698e; }
+.mr-canvas-sheet-info > span { flex-shrink:0; font:10px/1.5 ui-monospace,monospace; color:#7187a0; }
+.mr-canvas-sheet-info small { flex:0 1 120px; min-width:0; overflow:hidden; text-overflow:ellipsis; padding:2px 5px; background:#eff6ff; border-radius:4px; color:#6b88ab; font-size:9px; }
+.mr-canvas-gesture-hint { flex:1; min-width:80px; font-size:10px; color:#8b9bae; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mr-canvas-toolbar { display:flex; flex:0 0 auto; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:10px; min-width:0; margin-left:auto; }
+.mr-canvas-toolbar button, .mr-canvas-toolbar label { flex-shrink:0; white-space:nowrap; }
+.mr-canvas-toolbar select { width:auto; flex-shrink:0; }
+@container mr-design-canvas (max-width:760px) {
+  .mr-canvas-sheet-info { flex:1 1 100%; }
+  .mr-canvas-gesture-hint { display:none; }
+  .mr-canvas-toolbar { flex:1 1 100%; }
+}
+@container mr-design-canvas (max-width:420px) {
+  .mr-canvas-sheet-info small { display:none; }
+  .mr-canvas-toolbar { justify-content:flex-start; }
+}
+.mr-canvas-ruler{position:absolute;pointer-events:none;overflow:visible;background:#f8fafc;color:#94a3b8;font:8px/1 ui-monospace,monospace}.mr-canvas-ruler.is-horizontal{left:0;top:-18px}.mr-canvas-ruler.is-vertical{left:-18px;top:0}.mr-canvas-ruler line{stroke:#a9b8cb;stroke-width:1}.mr-canvas-ruler text{fill:#8193aa}.mr-canvas-code{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:3px;height:100%;padding:4px;background:#f8fbff;color:#5b789b;overflow:hidden;text-align:center}.mr-canvas-code svg{height:26px;max-height:35%;width:36px;fill:none;stroke:#a2b9d6;stroke-width:1.5}.mr-canvas-code strong{font-size:10px;font-weight:600}.mr-canvas-code span{max-width:100%;font:9px/1.3 ui-monospace,monospace;overflow-wrap:anywhere}.mr-canvas-code small{max-width:100%;font-size:8px;color:#8da3bc;overflow-wrap:anywhere}.mr-canvas-code.is-error,.mr-canvas-content.is-binding-error{color:#a45b35;background:#fff9f2}.mr-canvas-content.is-bound-image{color:#829bb8;background:#f4f8fe;text-align:center}.mr-canvas-view-tools button[aria-pressed=true]{color:#2563eb;background:#eff6ff;border-color:#bad1f1}
+.mr-canvas-view-tools { display:flex; flex-shrink:0; gap:4px; }.mr-canvas-view-tools button { border:1px solid #dbe3ec; background:#fff; color:inherit; border-radius:4px; padding:3px 7px; font:inherit; white-space:nowrap; flex-shrink:0; cursor:pointer; }.mr-canvas-view-tools button:disabled { opacity:.5; }.mr-canvas-navigator { display:flex; align-items:center; gap:10px; padding:5px 12px; background:#fff; border-top:1px solid #e2e8f0; font-size:11px; color:#64748b; }.mr-canvas-navigator input { flex:1; min-width:80px; height:16px; accent-color:#3b82f6; }.mr-canvas-component.is-locked { cursor:default; border-style:solid; border-color:#94a3b8; }
 .mr-canvas-heading label {
   display: flex;
   align-items: center;
@@ -440,6 +488,8 @@ function resizeColumn(
   outline-offset: 3px;
 }
 .mr-canvas-content {
+  display: flex;
+  flex-direction: column;
   width: 100%;
   height: 100%;
   white-space: pre-wrap;

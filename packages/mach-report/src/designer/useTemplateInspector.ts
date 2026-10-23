@@ -13,7 +13,7 @@ export function useTemplateInspector(
   selectedList: Ref<number>,
   list: Readonly<Ref<ListComponent | undefined>>,
 ) {
-  const section = ref<TemplateInspectorSection>("fields");
+  const section = ref<TemplateInspectorSection>(list.value ? "fields" : "component");
   const firstIndex = () => (list.value?.columns.length ? 0 : -1);
   const activeIndex = ref(firstIndex());
   const activeColumn = computed(() => {
@@ -25,6 +25,7 @@ export function useTemplateInspector(
   });
   watch(list, (value) => {
     if (!value?.columns[activeIndex.value]) activeIndex.value = firstIndex();
+    if (!value && section.value === "fields") section.value = "component";
   });
   function activate(index: number): void {
     if (list.value?.columns[index]) activeIndex.value = index;

@@ -93,7 +93,7 @@ export function validReportWorkerEvent(value: unknown, input: ReportWorkerInput)
   if (!object(value) || typeof value.taskId !== "string" || !value.taskId) return false;
   if (input.taskId !== undefined && value.taskId !== input.taskId) return false;
   if (value.correlationId !== input.correlationId || value.reportId !== undefined && (typeof value.reportId !== "string" || !input.reportIds.includes(value.reportId))) return false;
-  if (!["query", "validate", "layout", "encode"].includes(value.stage as string) || !["started", "completed", "failed"].includes(value.status as string)) return false;
+  if (!["query", "validate", "layout", "assets", "encode"].includes(value.stage as string) || !["started", "completed", "failed"].includes(value.status as string)) return false;
   for (const key of ["completed", "total"] as const) if (value[key] !== undefined && (typeof value[key] !== "number" || !Number.isFinite(value[key]) || value[key] < 0)) return false;
   return value.completed === undefined || value.total === undefined || (value.completed as number) <= (value.total as number);
 }

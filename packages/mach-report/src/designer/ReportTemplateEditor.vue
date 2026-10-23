@@ -13,6 +13,9 @@ import type { ExcelBindingWizardApply } from "./useExcelBindingWizard";
 import ReportIcon from "../vue/ReportIcon.vue";
 import TemplateDesignCanvas from "./TemplateDesignCanvas.vue";
 import CanvasComponentInspector from "./CanvasComponentInspector.vue";
+import TemplatePageInspector from "./TemplatePageInspector.vue";
+import TemplateRepeatInspector from "./TemplateRepeatInspector.vue";
+import { applyPageCommand, type PageCommand } from "./page-commands";
 import HeaderStructureEditor from "./HeaderStructureEditor.vue";
 import { useTemplateWorkspace } from "./useTemplateWorkspace";
 import AlignmentControl from "./AlignmentControl.vue";
@@ -71,13 +74,13 @@ function acceptParams(definitions: ReportParamDef[]): boolean {
 const inspector = useTemplateInspector(selected, activeList);
 const { section, activeIndex, activeColumn } = inspector;
 const id = `mr-designer-${getCurrentInstance()?.uid ?? 0}`;
-const sections: TemplateInspectorSection[] = [
-  "fields",
+const sections = computed<TemplateInspectorSection[]>(() => [
+  ...(lists.value.length ? ["fields" as const] : []),
   "component",
   "template",
   "tools",
   "advanced",
-];
+]);
 const workspace = useTemplateWorkspace(
   editor,
   inspector,
@@ -104,6 +107,14 @@ const {
 } = workspace;
 
 const canvasFlow = computed(() => !!draft.value.template.pages[canvasPage.value]?.flow);
+const repeatSchema = computed(() => props.dataSchemas?.[draft.value.template.repeat?.dataset ?? ""]);
+function pageCommand(command: PageCommand): void {
+  let next = canvasPage.value;
+  if (editor.transaction(document => { next = applyPageCommand(document, canvasPage.value, command); })) {
+    if (command.type !== "patch") { canvas.clearLocks(); canvas.selection.value = undefined; canvas.selections.value = []; }
+    canvasPage.value = next;
+  }
+}
 const fieldFlow = computed(() => !!draft.value.template.pages[lists.value[selected.value]?.pageIndex ?? -1]?.flow);
 function openBinding(): void { section.value = "tools"; tool.value = "excel"; }
 type PendingTarget = "excel" | "rules" | "params" | "json";
@@ -224,20 +235,20 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
   const keys: Record<string, number> = {
     ArrowRight: 1,
     ArrowLeft: -1,
-    Home: -sections.length,
-    End: sections.length,
+    Home: -sections.value.length,
+    End: sections.value.length,
   };
   const delta = keys[event.key];
   if (delta === undefined) return;
   event.preventDefault();
-  const current = sections.indexOf(section.value);
+  const current = sections.value.indexOf(section.value);
   const next =
     event.key === "Home"
       ? 0
       : event.key === "End"
-        ? sections.length - 1
-        : (current + delta + sections.length) % sections.length;
-  section.value = sections[next]!;
+        ? sections.value.length - 1
+        : (current + delta + sections.value.length) % sections.value.length;
+  section.value = sections.value[next]!;
   const tabs = (event.currentTarget as HTMLElement).parentElement;
   await nextTick();
   tabs
@@ -824,9 +835,11 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
               >
                 <option value="">{{ m.insertComponent }}</option>
                 <option value="text">{{ m.insertText }}</option>
-                <option value="list">{{ m.insertList }}</option>
+                <option value="list" :disabled="!!draft.template.repeat">{{ m.insertList }}</option>
                 <option value="image">{{ m.insertImage }}</option>
                 <option value="rect">{{ m.insertRect }}</option>
+                <option value="qrcode">{{ m.insertQrcode }}</option>
+                <option value="barcode">{{ m.insertBarcode }}</option>
 </select><button
                 type="button"
                 :title="m.duplicateComponent"
@@ -915,6 +928,8 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
                 :geometry-disabled="canvasFlow"
                 :disabled="editDisabled || canvas.locked(canvasSelection)"
                 :messages="m"
+                :repeat="draft.template.repeat"
+                :schema="repeatSchema"
                 @geometry="canvas.geometry"
                 @patch="patchCanvas"
               /><HeaderStructureEditor
@@ -943,6 +958,8 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
                 @input="editor.setDescription(value($event))"
               />
             </label>
+            <TemplatePageInspector :document="draft" :page-index="canvasPage" :disabled="editDisabled" :messages="m" @select="canvasPage = $event" @command="pageCommand" @locate="chooseCanvas({ pageIndex: canvasPage, componentIndex: $event }); setMode('design')" />
+            <TemplateRepeatInspector :document="draft" :datasets="Object.keys(datasets ?? {})" :schemas="dataSchemas" :disabled="editDisabled" :messages="m" @change="editor.transaction(document => { if ($event) document.template.repeat = $event; else delete document.template.repeat; })" />
             <details class="mr-designer-technical">
               <summary>{{ m.technicalDetails }}</summary>
               <dl class="mr-designer-identity">

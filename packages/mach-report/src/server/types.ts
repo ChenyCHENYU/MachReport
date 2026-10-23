@@ -4,6 +4,7 @@ import type { ReportDiagnostic } from "../source/provider";
 import type { RenderPlan } from "../schema/render-plan";
 import type { ReportParamValidation } from "../source/param-validation";
 import type { PaginateOptions, ReportParamDef } from "../layout/paginate";
+import type { AssetRenderOptions } from "../output/assets";
 
 export interface ReportRuntimeInput extends ReportTaskMonitoring { reportIds: string[]; params?: Record<string, string>; signal?: AbortSignal }
 export interface ReportRuntimeBudget {
@@ -44,6 +45,8 @@ export interface ReportRuntimeExecutor {
 }
 export interface ReportRuntimeOptions {
   reports: ReportRegistry;
+  /** Trusted local renderers, shared by preview preparation and export; configure inside an executor's runtime. */
+  assets?: Omit<AssetRenderOptions, "signal">;
   budget?: ReportRuntimeBudget;
   /** 各定义可覆盖默认分页配置；PDF自带字体时，自动使用字体字节度量以保持排版与输出一致。 */
   pagination?: PaginateOptions;

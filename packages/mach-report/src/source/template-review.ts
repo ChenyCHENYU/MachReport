@@ -17,6 +17,8 @@ export interface ReportTemplateReviewIssue {
   pageIndex?: number;
   componentIndex?: number;
   field?: string;
+  /** Original structured output finding, retained for trusted publication resource handling. */
+  diagnostic?: OutputDiagnostic;
 }
 export interface ReportTemplateFixture { name: string; datasets: DatasetRows; params?: Record<string, string> }
 export interface ReportTemplateReviewOptions {
@@ -63,7 +65,15 @@ function checkSample(fixture: ReportTemplateFixture, template: ReportTemplate, o
   }
   return true;
 }
+function labelOutputLocation(plan: RenderPlan, issue: OutputDiagnostic): Pick<ReportTemplateReviewIssue, "path" | "pageIndex" | "componentIndex"> | undefined {
+  const source = plan.pages[issue.pageIndex]?.components[issue.componentIndex]?.meta?.labelSource;
+  if (source && typeof source === "object" && "pageIndex" in source && "componentIndex" in source && typeof source.pageIndex === "number" && typeof source.componentIndex === "number") return { path: `$.template.pages[${source.pageIndex}].components[${source.componentIndex}]`, pageIndex: source.pageIndex, componentIndex: source.componentIndex };
+  const record = plan.pages[issue.pageIndex]?.meta?.record;
+  if (record && typeof record === "object" && "templatePageIndex" in record && typeof record.templatePageIndex === "number") return { path: `$.template.pages[${record.templatePageIndex}].components[${issue.componentIndex}]`, pageIndex: record.templatePageIndex, componentIndex: issue.componentIndex };
+}
 function outputLocation(template: ReportTemplate, plan: RenderPlan, issue: OutputDiagnostic): Pick<ReportTemplateReviewIssue, "path" | "pageIndex" | "componentIndex"> {
+  const label = labelOutputLocation(plan, issue);
+  if (label) return label;
   const component = plan.pages[issue.pageIndex]?.components[issue.componentIndex];
   const table = /^table:(\d+):(\d+)(?::|$)/.exec(component?.table?.id ?? "");
   if (table) return { path: `$.template.pages[${table[1]}].components[${table[2]}]`, pageIndex: Number(table[1]), componentIndex: Number(table[2]) };
@@ -82,7 +92,7 @@ function sample(document: ReportTemplateDocument, fixture: ReportTemplateFixture
     const { plan, warnings } = paginateTemplate(document.template, fixture.datasets, { maxPages: options.maxPages ?? 100, maxCells: options.maxCells ?? 250_000 });
     const diagnostics = (options.formats ?? ["pdf", "xlsx"]).flatMap((format) => inspectOutputCapabilities(plan, format));
     review.issues.push(...warnings.map((message) => ({ code: "layout" as const, severity: "warning" as const, path: "$.template", fixture: fixture.name, message })));
-    review.issues.push(...diagnostics.map((issue) => ({ code: "output" as const, severity: options.strictOutputs ? "error" as const : "warning" as const, ...outputLocation(document.template, plan, issue), fixture: fixture.name, message: `${issue.format}: ${issue.message}` })));
+    review.issues.push(...diagnostics.map((issue) => ({ code: "output" as const, severity: options.strictOutputs ? "error" as const : "warning" as const, ...outputLocation(document.template, plan, issue), fixture: fixture.name, message: `${issue.format}: ${issue.message}`, diagnostic: issue })));
     review.samples.push({ name: fixture.name, pages: plan.pages.length, rows: templateDatasetRowCount(document.template, fixture.datasets), diagnostics });
   } catch (error) { review.issues.push({ code: "layout", severity: "error", path: "$.template", fixture: fixture.name, message: error instanceof Error ? error.message : String(error) }); }
 }

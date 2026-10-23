@@ -1,5 +1,6 @@
 import type { PlanComponent, PlanPage } from "./render-plan";
 import { validateBusinessSource, validateGridCellEditingMetadata } from "./cell-edit-validation";
+import { codeOptionIssues } from "./code-options";
 
 export interface ValidationError {
   path: string;
@@ -127,10 +128,30 @@ export function validateComponent(
     }
   }
   validateTableSource(comp["table"], path, errors);
+  validateCodeOptions(comp["code"], kind, path, errors);
   if (comp["pageAnchor"] !== undefined && !["header", "footer"].includes(comp["pageAnchor"] as string)) errors.push({ path: `${path}.pageAnchor`, message: "页面锚点应为 header 或 footer" });
   if (comp["lineDirection"] !== undefined && !["down", "up"].includes(comp["lineDirection"] as string)) errors.push({ path: `${path}.lineDirection`, message: "线段方向应为 down 或 up" });
   validateGrid(comp["grid"], path, errors, warnings);
   validateRichText(comp["richParagraphs"], path, errors);
+}
+
+function validateCodeOptions(value: unknown, kind: unknown, path: string, errors: ValidationError[]): void {
+  if (value === undefined) return;
+  for (const issue of codeOptionIssues(value, kind as string)) errors.push({ path: `${path}.code${issue.path ? `.${issue.path}` : ""}`, message: issue.message });
+}
+
+function validateResolvedBinding(comp: unknown, path: string, errors: ValidationError[]): void {
+  if (!isObj(comp)) return;
+  if (comp["binding"] !== undefined) errors.push({ path: `${path}.binding`, message: "渲染计划不允许未解析字段绑定" });
+  const grid = comp["grid"];
+  if (!isObj(grid) || !Array.isArray(grid["cells"])) return;
+  grid["cells"].forEach((row: unknown, ri: number) => {
+    if (!Array.isArray(row)) return;
+    row.forEach((cell: unknown, ci: number) => {
+      if (!isObj(cell) || !Array.isArray(cell["children"])) return;
+      cell["children"].forEach((child: unknown, ki: number) => validateResolvedBinding(child, `${path}.grid.cells.${ri}.${ci}.children.${ki}`, errors));
+    });
+  });
 }
 
 export function validatePage(
@@ -158,9 +179,10 @@ export function validatePage(
   if (!Array.isArray(comps)) {
     errors.push({ path: `${path}.components`, message: "components 应为数组" });
   } else if (Array.isArray(comps)) {
-    comps.forEach((comp, i) =>
-      validateComponent(comp, `${path}.components.${i}`, errors, warnings)
-    );
+    comps.forEach((comp, i) => {
+      validateComponent(comp, `${path}.components.${i}`, errors, warnings);
+      validateResolvedBinding(comp, `${path}.components.${i}`, errors);
+    });
   }
 }
 

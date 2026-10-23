@@ -13,6 +13,7 @@ MachReport 是独立报表引擎。应用提供模板和业务数据，或直接
 | `/xlsx`、`/xlsx/node` | 导入、`bindExcelTemplate`、计划导出；Node `writeRowsToXlsx` 流式数据导出 |
 | `/designer` | `ReportTemplateEditor`；见[模板属性](./DESIGNER.md) |
 | `/analytics` | `createCrossTable / computeDataset / createChartComponents`；见[分析与资源](./ANALYTICS.md) |
+| `/codes` | `createCodeAssetRenderers / renderCodeImage`；见[工业标签](./LABELS.md) |
 
 所有代码入口提供 ESM / CJS 与对应类型声明。仅 Node 入口可引用线程 / 文件系统；普通Vue项目无需导入它们。
 

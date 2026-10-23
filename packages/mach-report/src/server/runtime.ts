@@ -12,6 +12,7 @@ import { estimateListLayoutCells, PaginateCellLimitError, PaginatePageLimitError
 import { createReportTaskReporter, notifyReportTaskEvent, reportTaskId, type ReportTaskEvent } from "../source/task-events";
 import { templateDatasetRowCount, templateDatasetJsonSchema } from "../source/template-tree-data";
 import { TreeRowLimitError } from "../processing/tree";
+import { resolvePlanAssets } from "../output/assets";
 
 function definitions(reports: ReportRegistry, ids: string[]) {
   if (ids.length === 0) throw new ReportSourceError("config", "缺少报表 ID");
@@ -91,7 +92,7 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
       inputCells += logicalCells(template, data, reports[id]?.pagination);
       assertBudget(budget, "maxCells", inputCells);
     } });
-    const plan = await source({ ...input, params: input.params ?? {}, onWarning: (message) => diagnostics.push({ code: "layout", message, severity: "warning" }), onQueryResult: (id, result) => {
+    const rawPlan = await source({ ...input, params: input.params ?? {}, onWarning: (message) => diagnostics.push({ code: "layout", message, severity: "warning" }), onQueryResult: (id, result) => {
       Object.defineProperty(revisions, id, { value: { revision: result.revision, sourceToken: result.sourceToken }, enumerable: true, writable: true });
       diagnostics.push(...result.diagnostics ?? []);
     } }).catch((error: unknown) => {
@@ -100,6 +101,11 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
       throw error;
     });
     throwIfAborted(input.signal);
+    const resolved = options.assets
+      ? await createReportTaskReporter(input).run("assets", () => resolvePlanAssets(rawPlan, { ...options.assets, signal: input.signal }))
+      : { plan: rawPlan, diagnostics: [] };
+    const plan = resolved.plan;
+    diagnostics.push(...outputDiagnostics(resolved.diagnostics));
     const cells = plan.pages.reduce((sum, page) => sum + page.components.reduce((count, component) => count + cellCount(component), 0), 0);
     assertBudget(budget, "maxPages", plan.pages.length); assertBudget(budget, "maxCells", cells);
     return { plan, diagnostics, revisions, stats: { rows, pages: plan.pages.length, cells, durationMs: Date.now() - started } };

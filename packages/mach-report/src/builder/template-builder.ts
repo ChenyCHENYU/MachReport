@@ -1,6 +1,7 @@
 import type { ListColumn, ListComponent, ReportTemplate, TemplatePage } from "../layout/paginate";
 import type { ComponentStyle, PlanComponent } from "../schema/render-plan";
 import { PAPER_SIZES } from "../units";
+import type { ReportTemplateRepeat } from "../schema/component-binding";
 
 type Geometry = Partial<Pick<PlanComponent, "leftMm" | "topMm" | "widthMm" | "heightMm">>;
 
@@ -46,6 +47,13 @@ export class TemplateBuilder {
   readonly pages: TemplatePage[] = [];
   private pending: PageBuilder | null = null;
   private templateParams: ReportTemplate["params"] = undefined;
+  private templateRepeat: ReportTemplateRepeat | undefined;
+
+  /** Fixed label pages repeat in record → copy → template-page order. */
+  repeat(options: ReportTemplateRepeat): this {
+    this.templateRepeat = options;
+    return this;
+  }
 
   /**
    * 声明报表参数（链式，可放在 .page() 前后任意位置）：
@@ -121,7 +129,11 @@ export class TemplateBuilder {
     if (this.pages.length === 0) {
       throw new Error("模板至少需要一页：先调用 .page() 添加内容");
     }
-    return this.templateParams ? { params: this.templateParams, pages: this.pages } : { pages: this.pages };
+    return {
+      ...(this.templateParams ? { params: this.templateParams } : {}),
+      ...(this.templateRepeat ? { repeat: this.templateRepeat } : {}),
+      pages: this.pages
+    };
   }
 }
 

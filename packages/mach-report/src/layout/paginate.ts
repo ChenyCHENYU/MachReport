@@ -23,6 +23,10 @@ import { paginateFlowPage } from "./flow-layout";
 import { templateRequiresRecalculation } from "./template-calculations";
 import { mergeComponentStyles, resolveFontSize } from "../render/style";
 import { resolveListAutoAlignment, listCellText as cellText, resolveListHeaderStyle, listTreeIndent, applyListTreeMetadata } from "./list-cell";
+import type { ReportTemplateRepeat } from "../schema/component-binding";
+import { repeatTemplatePages } from "./record-pages";
+import { PaginateCellLimitError, PaginatePageLimitError } from "./pagination-errors";
+export { PaginateCellLimitError, PaginatePageLimitError } from "./pagination-errors";
 
 import type { ListColumn, ListComponent, ListGroupBy } from "./list-model";
 export type { ListAlignment, ListColumn, ListComponent, ListGroupBy, ListGrandTotal, ListDetail } from "./list-model";
@@ -67,6 +71,8 @@ export interface ReportTemplate {
   schemaVersion?: string;
   /** 参数定义（可选；宿主也可经 ReportPreview 的 paramDefs prop 提供，prop 优先） */
   params?: ReportParamDef[];
+  /** Fixed label pages repeat in record → copy → template-page order. */
+  repeat?: ReportTemplateRepeat;
   pages: TemplatePage[];
 }
 
@@ -87,22 +93,6 @@ export interface PaginateOptions {
   onWarning?: (warning: string) => void;
   /** Trusted formula adapter is passed at execution time; it is never serialized in templates. */
   formula?: FormulaAdapter;
-}
-
-export class PaginatePageLimitError extends Error {
-  readonly code = "page-limit";
-  constructor(readonly limit: number, readonly actual: number) {
-    super(`报表页数超出上限 ${limit}（至少 ${actual} 页）`);
-    this.name = "PaginatePageLimitError";
-  }
-}
-
-export class PaginateCellLimitError extends Error {
-  readonly code = "cell-limit";
-  constructor(readonly limit: number, readonly actual: number) {
-    super(`报表单元格数量超出上限 ${limit}（至少 ${actual} 格）`);
-    this.name = "PaginateCellLimitError";
-  }
 }
 
 export interface PaginateResult {
@@ -816,7 +806,7 @@ function* paginatePageContent(context: ListPageContext): Generator<PlanPage> {
 function* iteratePages(template: ReportTemplate, datasets: DatasetRows, options: PaginateOptions, warnings: string[], totalPages?: number, prepared = new WeakMap<ListComponent, PreparedListData>()): Generator<PlanPage> {
   let sequence = 0, pageNumber = 0, actualCells = 0;
   const nextId = (prefix: string) => `${prefix}_${(++sequence).toString(36)}`;
-  for (const [pageIndex, templatePage] of template.pages.entries()) {
+  for (const { pageIndex, page: templatePage } of repeatTemplatePages(template, datasets, options)) {
     checkPaginationAbort(options.signal);
     const current = makeWorkingPage(templatePage), anchors = templatePage.components.filter(isPageAnchor);
     let ready: PlanPage[] = [];

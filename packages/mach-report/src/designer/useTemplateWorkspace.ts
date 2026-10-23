@@ -56,7 +56,7 @@ export function useTemplateWorkspace(
   );
   function setMode(next: "design" | "preview"): void {
     mode.value = next;
-    if (section.value === "tools") section.value = next === "design" ? "component" : "fields";
+    if (section.value === "tools") section.value = next === "design" || !lists.value.length ? "component" : "fields";
   }
   function chooseCanvas(selection: CanvasSelection): void {
     if (

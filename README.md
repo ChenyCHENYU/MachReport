@@ -3,12 +3,12 @@
 </p>
 
 <p align="center">
-  <strong>面向业务宽表、明细台账与标准打印的 TypeScript 报表引擎</strong><br />
-  完整宽表 · Excel 模板绑定 · 批量编辑 · 前后端共用契约 · 受控服务端输出
+  <strong>面向业务宽表、明细台账与工业标签的 TypeScript 报表引擎</strong><br />
+  完整宽表 · Excel 模板绑定 · 工业标签 · 前后端共用契约 · 受控服务端输出
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.11.2-2563eb" alt="Source version 2.11.2" />
+  <img src="https://img.shields.io/badge/source-2.12.0-2563eb" alt="Source version 2.12.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -20,6 +20,7 @@
   <a href="#60-秒开始"><strong>快速开始</strong></a> ·
   <a href="#完整宽表与标准纸张"><strong>完整宽表</strong></a> ·
   <a href="#excel-报表能力与边界"><strong>Excel 能力</strong></a> ·
+  <a href="#工业标签与材料标识">工业标签</a> ·
   <a href="#单元格编辑">单元格编辑</a> ·
   <a href="#对齐与可读性">对齐配置</a> ·
   <a href="#模板配置与管理扩展">模板管理</a> ·
@@ -47,6 +48,7 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 内容编辑 | 默认只读；双击与批量粘贴、原子保存、编辑后重算、撤销 / 重做、恢复与变更清单 |
 | Excel 导入 | 多 Sheet 会话复用、可取消预检、完整宽表、合并样式与缓存公式值转换为模板 |
 | 模板配置 | 可视化画布、Excel 业务绑定向导、计算与规则、变更对比与发布验收、CAS 历史 / 回滚 |
+| 工业标签 | 自定义毫米纸张、逐记录字段绑定、多版相邻与份数、按需 QR / 条码、可视化设计 |
 | 输出 | 浏览器打印、HTML、PDF、真正的 `.xlsx`、逐页 PNG、Word 兼容 HTML `.doc` |
 | 工程接入 | 局部组件、全局插件、异步入口、分层配置、结构化错误与导出告警 |
 | 引擎复用 | 共用契约与计算、逐页排版、Node Runtime / Worker、流式 Excel、可恢复持久任务 |
@@ -182,6 +184,12 @@ document.querySelector("#report")!.replaceChildren(renderPlan(plan, document));
 ```
 
 `paginateTemplate` 可在客户端或服务端运行。`renderPlan` 需要 DOM；Canvas、图片与浏览器打印同样需要浏览器环境。大量页面使用页窗口或 Vue 预览组件，避免一次创建全部页面节点。
+
+## 工业标签与材料标识
+
+同一引擎可设计 80 × 55 mm 等自定义标签。`createLabelTemplate({ dataset, rowKey, components })` 声明尺寸和字段绑定；多版使用 `pages`，逐条记录按“份数 → 各版”相邻输出。真实零值和前导零保留，缺字段、文字溢出和超预算明确反馈。设计器提供纸张、边距、页面复制、字段与码图属性，复用毫米画布、吸附、对齐和撤销。
+
+可选 `/codes` 提供真实 QR、Code 128 / 39、EAN-13 / 8，并统一生成 PNG 供浏览器与 Node 的预览、PDF、打印及 Excel 使用。使用侧只传模板、数据和 `assets: { assetRenderers: createCodeAssetRenderers() }`；编码器不进入核心或默认 Vue 产物。运行 `/labels.html` 体验工业标签设计与输出，详见[标签接入与设备边界](./docs/LABELS.md)。驱动中的纸张、100% 比例与扫码实样需按设备校准；多版输出不等同硬件自动双面。
 
 ## Excel 报表能力与边界
 
@@ -379,7 +387,7 @@ const { bytes, contentType, diagnostics, stats } = await runtime.export({
 
 `/worker` 与 `/server/node` 提供真实浏览器 Worker / worker_threads 适配器，运行同步分页时可硬取消；有界队列限制并发和排队。默认同步执行仅在阶段边界检查取消，不宣称阻塞期间可抢占。接入与预算详见[服务端与 Worker](./docs/SERVER.md)。
 
-交叉汇总、声明式计算和基础柱图 / 折线图位于可选 `/analytics`。图形展开成共享基础图元；公式字符串需显式引擎适配器，不执行 `eval`，不重算导入 Excel 的公式。其他二维码、条码与图表可配置 `assets.assetRenderers`，异步准备一次后供预览和导出共用，并返回缺失 / 不支持的结构化诊断。用法见[分析与资源适配](./docs/ANALYTICS.md)。
+交叉汇总、声明式计算和基础柱图 / 折线图位于可选 `/analytics`。图形展开成共享基础图元；公式字符串需显式引擎适配器，不执行 `eval`，不重算导入 Excel 的公式。二维码与条码可选内置 `/codes`；其他码制与图表仍可配置 `assets.assetRenderers`，异步准备一次后供预览和导出共用，并返回缺失 / 不支持的结构化诊断。用法见[分析与资源适配](./docs/ANALYTICS.md)。
 
 ## 大报表预览与性能
 
@@ -561,6 +569,7 @@ const fetcher: PlanFetcher = async ({ reportIds, params, signal }) => {
 | `@agile-team/mach-report/xlsx/node` | AsyncIterable 行数据流式输出，仅 Node |
 | `@agile-team/mach-report/designer` | 可选 Vue 画布、属性、Excel绑定向导、规则与验收面板 |
 | `@agile-team/mach-report/analytics` | 交叉表、受控计算、柱图 / 折线图基础图元 |
+| `@agile-team/mach-report/codes` | 可选跨浏览器 / Node 的 QR、条码编码、物理尺寸与静区校验 |
 
 内核保持零运行时依赖；ExcelJS、pdf-lib / fontkit、SQL parser 分别内联于对应构建入口。导入 `/xlsx` 才使用 Excel 能力，导入 `/pdf` 才使用 PDF 能力；Vue 不进入引擎主入口。npm 构建提供 ESM、CommonJS 与类型声明。
 
@@ -627,7 +636,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.11.2`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.12.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

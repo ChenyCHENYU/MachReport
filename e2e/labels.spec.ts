@@ -1,0 +1,82 @@
+import { createRequire } from "node:module";
+import { readFile } from "node:fs/promises";
+import { expect, test } from "@playwright/test";
+
+const packageRequire = createRequire(new URL("../packages/mach-report/package.json", import.meta.url));
+const { PDFDocument } = packageRequire("pdf-lib");
+
+test("industrial labels render real symbols, switch records and export physical-size PDF", async ({ page }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.goto("http://localhost:8610/labels.html");
+  await expect(page.locator(".mrp-page-holder").first()).toContainText("S304H3");
+  const image = page.locator('.mrp-page-holder img[src^="data:image/png;base64,"]').first();
+  await expect(image).toBeVisible();
+  expect(await image.evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 100)).toBe(true);
+  await expect(page.locator("[role=alert]")).toHaveCount(0);
+  await page.getByRole("button", { name: "150%", exact: true }).click();
+  await page.screenshot({ path: testInfo.outputPath("industrial-label-preview.png"), fullPage: true });
+  await page.getByRole("combobox", { name: "预览数据", exact: true }).selectOption("1");
+  await expect(page.locator(".mrp-page-holder").first()).toContainText("S316LS");
+  await expect(page.locator(".mrp-page-holder").first()).toContainText("0 kg");
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出", exact: true }).click();
+  await page.getByRole("menuitem", { name: "导出 PDF", exact: true }).click();
+  const artifact = await download;
+  const target = testInfo.outputPath("material-label.pdf");
+  await artifact.saveAs(target);
+  const pdf = await PDFDocument.load(await readFile(target));
+  expect(pdf.getPageCount()).toBe(2);
+  expect(pdf.getPage(0).getWidth()).toBeCloseTo(80 * 72 / 25.4, 5);
+  expect(pdf.getPage(0).getHeight()).toBeCloseTo(55 * 72 / 25.4, 5);
+  await expect(page.locator("[role=alert]")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("label designer edits actual paper, binding and symbols through undo and saved templates", async ({ page }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.goto("http://localhost:8610/labels.html");
+  await page.getByRole("button", { name: "设计标签", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "组件", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "字段", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "设计", exact: true }).click();
+  await expect(page.locator(".mr-canvas-sheet-info")).toContainText("80 × 55 mm");
+  await expect(page.locator(".mr-canvas-ruler.is-horizontal")).toBeVisible();
+  await page.getByRole("tab", { name: "模板", exact: true }).click();
+  await page.getByRole("combobox", { name: "纸张规格", exact: true }).selectOption("label-100-60");
+  await expect(page.locator(".mr-canvas-sheet-info")).toContainText("100 × 60 mm");
+  await page.getByRole("button", { name: "撤销", exact: true }).click();
+  await expect(page.getByLabel("纸宽（mm）", { exact: true })).toHaveValue("80");
+  await page.getByLabel("版面名称", { exact: true }).fill("产品追溯标签");
+  await page.getByLabel("版面名称", { exact: true }).press("Tab");
+  await page.getByRole("button", { name: "复制版面", exact: true }).click();
+  await expect(page.locator(".mr-page-list > button")).toHaveCount(3);
+  await page.getByRole("button", { name: "撤销", exact: true }).click();
+  await expect(page.locator(".mr-page-list > button")).toHaveCount(2);
+  await page.getByRole("tab", { name: "组件", exact: true }).click();
+  await page.getByRole("combobox", { name: "添加组件", exact: true }).selectOption("qrcode");
+  await expect(page.locator(".mr-canvas-code").last()).toContainText("二维码");
+  await page.getByRole("button", { name: "撤销", exact: true }).click();
+  await expect(page.locator(".mr-canvas-code")).toHaveCount(1);
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await expect(page.getByRole("status").first()).toContainText("模板已保存");
+  await page.getByRole("button", { name: "预览", exact: true }).click();
+  await expect(page.locator('.mr-designer-preview img[src^="data:image/png;base64,"]').first()).toBeVisible();
+  await expect(page.locator(".mr-designer [role=alert]")).toHaveCount(0);
+  await page.getByRole("button", { name: "设计", exact: true }).click();
+  await page.screenshot({ path: testInfo.outputPath("industrial-label-designer.png"), fullPage: true });
+  expect(errors).toEqual([]);
+});
+
+test("label workspace and design fit narrow screens", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 680, height: 900 });
+  await page.goto("http://localhost:8610/labels.html");
+  await expect(page.locator(".mrp-page-holder").first()).toContainText("S304H3");
+  expect(await page.evaluate(() => document.body.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole("button", { name: "设计标签", exact: true }).click();
+  await page.getByRole("tab", { name: "模板", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "纸张规格", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.body.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("industrial-label-narrow.png"), fullPage: true });
+});

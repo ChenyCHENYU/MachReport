@@ -212,7 +212,9 @@ const result = await task.result;
 
 ## 消费端兼容门禁
 
-`node scripts/check-compat.mjs` 对本机实际 Node/Vue 组合检查打包产物的十二入口、ESM/CJS、Runtime、PDF/XLSX 和 Vue SSR。可传 `--node=/path/to/node --vue=3.2.47`；只为真正执行过的组合输出版本，不把矩阵配置当验证通过。
+`node scripts/check-compat.mjs` 对本机实际 Node/Vue 组合检查打包产物的十三入口、ESM/CJS、Runtime、PDF/XLSX 和 Vue SSR。可传 `--node=/path/to/node --vue=3.2.47`；只为真正执行过的组合输出版本，不把矩阵配置当验证通过。
+
+固定标签的重复、绑定和二维码/条码也可在 Node 执行。创建 Runtime 时传 `assets: { assetRenderers: createCodeAssetRenderers() }`，本地 prepare 和 export 共用真实码图，资源阶段以 `assets` 事件上报。Worker 在其执行器内部配置该适配器，函数不进入序列化请求。编码入口按需加载；详见[工业标签](LABELS.md)。
 
 CI 追加 Node 18/20/22/24 × Vue 3.2.47/3.5 的独立消费矩阵，复用主门禁产出的同一 tarball，不在旧 Node 上运行开发构建链。Firefox/WebKit 运行真实渲染、参数、Excel边框和宽表流程；完整 Chromium 门禁保持零重试。它们的运行结果以 CI 回执为准。
 

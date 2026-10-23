@@ -1,4 +1,7 @@
 import { SCHEMA_VERSION_MACH } from "../defaults";
+import type { ComponentBinding } from "./component-binding";
+import type { CodeOptions } from "./code-options";
+export type { CodeOptions } from "./code-options";
 
 export type ComponentKind =
   | "text"
@@ -109,6 +112,10 @@ export interface PlanTableFragment {
 }
 
 export interface PlanComponent {
+  /** Optional QR/barcode encoding configuration; no encoder is loaded by the core. */
+  code?: CodeOptions;
+  /** Template-only binding; resolved and removed before constructing the output plan. */
+  binding?: ComponentBinding;
   /** Template page furniture repeats per page and reserves its vertical band. */
   pageAnchor?: "header" | "footer";
   kind: ComponentKind;

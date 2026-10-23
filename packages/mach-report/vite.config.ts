@@ -3,7 +3,7 @@ import vue from "@vitejs/plugin-vue";
 import dts from "vite-plugin-dts";
 
 /**
- * 浏览器/共用入口构建（十入口 × ESM/CJS 双格式；另两个Node入口独立构建）：
+ * 浏览器/共用入口构建（十一入口 × ESM/CJS 双格式；另两个Node入口独立构建）：
  *
  * - index/pdf/sql/xlsx：框架无关引擎与重依赖子路径（pdf-lib/fontkit 内联进
  *   pdf 入口、node-sql-parser 内联进 sql 入口——不导入即不进依赖图）
@@ -56,6 +56,7 @@ export default defineConfig({
         server: "src/server.ts",
         designer: "src/designer.ts",
         analytics: "src/analytics.ts",
+        codes: "src/codes.ts",
         worker: "src/worker.ts",
         vue: "src/vue/index.ts",
         "vue-async": "src/vue/async.ts"

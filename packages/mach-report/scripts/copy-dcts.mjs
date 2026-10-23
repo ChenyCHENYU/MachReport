@@ -27,6 +27,7 @@ const entries = [
   "dist/server.d.ts",
   "dist/designer.d.ts",
   "dist/analytics.d.ts",
+  "dist/codes.d.ts",
   "dist/worker.d.ts",
   "dist/server/node.d.ts",
   "dist/vue/index.d.ts",

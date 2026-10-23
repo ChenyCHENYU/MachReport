@@ -3,6 +3,10 @@ import { parseReportTemplate } from "../source/template-registry";
 import { createReportRuntime } from "./runtime";
 import type { ReportRuntimeExportInput, ReportRuntimeExportResult } from "./types";
 import { controlled, throwIfAborted } from "./control";
+import type { AssetRenderOptions, ImageComponentKind } from "../output/assets";
+import type { OutputDiagnostic } from "../output/capabilities";
+
+type PublicationAssets = Omit<AssetRenderOptions, "signal">;
 
 export interface ReportPublicationArtifact {
   fixture: string;
@@ -16,8 +20,10 @@ export interface ReportPublicationReview extends ReportTemplateReview { artifact
 export interface ReportPublicationOptions extends ReportTemplateReviewOptions {
   formats?: readonly ("pdf" | "xlsx")[];
   signal?: AbortSignal;
-  pdf?: ReportRuntimeExportInput["pdf"];
-  xlsx?: ReportRuntimeExportInput["xlsx"];
+  /** Trusted resource renderers shared by all requested file formats. */
+  assets?: PublicationAssets;
+  pdf?: ReportRuntimeExportInput["pdf"] & PublicationAssets;
+  xlsx?: ReportRuntimeExportInput["xlsx"] & PublicationAssets;
   maxOutputBytes?: number;
   maxDurationMs?: number;
   /** Explicit fixtures only. Host may archive these bytes; the result retains metadata only. */
@@ -25,14 +31,39 @@ export interface ReportPublicationOptions extends ReportTemplateReviewOptions {
   digest?: (bytes: Uint8Array) => string | Promise<string>;
 }
 
+function publicationAssets(options: ReportPublicationOptions, format: "pdf" | "xlsx"): PublicationAssets | undefined {
+  const common = options.assets, local = options[format];
+  if (!common && !local?.assetRenderers) return;
+  return {
+    ...common,
+    ...(local?.assetFailure === undefined ? {} : { assetFailure: local.assetFailure }),
+    ...(local?.onDiagnostic === undefined ? {} : { onDiagnostic: local.onDiagnostic }),
+    assetRenderers: { ...common?.assetRenderers, ...local?.assetRenderers },
+    assetBudget: { ...common?.assetBudget, ...local?.assetBudget }
+  };
+}
+function deferredAsset(diagnostic: OutputDiagnostic | undefined, options: ReportPublicationOptions): boolean {
+  if (!diagnostic || diagnostic.code !== "missing-image" || diagnostic.format !== "pdf" && diagnostic.format !== "xlsx") return false;
+  return typeof publicationAssets(options, diagnostic.format)?.assetRenderers?.[diagnostic.kind as ImageComponentKind] === "function";
+}
+function publicationPreflight(input: unknown, options: ReportPublicationOptions): ReportPublicationReview {
+  const checked = reviewReportTemplate(input, options);
+  // Only a known matching renderer may defer a missing image. Real strict encoding remains mandatory.
+  const issues = checked.issues.filter(issue => !deferredAsset(issue.diagnostic, options));
+  const samples = checked.samples.map(sample => ({ ...sample, diagnostics: sample.diagnostics.filter(diagnostic => !deferredAsset(diagnostic, options)) }));
+  return { ...checked, issues, samples, ok: issues.every(issue => issue.severity !== "error"), artifacts: [] };
+}
+
 async function encodeSample(fixture: NonNullable<ReportPublicationOptions["fixtures"]>[number], format: "pdf" | "xlsx", template: ReturnType<typeof parseReportTemplate>["template"], options: ReportPublicationOptions, review: ReportPublicationReview): Promise<void> {
-  const runtime = createReportRuntime({ reports: { sample: { template, datasets: fixture.datasets } }, budget: {
+  const runtime = createReportRuntime({ reports: { sample: { template, datasets: fixture.datasets } }, assets: publicationAssets(options, format), budget: {
     maxRows: options.maxSampleRows ?? 1000, maxPages: options.maxPages ?? 100, maxCells: options.maxCells ?? 250_000,
     maxOutputBytes: options.maxOutputBytes ?? 20_000_000, maxDurationMs: options.maxDurationMs ?? 30_000
   } });
   try {
     const { result, digest } = await controlled(options.signal, options.maxDurationMs ?? 30_000, async (signal) => {
       const result = await runtime.export({ reportIds: ["sample"], params: fixture.params, format, signal, fidelity: options.strictOutputs ? "strict" : "warn", pdf: options.pdf, xlsx: options.xlsx });
+      const findings = result.diagnostics.filter(issue => issue.severity !== "info");
+      if (options.strictOutputs && findings.length) throw new Error(`Strict ${format} encoding found fidelity issues: ${findings.slice(0, 3).map(issue => issue.message).join("; ")}`);
       const digest = await options.digest?.(result.bytes);
       throwIfAborted(signal);
       await options.onArtifact?.(fixture.name, result);
@@ -50,7 +81,7 @@ async function encodeSample(fixture: NonNullable<ReportPublicationOptions["fixtu
 /** Publication gate with actual sequential PDF/XLSX encoding, no business query or implicit save. */
 export async function reviewReportPublication(input: unknown, options: ReportPublicationOptions = {}): Promise<ReportPublicationReview> {
   throwIfAborted(options.signal);
-  const review: ReportPublicationReview = { ...reviewReportTemplate(input, options), artifacts: [] };
+  const review = publicationPreflight(input, options);
   if (!review.ok) return review;
   const template = parseReportTemplate(input).template;
   const formats = [...new Set(options.formats ?? ["pdf", "xlsx"])];
