@@ -35,3 +35,10 @@ export * from "./editing";
 
 export type { OutputTaskOptions } from "./output/progress";
 export * from "./selection-calculations";
+export * from "./source/data-explanation";
+
+export * from "./source/template-outline";
+
+export * from "./source/template-fragments";
+
+export * from "./layout/label-sheets";

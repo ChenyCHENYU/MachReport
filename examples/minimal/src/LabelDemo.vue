@@ -1,23 +1,34 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { createMemoryTemplateStore, createReportSource, createTemplateManager, defineLabelReport, parseReportTemplate, type ReportTemplateDocument } from "@agile-team/mach-report";
+import { createMemoryTemplateStore, createReportSource, createTemplateManager, defineLabelReport, imposeLabelSheets, parseReportTemplate, type ReportTemplateDocument } from "@agile-team/mach-report";
 import { createCodeAssetRenderers } from "@agile-team/mach-report/codes";
 import { ReportPreview, provideMachReportConfig } from "@agile-team/mach-report/vue";
 import { ReportTemplateEditor, type TemplateEditorController, type TemplateEditorSaveContext } from "@agile-team/mach-report/designer";
 import { labelContract, labelDocument, labelRows } from "./label-template";
 
 const mode = ref("preview"), record = ref("all");
+const sheetMode = ref(false);
 const editor = ref<TemplateEditorController>();
 const manager = createTemplateManager(createMemoryTemplateStore());
 const document = ref(parseReportTemplate(labelDocument)), saved = ref(false);
 let savedDocument = parseReportTemplate(labelDocument);
 const assets = { assetRenderers: createCodeAssetRenderers() };
-provideMachReportConfig({ defaults: { pdfFontUrl: "/fonts/mach-report-demo.otf", assets } });
+provideMachReportConfig({ defaults: {
+  pdfFontUrl: "/fonts/mach-report-demo.otf", assets,
+  printOptions: { fonts: [{ family: "Microsoft YaHei", source: "/fonts/mach-report-demo.otf" }] },
+} });
 const rows = computed(() => record.value === "all" ? labelRows : [labelRows[Number(record.value)]!]);
 const dataset = computed(() => document.value.template.repeat?.dataset ?? "materials");
 const datasets = computed(() => ({ [dataset.value]: rows.value }));
 const dataSchemas = computed(() => ({ [dataset.value]: labelContract }));
-const fetcher = computed(() => createReportSource({ labels: defineLabelReport({ template: document.value.template, rows: rows.value, dataSchema: labelContract }) }));
+const fetcher = computed(() => {
+  const source = createReportSource({ labels: defineLabelReport({ template: document.value.template, rows: rows.value, dataSchema: labelContract }) });
+  const imposed = sheetMode.value;
+  return async (input: Parameters<typeof source>[0]) => {
+    const plan = await source(input);
+    return imposed ? imposeLabelSheets(plan, { paper: "a4", columns: 2, rows: 4, marginMm: 12, gapMm: 4, signal: input.signal }) : plan;
+  };
+});
 const paper = computed(() => document.value.template.pages[0]!);
 const pageCount = computed(() => {
   const copies = document.value.template.repeat?.copies ?? 1;
@@ -58,7 +69,11 @@ async function navigate(next: string) {
       <div class="label-main">
         <nav aria-label="标签工作区"><div class="label-mode-switch"><button :aria-pressed="mode === 'preview'" @click="navigate('preview')"><span aria-hidden="true">◫</span> 打印预览</button><button :aria-pressed="mode === 'design'" @click="navigate('design')"><span aria-hidden="true">✎</span> 设计标签</button></div><span role="status" :class="{ 'label-saved': saved }"><i aria-hidden="true"></i>{{ saved ? '模板已保存到本次会话' : '本次会话 · 刷新恢复' }}</span></nav>
         <div class="label-stage">
-        <ReportPreview v-if="mode === 'preview'" report-id="labels" :fetcher="fetcher" height="100%" :toolbar="{ exportFormats: ['pdf', 'png', 'html'], editing: false, excelImport: false }" :messages="{ title: '材料标签', fitWidth: '适宽' }" />
+        <ReportPreview v-if="mode === 'preview'" report-id="labels" :fetcher="fetcher" height="100%" :toolbar="{ exportFormats: ['pdf', 'png', 'html'], editing: false, excelImport: false }" :messages="{ title: '材料标签', fitWidth: '适宽' }">
+          <template #settings>
+            <label class="label-imposition"><input v-model="sheetMode" type="checkbox" /> A4 标签拼版<span>2 列 × 4 行 · 保持标签原尺寸与记录顺序</span></label>
+          </template>
+        </ReportPreview>
         <ReportTemplateEditor v-else ref="editor" v-model="document" :datasets="datasets" :data-schemas="dataSchemas" :binding-datasets="[{ id: dataset, label: '物料', fields }]" :preview="{ assets, pdfFontUrl: '/fonts/mach-report-demo.otf' }" :save="save" />
         </div>
       </div>
@@ -67,3 +82,7 @@ async function navigate(next: string) {
   </main>
 </template>
 <style src="./label-demo.css"></style>
+<style scoped>
+.label-imposition { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; font-size: 12px; }
+.label-imposition span { width: 100%; margin-left: 24px; color: #64748b; font-size: 11px; }
+</style>

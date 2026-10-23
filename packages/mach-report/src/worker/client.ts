@@ -52,7 +52,7 @@ export function createReportWorkerExecutor(factory: () => ReportWorkerConnection
           return;
         }
         if (response.error && typeof response.error.name === "string" && typeof response.error.message === "string") finish(new ReportWorkerError(response.error));
-        else if (validReportWorkerResult(response.result, operation) && (operation !== "export" || "format" in response.result && "format" in input && response.result.format === input.format)) finish(undefined, response.result as T);
+        else if (validReportWorkerResult(response.result, operation) && (operation === "prepare" || "format" in response.result && "format" in input && response.result.format === input.format)) finish(undefined, response.result as T);
         else finish(new Error("报表 Worker 返回无效响应"));
       };
       try {
@@ -68,5 +68,5 @@ export function createReportWorkerExecutor(factory: () => ReportWorkerConnection
       } catch (error) { finish(error); }
     });
   };
-  return { prepare: (input, signal, onEvent) => execute("prepare", input, signal, onEvent), export: (input, signal, onEvent) => execute("export", input, signal, onEvent) };
+  return { exportPrepared: (input, signal, onEvent) => execute("exportPrepared", input, signal, onEvent), prepare: (input, signal, onEvent) => execute("prepare", input, signal, onEvent), export: (input, signal, onEvent) => execute("export", input, signal, onEvent) };
 }

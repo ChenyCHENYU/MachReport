@@ -6,12 +6,24 @@ import type { ReportParamValidation } from "../source/param-validation";
 import type { PaginateOptions, ReportParamDef } from "../layout/paginate";
 import type { AssetRenderOptions } from "../output/assets";
 
-export interface ReportRuntimeInput extends ReportTaskMonitoring { reportIds: string[]; params?: Record<string, string>; signal?: AbortSignal }
+/** Licensed local font bytes; never downloaded implicitly by the runtime. */
+export interface ReportPdfFontOptions {
+  customFontBytes?: Uint8Array | ArrayBuffer;
+  customFontName?: string;
+  customFontFaces?: { regular: Uint8Array | ArrayBuffer; bold?: Uint8Array | ArrayBuffer; italic?: Uint8Array | ArrayBuffer; boldItalic?: Uint8Array | ArrayBuffer };
+}
+export interface ReportRuntimeInput extends ReportTaskMonitoring {
+  reportIds: string[]; params?: Record<string, string>; signal?: AbortSignal;
+  /** Prepare using the same licensed font bytes later supplied to PDF output. */
+  pdf?: ReportPdfFontOptions;
+}
 export interface ReportRuntimeBudget {
   maxRows?: number;
   maxPages?: number;
   maxCells?: number;
   maxOutputBytes?: number;
+  /** Bound the plain JSON snapshot accepted by exportPrepared (default 64 MB). */
+  maxPreparedBytes?: number;
   maxDurationMs?: number;
 }
 export interface ReportRuntimeStats { rows: number; pages: number; cells: number; durationMs: number; outputBytes?: number }
@@ -20,18 +32,23 @@ export interface PreparedReport {
   diagnostics: ReportDiagnostic[];
   stats: ReportRuntimeStats;
   revisions: Record<string, { revision?: string; sourceToken?: string }>;
+  /** Captured metrics identity; absence on old saved instances remains supported with diagnostics. */
+  layout?: { textMetrics: "heuristic" | "provided" | "font-bytes"; fontFingerprint?: string };
 }
 export interface ReportRuntimeExportInput extends ReportRuntimeInput {
   format: "pdf" | "xlsx";
   /** strict 在编码前拒绝已识别的输出降级；默认保留诊断并继续。 */
   fidelity?: "warn" | "strict";
-  /** PDF 中文需宿主显式提供有授权的字体；不隐式下载字体或资源。 */
-  pdf?: {
-    customFontBytes?: Uint8Array | ArrayBuffer;
-    customFontName?: string;
-    customFontFaces?: { regular: Uint8Array | ArrayBuffer; bold?: Uint8Array | ArrayBuffer; italic?: Uint8Array | ArrayBuffer; boldItalic?: Uint8Array | ArrayBuffer };
-  };
   xlsx?: { sheetMode?: "auto" | "pages" | "continuous"; valueMode?: "text" | "raw"; paperSize?: "auto" | "a3" | "a4" | "a5" };
+}
+/** Encode an existing plan without querying providers or repaginating. */
+export interface ReportRuntimePreparedExportInput extends ReportTaskMonitoring {
+  prepared: PreparedReport;
+  format: ReportRuntimeExportInput["format"];
+  fidelity?: ReportRuntimeExportInput["fidelity"];
+  pdf?: ReportPdfFontOptions;
+  xlsx?: ReportRuntimeExportInput["xlsx"];
+  signal?: AbortSignal;
 }
 export interface ReportRuntimeExportResult extends Omit<PreparedReport, "plan"> {
   bytes: Uint8Array;
@@ -40,6 +57,8 @@ export interface ReportRuntimeExportResult extends Omit<PreparedReport, "plan"> 
 }
 /** 可用 worker_threads/进程/RPC 实现；接收可序列化请求，signal 由桥接层映射为取消消息。 */
 export interface ReportRuntimeExecutor {
+  /** Old custom executors may omit this; the runtime explicitly rejects unsupported prepared output. */
+  exportPrepared?(input: Omit<ReportRuntimePreparedExportInput, "signal" | "onEvent">, signal?: AbortSignal, onEvent?: ReportTaskObserver): Promise<ReportRuntimeExportResult>;
   prepare(input: Omit<ReportRuntimeInput, "signal" | "onEvent">, signal?: AbortSignal, onEvent?: ReportTaskObserver): Promise<PreparedReport>;
   export(input: Omit<ReportRuntimeExportInput, "signal" | "onEvent">, signal?: AbortSignal, onEvent?: ReportTaskObserver): Promise<ReportRuntimeExportResult>;
 }
@@ -65,4 +84,5 @@ export interface ReportRuntime {
   validate(input: Omit<ReportRuntimeInput, "signal">): ReportParamValidation;
   prepare(input: ReportRuntimeInput): Promise<PreparedReport>;
   export(input: ReportRuntimeExportInput): Promise<ReportRuntimeExportResult>;
+  exportPrepared(input: ReportRuntimePreparedExportInput): Promise<ReportRuntimeExportResult>;
 }

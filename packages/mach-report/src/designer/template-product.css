@@ -1,0 +1,237 @@
+.mr-product-panel {
+  padding: 18px;
+  color: var(--mrp-toolbar-fg, #334155);
+  font:
+    12px/1.5 system-ui,
+    sans-serif;
+  min-width: 0;
+}
+.mr-product-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.mr-product-panel header strong {
+  font-size: 15px;
+}
+.mr-product-panel header small {
+  margin-left: 10px;
+  color: #64748b;
+}
+.mr-product-panel input,
+.mr-product-panel select {
+  min-height: 32px;
+  min-width: 0;
+  border: 1px solid var(--mrp-toolbar-border, #dbe3ee);
+  border-radius: 7px;
+  padding: 5px 9px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+}
+.mr-product-panel button {
+  border: 1px solid var(--mrp-toolbar-border, #dbe3ee);
+  border-radius: 7px;
+  padding: 6px 10px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.mr-product-panel :is(input, select, button):focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+.mr-product-panel button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.mr-product-note {
+  color: #64748b;
+  margin: 8px 0;
+}
+.mr-product-panel h3 {
+  font-size: 12px;
+  margin: 0 0 10px;
+}
+.mr-outline header input {
+  width: min(400px, 48vw);
+}
+.mr-outline-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.6fr);
+  gap: 18px;
+}
+.mr-outline-tree {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 560px;
+  overflow: auto;
+}
+.mr-outline-tree li {
+  padding-left: calc(var(--depth, 0) * 16px);
+}
+.mr-outline-tree button {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  border-bottom: 1px solid #f1f5f9;
+  border-radius: 5px;
+}
+.mr-outline-tree button:hover,
+.mr-outline-reference:hover {
+  background: #eff6ff;
+}
+.mr-outline-kind {
+  font-size: 10px;
+  color: #64748b;
+  min-width: 28px;
+}
+.mr-outline-tree strong {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mr-outline-tree small {
+  margin-left: auto;
+  color: #64748b;
+}
+.mr-outline aside {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px;
+  min-width: 0;
+  align-self: start;
+}
+.mr-outline-reference {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin-top: 6px !important;
+  background: transparent !important;
+}
+.mr-outline-reference code {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 10px;
+  color: #64748b;
+}
+.mr-product-more {
+  margin-top: 12px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+.mr-reuse-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(240px, 0.8fr);
+  gap: 20px;
+}
+.mr-reuse-layout section {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px;
+  min-width: 0;
+}
+.mr-reuse-layout label {
+  display: grid;
+  grid-template-columns: 95px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+.mr-reuse-layout select {
+  width: 100%;
+}
+.mr-reuse-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.mr-reuse-primary {
+  background: #2563eb !important;
+  color: #fff !important;
+  border-color: #2563eb !important;
+}
+.mr-reuse-bindings {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+.mr-reuse-error {
+  color: #b91c1c;
+}
+.mr-reuse-swatch {
+  margin: 12px 0;
+  padding: 15px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+}
+.mr-impact {
+  padding: 12px;
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  border-radius: 8px;
+  font:
+    12px/1.5 system-ui,
+    sans-serif;
+}
+.mr-impact strong {
+  display: block;
+}
+.mr-impact p {
+  margin: 5px 0;
+  color: #92400e;
+}
+.mr-impact ol {
+  list-style: none;
+  padding: 0;
+  max-height: 150px;
+  overflow: auto;
+}
+.mr-impact button {
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 5px;
+  padding: 4px 7px;
+  cursor: pointer;
+}
+.mr-impact li button {
+  width: 100%;
+  text-align: left;
+  overflow-wrap: anywhere;
+  margin-bottom: 4px;
+}
+.mr-impact footer {
+  display: flex;
+  gap: 8px;
+}
+@media (max-width: 760px) {
+  .mr-outline-layout,
+  .mr-reuse-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mr-product-panel {
+    padding: 12px;
+  }
+  .mr-product-panel > header {
+    flex-wrap: wrap;
+  }
+  .mr-outline header label,
+  .mr-outline header input {
+    width: 100%;
+  }
+}

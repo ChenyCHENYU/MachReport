@@ -14,7 +14,7 @@ const schemas = { detail: { fields: [{ field: "id", type: "text" as const }, { f
 afterEach(() => vi.useRealTimers());
 async function run(wrapper: ReturnType<typeof mount>) {
   await wrapper.findAll("button").find(button => button.text() === "运行检查")!.trigger("click");
-  await new Promise(resolve => setTimeout(resolve, 5)); await flushPromises();
+  await vi.waitFor(() => expect(wrapper.attributes("aria-busy")).toBe("false"), { timeout: 1000, interval: 5 }); await flushPromises();
 }
 describe("designer review and local draft closure", () => {
   it("invalidates every reviewed input and the tested scope, never showing a previous green summary", async () => {
@@ -38,7 +38,7 @@ describe("designer review and local draft closure", () => {
   it("confirmation changes require a new review and a replaced scheduled run cannot publish stale results", async () => {
     const previous = document(), next = document(); (next.template.pages[0]!.components.find(item => item.kind === "list") as ListComponent).columns.pop();
     const wrapper = mount(TemplateReviewPanel, { props: { document: next, previous, datasets: { detail: [{ id: "a", qty: 1 }] } } });
-    await run(wrapper); await wrapper.get('input[type="checkbox"]').setValue(true);
+    await run(wrapper); await wrapper.get('.mr-review-ack input[type="checkbox"]').setValue(true);
     expect(wrapper.find(".mr-review-summary").exists()).toBe(false); await run(wrapper);
     expect(wrapper.get(".mr-review-summary").text()).toContain("0 错误");
     vi.useFakeTimers(); await wrapper.findAll("button").find(button => button.text() === "运行检查")!.trigger("click");
@@ -50,8 +50,8 @@ describe("designer review and local draft closure", () => {
     (next.template.pages[0]!.components.find(item => item.kind === "list") as ListComponent).columns.pop();
     const datasets = reactive({ detail: [{ id: "a", qty: 1 }] });
     const wrapper = mount(TemplateReviewPanel, { props: { document: next, previous, datasets } });
-    const checked = () => (wrapper.get('input[type="checkbox"]').element as HTMLInputElement).checked;
-    await run(wrapper); await wrapper.get('input[type="checkbox"]').setValue(true); await run(wrapper);
+    const checked = () => (wrapper.get('.mr-review-ack input[type="checkbox"]').element as HTMLInputElement).checked;
+    await run(wrapper); await wrapper.get('.mr-review-ack input[type="checkbox"]').setValue(true); await run(wrapper);
     expect(wrapper.get(".mr-review-summary").text()).toContain("0 错误");
     datasets.detail[0]!.qty = 2; await flushPromises();
     expect(checked()).toBe(true); expect(wrapper.find(".mr-review-summary").exists()).toBe(false);
@@ -59,7 +59,7 @@ describe("designer review and local draft closure", () => {
     (next.template.pages[0]!.components.find(item => item.kind === "list") as ListComponent).columns[0]!.header = "新业务列";
     await flushPromises(); expect(checked()).toBe(false); expect(wrapper.find(".mr-review-summary").exists()).toBe(false);
     await run(wrapper); expect(wrapper.text()).toContain("需要明确确认兼容性");
-    await wrapper.get('input[type="checkbox"]').setValue(true); await run(wrapper);
+    await wrapper.get('.mr-review-ack input[type="checkbox"]').setValue(true); await run(wrapper);
     expect(wrapper.get(".mr-review-summary").text()).toContain("0 错误");
     (previous.template.pages[0]!.components.find(item => item.kind === "list") as ListComponent).columns.push({ field: "extra", header: "新增基线字段", widthMm: 10 });
     await flushPromises(); expect(checked()).toBe(false); expect(wrapper.find(".mr-review-summary").exists()).toBe(false);

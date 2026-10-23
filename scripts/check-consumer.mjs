@@ -59,6 +59,8 @@ const tableTemplate = core.createTableTemplate({ title: "Consumer", columns: [{ 
 const tablePlan = core.paginateTemplate(tableTemplate, { detail: [{ name: "Item", qty: 3 }] }).plan;
 if (!tablePlan.pages[0]?.components.some(c => c.grid)) throw new Error("Missing standard table output");
 const document = core.defineReportTemplate({ id: "managed", name: "Managed", revision: "1", template: tableTemplate });
+const preflight = await core.reviewReportTemplateAsync(document, { fixtures: [{ name: "zero", datasets: { detail: [{ name: "0001", qty: 0 }] } }] });
+if (!preflight.ok || preflight.samples.length !== 1) throw new Error("Packed cooperative template review failed");
 const templates = core.createTemplateRegistry([core.parseReportTemplate(core.serializeReportTemplate(document))]);
 const managed = core.createReportSource({ managed: { template: () => templates.get("managed").template, load: () => ({ detail: [{ name: "00123", qty: 3 }] }) } });
 const managedPlan = await managed({ reportIds: ["managed"], params: {} });
@@ -90,6 +92,20 @@ const runtime = server.createReportRuntime({ reports: { sample: { template: tabl
 const prepared = await runtime.prepare({ reportIds: ["sample"] });
 const remoteExcel = await runtime.export({ reportIds: ["sample"], format: "xlsx" });
 if (!prepared.stats.pages || remoteExcel.bytes[0] !== 0x50 || remoteExcel.stats.outputBytes !== remoteExcel.bytes.byteLength) throw new Error("Invalid Node runtime/export");
+const confirmedPdf = await runtime.exportPrepared({ prepared, format: "pdf" });
+if (confirmedPdf.bytes[0] !== 37 || confirmedPdf.stats.pages !== prepared.plan.pages.length) throw new Error("Packed prepared output failed");
+const sheetPlan = core.imposeLabelSheets(encodedLabels.plan, { paper: "a4", columns: 2, rows: 4, marginMm: 5, gapMm: 2, startSlot: 1 });
+if (sheetPlan.pages.length !== 1 || sheetPlan.pages[0].pageWidthMm !== 210 || sheetPlan.pages[0].meta.labelSheet.slots[0].sourcePageIndex !== 0) throw new Error("Packed physical label imposition failed");
+const labelManifest = await server.runLabelStream((async function* () { yield { id: "A001" }; yield { id: "A002" }; })(), {
+  template: labelTemplate, batchSize: 1,
+  runtime: { assets: { assetRenderers: codes.createCodeAssetRenderers() } },
+  execute: async (_prepared, context) => { const artifact = await context.export({ format: "pdf" }); return { key: "labels/" + context.index, format: artifact.format, bytes: artifact.bytes.byteLength }; }
+});
+if (labelManifest.rows !== 2 || labelManifest.chunks.length !== 2 || labelManifest.chunks[1].rowOffset !== 1) throw new Error("Packed label stream failed");
+const instances = server.createReportGenerationService({ runtime, instances: server.createMemoryReportInstanceStore(), templateRevisions: { sample: "v1" } });
+const instance = await instances.generate({ scope: "consumer", id: "saved", title: "Saved", reportIds: ["sample"], expectedRevision: null });
+const savedExcel = await instances.exportInstance({ scope: instance.scope, id: instance.id, revision: instance.revision, format: "xlsx" });
+if (!instance.output || savedExcel.stats.rows !== 1 || savedExcel.bytes[0] !== 0x50) throw new Error("Packed saved-instance output failed");
 const collected = [];
 const destination = new nodeStream.Writable({ write(chunk, _encoding, done) { collected.push(Buffer.from(chunk)); done(); } });
 await nodeXlsx.writeRowsToXlsx((async function* () { yield { id: "0001", qty: 0 }; yield { id: "0002", qty: 2 }; })(), { stream: destination, columns: [{ key: "id" }, { key: "qty" }], batchSize: 1 });
@@ -115,6 +131,9 @@ if (typeof designer.ExcelBindingWizard !== "object" || typeof designer.TemplateR
 const executor = nodeServer.createNodeReportExecutor({ filename: new URL("./worker-fixture.mjs", import.meta.url) });
 const isolated = await executor.prepare({ reportIds: ["worker"] });
 if (!isolated.plan.pages.length) throw new Error("Packed Node Worker did not return a plan");
+const isolatedPdf = await executor.exportPrepared({ prepared: isolated, format: "pdf" });
+const isolatedExcel = await executor.exportPrepared({ prepared: isolated, format: "xlsx" });
+if (isolatedPdf.bytes[0] !== 37 || isolatedExcel.bytes[0] !== 0x50 || isolatedPdf.stats.pages !== isolated.plan.pages.length) throw new Error("Packed Node Worker prepared output failed");
 `;
   const entries = { core: "", pdf: "/pdf", xlsx: "/xlsx", sql: "/sql", vue: "/vue", asyncVue: "/vue/async", server: "/server", nodeServer: "/server/node", nodeXlsx: "/xlsx/node", worker: "/worker", designer: "/designer", analytics: "/analytics" };
   const esmImports = Object.entries(entries).map(([name, path]) => `import * as ${name} from "@agile-team/mach-report${path}";`).join("\n");
@@ -125,14 +144,14 @@ if (!isolated.plan.pages.length) throw new Error("Packed Node Worker did not ret
   run(process.execPath, ["smoke.mjs"]);
   run(process.execPath, ["smoke.cjs"]);
 
-  const consumer = `import { createTemplate, paginateTemplate, paginateTemplatePages, reviewReportTemplate } from "@agile-team/mach-report";
+  const consumer = `import { createTemplate, paginateTemplate, paginateTemplatePages, reviewReportTemplate, reviewReportTemplateAsync, type ReportTemplateReviewProgress, imposeLabelSheets, type LabelSheetOptions } from "@agile-team/mach-report";
 import { createCodeAssetRenderers } from "@agile-team/mach-report/codes";
 import { renderPlanToXlsx } from "@agile-team/mach-report/xlsx";
 import { renderPlanToPdf } from "@agile-team/mach-report/pdf";
 import { compileDynamicSql } from "@agile-team/mach-report/sql";
 import { machReportPlugin, ReportPreview, createTemplate as createVueTemplate, createTableTemplate, createLabelTemplate, createReportSource, defineLabelReport, defineReport, defineReportTemplate, parseReportTemplate, serializeReportTemplate, createTemplateRegistry, defineMachReportConfig, useMachReport, type PdfFontCheckResult, type MachReportToolbarOptions, type ReportEmptyState, type ReportPreviewPreferences } from "@agile-team/mach-report/vue";
 import { preloadMachReport } from "@agile-team/mach-report/vue/async";
-import { createReportRuntime, createReportTaskQueue, reviewReportPublication, createReportJobService, createMemoryReportJobStore } from "@agile-team/mach-report/server";
+import { createReportRuntime, createReportTaskQueue, reviewReportPublication, createReportJobService, createMemoryReportJobStore, createMemoryReportInstanceStore, createReportGenerationService, runLabelStream, type PreparedReport, type ReportRuntimePreparedExportInput, type ReportInstanceSnapshot, type LabelStreamContext } from "@agile-team/mach-report/server";
 import { createNodeReportExecutor, reportArtifactSha256 } from "@agile-team/mach-report/server/node";
 import { createBrowserReportExecutor } from "@agile-team/mach-report/worker";
 import { writeRowsToXlsx } from "@agile-team/mach-report/xlsx/node";
@@ -157,7 +176,7 @@ async function consume() {
   const toolbar: MachReportToolbarOptions = { editing: false, excelImport: false, exportFormats: ["xlsx", "pdf"] };
   const emptyState: ReportEmptyState = { title: "No rows", description: "Change the query" };
   const previewProps: InstanceType<typeof ReportPreview>["$props"] = { showSettings: true, toolbar, emptyState, "onPreferences-change": (preferences: Readonly<ReportPreviewPreferences>) => { void preferences.search; } };
-  const config = defineMachReportConfig({ defaults: { pdfFontUrl: "/report.otf", showSettings: true, toolbar, preview: { overscanPages: 1 }, xlsx: { valueMode: "raw", sheetMode: "auto", paperSize: "auto" } } });
+  const config = defineMachReportConfig({ defaults: { printOptions: { resourceTimeoutMs: 15000, fonts: [{ family: "Report Sans", source: "/report.otf" }], calibration: { offsetXmm: 0, offsetYmm: 1 } }, pdfFontUrl: "/report.otf", showSettings: true, toolbar, preview: { overscanPages: 1 }, xlsx: { valueMode: "raw", sheetMode: "auto", paperSize: "auto" } } });
   const report = useMachReport();
   const { state } = report;
   const loading: boolean = state.loading;
@@ -181,7 +200,22 @@ async function consume() {
   await renderPlanToPdf(plan);
   compileDynamicSql("select 1");
   const runtime = createReportRuntime({ reports: { sample: definition }, budget: { maxPages: 100 } });
-  await runtime.prepare({ reportIds: ["sample"], params: {} });
+  const prepared: PreparedReport = await runtime.prepare({ reportIds: ["sample"], params: {} });
+  const preparedInput: ReportRuntimePreparedExportInput = { prepared, format: "pdf", fidelity: "strict" };
+  await runtime.exportPrepared(preparedInput);
+  const labelSheetOptions: LabelSheetOptions = { paper: "a4", columns: 2, rows: 4, startSlot: 1, offsetMm: { x: 0, y: 0 } };
+  imposeLabelSheets(prepared.plan, labelSheetOptions);
+  const generation = createReportGenerationService({ runtime, instances: createMemoryReportInstanceStore(), templateRevisions: { sample: "v1" } });
+  const savedInstance: ReportInstanceSnapshot = await generation.generate({ scope: "test", id: "one", title: "One", reportIds: ["sample"], expectedRevision: null });
+  await generation.exportInstance({ scope: savedInstance.scope, id: savedInstance.id, format: "xlsx" });
+  await runLabelStream((async function* (): AsyncGenerator<Material> { yield { id: "A001", weight: 0 }; })(), {
+    template: createLabelTemplate({ dataset: "materials", rowKey: "id", components: [] }),
+    maxRetainedBytes: 1_000_000,
+    execute: async (_prepared, context: LabelStreamContext) => {
+      const result = await context.export({ format: "pdf" });
+      return { key: String(context.index), format: result.format, bytes: result.bytes.byteLength };
+    }
+  });
   const queue = createReportTaskQueue({ concurrency: 2, maxQueued: 4 });
   void queue;
   createNodeReportExecutor({ filename: "/worker.mjs" });
@@ -195,6 +229,7 @@ async function consume() {
   if (list?.kind === "list") { const rules: InstanceType<typeof RuleEditor>["$props"] = { list }; void rules; }
   for (const page of paginateTemplatePages(document.template, { detail: [] }, { maxCells: 1000 })) void page;
   reviewReportTemplate(document, { fixtures: [{ name: "sample", datasets: { detail: [] } }] });
+  await reviewReportTemplateAsync(document, { fixtures: [{ name: "sample", datasets: { detail: [] } }], onProgress: (progress: ReportTemplateReviewProgress) => { void progress.completed; } });
   await reviewReportPublication(document, { fixtures: [{ name: "sample", datasets: { detail: [] } }], digest: reportArtifactSha256 });
   const jobs = createReportJobService({ store: createMemoryReportJobStore(), handlers: { sample: () => null } });
   await jobs.submit({ scope: "test", id: "one", kind: "sample", payload: {} }); await jobs.close();

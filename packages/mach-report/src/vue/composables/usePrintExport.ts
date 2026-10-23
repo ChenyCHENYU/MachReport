@@ -10,6 +10,8 @@ import { createOutputRun, type OutputRun } from "./output-task";
 import type { ReportPreviewTask } from "../guards";
 import type { PdfExporter } from "../pdf-exporter";
 import type { XlsxRenderOptions } from "../../xlsx/render-xlsx";
+import { preparePrintResources, printResourceMessage } from "../print-resources";
+import { printCalibration, snapshotPrintOptions, type ReportPrintOptions, type ReportPrintMessages } from "../print-options";
 
 /**
  * 打印 / 导出 / PDF 窗口。
@@ -53,15 +55,22 @@ body{margin:0;background:#fff;}`;
   return `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body>`;
 }
 
-function renderPrintPage(page: PlanPage): string {
+function renderPrintPage(page: PlanPage, options?: ReportPrintOptions): string {
   const el = renderPageToDom(page, 96, {}, document);
   el.style.page = pageSizeKey(page);
+  const offset = printCalibration(options);
+  if (offset.x || offset.y) {
+    const content = document.createElement("div");
+    content.style.cssText = `position:absolute;inset:0;transform:translate(${offset.x}mm,${offset.y}mm);transform-origin:top left`;
+    while (el.firstChild) content.appendChild(el.firstChild);
+    el.appendChild(content);
+  }
   return el.outerHTML;
 }
 
 /** 供 HTML/Word 导出的完整文档；打印路径逐页渲染，避免预先生成所有页。 */
-export function buildPrintDocument(p: RenderPlan): PrintHtmlResult {
-  return { head: buildPrintHead(p), pageChunks: p.pages.map(renderPrintPage) };
+export function buildPrintDocument(p: RenderPlan, options?: ReportPrintOptions): PrintHtmlResult {
+  return { head: buildPrintHead(p), pageChunks: p.pages.map(page => renderPrintPage(page, options)) };
 }
 
 /**
@@ -74,6 +83,8 @@ export async function printPlans(
     onProgress?: (done: number, total: number) => void;
     onError?: (message: string) => void;
     signal?: AbortSignal;
+    printOptions?: ReportPrintOptions;
+    messages?: ReportPrintMessages;
   } = {}
 ): Promise<void> {
   const merged: RenderPlan = {
@@ -81,6 +92,7 @@ export async function printPlans(
     pages: plans.flatMap((p) => p.pages)
   };
   if (merged.pages.length === 0) return;
+  const printOptions = snapshotPrintOptions(options.printOptions);
   const head = buildPrintHead(merged);
   const frame = document.createElement("iframe");
   frame.style.cssText =
@@ -93,7 +105,7 @@ export async function printPlans(
     doc.write(head);
     for (let i = 0; i < merged.pages.length; i++) {
       assertOutputActive(options.signal);
-      doc.write(renderPrintPage(merged.pages[i]!));
+      doc.write(renderPrintPage(merged.pages[i]!, printOptions));
       if (i % YIELD_EVERY_PAGES === YIELD_EVERY_PAGES - 1) {
         notifyOutputProgress(options, i + 1, merged.pages.length);
         await yieldToBrowser();
@@ -102,13 +114,14 @@ export async function printPlans(
     doc.write("</body></html>");
     doc.close();
     await yieldToBrowser();
+    await preparePrintResources(doc, printOptions, options.signal);
     notifyOutputProgress(options, merged.pages.length, merged.pages.length);
     finished = true;
     frame.contentWindow?.focus();
     frame.contentWindow?.print();
   } catch (error) {
     if (options.signal?.aborted) throw error;
-    options.onError?.(error instanceof Error ? `批量打印失败: ${error.message}` : "批量打印失败");
+    options.onError?.(printResourceMessage(error, options.messages));
   } finally {
     // 成功路径等打印框关闭后回收；失败立即回收，杜绝 iframe 泄漏
     if (finished) setTimeout(() => frame.remove(), 60_000);
@@ -139,6 +152,8 @@ export function usePrintExport(
   hooks: {
     /** 按导出开始时的配置快照处理，避免输出过程中跟随路由配置变化。 */
     getXlsxOptions?: () => XlsxRenderOptions;
+    getPrintOptions?: () => ReportPrintOptions;
+    getPrintMessages?: () => ReportPrintMessages;
     /** Flush the active editor and await source-backed calculation/persistence before capturing the output plan. */
     beforeOutput?: () => boolean | Promise<boolean>;
     getPdfExporter: () => PdfExporter;
@@ -245,14 +260,14 @@ export function usePrintExport(
     if (isActive(p, epoch) && !run.controller.signal.aborted) downloadBlob(blob, filename);
   }
 
-  async function writeFramePages(frame: HTMLIFrameElement, p: RenderPlan, epoch: number, run: OutputRun): Promise<boolean> {
+  async function writeFramePages(frame: HTMLIFrameElement, p: RenderPlan, epoch: number, run: OutputRun, options: ReportPrintOptions): Promise<boolean> {
   const doc = frame.contentDocument!;
   doc.open();
   doc.write(buildPrintHead(p));
   // 流式写入：每 YIELD_EVERY_PAGES 页让出主线程一次，避免大报表长任务
   for (let i = 0; i < p.pages.length; i++) {
     if (run.controller.signal.aborted) return false;
-    doc.write(renderPrintPage(p.pages[i]!));
+    doc.write(renderPrintPage(p.pages[i]!, options));
     run.update("print", i + 1, p.pages.length);
     if (i % YIELD_EVERY_PAGES === YIELD_EVERY_PAGES - 1) await yieldToBrowser();
     if (frame !== printFrame) return false; // 期间被释放（换单据）
@@ -260,6 +275,7 @@ export function usePrintExport(
   doc.write("</body></html>");
   doc.close();
   await yieldToBrowser();
+  await preparePrintResources(doc, options, run.controller.signal);
   if (!isActive(p, epoch) || frame !== printFrame) return false;
     return true;
   }
@@ -281,6 +297,11 @@ export function usePrintExport(
     return typeof result === "boolean" ? result ? operation() : Promise.resolve() : result.then((success) => success ? operation() : undefined);
   }
 
+  function failPrint(error: unknown, p: RenderPlan, epoch: number, run: OutputRun, frame: HTMLIFrameElement): void {
+    run.finish(run.controller.signal.aborted ? "cancelled" : "failed");
+    if (frame === printFrame) releasePrintFrame();
+    if (isActive(p, epoch) && !run.controller.signal.aborted) hooks.onError(printResourceMessage(error, hooks.getPrintMessages?.()), "print");
+  }
   async function printPrepared(): Promise<void> {
     if (printing) return;
     const p = plan.value;
@@ -299,13 +320,12 @@ export function usePrintExport(
     const frame = printFrame;
     try {
       if (!isActive(p, epoch) || run.controller.signal.aborted) { releasePrintFrame(); return; }
-      if (!await writeFramePages(frame, p, epoch, run)) return;
+      const options = snapshotPrintOptions(hooks.getPrintOptions?.());
+      if (!await writeFramePages(frame, p, epoch, run, options)) return;
       frame.contentWindow?.focus();
       frame.contentWindow?.print();
-    } catch {
-      run.finish("failed");
-      if (frame === printFrame) releasePrintFrame();
-      if (isActive(p, epoch)) hooks.onError("调用打印失败，请改用导出 PDF", "print");
+    } catch (error) {
+      failPrint(error, p, epoch, run, frame);
     } finally {
       run.finish();
       if (printRun === run) printRun = null;

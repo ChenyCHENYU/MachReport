@@ -8,3 +8,5 @@ export * from "./server/publication";
 export * from "./server/batch";
 export * from "./server/instance-store";
 export * from "./server/generation";
+
+export * from "./server/label-stream";

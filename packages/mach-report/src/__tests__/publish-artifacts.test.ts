@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -11,6 +11,19 @@ import { describe, expect, it } from "vitest";
 const pkgDir = resolve(__dirname, "../..");
 const dist = resolve(pkgDir, "dist");
 const built = existsSync(dist);
+
+/** Follow the static ESM closure: optional font loading can split PDF into shared chunks. */
+function staticModuleCode(entry: string): string {
+  const seen = new Set<string>();
+  function visit(file: string): string {
+    if (seen.has(file)) return "";
+    seen.add(file);
+    const code = readFileSync(file, "utf8");
+    const dependencies = [...code.matchAll(/(?:from\s*|import\s*)["'](\.\/[^"']+\.js)["']/g)];
+    return [code, ...dependencies.map(match => visit(resolve(dirname(file), match[1]!)))].join("\n");
+  }
+  return visit(resolve(dist, entry));
+}
 
 describe("mach-report 引擎发布产物（零运行时依赖单包）", () => {
   it("package.json 仅声明 Node 类型依赖（重依赖已打进子路径产物）", () => {
@@ -37,13 +50,14 @@ describe("mach-report 引擎发布产物（零运行时依赖单包）", () => {
   });
 
   it.skipIf(!built)("主入口产物不含 pdf-lib / sql-parser 代码，子路径产物包含", () => {
-    const indexJs = readFileSync(resolve(dist, "index.js"), "utf8");
+    const indexJs = staticModuleCode("index.js");
     expect(indexJs).not.toContain("PDFDocument");
     expect(indexJs).not.toMatch(/bwip|BWIPP|fast-png|BarcodeWriter|pngEncode/);
     expect(indexJs).not.toMatch(/(?:from\s*|import\s*\()['"](?:vue|node:|exceljs|@agile-team\/mach-report\/(?:pdf|xlsx|server|designer))/);
-    const pdfJs = readFileSync(resolve(dist, "pdf.js"), "utf8");
+    const pdfJs = staticModuleCode("pdf.js");
     expect(pdfJs.length).toBeGreaterThan(100_000); // pdf-lib 已内联（~数百 KB）
-    const sqlJs = readFileSync(resolve(dist, "sql.js"), "utf8");
+    expect(pdfJs).toContain("PDFDocument");
+    const sqlJs = staticModuleCode("sql.js");
     expect(sqlJs.length).toBeGreaterThan(100_000); // node-sql-parser 已内联
   });
 

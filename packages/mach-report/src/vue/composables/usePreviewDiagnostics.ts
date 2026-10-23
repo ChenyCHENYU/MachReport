@@ -11,10 +11,10 @@ export function usePreviewDiagnostics(notify: (entry: Readonly<ReportPreviewDiag
     const current = generation;
     const added: Readonly<ReportPreviewDiagnostic>[] = [];
     for (const entry of items) {
-      const key = JSON.stringify([entry.code, entry.format, entry.pageIndex, entry.componentIndex, entry.componentPath, entry.path, entry.message]);
+      const key = JSON.stringify([entry.code, entry.format, entry.pageIndex, entry.componentIndex, entry.componentPath, entry.path, entry.message, entry.valueState, entry.target]);
       if (keys.has(key)) continue;
       keys.add(key);
-      const copy = Object.freeze({ ...entry, ...(entry.componentPath ? { componentPath: Object.freeze([...entry.componentPath]) } : {}) });
+      const copy = Object.freeze({ ...entry, ...(entry.target ? { target: Object.freeze({ ...entry.target }) } : {}), ...(entry.componentPath ? { componentPath: Object.freeze([...entry.componentPath]) } : {}) });
       added.push(copy);
     }
     if (added.length) entries.value = Object.freeze([...entries.value, ...added]);

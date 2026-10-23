@@ -180,6 +180,8 @@ defineMachReportConfig({ defaults: {
 
 设置入口默认可见，按能力启用搜索、缩略图、缩放、导出、打印、编辑及导入；宿主未授权的能力保留禁用原因。冻结仅影响屏幕，不改变 PDF、Excel 和打印尺寸。工具偏好默认实例内，用户级持久化只需可选 `preferences: { key, adapter }`，不需要页面逐项维护。完整示例与范围见[预览交互](./INTERACTION.md)。
 
+打印默认等待独立文档的字体和图片准备完成；可选 `defaults.printOptions` 统一配置字体、资源超时和毫米偏移。业务空值解释通过查询结果的 `diagnostics.valueState / target` 声明，预览自动折叠展示并按业务主键定位。接入见[打印与来源说明](PRINT_AND_DATA.md)。设计器的恢复、共享片段与命名样例独立选配，分别见[草稿恢复](DRAFT_RECOVERY.md)和[设计效率](DESIGNER_PRODUCTIVITY.md)。
+
 ### 图片、图表与二维码适配器统一配置
 
 已有二维码、条码或图表库时，注册生成图片的函数即可复用到预览与各视觉出口：

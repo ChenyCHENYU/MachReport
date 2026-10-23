@@ -7,6 +7,7 @@ import type { MachReportToolbarOptions, ReportInteractionOptions, ReportPreferen
 import type { ReportBeforeDiscard, ReportOutputOptions } from "./guards";
 import type { AssetRenderOptions } from "@agile-team/mach-report";
 import type { ReportCalculationMessages } from "./composables/useSelectionCalculation";
+import { DEFAULT_PRINT_MESSAGES, type ReportPrintMessages, type ReportPrintOptions } from "./print-options";
 
 /**
  * 配置中心（对齐 mach-table 的 defineMachTableConfig 体验）：
@@ -16,7 +17,7 @@ import type { ReportCalculationMessages } from "./composables/useSelectionCalcul
  */
 
 /** 工具栏与状态文案（默认简体中文；出海场景覆写） */
-export interface MachReportMessages extends Partial<ReportCalculationMessages> {
+export interface MachReportMessages extends Partial<ReportCalculationMessages>, ReportPrintMessages {
   exportMenu?: string;
   exportMenuDescription?: string;
   clearSearch?: string;
@@ -27,6 +28,13 @@ export interface MachReportMessages extends Partial<ReportCalculationMessages> {
   pageJumpHint?: string;
   pagination?: string;
   recordNavigation?: string;
+  dataExplanation?: string;
+  dataExplanationHint?: string;
+  dataExplanationSearch?: string;
+  dataExplanationEmpty?: string;
+  dataMissingSource?: string;
+  dataNotApplicable?: string;
+  dataNotCalculable?: string;
   recordInfo?: string;
   prevRecord?: string;
   nextRecord?: string;
@@ -204,10 +212,13 @@ export function resolveCalculationMessages(messages: Partial<ReportCalculationMe
 }
 
 export const DEFAULT_MESSAGES: MachReportMessages = {
+  ...DEFAULT_PRINT_MESSAGES,
   ...DEFAULT_CALCULATION_MESSAGES,
   exportMenu: "导出", exportMenuDescription: "选择文件格式", clearSearch: "清除搜索", searchHint: "Enter 下一个 · Shift+Enter 上一个", searchNoMatches: "没有匹配内容",
   pageJump: "跳至页", pageJumpInvalid: "请输入有效页码", pageJumpHint: "Enter 跳转", pagination: "报表分页",
   recordNavigation: "标签记录", recordInfo: "记录 {cur} / {total}", prevRecord: "上一条记录", nextRecord: "下一条记录",
+  dataExplanation: "来源数据说明", dataExplanationHint: "按字段查看来源与计算说明", dataExplanationSearch: "搜索说明、字段或记录", dataExplanationEmpty: "没有匹配的数据说明",
+  dataMissingSource: "暂无来源", dataNotApplicable: "业务不适用", dataNotCalculable: "无法计算",
   columnSearchHint: "输入列名或字段标识", columnSearchShortcut: "↑ ↓ 选择 · Enter 定位", closeColumnDirectory: "关闭字段目录",
   columnResultsMore: "{count} 个匹配字段，显示前 {limit} 个；继续输入可缩小范围", columnCount: "{count} 个字段",
   settingsGeneral: "常规", settingsTools: "工具", settingsAdvanced: "高级", settingsAdvancedDescription: "按需开启分析能力，保持日常阅读简洁。",
@@ -340,6 +351,7 @@ export interface MachReportPreviewOptions {
 
 /** defaults 层可配置项（全部可选，均有内置缺省） */
 export interface MachReportDefaults {
+  printOptions?: ReportPrintOptions;
   showExport?: boolean;
   showPrint?: boolean;
   showPdfWindow?: boolean;
@@ -416,6 +428,7 @@ export type ResolvedConfig = Required<
   guardChanges: boolean;
   beforeDiscard?: ReportBeforeDiscard;
   output: ReportOutputOptions;
+  printOptions?: ReportPrintOptions;
 };
 
 const FALLBACK_CONFIG: ResolvedConfig = {
@@ -443,6 +456,10 @@ const SILENT_LOGGER: MachReportLogger = { warn: () => {}, info: () => {} };
 export { SILENT_LOGGER };
 
 /** 主题和文案按字段继承，避免局部覆盖要求业务重复整份配置。 */
+function mergePrintOptions(base?: ReportPrintOptions, overlay?: ReportPrintOptions): ReportPrintOptions | undefined {
+  if (!base && !overlay) return undefined;
+  return { ...base, ...overlay, calibration: { ...base?.calibration, ...overlay?.calibration } };
+}
 function mergeDefaults(
   base: MachReportDefaults | undefined,
   overlay: MachReportDefaults | undefined
@@ -456,7 +473,8 @@ function mergeDefaults(
     xlsx: { ...base?.xlsx, ...overlay?.xlsx },
     toolbar: { ...base?.toolbar, ...overlay?.toolbar },
     interaction: { ...base?.interaction, ...overlay?.interaction },
-    output: { ...base?.output, ...overlay?.output }
+    output: { ...base?.output, ...overlay?.output },
+    printOptions: mergePrintOptions(base?.printOptions, overlay?.printOptions)
   };
 }
 
@@ -498,7 +516,8 @@ export function resolveConfig(
     assets: merged.assets,
     guardChanges: merged.guardChanges ?? true,
     beforeDiscard: merged.beforeDiscard,
-    output: { ...merged.output }
+    output: { ...merged.output },
+    printOptions: merged.printOptions
   };
 }
 

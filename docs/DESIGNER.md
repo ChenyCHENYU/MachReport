@@ -37,6 +37,8 @@ const save: TemplateEditorOptions["save"] = (draft, { expectedRevision, signal }
 | `messages` | 覆盖 `TEMPLATE_EDITOR_MESSAGES` 文案 |
 | `preview` | 可选预览theme / toolbar / assets / pdfFontUrl和输出开关；默认浅色阅读预览，关闭导出 / 打印 / PDF窗口 |
 | `saved` | 保存成功后返回新文档，包括服务端修订号 |
+| `draftStorage` / `loadLatest` / `keepCopy` | 可选草稿暂存与 CAS 冲突处理，见[恢复与冲突](DRAFT_RECOVERY.md) |
+| `fragments` / `documentStyles` / `reviewFixtures` | 可选共享片段、内容角色与命名样例，见[结构、复用与验收](DESIGNER_PRODUCTIVITY.md) |
 | `beforeDiscard(context)` | 可选宿主确认钩子，返回 `true` 才允许丢弃；未提供时显示内置确认。`reason` 为 `reset` / `replace`，包含独立草稿快照、可选替换文档和 `pendingLocalChanges: true` |
 
 属性面板以单行“字段 / 组件 / 模板 / 工具 / 高级”导航组织内容。默认直接呈现当前字段的内容、格式与允许编辑开关：列宽与语义并排，对齐使用带说明的图标分段控件；无需先滚过字段目录再找属性。当前字段卡保留字段名、业务字段、位置与前后切换，顶部集中撤销、重做、恢复和保存。右侧预览独立伸缩，底部分页保持可见。

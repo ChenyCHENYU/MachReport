@@ -73,7 +73,7 @@ describe("跨端参数与 Provider 契约", () => {
     const source = createReportSource({ a: createProviderReport({ template: template(), params: [{ field: "plant", defaultValue: "A" }], provider: { query } }) });
     await source({ reportIds: ["a"], params: {}, onQueryResult });
     expect(query).toHaveBeenCalledWith(expect.objectContaining({ params: { plant: "A" } }));
-    expect(onQueryResult).toHaveBeenCalledWith("a", expect.objectContaining({ revision: "r2" }));
+    expect(onQueryResult).toHaveBeenCalledWith("a", expect.objectContaining({ revision: "r2" }), 0);
     query.mockClear();
     await createReportSource({ a: { template: template(), provider: { query }, load: () => ({}) } })({ reportIds: ["a"], params: {} });
     expect(query).not.toHaveBeenCalled();

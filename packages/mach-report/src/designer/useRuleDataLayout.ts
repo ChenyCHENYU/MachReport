@@ -1,4 +1,5 @@
 import { computed, ref, watch } from "vue";
+import { useTemplateToolDraft } from "./useTemplateToolDrafts";
 import { useLocalDraft } from "./useLocalDraft";
 import type {
   DatasetRows,
@@ -14,6 +15,7 @@ import { validateReportTemplate } from "../source/template-registry";
 import type { RuleEditorMessages } from "./rule-messages";
 import { createTreeTable, type TreeTableOptions } from "../processing/tree";
 export interface RuleDataLayoutOptions {
+  recoveryKey?: string;
   list: ListComponent;
   accept?: (list: ListComponent) => boolean;
   mode: "detail" | "matrix" | "tree";
@@ -222,6 +224,10 @@ export function useRuleDataLayout(
     if (!props.accept) change(next);
     localDraft.accept();
   }
+  useTemplateToolDraft({ key: () => `${props.recoveryKey ?? "rules:0:0"}:${props.mode}`, baseline: () => JSON.stringify(props.list[props.mode]), pending: () => localDraft.pending.value, snapshot: () => JSON.stringify({ enabled: enabled.value, detail: detail.value, matrix: matrix.value, tree: tree.value, baseline: localDraft.baseline.value }), restore(value) {
+    const state = JSON.parse(value) as { enabled: boolean; detail: ListDetail; matrix: MatrixTableOptions; tree: TreeTableOptions; baseline: string };
+    enabled.value = state.enabled; detail.value = state.detail; matrix.value = state.matrix; tree.value = state.tree; localDraft.baseline.value = state.baseline;
+  } });
   return {
     enabled,
     pendingLocalChanges: localDraft.pending,

@@ -15,6 +15,10 @@ MachReport 是独立报表引擎。应用提供模板和业务数据，或直接
 | `/analytics` | `createCrossTable / computeDataset / createChartComponents`；见[分析与资源](./ANALYTICS.md) |
 | `/codes` | `createCodeAssetRenderers / renderCodeImage`；见[工业标签](./LABELS.md) |
 
+产品流程扩展：核心提供 `collectTemplateOutline / inspectTemplateFieldUsage`、`captureTemplateFragment / insertTemplateFragment / applyReportDocumentStyle`、`imposeLabelSheets`；`/designer` 的恢复存储、共享片段、内容角色和命名样例均为可选配置。详见[设计效率](DESIGNER_PRODUCTIVITY.md)与[草稿恢复](DRAFT_RECOVERY.md)。
+
+`/server` 提供 `runtime.exportPrepared / generation.exportInstance / runLabelStream`，共用同一计划和受控输出路径。`/vue` 的 `printOptions` 管字体准备、超时和物理偏移，业务诊断支持可选 `valueState / target`。详见[交付](DELIVERY.md)和[打印及来源说明](PRINT_AND_DATA.md)。
+
 所有代码入口提供 ESM / CJS 与对应类型声明。仅 Node 入口可引用线程 / 文件系统；普通Vue项目无需导入它们。
 
 ### 共用数据契约

@@ -227,6 +227,7 @@ const PRODUCT_TEMPLATE_EDITOR_MESSAGES = {
   previewFieldDirectory: "定位字段",
 };
 export const TEMPLATE_EDITOR_MESSAGES = {
+  outlineTool: "结构大纲", reuseTool: "片段与样式",
   fitWidth: "适宽", fitPage: "适页", fitSelection: "选区", wideNavigation: "宽表导航", alignSelection: "对齐选区", leftEdges: "左对齐", centers: "水平居中", rightEdges: "右对齐", topEdges: "顶对齐", middles: "垂直居中", bottomEdges: "底对齐", horizontalSpacing: "水平等距", verticalSpacing: "垂直等距", lockSelection: "锁定位置", unlockSelection: "解锁位置", sessionLock: "位置锁定仅当前设计会话有效。",
   toolsPending: "工具中还有未应用的配置，请先应用或恢复后再保存模板。",
   ...BASE_TEMPLATE_EDITOR_MESSAGES,

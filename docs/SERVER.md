@@ -2,6 +2,8 @@
 
 MachReport 的模板、参数、字段校验和分页核心不依赖 Vue。`/server` 提供无 HTTP 框架的运行时；`/server/node` 提供 Node 线程隔离；`/worker` 提供浏览器原生 Worker 适配。PDF、Excel 只在调用相应导出时加载，核心入口不会反向加载这些子路径。
 
+实时取数使用 `runtime.export()`；确认结果后固定导出使用 `runtime.exportPrepared()`，已保存实例使用 `generation.exportInstance()`。它们复用同一编码管线。字体身份、Worker 升级、准备快照预算与异步标签分批见[交付指南](DELIVERY.md)。
+
 ## 最小 Node 接入
 
 ```ts

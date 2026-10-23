@@ -1,9 +1,10 @@
-import { computed, ref, type Ref } from "vue";
+import { computed, ref, watch, type Ref } from "vue";
 import {
   resolveGridLayout,
   type ListComponent,
   type ReportTemplateDocument,
 } from "@agile-team/mach-report";
+import { inspectTemplateFieldUsage, type TemplateFieldUsage } from "../source/template-outline";
 
 export function useTemplateColumns(
   draft: Ref<ReportTemplateDocument>,
@@ -14,6 +15,8 @@ export function useTemplateColumns(
   const selected = ref(0);
   const query = ref("");
   const selectedColumns = ref<number[]>([]);
+  const fieldChange = ref<{ index: number; listIndex: number; before: string; after: string; references: TemplateFieldUsage[] }>();
+  watch(draft, () => { fieldChange.value = undefined; }, { flush: "sync" });
   const lists = computed(() =>
     draft.value.template.pages.flatMap((page, pageIndex) =>
       page.components.flatMap((component, componentIndex) =>
@@ -95,6 +98,12 @@ export function useTemplateColumns(
     if ((key === "widthMm" || key === "hidden") && location && draft.value.template.pages[location.pageIndex]?.flow) return;
     const column = activeList.value?.columns[index];
     if (!column) return;
+    if (key === "field" && value !== column.field) {
+      const dataset = activeList.value!.dataset;
+      const own = `$.template.pages[${location!.pageIndex}].components[${location!.componentIndex}].columns[${index}].field`;
+      const references = inspectTemplateFieldUsage(draft.value.template, dataset, column.field).filter(reference => reference.path !== own);
+      if (references.length) { fieldChange.value = { index, listIndex: selected.value, before: column.field, after: String(value), references }; return; }
+    }
     if (
       key === "hidden" &&
       value === true &&
@@ -112,6 +121,14 @@ export function useTemplateColumns(
       );
     if (key === "widthMm") updateWidths();
     changed();
+  }
+  function confirmFieldChange(): void {
+    const pending = fieldChange.value;
+    if (!pending || !canEdit()) return;
+    const column = lists.value[pending.listIndex]?.component.columns[pending.index];
+    fieldChange.value = undefined;
+    if (!column || column.field !== pending.before) return;
+    column.field = pending.after; changed();
   }
   function updateWidths(): void {
     const target = lists.value[selected.value];
@@ -200,6 +217,9 @@ export function useTemplateColumns(
     toggleColumn,
     selectVisible,
     clearSelection,
+    fieldChange,
+    confirmFieldChange,
+    cancelFieldChange: () => { fieldChange.value = undefined; },
     setColumn,
     alignColumns,
   };

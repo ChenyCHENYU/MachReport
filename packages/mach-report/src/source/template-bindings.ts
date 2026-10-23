@@ -21,7 +21,10 @@ function aggregates(value: unknown, path: string, target: TemplateDatasetBinding
   value.forEach((aggregate, index) => {
     if (!object(aggregate)) return;
     if (typeof aggregate.field === "string" && aggregate.valueField !== undefined && aggregate.valueField !== aggregate.field) target.summaries.add(aggregate.field);
-    fields(aggregate.valueField ?? aggregate.field, `${path}[${index}].valueField`, target.fields);
+    const sourceKey = aggregate.valueField === undefined ? "field" : "valueField";
+    fields(aggregate[sourceKey], `${path}[${index}].${sourceKey}`, target.fields);
+    // A same-named explicit source/output is one binding; aliases stay distinct.
+    if (aggregate.valueField !== undefined && aggregate.valueField === aggregate.field) fields(aggregate.field, `${path}[${index}].field`, target.fields);
     fields(aggregate.weightField, `${path}[${index}].weightField`, target.fields);
   });
 }
@@ -41,12 +44,12 @@ function listReferences(item: ObjectValue, path: string, binding: TemplateDatase
     fields(computed.dependsOn, `${path}.computed[${index}].dependsOn`, binding.fields);
     fields(computed.groupBy, `${path}.computed[${index}].groupBy`, binding.fields);
   });
-  const groups = Array.isArray(item.groups) ? item.groups : item.groupBy ? [item.groupBy] : [];
-  groups.forEach((group, index) => {
+  const groups = Array.isArray(item.groups) ? item.groups.map((group, index) => ({ group, path: `${path}.groups[${index}]` })) : item.groupBy ? [{ group: item.groupBy, path: `${path}.groupBy` }] : [];
+  groups.forEach(({ group, path: groupPath }) => {
     if (!object(group)) return;
-    fields(group.field, `${path}.groups[${index}].field`, binding.fields);
-    fields(group.subtotal, `${path}.groups[${index}].subtotal`, binding.fields);
-    aggregates(group.aggregates, `${path}.groups[${index}].aggregates`, binding);
+    fields(group.field, `${groupPath}.field`, binding.fields);
+    fields(group.subtotal, `${groupPath}.subtotal`, binding.fields);
+    aggregates(group.aggregates, `${groupPath}.aggregates`, binding);
   });
   if (object(item.grandTotal)) {
     fields(item.grandTotal.fields, `${path}.grandTotal.fields`, binding.fields);

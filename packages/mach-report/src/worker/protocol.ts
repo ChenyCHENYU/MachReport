@@ -1,10 +1,11 @@
-import type { PreparedReport, ReportRuntime, ReportRuntimeExportInput, ReportRuntimeExportResult, ReportRuntimeInput } from "../server/types";
+import type { PreparedReport, ReportRuntime, ReportRuntimeExportInput, ReportRuntimeExportResult, ReportRuntimeInput, ReportRuntimePreparedExportInput } from "../server/types";
 import type { ReportTaskEvent, ReportTaskObserver } from "../source/task-events";
+import { hasValidDataExplanation } from "../source/data-explanation";
 import { validateRenderPlan } from "../schema/validate";
 
 export const REPORT_WORKER_PROTOCOL = "mach-report-worker/1" as const;
-export type ReportWorkerInput = Omit<ReportRuntimeInput, "signal" | "onEvent"> | Omit<ReportRuntimeExportInput, "signal" | "onEvent">;
-export interface ReportWorkerRequest { protocol: typeof REPORT_WORKER_PROTOCOL; id: string; operation: "prepare" | "export"; input: ReportWorkerInput }
+export type ReportWorkerInput = Omit<ReportRuntimeInput, "signal" | "onEvent"> | Omit<ReportRuntimeExportInput, "signal" | "onEvent"> | Omit<ReportRuntimePreparedExportInput, "signal" | "onEvent">;
+export interface ReportWorkerRequest { protocol: typeof REPORT_WORKER_PROTOCOL; id: string; operation: "prepare" | "export" | "exportPrepared"; input: ReportWorkerInput }
 export interface ReportWorkerEvent { protocol: typeof REPORT_WORKER_PROTOCOL; id: string; type: "event"; event: ReportTaskEvent }
 export interface SerializedReportError { name: string; message: string; code?: string; path?: string; issues?: unknown; diagnostics?: unknown }
 export interface ReportWorkerResponse {
@@ -29,14 +30,19 @@ function stats(value: unknown): boolean {
     && typeof value.durationMs === "number" && Number.isFinite(value.durationMs) && value.durationMs >= 0;
 }
 function diagnostics(value: unknown): boolean {
-  return Array.isArray(value) && value.every((entry: unknown) => object(entry) && typeof entry.code === "string" && typeof entry.message === "string" && ["info", "warning", "error"].includes(entry.severity as string));
+  return Array.isArray(value) && value.every((entry: unknown) => object(entry) && typeof entry.code === "string" && typeof entry.message === "string" && ["info", "warning", "error"].includes(entry.severity as string) && hasValidDataExplanation(entry));
 }
 function revisions(value: unknown): boolean {
   return object(value) && Object.values(value).every((entry) => object(entry) && (entry.revision === undefined || typeof entry.revision === "string") && (entry.sourceToken === undefined || typeof entry.sourceToken === "string"));
 }
+function layoutMetrics(value: unknown): boolean {
+  if (value === undefined) return true;
+  return object(value) && ["heuristic", "provided", "font-bytes"].includes(value.textMetrics as string)
+    && (value.fontFingerprint === undefined || typeof value.fontFingerprint === "string" && /^[a-f0-9]{64}$/.test(value.fontFingerprint));
+}
 /** Worker 响应使用与运行时一致的值契约，不只相信 TypeScript 类型或返回的任务 ID。 */
 export function validReportWorkerResult(value: unknown, operation: ReportWorkerRequest["operation"]): value is PreparedReport | ReportRuntimeExportResult {
-  if (!object(value) || !stats(value.stats) || !diagnostics(value.diagnostics) || !revisions(value.revisions)) return false;
+  if (!object(value) || !stats(value.stats) || !diagnostics(value.diagnostics) || !revisions(value.revisions) || !layoutMetrics(value.layout)) return false;
   if (operation === "prepare") return validateRenderPlan(value.plan).ok;
   const contentType = value.format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   return value.bytes instanceof Uint8Array && (value.format === "pdf" || value.format === "xlsx") && value.contentType === contentType;
@@ -70,13 +76,15 @@ function serializeError(error: unknown): SerializedReportError {
 export function isReportWorkerRequest(value: unknown): value is ReportWorkerRequest {
   if (!value || typeof value !== "object") return false;
   const request = value as Partial<ReportWorkerRequest>;
-  return request.protocol === REPORT_WORKER_PROTOCOL && typeof request.id === "string" && (request.operation === "prepare" || request.operation === "export") && !!request.input && typeof request.input === "object";
+  return request.protocol === REPORT_WORKER_PROTOCOL && typeof request.id === "string" && (request.operation === "prepare" || request.operation === "export" || request.operation === "exportPrepared") && !!request.input && typeof request.input === "object";
 }
 export async function runReportWorkerRequest(runtime: ReportRuntime, request: ReportWorkerRequest, onEvent?: ReportTaskObserver): Promise<ReportWorkerResponse> {
   try {
     const result = request.operation === "prepare"
       ? await runtime.prepare({ ...request.input, onEvent } as ReportRuntimeInput)
-      : await runtime.export({ ...request.input, onEvent } as ReportRuntimeExportInput);
+      : request.operation === "exportPrepared"
+        ? await runtime.exportPrepared({ ...request.input, onEvent } as ReportRuntimePreparedExportInput)
+        : await runtime.export({ ...request.input, onEvent } as ReportRuntimeExportInput);
     return { protocol: REPORT_WORKER_PROTOCOL, id: request.id, result };
   } catch (error) { return { protocol: REPORT_WORKER_PROTOCOL, id: request.id, error: serializeError(error) }; }
 }
@@ -92,7 +100,7 @@ export function reportWorkerTransferList(response: ReportWorkerResponse): ArrayB
 export function validReportWorkerEvent(value: unknown, input: ReportWorkerInput): value is ReportTaskEvent {
   if (!object(value) || typeof value.taskId !== "string" || !value.taskId) return false;
   if (input.taskId !== undefined && value.taskId !== input.taskId) return false;
-  if (value.correlationId !== input.correlationId || value.reportId !== undefined && (typeof value.reportId !== "string" || !input.reportIds.includes(value.reportId))) return false;
+  if (value.correlationId !== input.correlationId || value.reportId !== undefined && (typeof value.reportId !== "string" || !("reportIds" in input && input.reportIds.includes(value.reportId)))) return false;
   if (!["query", "validate", "layout", "assets", "encode"].includes(value.stage as string) || !["started", "completed", "failed"].includes(value.status as string)) return false;
   for (const key of ["completed", "total"] as const) if (value[key] !== undefined && (typeof value[key] !== "number" || !Number.isFinite(value[key]) || value[key] < 0)) return false;
   return value.completed === undefined || value.total === undefined || (value.completed as number) <= (value.total as number);

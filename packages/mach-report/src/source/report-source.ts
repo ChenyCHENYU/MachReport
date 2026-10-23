@@ -10,6 +10,7 @@ import { reflowReportTemplate } from "../editing/session-pagination";
 import type { ReportEditSessionPart } from "../editing/session-data";
 import { createReportTaskReporter, type ReportTaskMonitoring } from "./task-events";
 import type { ReportProvider, ReportQueryResult } from "./provider";
+import { hasValidDataExplanation } from "./data-explanation";
 import { validateDatasetRows, type DatasetContract, type DatasetValidationOptions } from "../schema/dataset";
 import { templateValidationDatasets } from "./template-tree-data";
 
@@ -26,7 +27,8 @@ export interface ReportFetchInput extends ReportTaskMonitoring {
   signal?: AbortSignal;
   /** 本次分页与计划告警；未提供时使用数据源配置的告警通道。 */
   onWarning?: (message: string) => void;
-  onQueryResult?: (reportId: string, result: ReportQueryResult) => void;
+  /** Index scopes diagnostics when reports share datasets or a report ID is repeated. */
+  onQueryResult?: (reportId: string, result: ReportQueryResult, reportIndex?: number) => void;
 }
 
 /** 保持 Promise<RenderPlan> 契约；元数据为可选，旧业务 fetcher 无需改造。 */
@@ -178,6 +180,9 @@ function validateProviderResult(result: ReportQueryResult, reportId: string): vo
   if (result.diagnostics !== undefined && (!Array.isArray(result.diagnostics) || result.diagnostics.some((entry) => !entry || typeof entry.code !== "string" || typeof entry.message !== "string" || !["info", "warning", "error"].includes(entry.severity)))) {
     throw new ReportSourceError("validate", `报表 ${reportId} Provider diagnostics 不符合结构化诊断契约`);
   }
+  if (result.diagnostics?.some(entry => !hasValidDataExplanation(entry))) {
+    throw new ReportSourceError("validate", `报表 ${reportId} Provider 数据说明缺少有效的字段身份或值状态`);
+  }
 }
 
 function validateDataContract(definition: ReportDefinition, data: DatasetRows, reportId: string, template: ReportTemplate, signal?: AbortSignal): void {
@@ -234,7 +239,7 @@ function appendTablePages(pages: RenderPlan["pages"], plan: RenderPlan, reportIn
   };
   for (const page of plan.pages) pages.push({
     ...page,
-    ...(page.meta ? { meta: { ...page.meta, reportScope: JSON.stringify([reportIndex, reportId]) } } : {}),
+    meta: { ...page.meta, reportScope: JSON.stringify([reportIndex, reportId]) },
     components: page.components.map((component) => component.table ? {
       ...component,
       table: { ...component.table, id: scopedTableId(component.table.id) }
@@ -303,7 +308,7 @@ export function createReportSource(
         ? await reporter.run("query", () => loadTemplate(definition.template as ReportTemplateLoader, context, warnings), reportId)
         : definition.template;
       context.params = reporter.runSync("validate", () => assertReportParams(definition.params ?? template.params ?? [], context.params), reportId);
-      const data = await reporter.run("query", () => loadDatasets(definition, context, reportId, onQueryResult), reportId);
+      const data = await reporter.run("query", () => loadDatasets(definition, context, reportId, (id, result) => onQueryResult?.(id, result, index)), reportId);
       reporter.runSync("validate", () => {
         validateDatasets(data, reportId);
         options.onDatasets?.(reportId, data, template);

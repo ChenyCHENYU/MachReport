@@ -1,4 +1,5 @@
 import { computed, ref, watch } from "vue";
+import { useTemplateToolDraft } from "./useTemplateToolDrafts";
 import { useLocalDraft } from "./useLocalDraft";
 import type {
   ListComponent,
@@ -19,6 +20,7 @@ import {
   type RuleEditorMessages,
 } from "./rule-messages";
 export interface RuleEditorOptions {
+  recoveryKey?: string;
   list: ListComponent;
   datasets?: DatasetRows;
   datasetSchema?: DatasetContract;
@@ -324,6 +326,16 @@ export function useRuleEditor(
     }
     if (commit(next)) { const cache = new Map(conditionDrafts.value); cache.delete(conditionKey); conditionDrafts.value = cache; conditionDraft.accept(); }
   }
+  const recoverySnapshot = () => JSON.stringify(readRecovery());
+  useTemplateToolDraft({ key: () => props.recoveryKey ?? "rules:0:0", baseline: () => JSON.stringify(props.list), pending: () => pendingLocalChanges.value, snapshot: recoverySnapshot, restore(value) {
+    const state = JSON.parse(value) as ReturnType<typeof readRecovery>;
+    formula.value = state.formula; groups.value = state.groups; when.value = state.when; style.value = state.style;
+    selectedComputed.value = state.selectedComputed; column.value = state.column; conditionIndex.value = state.conditionIndex;
+    conditionKey = state.conditionKey; effect.value = state.effect; tab.value = state.tab;
+    computedDrafts.value = new Map(state.computedDrafts); conditionDrafts.value = new Map(state.conditionDrafts);
+    formulaDraft.baseline.value = state.formulaBaseline; groupDraft.baseline.value = state.groupBaseline; conditionDraft.baseline.value = state.conditionBaseline;
+  } });
+  function readRecovery() { return { formula: formula.value, groups: groups.value, when: when.value, style: style.value, selectedComputed: selectedComputed.value, column: column.value, conditionIndex: conditionIndex.value, conditionKey, effect: effect.value, tab: tab.value, computedDrafts: [...computedDrafts.value], conditionDrafts: [...conditionDrafts.value], formulaBaseline: formulaDraft.baseline.value, groupBaseline: groupDraft.baseline.value, conditionBaseline: conditionDraft.baseline.value }; }
   return {
     m,
     pendingLocalChanges,

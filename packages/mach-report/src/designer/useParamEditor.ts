@@ -1,5 +1,6 @@
 import { computed, ref, watch } from "vue";
 import { validateReportParamDefinitions, type ReportParamDef, type ReportTemplateDocument } from "@agile-team/mach-report";
+import { useTemplateToolDraft } from "./useTemplateToolDrafts";
 import { PARAM_EDITOR_MESSAGES, type ParamEditorMessages } from "./param-messages";
 
 export interface ParamEditorOptions {
@@ -130,5 +131,10 @@ export function useParamEditor(props: ParamEditorOptions) {
       return true;
     } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); return false; }
   }
+  useTemplateToolDraft({ key: () => "params", baseline: () => baseline.value, pending: () => pending.value, snapshot: () => JSON.stringify({ rows: rows.value, selected: selected.value, initial: initialDraft.value }), restore(value, source) {
+    const state = JSON.parse(value) as { rows: ParamDraft[]; selected: number; initial: string };
+    if (!Array.isArray(state.rows) || state.rows.length > 1000 || typeof state.initial !== "string") throw new Error("Invalid parameter draft");
+    rows.value = state.rows; selected.value = Math.max(0, Math.min(state.selected, state.rows.length - 1)); initialDraft.value = state.initial; baseline.value = source;
+  } });
   return { m, rows, selected, current, definitions, issues, issuesByRow, firstIssueIndex, controlIssues, currentIssues, changes, pending, conflicted, error, reset, add, remove, move, setType, apply };
 }

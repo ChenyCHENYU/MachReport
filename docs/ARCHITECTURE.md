@@ -59,6 +59,10 @@ xlsx/node ── AsyncIterable → 逐行工作表（不构造完整计划）
 
 `source/template-diff/template-review`处理纯变更和样例预检；`server/publication`才按需编码真实文件。`server/job-service`通过注入的原子CAS存储处理租约、attempt围栏、进度和恢复；`node-job-store`是独立单进程文件适配器，集群数据库由宿主提供。
 
+`source/template-outline/template-fragments` 提供纯结构索引、字段引用与独立片段操作；设计器的面板和 hooks 只处理选择、重绑、显式升级及验收视图。`useTemplateDraftRecovery/useTemplateConflict` 管暂存与共同基线，`useTemplateToolDrafts` 收集声明，不引入业务数据持久化。慢存储按适配器与键合并为一个在途操作和一个最新操作。
+
+`server/runtime-output` 共用编码路径，`prepared` 处理有界快照与字体身份；`exportPrepared` 不经过取数或分页。`layout/label-sheets` 处理纯毫米拼版，`server/label-stream` 处理异步来源、分块与回执背压。两者复用既有计划和预算。`vue/print-resources` 只准备打印文档资源，`print-calibration` 只生成测试纸张，不能修改业务模板或宣称设备已打印完成。
+
 ## 操作生命周期与公开声明
 
 `usePreviewConfiguration` 集中处理配置层级与工具能力交集；`usePreviewFont` 管理字体检查/缓存；`preview-plan` 负责查询与导入计划准备。`useDiscardGuard`、`usePreviewTask`、`usePreviewDiagnostics` 各自管理替换决定、任务与诊断，组件只做生命周期接线。观察者不能改变事务结果，代际与小型身份快照阻止旧确认、旧输出、旧诊断污染新报表。

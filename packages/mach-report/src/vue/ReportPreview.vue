@@ -49,6 +49,12 @@ import ReportEmpty from "./ReportEmpty.vue";
 import ReportDiscardDialog from "./ReportDiscardDialog.vue";
 import ReportTaskStatus from "./ReportTaskStatus.vue";
 import ReportDiagnostics from "./ReportDiagnostics.vue";
+import ReportDataExplanation from "./ReportDataExplanation.vue";
+import ReportPrintSettings from "./ReportPrintSettings.vue";
+import { createPrintCalibrationPlan } from "./print-calibration";
+import { printPlans } from "./composables/usePrintExport";
+import type { ReportPrintOptions, ReportPrintCalibration } from "./print-options";
+import type { ReportDataTarget } from "../source/data-explanation";
 import { usePreviewFont } from "./composables/usePreviewFont";
 import { useDiscardGuard } from "./composables/useDiscardGuard";
 import { usePreviewTask } from "./composables/usePreviewTask";
@@ -77,6 +83,7 @@ import type { ExcelImportOptions, ExcelImportResult } from "../xlsx/import-types
 import { useCellEditing } from "./composables/useCellEditing";
 import { cloneReportSnapshot } from "./snapshot";
 import { usePreviewConfiguration } from "./composables/usePreviewConfiguration";
+import { scopeQueryDiagnostics } from "./query-diagnostics";
 import { useCellSelection, type ReportFieldTarget } from "./composables/useCellSelection";
 import { useFrozenPanes } from "./composables/useFrozenPanes";
 import { useReportParams } from "./composables/useReportParams";
@@ -107,6 +114,7 @@ const props = defineProps({
   beforeDiscard: { type: Function as PropType<ReportBeforeDiscard>, default: undefined },
   output: { type: Object as PropType<ReportOutputOptions>, default: undefined },
   assets: { type: Object as PropType<AssetRenderOptions>, default: undefined },
+  printOptions: { type: Object as PropType<ReportPrintOptions>, default: undefined },
   /** 保留表头的零行业务结果；不改变计划和导出内容。 */
   emptyState: { type: [Boolean, Object] as PropType<boolean | ReportEmptyState>, default: false },
   /** 页间距（px）；不传走配置中心 */
@@ -167,6 +175,8 @@ let viewportObserver: ResizeObserver | null = null;
 let destroyed = false;
 const task = usePreviewTask((value) => emit("task", value));
 const diagnostics = usePreviewDiagnostics((value) => emit("diagnostic", value));
+const dataExplanations = computed(() => diagnostics.entries.value.filter(entry => entry.valueState && entry.target));
+const outputDiagnostics = computed(() => diagnostics.entries.value.filter(entry => !entry.valueState));
 const loadedContext = shallowRef<{ reportIds: readonly string[]; params: Readonly<Record<string, string>> } | null>(null);
 
 const wideReport = computed(() => !!plan.value?.pages.length && plan.value.pages.every((page) => page.layout === "wide"));
@@ -218,6 +228,10 @@ const {
   effectiveGapPx, effectiveShowParams, availableTools, tools, toolState, visibleExportFormats,
   effectiveEditable, effectiveExcelImport, persistedEditing, emptyStateContent, sessionInteraction
 } = usePreviewConfiguration(props, wideReport, (message) => emit("warning", message));
+const localPrintCalibration = ref<ReportPrintCalibration>();
+const effectivePrintOptions = computed<ReportPrintOptions>(() => ({ ...resolved.value.printOptions, ...props.printOptions, calibration: localPrintCalibration.value ?? { ...resolved.value.printOptions?.calibration, ...props.printOptions?.calibration } }));
+watch([() => props.printOptions, () => resolved.value.printOptions], () => { localPrintCalibration.value = undefined; });
+let calibrationPrintController: AbortController | undefined;
 const pdfToolsEnabled = computed(() => toolState.value.pdf || toolState.value.pdfWindow);
 const calculationsEnabled = computed(() => effectiveInteraction.value.calculations === true);
 const calculationMessages = computed(() => resolveCalculationMessages(resolvedMessages.value));
@@ -238,6 +252,7 @@ async function resetTools(): Promise<void> {
   if (!await editing.settle()) return;
   tools.reset();
   sessionInteraction.value = {};
+  localPrintCalibration.value = undefined;
   emit("preferences-change", Object.freeze({ ...toolState.value }));
 }
 async function toggleSettings(section: "general" | "tools" | "advanced" = "general"): Promise<void> {
@@ -348,6 +363,9 @@ const sections = computed<ReportSection[]>(() => {
 async function locateField(field: string): Promise<void> {
   if (field && !await cells.focusField({ field })) exportNotice.value = { kind: "warning", message: resolvedMessages.value.locateFieldMissing ?? "Field not found" };
 }
+async function locateDataExplanation(target: ReportDataTarget): Promise<void> {
+  if (!await cells.focusField(target)) exportNotice.value = { kind: "warning", message: resolvedMessages.value.locateFieldMissing ?? "Field not found" };
+}
 // ── 参数面板：定义优先级 prop > 模板 params；值合并优先级 面板值 > props.params ──
 const paramMetadata = computed(() => {
   try { return { defs: props.paramDefs ?? effectiveFetcher.value?.getParamDefs?.(reportIds.value) ?? [], error: null }; }
@@ -395,6 +413,7 @@ function setZoomRaw(next: number): void {
 }
 
 function invalidate(): void {
+  calibrationPrintController?.abort();
   importing.value = false;
   editing.reset();
   cells.reset();
@@ -495,7 +514,7 @@ async function reload(): Promise<void> {
       params,
       taskId: operation.taskId,
       onEvent: (event) => { if (seq === reloadSeq && !controller.signal.aborted) operation.update(event.stage, event.completed, event.total); },
-      onQueryResult: (_id, result) => { if (seq === reloadSeq && !controller.signal.aborted) diagnostics.addMany(result.diagnostics ?? []); },
+      onQueryResult: (id, result, index) => { if (seq === reloadSeq && !controller.signal.aborted) diagnostics.addMany(scopeQueryDiagnostics(requestedIds, id, result.diagnostics ?? [], index)); },
       signal: controller.signal,
       onWarning: reportWarning
     }, effectiveAssets.value, operation.update);
@@ -547,6 +566,8 @@ const exportApi = usePrintExport(plan, {
   onTask: (value) => task.receive(value, () => exportApi.cancel()),
   onDiagnostic: diagnostics.add,
   getXlsxOptions: () => resolved.value.xlsx,
+  getPrintOptions: () => effectivePrintOptions.value,
+  getPrintMessages: () => resolvedMessages.value,
   onError: (message, code) => {
     exportNotice.value = { kind: "error", message };
     reportError(message, (code ?? "print") as MachReportErrorCode);
@@ -570,6 +591,19 @@ const exportApi = usePrintExport(plan, {
   onPrinting: (value) => { printing.value = value; }
 });
 const { releasePrintFrame, dispose } = exportApi;
+const canCalibratePrint = computed(() => {
+  const page = plan.value?.pages[0];
+  return !!page && !wideReport.value && [page.pageWidthMm, page.pageHeightMm].every(size => size >= 25 && size <= 600);
+});
+async function testPrintCalibration(): Promise<void> {
+  if (!canCalibratePrint.value || printing.value || loading.value || importing.value) return;
+  const page = plan.value!.pages[0]!;
+  printing.value = true;
+  const controller = new AbortController(); calibrationPrintController = controller;
+  try { await printPlans([createPrintCalibrationPlan(page.pageWidthMm, page.pageHeightMm)], { printOptions: effectivePrintOptions.value, signal: controller.signal, messages: resolvedMessages.value, onError: message => { exportNotice.value = { kind: "error", message }; } }); }
+  catch { /* Superseded calibration output is cancelled without replacing the next report's status. */ }
+  finally { if (calibrationPrintController === controller) { printing.value = false; calibrationPrintController = undefined; } }
+}
 async function print(): Promise<void> {
   if (loading.value || importing.value) return;
   const ready = editing.settle();
@@ -870,6 +904,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   destroyed = true;
+  calibrationPrintController?.abort();
   discard.cancel();
   task.cancel();
   editing.reset();
@@ -961,9 +996,11 @@ defineExpose({ ...controller, state });
     </ReportToolbar>
     <ReportDiscardDialog v-if="discard.request.value" :messages="resolvedMessages" @answer="discard.settle" />
     <ReportTaskStatus :task="task.state.value" :messages="resolvedMessages" @cancel="cancelTask" />
-    <ReportDiagnostics :entries="diagnostics.entries.value" :messages="resolvedMessages" @locate="locateDiagnostic" />
+    <ReportDiagnostics :entries="outputDiagnostics" :messages="resolvedMessages" @locate="locateDiagnostic" />
+    <ReportDataExplanation :entries="dataExplanations" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @locate="locateDataExplanation" />
     <ReportSettings v-if="settingsOpen && effectiveShowSettings" :available="availableTools" :enabled="toolState" :messages="resolvedMessages" :persisted-editing="persistedEditing" :interaction="effectiveInteraction" :section="settingsSection" :busy="loading || importing || editing.saving.value || !!exporting || printing" @section="settingsSection = $event" @interaction="sessionInteraction = { ...sessionInteraction, ...$event }" @change="onToolChange" @reset="resetTools" @close="settingsOpen = false">
       <slot name="settings" />
+      <ReportPrintSettings v-if="toolState.print" :value="effectivePrintOptions.calibration ?? {}" :messages="resolvedMessages" :busy="printing || loading || importing || editing.saving.value" :can-test="canCalibratePrint" @change="localPrintCalibration = $event" @test="testPrintCalibration" />
       <template #advanced><ReportCalculationPanel :state="calculation" :messages="calculationMessages" /></template>
     </ReportSettings>
     <ReportNavigation :plan="plan" @locate-target="locateTarget" v-if="sections.length > 1 && pageCount > 0 && effectiveInteraction.navigation !== false" :sections="sections" :current-page="currentPage" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @goto="gotoPage" @locate="locateField" />

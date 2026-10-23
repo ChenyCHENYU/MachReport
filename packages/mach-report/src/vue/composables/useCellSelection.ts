@@ -7,7 +7,7 @@ import { focusAdjacentControl } from "./focus-order";
 import { createEditAddressResolver } from "./edit-recalculation";
 
 export interface ReportCellSelection { anchor: ReportCellAddress; focus: ReportCellAddress }
-export interface ReportFieldTarget { field: string; datasetId?: string; rowKey?: string | number; tableId?: string }
+export interface ReportFieldTarget { field: string; datasetId?: string; rowKey?: string | number; tableId?: string; reportScope?: string }
 function matchesField(context: ReportCellContext | null | undefined, target: ReportFieldTarget): boolean {
   const source = context?.source;
   if (!containsField(context, target.field)) return false;
@@ -323,6 +323,7 @@ export function useCellSelection(host: SelectionHost) {
     const cellAt = createReportCellResolver(plan);
     for (let pageIndex = 0; pageIndex < plan.pages.length; pageIndex++) {
       const page = plan.pages[pageIndex]!;
+      if (target.reportScope !== undefined && page.meta?.reportScope !== target.reportScope) continue;
       for (let componentIndex = 0; componentIndex < page.components.length; componentIndex++) {
         for (const address of addresses({ pageIndex, componentIndex, rowIndex: 0, columnIndex: 0 })) {
           const context = cellAt(address);

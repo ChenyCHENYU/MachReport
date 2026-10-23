@@ -41,7 +41,7 @@ export function useTemplateWorkspace(
   // A validated command may select its newly inserted page/component after the
   // document transaction returns. Capture that final view once, after rendering.
   watch(editor.historyViewRevision, () => editor.captureHistoryView(), { flush: "post" });
-  const tool = ref<"excel" | "rules" | "review" | "params">("excel");
+  const tool = ref<"excel" | "rules" | "review" | "params" | "outline" | "reuse">("excel");
   const visitedTools = ref(new Set<string>());
   watch([section, tool], () => {
     if (section.value === "tools")
@@ -173,7 +173,8 @@ export function useTemplateWorkspace(
     const path = /\.pages\[(\d+)\]\.components\[(\d+)\]/.exec(location.path ?? "");
     const pageIndex = location.pageIndex ?? (path ? Number(path[1]) : undefined);
     const componentIndex = location.componentIndex ?? (path ? Number(path[2]) : undefined);
-    if (pageIndex === undefined || componentIndex === undefined) return;
+    if (pageIndex === undefined) return;
+    if (componentIndex === undefined) { canvasPage.value = pageIndex; section.value = "template"; mode.value = "design"; return; }
     mode.value = "design";
     chooseCanvas({ pageIndex, componentIndex });
     if (location.field) {

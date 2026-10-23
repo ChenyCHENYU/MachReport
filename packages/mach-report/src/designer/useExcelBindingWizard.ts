@@ -1,6 +1,7 @@
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { useExcelRegionBindings } from "./useExcelRegionBindings";
 import { createExcelRegionBindingDocument, createExcelRegionBindingSession, parseExcelRegionBindingSession, type AnyExcelBindingDocumentResult, type AnyExcelBindingSession } from "../xlsx/region-binding-workflow";
+import { useTemplateToolDraft } from "./useTemplateToolDrafts";
 import { useLocalDraft } from "./useLocalDraft";
 import type { ExcelWorkbookSession } from "../xlsx/workbook-session";
 import type { ExcelWorkbookSheet } from "../xlsx/import-template";
@@ -82,6 +83,18 @@ export function useExcelBindingWizard(
     name: props.identity?.name ?? "Excel 业务模板",
   });
   const sourceName = ref("");
+  const recoveredMapping = ref(false);
+  const declaration = () => ({ recipe: recipe.value, regions: regionBindings.recipe.value, mode: mode.value, cached: cachedDrafts.value, identity: identity.value });
+  type MappingDeclaration = ReturnType<typeof declaration>;
+  let pendingMapping: MappingDeclaration | undefined;
+  function applyRecoveredMapping(value: MappingDeclaration): void {
+    recipe.value = cloneRecipe(value.recipe); regionBindings.reset(value.regions); mode.value = value.mode;
+    identity.value = { ...value.identity, ...(props.lockId && props.identity ? { id: props.identity.id } : {}) };
+    clearSheetDrafts();
+    for (const item of value.cached.table) sheetRecipes.set(item.sheet, item);
+    for (const item of value.cached.regions) regionSheetRecipes.set(item.sheet, item);
+    cachedDrafts.value = value.cached;
+  }
   const sourceRevision = ref(0);
   const localDraft = useLocalDraft(() => ({ source: sourceRevision.value, recipe: recipe.value, mode: mode.value, regions: regionBindings.recipe.value, cached: cachedDrafts.value, identity: identity.value }));
   const sheetChoices = ref<Pick<ExcelWorkbookSheet, "name" | "index">[]>([]);
@@ -286,7 +299,9 @@ export function useExcelBindingWizard(
       if (job !== generation || props.readonly) return;
       const choices = opened.inspect().sheets.filter((item) => item.visible);
       if (!choices.length) throw new Error("Excel 中没有可导入的可见工作表");
-      const result = await opened.importTemplate({ sheets: [choices[0]!.name], signal: controller.signal });
+      const targetSheet = pendingMapping?.recipe.sheet || choices[0]!.name;
+      if (!choices.some(item => item.name === targetSheet)) throw new Error(m.value.recoveredSheetMissing);
+      const result = await opened.importTemplate({ sheets: [targetSheet], signal: controller.signal });
       if (job !== generation || props.readonly) return;
       releaseWorkbook(); workbook = opened; opened = undefined;
       imported.value = result; sourceRevision.value++;
@@ -301,6 +316,7 @@ export function useExcelBindingWizard(
         result.sheets[0]!.columnCount,
       );
       regionBindings.reset();
+      if (pendingMapping) { applyRecoveredMapping(pendingMapping); pendingMapping = undefined; recoveredMapping.value = false; }
       resetPosition();
     } catch (cause) {
       if (job === generation) error.value = text(cause);
@@ -424,6 +440,7 @@ export function useExcelBindingWizard(
   function restoreDraft(): void {
     if (props.readonly) return;
     if (props.session) { loadSession(props.session); return; }
+    pendingMapping = undefined; recoveredMapping.value = false;
     cancel(); releaseWorkbook(); imported.value = undefined; sheetChoices.value = []; sourceName.value = "";
     clearSheetDrafts();
     recipe.value = emptyRecipe(); identity.value = { id: props.identity?.id ?? "excel-template", name: props.identity?.name ?? "Excel 业务模板" };
@@ -436,7 +453,7 @@ export function useExcelBindingWizard(
     error.value = "";
   }
   async function apply(): Promise<void> {
-    if (disabled.value || !imported.value) return;
+    if (disabled.value || !imported.value || recoveredMapping.value) return;
     checked.value = true;
     error.value = "";
     if (!validation.value.ok) return;
@@ -462,10 +479,16 @@ export function useExcelBindingWizard(
       error.value = text(cause);
     } finally { applying.value = false; }
   }
+  useTemplateToolDraft({ key: () => "excel", baseline: () => "declarations-only", pending: () => localDraft.pending.value || recoveredMapping.value, snapshot: () => JSON.stringify(declaration()), restore(value) {
+    const state = JSON.parse(value) as MappingDeclaration;
+    if (!state.recipe || !state.regions || !Array.isArray(state.cached?.table) || !Array.isArray(state.cached?.regions)) throw new Error("Invalid Excel mapping draft");
+    applyRecoveredMapping(state); pendingMapping = state; recoveredMapping.value = true;
+  } });
   return {
+    recoveredMapping,
     imported,
     mode, regionBindings,
-    pendingLocalChanges: localDraft.pending,
+    pendingLocalChanges: computed(() => localDraft.pending.value || recoveredMapping.value),
     recipe,
     identity,
     sourceName,

@@ -454,6 +454,7 @@ const metadata = getComputationMetadata();
       v-show="tab === layout"
       :key="`${layout}-${layoutEpoch}`"
       :list="list"
+      :recovery-key="recoveryKey"
       :mode="layout"
       :datasets="datasets"
       :dataset-schema="datasetSchema"

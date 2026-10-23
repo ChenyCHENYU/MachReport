@@ -1,5 +1,7 @@
 /** Optional wizard labels remain independent of the general designer configuration. */
 export const EXCEL_BINDING_MESSAGES = {
+  recoveredMapping: "映射配置已恢复，请重新选择原 Excel 文件后核对；源文件及业务数据未暂存。",
+  recoveredSheetMissing: "所选文件没有草稿所需的工作表，请重新选择原文件或放弃映射草稿。",
   tableMode: "传统整表",
   multiRegions: "多区域绑定",
   multiHint: "点击单元格选择起点，Shift 点击选择终点；每个动态区域选择一行原型。",

@@ -2,15 +2,22 @@
 import { ref } from "vue";
 import {
   columnsFromContract,
+  captureTemplateFragment,
+  cloneReportTemplate,
   createMemoryTemplateStore,
   createTableTemplate,
   createTemplateManager,
   defineReportTemplate,
+  type ReportDocumentStyle,
+  type ReportTemplateFixture,
   type DatasetContract,
   type ReportTemplateDocument,
 } from "@agile-team/mach-report";
 import {
   ReportTemplateEditor,
+  createTemplateDraftStorage,
+  type TemplateConflictContext,
+  type TemplateCopyContext,
   type TemplateEditorSaveContext,
 } from "@agile-team/mach-report/designer";
 
@@ -68,7 +75,29 @@ const datasets = {
   ],
 };
 const manager = createTemplateManager(createMemoryTemplateStore());
-const status = ref("示例数据 · 内存适配器，刷新后清空");
+const status = ref("合成示例 · 模板服务在内存中，未保存配置可在本标签页恢复");
+const draftStorage = { scope: "mach-report:designer-demo", adapter: createTemplateDraftStorage(sessionStorage) };
+const fragments = [captureTemplateFragment(document.value, 0, [0], {
+  id: "report-heading", name: "报表标题区", revision: "1",
+})];
+const documentStyles: ReportDocumentStyle[] = [
+  { id: "brand-header", name: "品牌表头", target: "header", style: { align: "center", bold: true, color: "#21466e", backgroundColor: "#eaf2fb" } },
+];
+const reviewFixtures: ReportTemplateFixture[] = [
+  { name: "正常实绩与真实零值", datasets },
+  { name: "空数据", datasets: { detail: [] } },
+  { name: "长内容与来源空值", datasets: { detail: [{ heat: "DEMO-0001", grade: "S316LS · 超长业务说明的展示与折行核对", shift: "白班", weight: null, energy: 0 }] } },
+];
+async function loadLatest({ id, signal }: TemplateConflictContext) {
+  const latest = await manager.get(id, { draft: true, signal });
+  if (!latest) throw new Error("本次示例服务尚未保存该模板，请保留独立副本");
+  return latest;
+}
+async function keepCopy(value: ReportTemplateDocument, { signal }: TemplateCopyContext) {
+  const copy = cloneReportTemplate(value, { id: crypto.randomUUID(), name: `${value.name} · 副本` });
+  await manager.saveDraft(copy, { expectedRevision: null, signal });
+  status.value = `已保留独立副本 · ${copy.name}`;
+}
 async function save(
   draft: ReportTemplateDocument,
   context: TemplateEditorSaveContext,
@@ -115,6 +144,12 @@ async function save(
         },
       ]"
       :save="save"
+      :draft-storage="draftStorage"
+      :load-latest="loadLatest"
+      :keep-copy="keepCopy"
+      :fragments="fragments"
+      :document-styles="documentStyles"
+      :review-fixtures="reviewFixtures"
     />
   </main>
 </template>

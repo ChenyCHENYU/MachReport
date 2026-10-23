@@ -1,5 +1,5 @@
 import { mount } from "@vue/test-utils";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { designListSamples } from "../tree-samples";
 import TemplateReviewPanel from "../TemplateReviewPanel.vue";
 import { paginateTemplate, type ListComponent } from "../../layout/paginate";
@@ -22,10 +22,10 @@ describe("complete bounded tree samples", () => {
     const component = list(), rows = Array.from({ length: 25 }, (_, index) => ({ id: String(index), parent: index === 24 ? null : "24", name: `Node ${index}`, amount: "0.10" }));
     const wrapper = mount(TemplateReviewPanel, { props: { document: { schemaVersion: "1.0", id: "cost", name: "Cost", template: { pages: [{ widthMm: 100, heightMm: 297, components: [component] }] } }, datasets: { cost: rows }, formats: ["xlsx"] } });
     await wrapper.get("header button").trigger("click");
-    await new Promise(resolve => setTimeout(resolve, 5));
+    await vi.waitFor(() => expect(wrapper.attributes("aria-busy")).toBe("false"), { timeout: 1000, interval: 5 });
     expect(wrapper.text()).toContain("25 行超过预算 20"); expect(wrapper.text()).not.toContain("父节点不存在");
     await wrapper.get("select").setValue("-1"); await wrapper.get("header button").trigger("click");
-    await new Promise(resolve => setTimeout(resolve, 5));
+    await vi.waitFor(() => expect(wrapper.attributes("aria-busy")).toBe("false"), { timeout: 1000, interval: 5 });
     expect(wrapper.get(".mr-review-scope").text()).toContain("25 行"); expect(wrapper.text()).not.toContain("父节点不存在"); wrapper.unmount();
   });
 });

@@ -6,5 +6,5 @@ export function useLocalDraft(read: () => unknown) {
   const pending = computed(() => baseline.value !== "" && snapshot() !== baseline.value);
   function accept(): void { baseline.value = snapshot(); }
   accept();
-  return { pending, snapshot, accept };
+  return { pending, snapshot, accept, baseline };
 }

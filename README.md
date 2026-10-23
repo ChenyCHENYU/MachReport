@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.13.0-2563eb" alt="Source version 2.13.0" />
+  <img src="https://img.shields.io/badge/source-2.14.0-2563eb" alt="Source version 2.14.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -65,6 +65,12 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 计算与复杂单据 | 声明式表达式、精确十进制、多级分组、主从关系与动态矩阵 | 业务数据与口径 |
 | 发布验收 | 变更分类、字段依赖检查、显式样例、服务端真实PDF/XLSX编码 | 验收样例、字体、原子CAS存储 |
 | 大任务 | 逐页生成、增量编辑历史、租约 / 幂等 / 取消 / 失败重试、有界终态归档 | 调度、文件归档；多实例数据库CAS适配 |
+
+复杂模板继续使用同一个编辑器：工具区提供跨页结构大纲、字段引用影响、片段与内容样式、命名验收样例和基线并排对照；可选草稿存储恢复未应用配置，版本冲突保留本地内容并显式核对。设计器示例 `/designer.html` 已接入这些能力，普通预览页无需引入设计器。
+
+已准备结果可通过 `runtime.exportPrepared()` 原样交付 PDF / XLSX，无需再次取数或分页；已归档实例使用 `generation.exportInstance()`。工业标签可按原尺寸拼入 A4，自定义起始空位、间距与偏移；异步来源按块处理，等待导出归档回执后再消费下一块。打印等待独立文档的字体与图片，校准入口收在设置中。业务声明的来源空值原因默认折叠，真实零值保持显示。
+
+接入与边界见[交付与批量标签](./docs/DELIVERY.md)、[草稿恢复](./docs/DRAFT_RECOVERY.md)、[结构与复用](./docs/DESIGNER_PRODUCTIVITY.md)、[打印及数据说明](./docs/PRINT_AND_DATA.md)。
 
 常规预览页面的接入保持不变。稳定业务键的数据源自动维护编辑重算会话；派生列只读，保存前准备重算，成功后更新公式、条件样式与汇总，导出等待在途编辑。工作簿公式继续仅显示缓存结果。设计工具只在打开时加载；画布拖动在松手时提交一次模板事务，样例计算与验收按按钮执行。逐页生成不保留全部输出页，输入数据和分组索引仍受预算管理。
 
@@ -632,6 +638,8 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 | 产品工作流 | [能力与后端边界](./docs/PRODUCT_PLATFORM.md) · [批量生成](./docs/BATCH_GENERATION.md) |
 | 模板管理 | [扩展指南](./docs/TEMPLATE_MANAGEMENT.md)：JSON 文档、目录、动态版本与后台接入 |
 | 模板属性 | [编辑器指南](./docs/DESIGNER.md)：实时预览、版本保存与属性面板 |
+| 设计效率 | [结构、片段与验收](./docs/DESIGNER_PRODUCTIVITY.md) · [草稿恢复与版本冲突](./docs/DRAFT_RECOVERY.md) |
+| 输出交付 | [准备结果与标签分批](./docs/DELIVERY.md) · [打印校准与来源说明](./docs/PRINT_AND_DATA.md) |
 | Excel业务绑定 | [绑定向导](./docs/EXCEL_BINDING.md)：区域识别、契约映射与可重开会话 |
 | 复杂报表 | [计算与布局](./docs/COMPLEX_REPORTS.md)：精确数值、多级分组、主从、动态矩阵与逐页生成 |
 | 发布验收 | [变更与输出](./docs/PUBLICATION_REVIEW.md)：兼容检查、样例和真实文件验收 |
@@ -652,7 +660,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.13.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.14.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

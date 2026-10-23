@@ -1,5 +1,6 @@
 import type { ReportSaveResult } from "@agile-team/mach-report";
 import { MachReportError } from "./errors";
+import { hasValidDataExplanation } from "../source/data-explanation";
 
 function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -9,7 +10,7 @@ function diagnostics(value: unknown): boolean {
   return Array.isArray(value) && value.every((entry: unknown) => record(entry)
     && typeof entry.code === "string" && typeof entry.message === "string"
     && ["info", "warning", "error"].includes(entry.severity as string)
-    && (entry.path === undefined || typeof entry.path === "string"));
+    && (entry.path === undefined || typeof entry.path === "string") && hasValidDataExplanation(entry));
 }
 
 function conflicts(value: unknown, editCount: number): boolean {

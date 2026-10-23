@@ -1,18 +1,19 @@
 import { createReportSource, ReportSourceError, type ReportRegistry } from "../source/report-source";
 import { getReportParamDefs } from "../source/report-params";
 import { reportParamsJsonSchema, ReportParamValidationError, validateReportParams, type ReportParamValidation } from "../source/param-validation";
-import type { PreparedReport, ReportDescription, ReportRuntime, ReportRuntimeBudget, ReportRuntimeExportInput, ReportRuntimeExportResult, ReportRuntimeInput, ReportRuntimeOptions } from "./types";
+import type { PreparedReport, ReportDescription, ReportRuntime, ReportRuntimeBudget, ReportRuntimeExportInput, ReportRuntimeExportResult, ReportRuntimeInput, ReportRuntimeOptions, ReportRuntimePreparedExportInput } from "./types";
 import { assertBudget, controlled, ReportRuntimeError, throwIfAborted, validateBudget } from "./control";
 import type { PlanComponent } from "../schema/render-plan";
 import { validateRenderPlan } from "../schema/validate";
 import type { TextMeasurer } from "../layout/textwrap";
-import type { OutputDiagnostic } from "../output/capabilities";
 import type { DatasetRows, ReportTemplate } from "../layout/paginate";
 import { estimateListLayoutCells, PaginateCellLimitError, PaginatePageLimitError } from "../layout/paginate";
 import { createReportTaskReporter, notifyReportTaskEvent, reportTaskId, type ReportTaskEvent } from "../source/task-events";
 import { templateDatasetRowCount, templateDatasetJsonSchema } from "../source/template-tree-data";
 import { TreeRowLimitError } from "../processing/tree";
 import { resolvePlanAssets } from "../output/assets";
+import { encodePreparedReport, outputDiagnostics } from "./runtime-output";
+import { checkPreparedFont, reportFontFingerprint, snapshotPreparedReport, snapshotPdfFonts, snapshotXlsxOptions } from "./prepared";
 
 function definitions(reports: ReportRegistry, ids: string[]) {
   if (ids.length === 0) throw new ReportSourceError("config", "缺少报表 ID");
@@ -64,13 +65,9 @@ function assertInput(options: ReportRuntimeOptions, input: Omit<ReportRuntimeInp
   if (!validation.ok) throw new ReportParamValidationError(validation.issues);
 }
 
-function outputDiagnostics(entries: readonly OutputDiagnostic[] = []): PreparedReport["diagnostics"] {
-  return entries.map(({ code, message, severity, pageIndex, componentIndex }) => ({ code, message, severity, path: `$.pages.${pageIndex}.components.${componentIndex}` }));
-}
-
 /** 无 Vue、无 HTTP 框架的可选服务端外观；PDF/Excel 仅在对应 export 调用时加载。 */
 export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntime {
-  const budget = { maxRows: 100_000, maxPages: 10_000, maxCells: 2_000_000, maxOutputBytes: 100_000_000, maxDurationMs: 120_000, ...options.budget };
+  const budget = { maxRows: 100_000, maxPages: 10_000, maxCells: 2_000_000, maxOutputBytes: 100_000_000, maxPreparedBytes: 64_000_000, maxDurationMs: 120_000, ...options.budget };
   validateBudget(budget);
   const localPrepare = async (input: ReportRuntimeInput, measurer?: TextMeasurer): Promise<PreparedReport> => {
     const started = Date.now();
@@ -108,7 +105,9 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
     diagnostics.push(...outputDiagnostics(resolved.diagnostics));
     const cells = plan.pages.reduce((sum, page) => sum + page.components.reduce((count, component) => count + cellCount(component), 0), 0);
     assertBudget(budget, "maxPages", plan.pages.length); assertBudget(budget, "maxCells", cells);
-    return { plan, diagnostics, revisions, stats: { rows, pages: plan.pages.length, cells, durationMs: Date.now() - started } };
+    const fingerprint = reportFontFingerprint(input.pdf);
+    const providedMetrics = options.pagination?.measurer || Object.values(options.reports).some(definition => definition.pagination?.measurer);
+    return { plan, diagnostics, revisions, layout: { textMetrics: fingerprint ? "font-bytes" : providedMetrics ? "provided" : "heuristic", ...(fingerprint ? { fontFingerprint: fingerprint } : {}) }, stats: { rows, pages: plan.pages.length, cells, durationMs: Date.now() - started } };
   };
   const localExport = async (input: ReportRuntimeExportInput): Promise<ReportRuntimeExportResult> => {
     const started = Date.now();
@@ -119,46 +118,51 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
     const measurer = pdf && faces ? pdf.createFontBytesMeasurer(faces) : undefined;
     const prepared = await localPrepare(input, measurer);
     throwIfAborted(input.signal);
-    const reporter = createReportTaskReporter(input);
-    const bytes = await reporter.run("encode", async () => {
-      let bytes: Uint8Array;
-      if (input.format === "pdf") {
-        throwIfAborted(input.signal);
-        const result = await pdf!.renderPlanToPdf(prepared.plan, { ...input.pdf, ...(measurer ? { measurer } : {}), fidelity: input.fidelity, signal: input.signal, onProgress: (completed, total) => reporter.progress("encode", completed, total) });
-        bytes = result.bytes;
-        prepared.diagnostics.push(...outputDiagnostics(result.diagnostics));
-        prepared.diagnostics.push(...result.fidelityWarnings.map((message) => ({ code: "pdf-fidelity", message, severity: "warning" as const })), ...result.pageErrors.map((message) => ({ code: "pdf-page", message, severity: "error" as const })));
-        if (result.unsupportedTextCount) prepared.diagnostics.push({ code: "pdf-font", message: `${result.unsupportedTextCount} 段文本包含当前字体不支持的字符`, severity: "warning" });
-      } else {
-        const { renderPlanToXlsx } = await import("@agile-team/mach-report/xlsx");
-        throwIfAborted(input.signal);
-        const result = await renderPlanToXlsx(prepared.plan, { ...input.xlsx, fidelity: input.fidelity, signal: input.signal, onProgress: (completed, total) => reporter.progress("encode", completed, total) });
-        bytes = new Uint8Array(result.buffer);
-        prepared.diagnostics.push(...outputDiagnostics(result.diagnostics));
-        prepared.diagnostics.push(...result.warnings.map((message) => ({ code: "xlsx-fidelity", message, severity: "warning" as const })));
-      }
-      throwIfAborted(input.signal);
-      return bytes;
-    });
-    assertBudget(budget, "maxOutputBytes", bytes.byteLength);
-    const { plan: _plan, ...result } = prepared;
-    return { ...result, bytes, format: input.format, contentType: input.format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", stats: { ...result.stats, durationMs: Date.now() - started, outputBytes: bytes.byteLength } };
+    return encodePreparedReport({ ...input, prepared }, budget, started);
   };
   return {
     describe: (ids) => describe(options.reports, ids),
     validate: (input) => validateInput(options.reports, input),
     prepare: (input) => controlled(input.signal, budget.maxDurationMs, async (signal) => {
       const { signal: _signal, onEvent, ...values } = input;
-      const request = { ...values, taskId: values.taskId ?? reportTaskId() };
+      const request = { ...values, ...(values.pdf ? { pdf: snapshotPdfFonts(values.pdf) } : {}), taskId: values.taskId ?? reportTaskId() };
       const observe = onEvent ? (event: ReportTaskEvent) => notifyReportTaskEvent(onEvent, event, signal) : undefined;
       const monitoring = { ...request, signal, onEvent: observe };
       createReportTaskReporter(monitoring).runSync("validate", () => assertInput(options, request));
-      const result = options.executor ? await options.executor.prepare(request, signal, observe) : await localPrepare(monitoring);
+      let measurer: TextMeasurer | undefined;
+      const faces = request.pdf?.customFontFaces ?? (request.pdf?.customFontBytes ? { regular: request.pdf.customFontBytes } : undefined);
+      if (!options.executor && faces) {
+        const pdf = await import("@agile-team/mach-report/pdf");
+        throwIfAborted(signal); measurer = pdf.createFontBytesMeasurer(faces);
+      }
+      const result = options.executor ? await options.executor.prepare(request, signal, observe) : await localPrepare(monitoring, measurer);
       return enforcePrepared(result, budget);
+    }),
+    exportPrepared: (input: ReportRuntimePreparedExportInput) => controlled(input.signal, budget.maxDurationMs, async (signal) => {
+      const started = Date.now();
+      const { signal: _signal, onEvent, ...values } = input;
+      const prepared = enforcePrepared(snapshotPreparedReport(input.prepared, budget.maxPreparedBytes ?? 64_000_000, signal), budget);
+      const request = { ...values, xlsx: snapshotXlsxOptions(values.xlsx), prepared, ...(values.pdf ? { pdf: snapshotPdfFonts(values.pdf) } : {}), taskId: values.taskId ?? reportTaskId() };
+      if (request.format !== "pdf" && request.format !== "xlsx") throw new ReportSourceError("config", "不支持的报表导出格式");
+      const observe = onEvent ? (event: ReportTaskEvent) => notifyReportTaskEvent(onEvent, event, signal) : undefined;
+      if (options.executor) {
+        if (!options.executor.exportPrepared) throw new ReportSourceError("config", "执行器未实现 exportPrepared；请升级执行器或显式使用本地运行时");
+        const result = await options.executor.exportPrepared(request, signal, observe);
+        assertBudget(budget, "maxRows", result.stats.rows); assertBudget(budget, "maxPages", result.stats.pages); assertBudget(budget, "maxCells", result.stats.cells);
+        assertBudget(budget, "maxOutputBytes", result.bytes.byteLength);
+        return { ...result, stats: { ...result.stats, outputBytes: result.bytes.byteLength } };
+      }
+      const monitoring = { ...request, signal, onEvent: observe };
+      createReportTaskReporter(monitoring).runSync("validate", () => checkPreparedFont(monitoring));
+      if (options.assets) {
+        const resolved = await createReportTaskReporter(monitoring).run("assets", () => resolvePlanAssets(prepared.plan, { ...options.assets, signal }));
+        prepared.plan = resolved.plan; prepared.diagnostics.push(...outputDiagnostics(resolved.diagnostics));
+      }
+      return encodePreparedReport(monitoring, budget, started);
     }),
     export: (input) => controlled(input.signal, budget.maxDurationMs, async (signal) => {
       const { signal: _signal, onEvent, ...values } = input;
-      const request = { ...values, taskId: values.taskId ?? reportTaskId() };
+      const request = { ...values, xlsx: snapshotXlsxOptions(values.xlsx), ...(values.pdf ? { pdf: snapshotPdfFonts(values.pdf) } : {}), taskId: values.taskId ?? reportTaskId() };
       const observe = onEvent ? (event: ReportTaskEvent) => notifyReportTaskEvent(onEvent, event, signal) : undefined;
       const monitoring = { ...request, signal, onEvent: observe };
       createReportTaskReporter(monitoring).runSync("validate", () => assertInput(options, request));

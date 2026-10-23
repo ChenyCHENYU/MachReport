@@ -2,8 +2,14 @@ import type { DatasetRows } from "../layout/paginate";
 import type { ReportCellEdit } from "../editing/apply";
 import type { ReportDefinition, ReportLoadContext } from "./report-source";
 import type { ReportTemplateDocument, ReportTemplateSummary } from "./template-registry";
+import type { ReportDataTarget, ReportValueState } from "./data-explanation";
 
-export interface ReportDiagnostic { code: string; message: string; path?: string; severity: "warning" | "error" | "info" }
+export interface ReportDiagnostic {
+  code: string; message: string; path?: string; severity: "warning" | "error" | "info";
+  /** Optional explanation supplied by the business source, not inferred from blank cells. */
+  valueState?: ReportValueState;
+  target?: ReportDataTarget;
+}
 export interface ReportQueryResult {
   datasets: DatasetRows;
   revision?: string;

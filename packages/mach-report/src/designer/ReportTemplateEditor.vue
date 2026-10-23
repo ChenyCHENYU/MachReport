@@ -15,6 +15,8 @@ import TemplateDesignCanvas from "./TemplateDesignCanvas.vue";
 import CanvasComponentInspector from "./CanvasComponentInspector.vue";
 import TemplatePageInspector from "./TemplatePageInspector.vue";
 import TemplateRepeatInspector from "./TemplateRepeatInspector.vue";
+import TemplateFieldImpactPanel from "./TemplateFieldImpactPanel.vue";
+import TemplateRecoveryPanel from "./TemplateRecoveryPanel.vue";
 import { applyPageCommand, pageName, type PageCommand } from "./page-commands";
 import HeaderStructureEditor from "./HeaderStructureEditor.vue";
 import { useTemplateWorkspace } from "./useTemplateWorkspace";
@@ -34,6 +36,8 @@ const ExcelBindingWizard = defineAsyncComponent(
 );
 const ParamEditor = defineAsyncComponent(() => import("./ParamEditor.vue"));
 const RuleEditor = defineAsyncComponent(() => import("./RuleEditor.vue"));
+const TemplateOutlinePanel = defineAsyncComponent(() => import("./TemplateOutlinePanel.vue"));
+const TemplateReusePanel = defineAsyncComponent(() => import("./TemplateReusePanel.vue"));
 const TemplateReviewPanel = defineAsyncComponent(
   () => import("./TemplateReviewPanel.vue"),
 );
@@ -102,7 +106,7 @@ const {
   changeList,
   moveColumn,
   headerCommand,
-  locateReview,
+  locateReview: locateReviewUnchecked,
   canvas,
 } = workspace;
 
@@ -221,6 +225,13 @@ async function chooseCanvas(selection: Parameters<typeof chooseCanvasUnchecked>[
   const target = lists.value.findIndex(item => item.pageIndex === selection.pageIndex && item.componentIndex === selection.componentIndex);
   if (target >= 0 && target !== selected.value && editor.isToolPending("rules") && !await editor.guardChanges()) return;
   chooseCanvasUnchecked(selection);
+}
+async function locateReview(location: Parameters<typeof locateReviewUnchecked>[0]): Promise<void> {
+  const path = /\.pages\[(\d+)\]\.components\[(\d+)\]/.exec(location.path ?? "");
+  const pageIndex = location.pageIndex ?? (path ? Number(path[1]) : undefined), componentIndex = location.componentIndex ?? (path ? Number(path[2]) : undefined);
+  const target = lists.value.findIndex(item => item.pageIndex === pageIndex && item.componentIndex === componentIndex);
+  if (target >= 0 && target !== selected.value && editor.isToolPending("rules") && !await editor.guardChanges()) return;
+  locateReviewUnchecked(location);
 }
 async function chooseRuleList(event: Event): Promise<void> {
   const target = event.target as HTMLSelectElement, next = Number(target.value);
@@ -359,6 +370,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
             blocked ||
             jsonPending ||
             editor.toolPending.value ||
+            !!editor.fieldChange.value ||
             !validation.ok ||
             !pendingLocalChanges
           "
@@ -369,6 +381,8 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
         <span v-if="save && saveReason && !pendingConfigurations.length" :id="`${id}-save-reason`" class="mr-designer-save-reason">{{ saveReason }}</span>
       </div>
     </header>
+    <TemplateRecoveryPanel :recovery="editor.recovery" :conflict="editor.conflict" :readonly="readonly" :can-load="!!loadLatest" :can-copy="!!keepCopy" :messages="recoveryMessages" />
+    <TemplateFieldImpactPanel :messages="productMessages" :change="editor.fieldChange.value" :disabled="editDisabled" @confirm="editor.confirmFieldChange" @cancel="editor.cancelFieldChange" @locate="locateReview" />
     <div v-if="pendingConfigurations.length" :id="`${id}-pending`" class="mr-designer-pending" role="status">
       <span>{{ m.pendingToolsLabel }}</span>
       <button v-for="item in pendingConfigurations" :key="item.target" type="button" :aria-label="`${item.label} · ${m.unapplied} · ${m.returnToConfiguration}`" @click="openPending(item.target)">{{ item.label }}<span>{{ m.unapplied }} ↗</span></button>
@@ -406,7 +420,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
       >
         <nav class="mr-designer-tool-tabs" :aria-label="m.toolsSection">
           <button
-            v-for="item in ['excel', 'rules', 'params', 'review'] as const"
+            v-for="item in ['outline', 'reuse', 'excel', 'rules', 'params', 'review'] as const"
             :key="item"
             :id="`${id}-tool-${item}`"
             type="button"
@@ -419,6 +433,8 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
 </button><span>{{ m.toolsDescription }}</span>
         </nav>
         <div class="mr-designer-tool-content">
+          <TemplateOutlinePanel :messages="productMessages" v-if="visitedTools.has('outline')" v-show="tool === 'outline'" :document="draft" :selection="canvasSelection" @locate="locateReview" />
+          <TemplateReusePanel :messages="productMessages" v-if="visitedTools.has('reuse')" v-show="tool === 'reuse'" :document="draft" :page-index="canvasPage" :selection="canvasSelection" :fragments="fragments" :styles="documentStyles" :disabled="editDisabled" :accept="editor.transaction" @select="chooseCanvas" />
           <ParamEditor
             v-if="visitedTools.has('params')"
             v-show="tool === 'params'"
@@ -442,6 +458,8 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
             v-show="tool === 'review'"
             :document="draft"
             :previous="editor.originalDocument.value"
+            :fixtures="reviewFixtures"
+            :messages="reviewMessages"
             :datasets="datasets"
             :data-schemas="dataSchemas"
             @locate="locateReview"
@@ -463,6 +481,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
               </select></label><RuleEditor
               v-if="activeList"
               :list="activeList"
+              :recovery-key="`rules:${lists[selected]?.pageIndex ?? 0}:${lists[selected]?.componentIndex ?? 0}`"
               :datasets="datasets"
               :dataset-schema="dataSchema"
               :dataset-schemas="dataSchemas"

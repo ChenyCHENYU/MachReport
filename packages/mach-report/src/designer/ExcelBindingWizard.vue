@@ -167,6 +167,7 @@ defineExpose({
     @pointercancel="dragging = false"
     @pointerleave="dragging = false"
   >
+    <p v-if="wizard.recoveredMapping.value" role="status" class="mr-binding-recovery">{{ m.recoveredMapping }}</p>
     <header class="mr-binding-bar">
       <div class="mr-binding-heading">
         <ReportIcon name="file" :size="17" /><strong>{{ m.title }}</strong><span>{{ sourceName || m.intro }}</span>
