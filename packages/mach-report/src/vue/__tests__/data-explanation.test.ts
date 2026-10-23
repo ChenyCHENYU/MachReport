@@ -67,6 +67,7 @@ describe("business-declared data explanations", () => {
     const [scoped] = scopeQueryDiagnostics(["a", "a"], "a", [{ ...missing, target }], 1);
     expect(scoped?.target).toMatchObject({ reportScope: '[1,"a"]', tableId: '[1,"a","raw-table"]' });
     expect(scopeQueryDiagnostics(["a", "a"], "a", [missing])[0]?.target?.reportScope).toBe('[-1,"a"]');
+    expect(scopeQueryDiagnostics(["a", "a"], "a", [scoped!], 1)[0]?.target).toEqual(scoped!.target);
     expect(target.tableId).toBe("raw-table"); expect(missing.target).not.toHaveProperty("reportScope");
   });
 });

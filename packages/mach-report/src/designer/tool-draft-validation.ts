@@ -17,7 +17,12 @@ function tableRecipe(value: unknown): boolean { return object(value) && strings(
 function regionRecipe(value: unknown): boolean { return object(value) && typeof value.sheet === "string" && array(value.regions) && value.regions.every(region => object(region) && strings(region, ["id", "range", "dataset", "mode", "rowKey"]) && stringArray(region.fields)); }
 function pairs(value: unknown, check: (item: unknown) => boolean): boolean { return array(value) && value.every(item => Array.isArray(item) && item.length === 2 && typeof item[0] === "string" && check(item[1])); }
 function params(value: RecordValue): boolean {
-  return typeof value.initial === "string" && Number.isSafeInteger(value.selected) && array(value.rows) && value.rows.every(row => object(row) && strings(row, ["field", "label", "type", "placeholder", "defaultValue", "min", "max", "minLength", "maxLength"]) && typeof row.required === "boolean" && typeof row.defaultEnabled === "boolean" && array(row.options) && row.options.every(option => object(option) && strings(option, ["label", "value"])));
+  return typeof value.initial === "string" && Number.isSafeInteger(value.selected) && array(value.rows) && value.rows.every(paramRow);
+}
+function paramRow(row: unknown): boolean {
+  return object(row) && strings(row, ["field", "label", "type", "placeholder", "defaultValue", "min", "max", "minLength", "maxLength"]) && typeof row.required === "boolean" && typeof row.defaultEnabled === "boolean"
+    && (row.optionsMode === undefined || row.optionsMode === "static" || row.optionsMode === "remote") && (row.optionsSource === undefined || typeof row.optionsSource === "string") && (row.dependsOn === undefined || stringArray(row.dependsOn))
+    && array(row.options) && row.options.every(option => object(option) && strings(option, ["label", "value"]));
 }
 function rules(value: RecordValue): boolean {
   return formula(value.formula) && array(value.groups) && value.groups.every(group => object(group) && typeof group.field === "string") && object(value.when) && object(value.style) && strings(value, ["selectedComputed", "column", "conditionKey", "effect", "tab", "formulaBaseline", "groupBaseline", "conditionBaseline"]) && Number.isSafeInteger(value.conditionIndex) && pairs(value.computedDrafts, formula) && pairs(value.conditionDrafts, item => object(item) && object(item.when) && object(item.style));

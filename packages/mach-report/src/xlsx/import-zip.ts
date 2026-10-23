@@ -66,7 +66,7 @@ function readEntry(bytes: Uint8Array, view: DataView, offset: number, end: numbe
 }
 
 function warnEntry(name: string, warnings: ImportWarnings): void {
-  if (/^xl\/(charts|media|drawings)\//.test(name)) warnings.add("Excel 中的图表、图片与绘图对象暂不导入，仅保留单元格版式");
+  if (/^xl\/charts\//.test(name)) warnings.add("Excel 图表对象不作为图片导入；请在源文件中插入 PNG/JPEG 图片以保留静态图表外观");
   if (/^xl\/pivot/.test(name)) warnings.add("Excel 透视表仅导入已保存的单元格结果，不提供交互或重算");
   if (/^xl\/externalLinks\//.test(name)) warnings.add("Excel 外部链接不会访问或刷新，仅使用文件内已保存的结果");
   if (/vbaProject|activeX|embeddings/i.test(name)) warnings.add("Excel 宏、控件与嵌入对象不会执行或导入");
@@ -97,6 +97,6 @@ export async function checkedExcelBytes(input: ArrayBuffer | Uint8Array | Blob, 
   if (offset !== directory.start + directory.size || !names.has("xl/workbook.xml") || !names.has("[Content_Types].xml")) {
     throw new Error("文件不是受支持的 .xlsx 工作簿");
   }
-  await preflightExcelEntries(bytes, entries, options, task);
+  await preflightExcelEntries(bytes, entries, options, task, warnings);
   return bytes;
 }

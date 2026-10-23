@@ -27,7 +27,7 @@ export interface ReportEditResult {
 
 export function reportCellEditKey(edit: Pick<ReportCellEdit, "address" | "source" | "table">): string {
   const source = edit.source;
-  if (source) return JSON.stringify([source.datasetId, source.rowKey, source.field]);
+  if (source) return JSON.stringify([source.sourceScope, source.datasetId, source.rowKey, source.field]);
   const table = edit.table;
   if (table?.columnKey !== undefined) return JSON.stringify([table.id, table.role, table.rowIndex, table.columnKey]);
   const a = edit.address;

@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.14.0-2563eb" alt="Source version 2.14.0" />
+  <img src="https://img.shields.io/badge/source-2.15.0-2563eb" alt="Source version 2.15.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -44,9 +44,9 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 完整宽表 | 自然列宽、横向滚动、默认 100% 预览；纵向分段窗口化，Excel 自动合并连续 Sheet |
 | 明细与汇总 | 自动分页、多级分组与加权小计、业务键主从明细、动态矩阵、重复页眉页脚 |
 | 数据呈现 | 表头与内容独立对齐、类型自动对齐、数值 / 百分比 / 日期格式化、条件格式 |
-| 预览交互 | 右下分页、分组导出菜单、内容搜索与字段目录、跨页选区、冻结窗格、Sheet 导航 |
+| 预览交互 | 远程级联参数、受控关联详情、右下分页、分组导出菜单、内容搜索与字段目录、跨页选区、冻结窗格、Sheet 导航 |
 | 内容编辑 | 默认只读；双击与批量粘贴、原子保存、编辑后重算、撤销 / 重做、恢复与变更清单 |
-| Excel 导入 | 多 Sheet 会话复用、可取消预检、完整宽表、合并样式与缓存公式值转换为模板 |
+| Excel 导入 | PNG/JPEG Logo、完整索引色、多 Sheet 会话复用、可取消预检、完整宽表、合并样式与缓存公式值转换为模板 |
 | 模板配置 | 可视化画布、Excel 业务绑定向导、计算与规则、变更对比与发布验收、CAS 历史 / 回滚 |
 | 工业标签 | 模板 + 行数组直接接入、逐记录字段绑定、多版相邻与份数、真实 QR / 条码、可视化设计 |
 | 输出 | 浏览器打印、HTML、PDF、真正的 `.xlsx`、逐页 PNG、Word 兼容 HTML `.doc` |
@@ -66,17 +66,22 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 发布验收 | 变更分类、字段依赖检查、显式样例、服务端真实PDF/XLSX编码 | 验收样例、字体、原子CAS存储 |
 | 大任务 | 逐页生成、增量编辑历史、租约 / 幂等 / 取消 / 失败重试、有界终态归档 | 调度、文件归档；多实例数据库CAS适配 |
 
-复杂模板继续使用同一个编辑器：工具区提供跨页结构大纲、字段引用影响、片段与内容样式、命名验收样例和基线并排对照；可选草稿存储恢复未应用配置，版本冲突保留本地内容并显式核对。设计器示例 `/designer.html` 已接入这些能力，普通预览页无需引入设计器。
+常规预览只需模板、数据和 ID。复杂能力按需接入，下面的入口沿用同一份模板与业务契约：
 
-已准备结果可通过 `runtime.exportPrepared()` 原样交付 PDF / XLSX，无需再次取数或分页；已归档实例使用 `generation.exportInstance()`。工业标签可按原尺寸拼入 A4，自定义起始空位、间距与偏移；异步来源按块处理，等待导出归档回执后再消费下一块。打印等待独立文档的字体与图片，校准入口收在设置中。业务声明的来源空值原因默认折叠，真实零值保持显示。
+| 需要做什么 | 接入与示例 |
+| --- | --- |
+| 可视化设计、结构大纲、片段、草稿恢复 | [设计器](./docs/DESIGNER.md) · [结构与复用](./docs/DESIGNER_PRODUCTIVITY.md) · `/designer.html` |
+| Excel 区域绑定、主从/树形/矩阵 | [Excel绑定](./docs/EXCEL_BINDING.md) · [复杂报表](./docs/COMPLEX_REPORTS.md) |
+| 模板库 → 发布 → 批次 → 可追溯实例 | [最小工作流](./docs/WORKFLOW.md) · [发布验收](./docs/PUBLICATION_REVIEW.md) · `/platform.html` |
+| 跨项目搬运模板、资源、字段契约与脱敏样例 | [可搬运模板包](./docs/TEMPLATE_PACKAGE.md) |
+| 字典搜索、厂别/产线级联、查看关联详情 | [参数](./docs/PARAMETERS.md) · [关联动作与隔离](./docs/RELIABILITY.md) · `/parameters.html`、`/product.html` |
+| 大批量标签、标准纸张拼版、持久任务 | [交付](./docs/DELIVERY.md) · [持久任务](./docs/DURABLE_JOBS.md) · [打印校准](./docs/PRINT_AND_DATA.md) |
 
-接入与边界见[交付与批量标签](./docs/DELIVERY.md)、[草稿恢复](./docs/DRAFT_RECOVERY.md)、[结构与复用](./docs/DESIGNER_PRODUCTIVITY.md)、[打印及数据说明](./docs/PRINT_AND_DATA.md)。
+稳定业务键的数据源自动维护编辑重算会话，独立报表默认隔离；镜像来源显式声明共享。保存前准备重算，成功后更新派生结果与修订，导出等待在途编辑。工作簿公式继续只显示缓存结果。严格输出拒绝已知缺字或损坏图片，宽松策略返回明确诊断。
 
-常规预览页面的接入保持不变。稳定业务键的数据源自动维护编辑重算会话；派生列只读，保存前准备重算，成功后更新公式、条件样式与汇总，导出等待在途编辑。工作簿公式继续仅显示缓存结果。设计工具只在打开时加载；画布拖动在松手时提交一次模板事务，样例计算与验收按按钮执行。逐页生成不保留全部输出页，输入数据和分组索引仍受预算管理。
+设计工具按需加载；画布拖动只在松手时提交事务，修改模板名称不重复排版。大列目录窗口化，连续 Excel 按工作量让出执行并响应取消。已准备结果可通过 `runtime.exportPrepared()` 原样导出，无需再次取数。
 
-操作与边界见[设计器](./docs/DESIGNER.md)、[Excel绑定](./docs/EXCEL_BINDING.md)、[复杂报表](./docs/COMPLEX_REPORTS.md)、[发布验收](./docs/PUBLICATION_REVIEW.md)、[持久任务](./docs/DURABLE_JOBS.md)。
-
-业务参数、设计器和服务端执行共用一套声明：查询参数支持月份、年份与日期区间；Excel 单 Sheet 可绑定多个数据集，静态邻格与后续区域随明细行数保持位置；树形节点按稳定身份排版，父级来源值与叶子汇总显式区分。可选模板库提供分类、搜索、草稿编辑、发布版查看和复制；失败可重试原操作。批量面板提供逐组校验、状态筛选、进度、取消、继续未完成及显式失败重试，保留成功回执。参数与 Excel 绑定支持就地错误反馈、问题定位和待应用提示。实例通过独立 CAS 契约保存参数、模板/数据修订与渲染快照，预览不自动保存。运行示例访问 `/platform.html`，产品分层、接入示例及暂缓的连接/IAM/调度/渠道路线见[产品能力](./docs/PRODUCT_PLATFORM.md)。
+产品分层和暂缓的数据库连接、企业权限、调度与渠道见[产品能力](./docs/PRODUCT_PLATFORM.md)；还原边界、验证方式和上游依赖证据见[质量说明](./docs/QUALITY.md)、[可靠性与升级](./docs/RELIABILITY.md)、[依赖清单](./docs/DEPENDENCIES.md)。
 
 
 ## 安装：一个包，按需入口
@@ -660,7 +665,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.14.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.15.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

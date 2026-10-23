@@ -4,6 +4,7 @@ import type { ReportEditOperation, ReportEditingOptions } from "./editing";
 import { MachReportError } from "./errors";
 import { cloneReportSnapshot } from "./snapshot";
 import { assertProviderSaveResult } from "./provider-save-result";
+import { observeOutput } from "../output/progress";
 
 type Current<T> = T | (() => T);
 export interface ProviderEditingOptions extends Pick<ReportEditingOptions, "canEdit" | "validate" | "requireSource"> {
@@ -54,7 +55,7 @@ export function createProviderEditing(provider: ReportProvider, options: Provide
     });
     if (operation.signal.aborted) throw operation.signal.reason ?? new DOMException("Aborted", "AbortError");
     assertProviderSaveResult(result, batch.edits.length);
-    result.diagnostics?.forEach((diagnostic) => options.onDiagnostic?.(diagnostic));
+    result.diagnostics?.forEach((diagnostic) => observeOutput(() => options.onDiagnostic?.(diagnostic)));
     const errors = result.diagnostics?.filter((diagnostic) => diagnostic.severity === "error");
     if (errors?.length) throw new MachReportError("edit", errors.map((diagnostic) => diagnostic.message).join("；"), { diagnostics: errors });
     const conflicts = result.conflicts?.map((conflict) => ({ source: batch.edits[conflict.editIndex]?.source, address: batch.edits[conflict.editIndex]?.address, message: conflict.message }));

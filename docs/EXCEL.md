@@ -13,7 +13,7 @@ MachReport 支持生成真正的 `.xlsx` 工作簿。入口是 `@agile-team/mach
 | 标题 | 合并到当前页表格的实际列数 | 纯文本页使用单列，绝对坐标转为组件顺序 |
 | 字体与样式 | 共享字号规则、字体族、加粗/斜体/下划线、颜色、水平/垂直对齐、换行、底色、边框开关/颜色 | 边框线型为细线，不映射旋转、透明度等 |
 | 单元格值 | text 模式写显示文本；raw 模式写原始 primitive 和数字格式 | Date/对象回退显示文本，不猜数字字符串 |
-| 图片与复杂内容 | PNG/JPEG data URI 的 Logo、图片型二维码/条码/图表可嵌入，重复媒体复用 | 图片使用独立流式行带；SVG、嵌套组件、无文本回退富文本仍告警或 strict 阻止 |
+| 图片与复杂内容 | PNG/JPEG data URI 的 Logo、图片型二维码/条码/图表可嵌入，重复媒体复用 | 图片使用独立流式行带；SVG与嵌套组件仍告警或 strict 阻止；顶层富文本保留基本字面 |
 | 打印配置 | 普通页 auto 识别 A3/A4/A5；wide 默认不强制纸型，可显式 paperSize | 纸型仅影响打印；不是 PDF 坐标复刻 |
 | 运行环境 | `/xlsx` 支持浏览器、Node.js；`/xlsx/node` 提供 Node 流式数据导出 | `/xlsx` 的计划、工作簿与 buffer 仍在内存中；流式入口直接消费数据行，不复刻页面布局 |
 
@@ -160,7 +160,7 @@ await writeRowsToXlsx(queryRows({ signal }), {
 
 ## 结构化输出诊断
 
-`renderPlanToXlsx` 保留原有 `warnings`，并返回 `diagnostics`；可传 `onDiagnostic` 接收格式、页 / 组件索引及稳定错误码。核心 `inspectOutputCapabilities(plan, "xlsx")` 可提前列出缺少图片数据、SVG/非PNG/JPEG图片、形状、富文本和嵌套组件的降级范围；预检不会创建工作簿，也不会把未支持组件变成已支持。
+`renderPlanToXlsx` 保留原有 `warnings`，并返回 `diagnostics`；可传 `onDiagnostic` 接收格式、页 / 组件索引及稳定错误码。核心 `inspectOutputCapabilities(plan, "xlsx")` 可提前列出缺少图片数据、SVG/非PNG/JPEG图片、形状、不支持的段落样式和嵌套组件的降级范围；预检不会创建工作簿，也不会把未支持组件变成已支持。
 
 
 ## Logo 与图片型二维码
@@ -181,3 +181,11 @@ const result = await renderPlanToXlsx(planWithLogo, {
 这些是默认预算，按**唯一媒体**计数和累计解码字节，重复 Logo 的多个位置共用一个媒体对象；PNG MIME 大小写、JPG/JPEG 别名会规范化。超出预算、无效 base64 或类型签名不匹配会明确失败，不裁剪图片、不悄悄省略。SVG 和普通网络 URL 仍返回结构化 `unsupported-image-format` 诊断及跳过告警，`fidelity: 'strict'` 会在创建工作簿前阻止导出。图片型组件尚无 `imageData` 时继续返回 `missing-image`。
 
 宽表连续 Sheet 同样支持图片，重复页头/页尾按上文锚点规则只输出一次；列表列数、逻辑行序和原始值完整保留。实际回归通过 ExcelJS 重新加载生成的工作簿检查媒体字节、锚点、行高和连续数据；这不代表所有 Microsoft Office 阅读器已完成视觉验收。`/xlsx/node` 的逐行数据出口仍不嵌入图片，继续保留其流式数据边界。
+
+## 连续表响应与富文本
+
+连续Sheet在写入过程中分片让出并检查取消，不再只在Sheet边界响应。进度仍以完成的工作表计数；编码/压缩并非恒定内存，超大数据沿用独立Node流式出口。其进度回调属于观察器，回调异常不反转写入成功事实。
+
+顶层 `richParagraphs` 输出为Excel原生 `richText`，保留片段文字、字号、粗斜体、下划线、颜色，段落间写入换行。段落自己的对齐、间距与缩进无法在一个Excel单元格内逐段表达，会返回结构化诊断；strict阻止这种降级。普通单元格内嵌套组件仍保留既有告警边界。
+
+导入Excel的原生Logo使用专用overlay锚点，重新导出时不为图片插入额外数据行；一般业务图片组件仍遵循上述独立行带规则。PDF与XLSX现在共用PNG/JPEG媒体检查，另可配置 `maxImagePixels`（默认1600万）、`maxTotalImagePixels`（6400万）、`maxImageDimension`（16384），在进入解码器前约束高压缩大图。

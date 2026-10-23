@@ -42,3 +42,4 @@ export * from "./source/template-outline";
 export * from "./source/template-fragments";
 
 export * from "./layout/label-sheets";
+export * from "./source/drill";

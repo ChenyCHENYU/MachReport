@@ -9,14 +9,16 @@ pnpm install --frozen-lockfile # 安装（pnpm 11.8.0，开发 Node ≥ 22.13）
 pnpm typecheck                # tsc 项目图 + vue-tsc（mach-report/federation）
 pnpm lint / lint:fix          # ESLint（0 错 0 警是门禁）
 pnpm test                     # Vitest 单测（全绿门禁；纯逻辑文件用 // @vitest-environment node 头分流）
-pnpm test:coverage            # 覆盖率（关注 layout/ render/ format.ts）
+pnpm test:coverage            # 全生产代码覆盖率；语句85/分支80/函数85/行90为下限
 pnpm build                    # 全工作区构建（mach-report 十三代码入口 ESM+CJS + federation + examples）
 pnpm check:docs               # 文档相对链接、README 发布同步与 SVG 资源检查
 pnpm check:consumer           # 实际 npm 包隔离消费，ESM/CJS 运行与严格类型检查
 pnpm check:compat             # 实际包的 Node/Vue 严格类型与运行消费（支持 --archive/--node/--vue）
 pnpm check:server-example     # Java17目标客户端→Node真实HTTP、精度、错误、取消、下载与混合并发
 pnpm check:quality            # 生产代码圈复杂度 ≤20，统计全部 TS / Vue 函数
-pnpm verify                   # 类型 → lint → build → 覆盖率/产物守卫 → 文档 → 消费端
+pnpm check:api                # 十三入口公开声明签名；调整API后审查差异再用 --update
+pnpm check:sbom               # 依赖版本/许可证证据、锁文件和构建产物摘要
+pnpm verify                   # 类型 → lint/复杂度 → build → API/SBOM → 覆盖率 → 文档 → 消费端
 pnpm test:e2e                 # E2E（真 Chromium；配置自动启动 examples dev server）
 pnpm run version              # 合并 changeset 并同步 README 版本，检查后提交推送
 pnpm release                  # 已提交版本的发版：clean gate → install → verify → Java/Node参考 → 当前环境兼容消费 → E2E → publish

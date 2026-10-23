@@ -15,7 +15,8 @@ export default defineConfig({
       include: ["packages/mach-report/src/**/*.{ts,vue}"],
       exclude: ["**/__tests__/**", "**/*.d.ts"],
       reporter: ["text", "html"],
-      reportsDirectory: "coverage"
+      reportsDirectory: "coverage",
+      thresholds: { statements: 85, branches: 80, functions: 85, lines: 90 }
     }
   }
 });

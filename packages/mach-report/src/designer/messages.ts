@@ -34,6 +34,13 @@ const BASE_TEMPLATE_EDITOR_MESSAGES = {
   invalid: "请先修正模板错误，再预览或保存。",
 };
 const PRODUCT_TEMPLATE_EDITOR_MESSAGES = {
+  toolTarget: "当前目标",
+  toolPreview: "显示画布",
+  toolPreviewHide: "收起画布",
+  toolChooseComponent: "选择组件",
+  previousColumns: "上一组字段",
+  nextColumns: "下一组字段",
+  columnWindow: "{start}–{end} / {total}",
   paperAndPages: "纸张与版面",
   pageDirectory: "版面目录",
   pageName: "版面名称",

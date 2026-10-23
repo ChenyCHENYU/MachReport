@@ -42,6 +42,31 @@ describe("visual parameter designer", () => {
     await click(wrapper, "删除参数"); await click(wrapper, "校验并应用参数"); await flushPromises();
     expect(doc.template.params?.map(param => param.field)).toEqual(["plant"]); wrapper.unmount();
   });
+  it("designs serializable remote sources and dependencies without storing an API callback", async () => {
+    const doc = reactive(document([{ field: "plant", type: "select", options: [{ value: "A", label: "厂A" }] }, { field: "area", label: "区域", type: "select" }]));
+    const accept = vi.fn((params: ReportParamDef[]) => { doc.template.params = params; return true; });
+    const wrapper = mount(ParamEditor, { props: { document: doc, accept } });
+    await wrapper.findAll(".mr-param-editor__directory nav button")[1]!.trigger("click");
+    await wrapper.get('select[aria-label="选项来源"]').setValue("remote");
+    await wrapper.get('input[aria-label="来源标识"]').setValue("production.areas");
+    await wrapper.get('.mr-param-editor__dependencies input[value="plant"]').setValue(true);
+    expect(doc.template.params?.[1]?.optionsSource).toBeUndefined();
+    await click(wrapper, "校验并应用参数"); await flushPromises();
+    expect(doc.template.params?.[1]).toEqual({ field: "area", label: "区域", type: "select", optionsSource: "production.areas", dependsOn: ["plant"] });
+    expect(JSON.parse(JSON.stringify(doc.template.params))[1]).toEqual(doc.template.params?.[1]);
+    await wrapper.findAll(".mr-param-editor__directory nav button")[0]!.trigger("click");
+    await wrapper.get('input[aria-label="参数标识"]').setValue("factory");
+    await wrapper.findAll(".mr-param-editor__directory nav button")[1]!.trigger("click");
+    expect(wrapper.get(".mr-param-editor__dependencies").text()).toContain("plant · 已失效");
+    expect((wrapper.vm as unknown as { apply(): boolean }).apply()).toBe(false);
+    await wrapper.get('.mr-param-editor__dependencies input[value="plant"]').setValue(false);
+    await click(wrapper, "校验并应用参数"); await flushPromises();
+    expect(doc.template.params?.[1]?.dependsOn).toBeUndefined();
+    await wrapper.get('select[aria-label="选项来源"]').setValue("static");
+    await click(wrapper, "校验并应用参数"); await flushPromises();
+    expect(doc.template.params?.[1]).toEqual({ field: "area", label: "区域", type: "select", options: [] });
+    wrapper.unmount();
+  });
   it("retains unapplied drafts on external parameter changes and requires explicit restoration", async () => {
     const doc = reactive(document([{ field: "x", type: "text" }])); const accept = vi.fn(() => true);
     const wrapper = mount(ParamEditor, { props: { document: doc, accept } });

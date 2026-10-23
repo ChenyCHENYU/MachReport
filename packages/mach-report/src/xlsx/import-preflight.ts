@@ -1,5 +1,5 @@
 import { parseImportRange } from "./import-range";
-import type { ResolvedImportOptions } from "./import-types";
+import type { ImportWarnings, ResolvedImportOptions } from "./import-types";
 import { assertOutputActive, waitForOutput, outputCheckpoint, type OutputTaskOptions } from "../output/progress";
 
 export interface CheckedZipEntry { name: string; start: number; compressed: number; method: number }
@@ -43,7 +43,14 @@ function checkSheetTag(tag: string, options: ResolvedImportOptions, budget: XmlB
   }
 }
 
-function xmlScanner(options: ResolvedImportOptions, budget: XmlBudget, sheet: boolean, styles: boolean, strings: boolean): (text: string, final?: boolean) => void {
+function warnDrawingTag(tag: string, warnings: ImportWarnings): void {
+  if (/^<(?:\w+:)?srcRect\b/.test(tag) && ["l", "t", "r", "b"].some(key => Number(attribute(tag, key) ?? 0) !== 0)) warnings.add("Excel 图片裁剪暂不还原，导入保留完整图片；请在源文件中将裁剪结果保存为 PNG/JPEG");
+  if (/^<(?:\w+:)?xfrm\b/.test(tag) && (Number(attribute(tag, "rot") ?? 0) !== 0 || ["flipH", "flipV"].some(key => ["1", "true"].includes(attribute(tag, key) ?? "")))) warnings.add("Excel 图片旋转或翻转暂不还原，请先在源文件中保存变换后的 PNG/JPEG");
+  if (/^<(?:\w+:)?blip\b/.test(tag) && /\blink\s*=/.test(tag)) warnings.add("Excel 外部图片链接不会访问或下载，请嵌入 PNG/JPEG 图片");
+  if (/^<(?:\w+:)?(?:sp|cxnSp)\b/.test(tag)) warnings.add("Excel 绘图形状与连接线暂不导入；可在源文件中转换为 PNG/JPEG");
+}
+
+function xmlScanner(options: ResolvedImportOptions, budget: XmlBudget, sheet: boolean, styles: boolean, strings: boolean, drawings?: ImportWarnings): (text: string, final?: boolean) => void {
   let pending = "";
   return (text, final = false) => {
     pending += text;
@@ -53,6 +60,7 @@ function xmlScanner(options: ResolvedImportOptions, budget: XmlBudget, sheet: bo
     let consumed = 0;
     while ((match = tags.exec(pending))) {
       if (sheet) checkSheetTag(match[0], options, budget);
+      if (drawings) warnDrawingTag(match[0], drawings);
       if (styles && /^<(?:\w+:)?xf\b/.test(match[0]) && ++budget.styles > 131_072) throw new Error("Excel 样式数量超过安全加载上限");
       if (strings && /^<(?:\w+:)?si\b/.test(match[0]) && ++budget.strings > 1_000_000) throw new Error("Excel 共享字符串数量超过安全加载上限");
       consumed = tags.lastIndex;
@@ -73,7 +81,7 @@ function inflatedStream(bytes: Uint8Array, entry: CheckedZipEntry): ReadableStre
 }
 
 /** Count actual streamed bytes, never trust ZIP directory sizes or inflate an unbounded entry. */
-export async function preflightExcelEntries(bytes: Uint8Array, entries: CheckedZipEntry[], options: ResolvedImportOptions, task: OutputTaskOptions = {}): Promise<void> {
+export async function preflightExcelEntries(bytes: Uint8Array, entries: CheckedZipEntry[], options: ResolvedImportOptions, task: OutputTaskOptions = {}, warnings?: ImportWarnings): Promise<void> {
   let total = 0;
   const budget: XmlBudget = { cells: 0, rows: 0, mergedCells: 0, styles: 0, strings: 0 };
   const worksheets = entries.filter((entry) => /^xl\/worksheets\/[^/]+\.xml$/i.test(entry.name));
@@ -85,7 +93,7 @@ export async function preflightExcelEntries(bytes: Uint8Array, entries: CheckedZ
     task.signal?.addEventListener("abort", cancel, { once: true });
     if (task.signal?.aborted) cancel();
     const worksheet = /^xl\/worksheets\/[^/]+\.xml$/i.test(entry.name);
-    const scan = /\.xml$/i.test(entry.name) ? xmlScanner(options, budget, worksheet, entry.name === "xl/styles.xml", entry.name === "xl/sharedStrings.xml") : undefined;
+    const scan = /\.xml$/i.test(entry.name) ? xmlScanner(options, budget, worksheet, entry.name === "xl/styles.xml", entry.name === "xl/sharedStrings.xml", /^xl\/drawings\/[^/]+\.xml$/i.test(entry.name) ? warnings : undefined) : undefined;
     const decoder = scan ? new TextDecoder("utf-8", { fatal: true }) : undefined;
     let chunks = 0;
     try {

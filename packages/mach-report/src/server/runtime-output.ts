@@ -4,7 +4,7 @@ import { createReportTaskReporter } from "../source/task-events";
 import type { OutputDiagnostic } from "../output/capabilities";
 
 export function outputDiagnostics(entries: readonly OutputDiagnostic[] = []): PreparedReport["diagnostics"] {
-  return entries.map(({ code, message, severity, pageIndex, componentIndex }) => ({ code, message, severity, path: `$.pages.${pageIndex}.components.${componentIndex}` }));
+  return entries.map(({ code, message, severity, pageIndex, componentIndex }) => ({ code, message, severity, path: componentIndex < 0 ? `$.pages.${pageIndex}` : `$.pages.${pageIndex}.components.${componentIndex}` }));
 }
 /** Shared codec path; caller owns a validated snapshot and has resolved local assets. */
 export async function encodePreparedReport(input: ReportRuntimePreparedExportInput, budget: ReportRuntimeBudget, started = Date.now()): Promise<ReportRuntimeExportResult> {

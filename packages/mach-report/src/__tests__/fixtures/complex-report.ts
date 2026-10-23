@@ -30,6 +30,8 @@ async function importedThreeLevelTemplate() {
   sheet.getCell("C4").value = .5; sheet.getCell("C4").numFmt = "0.00%";
   sheet.getCell("E4").value = "sample"; sheet.getCell("E4").numFmt = "@";
   sheet.getCell("F4").value = "sample"; sheet.getCell("F4").alignment = { horizontal: "left", wrapText: true };
+  // This Latin-only cross-output fixture explicitly uses the PDF standard face.
+  for (let row = 1; row <= 4; row++) for (let column = 1; column <= 6; column++) sheet.getCell(row, column).font = { name: "Helvetica" };
   const imported = await importExcelTemplate(new Uint8Array(await workbook.xlsx.writeBuffer()));
   return bindExcelTemplate(imported, [{ sheet: "Three-Level", header: "A1:F3", dataset: "production", rowKey: "id", revisionField: "revision", columns: [
     { field: "heat", semanticRole: "identifier" }, { field: "qty", format: { kind: "number", digits: 3 } },

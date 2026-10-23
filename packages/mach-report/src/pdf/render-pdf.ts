@@ -1,8 +1,11 @@
 import { outputCheckpoint, type OutputTaskOptions } from "../output/progress";
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
+import { drawPdfRichText } from "./rich-text";
 import { createPdfFontEmbedding, type PdfFontEmbedding } from "./font-embedding";
 import type { ComponentStyle, PlanComponent, RenderPlan } from "../schema/render-plan";
-import { reportOutputDiagnostics, type OutputDiagnostic } from "../output/capabilities";
+import { reportOutputDiagnostics, OutputFidelityError, type OutputDiagnostic } from "../output/capabilities";
+import { createImageMediaInspector, ImageMediaError, type ImageMediaOptions } from "../output/media";
+import { notifyOutputDiagnostic } from "../output/diagnostic-notification";
 import { resolvePlanAssets, type AssetRenderOptions } from "../output/assets";
 import { resolveGridStrokes } from "../render/grid-strokes";
 import {
@@ -19,7 +22,7 @@ import {
   type TextMeasurer
 } from "../index";
 
-export interface PdfRenderOptions extends AssetRenderOptions, OutputTaskOptions {
+export interface PdfRenderOptions extends AssetRenderOptions, OutputTaskOptions, ImageMediaOptions {
   /** 嵌入字体字节（TTF，如黑体）；缺省用 Helvetica（不支持 CJK） */
   customFontBytes?: Uint8Array | ArrayBuffer;
   customFontName?: string;
@@ -101,6 +104,7 @@ interface PdfRenderer {
   embedding: PdfFontEmbedding;
   measurer: TextMeasurer;
   imageCache: Map<string, Promise<PDFImage | null>>;
+  inspectImage: ReturnType<typeof createImageMediaInspector>;
   fidelityWarnings: string[];
   styleWarnings: Set<string>;
   unsupportedTextCount: number;
@@ -120,12 +124,6 @@ function componentBox(comp: PlanComponent, pageHeightPt: number): TextBox {
     width: mmToPt(comp.widthMm),
     height: mmToPt(comp.heightMm)
   };
-}
-
-/** 富文本降级：保留段落顺序；内联样式通过保真告警明确说明。 */
-function richTextToLines(comp: PlanComponent): string[] {
-  return (comp.richParagraphs ?? []).map((para) => (para.segments ?? [])
-    .map((seg) => (seg.kind === "field" ? (seg.field ?? "") : (seg.text ?? ""))).join(""));
 }
 
 function fontForStyle(renderer: PdfRenderer, style: ComponentStyle): PDFFont {
@@ -148,7 +146,7 @@ function checkTextStyle(renderer: PdfRenderer, style: ComponentStyle, location: 
     warnStyle(renderer, "custom-font-weight", "自定义 PDF 字体只提供单个字面，粗体/斜体按该字体自身字形导出", location);
   }
   if (style.align === "justify") warnStyle(renderer, "justify", "PDF 两端对齐暂按左对齐导出", location);
-  if (style.fontFamily && !renderer.customFont) warnStyle(renderer, "font-family", "PDF 字体族需提供 customFontBytes；当前使用内置 Helvetica", location);
+  if (style.fontFamily && style.fontFamily.trim().toLowerCase() !== "helvetica" && !renderer.customFont) warnStyle(renderer, "font-family", "PDF 字体族需提供 customFontBytes；当前使用内置 Helvetica", location);
   if (style.rotateDeg) warnStyle(renderer, "rotate", "PDF 文字旋转暂未应用", location);
   if (style.opacity !== undefined && style.opacity !== 1) warnStyle(renderer, "opacity", "PDF 透明度暂未应用", location);
 }
@@ -200,11 +198,7 @@ function wrappedLines(renderer: PdfRenderer, text: string, widthMm: number, styl
   }, renderer.measurer);
 }
 
-function textComponentLines(renderer: PdfRenderer, comp: PlanComponent, location: string): string[] {
-  if (isRichText(comp)) {
-    renderer.fidelityWarnings.push(`${location}: 富文本按纯文本降级导出（内联样式丢失）`);
-    return richTextToLines(comp);
-  }
+function textComponentLines(renderer: PdfRenderer, comp: PlanComponent): string[] {
   if (Array.isArray(comp.lines) && comp.lines.length) return comp.lines;
   return wrappedLines(renderer, comp.text ?? "", comp.widthMm, comp.style ?? {});
 }
@@ -212,7 +206,21 @@ function textComponentLines(renderer: PdfRenderer, comp: PlanComponent, location
 function drawTextComponent(renderer: PdfRenderer, page: PDFPage, comp: PlanComponent, box: TextBox, location: string): void {
   const style = comp.style ?? {};
   checkTextStyle(renderer, style, location);
-  const lines = textComponentLines(renderer, comp, location);
+  if (isRichText(comp)) {
+    const overflow = drawPdfRichText(comp, box, {
+      measure(text, runStyle) {
+        const font = fontForStyle(renderer, runStyle), size = resolveFontSize(runStyle).fontSizePt;
+        try { return font.widthOfTextAtSize(text, size) + (runStyle.letterSpacing ?? 0); } catch { return size; }
+      },
+      draw(text, runStyle, x, baseline, width) {
+        checkTextStyle(renderer, runStyle, location);
+        drawTextLine(renderer, page, text, runStyle, { ...box, x, width }, baseline);
+      }
+    });
+    if (overflow) renderer.fidelityWarnings.push(`${location}: 富文本超出组件高度，请增加高度`);
+    return;
+  }
+  const lines = textComponentLines(renderer, comp);
   const count = lines.reduce((sum, line) => sum + line.split(/\r\n|\r|\n/).length, 0);
   if (count * resolveFontSize(style).fontSizePt * resolveLineHeight(style) > box.height + TEXT_HEIGHT_EPSILON_PT) {
     renderer.fidelityWarnings.push(`${location}: 文本行高超出组件高度，文字已保留，可能超出版面`);
@@ -221,17 +229,12 @@ function drawTextComponent(renderer: PdfRenderer, page: PDFPage, comp: PlanCompo
 }
 
 function embedImage(renderer: PdfRenderer, dataUrl: string): Promise<PDFImage | null> {
-  const cached = renderer.imageCache.get(dataUrl);
+  if (!/^data:image\/(png|jpe?g);base64,/i.test(dataUrl)) return Promise.resolve(null);
+  const image = renderer.inspectImage(dataUrl);
+  const cached = renderer.imageCache.get(image.dataUrl);
   if (cached) return cached;
-  const promise = (async (): Promise<PDFImage | null> => {
-    try {
-      const match = /^data:image\/(png|jpe?g);base64,(.*)$/s.exec(dataUrl);
-      if (!match) return null;
-      const bytes = Uint8Array.from(atob(match[2]!), (character) => character.charCodeAt(0));
-      return match[1] === "png" ? await renderer.document.embedPng(bytes) : await renderer.document.embedJpg(bytes);
-    } catch { return null; }
-  })();
-  renderer.imageCache.set(dataUrl, promise);
+  const promise = image.extension === "png" ? renderer.document.embedPng(image.bytes) : renderer.document.embedJpg(image.bytes);
+  renderer.imageCache.set(image.dataUrl, promise);
   return promise;
 }
 
@@ -379,7 +382,7 @@ async function createRenderer(document: PDFDocument, options: PdfRenderOptions):
   return {
     document, fonts, customFont, customFontFaces: options.customFontFaces, embedding,
     measurer: options.measurer ?? heuristicMeasurer,
-    imageCache: new Map(), fidelityWarnings: [], styleWarnings: new Set(), unsupportedTextCount: 0
+    imageCache: new Map(), inspectImage: createImageMediaInspector(options), fidelityWarnings: [], styleWarnings: new Set(), unsupportedTextCount: 0
   };
 }
 
@@ -397,6 +400,7 @@ export async function renderPlanToPdf(plan: RenderPlan, options: PdfRenderOption
   const prepared = await resolvePlanAssets(plan, { ...options, format: "pdf" });
   plan = prepared.plan;
   const diagnostics = [...prepared.diagnostics, ...reportOutputDiagnostics(plan, "pdf", options)];
+  const initialDiagnosticCount = diagnostics.length;
   const pdfDoc = await PDFDocument.create();
   const renderer = await createRenderer(pdfDoc, options);
   const pageErrors: string[] = [];
@@ -405,21 +409,31 @@ export async function renderPlanToPdf(plan: RenderPlan, options: PdfRenderOption
     const widthPt = mmToPt(planPage.pageWidthMm);
     const heightPt = mmToPt(planPage.pageHeightMm);
     if (widthPt > 14_400 || heightPt > 14_400) {
-      renderer.fidelityWarnings.push(`page ${pageIndex + 1}: PDF 页面超过常规阅读器的 200 英寸尺寸范围，阅读器可能裁切；建议选择标准纸型或分拆宽表`);
+      const message = `page ${pageIndex + 1}: PDF 页面超过常规阅读器的 200 英寸尺寸范围，阅读器可能裁切；建议选择标准纸型或分拆宽表`;
+      renderer.fidelityWarnings.push(message);
+      diagnostics.push({ code: "output-degraded", severity: "warning", format: "pdf", pageIndex, componentIndex: -1, kind: "page", message });
     }
     const page = pdfDoc.addPage([widthPt, heightPt]);
-    for (const comp of planPage.components) {
+    for (const [componentIndex, comp] of planPage.components.entries()) {
       checkCancelled(options.signal);
       const location = `page ${pageIndex + 1} ${comp.nid ?? comp.kind}`;
+      const previousWarnings = renderer.fidelityWarnings.length, previousUnsupported = renderer.unsupportedTextCount;
       try {
         await drawComponent(renderer, page, comp, heightPt, location);
       } catch (error) {
+        if (error instanceof ImageMediaError && error.code === "image-budget-exceeded") throw error;
         pageErrors.push(`page ${pageIndex + 1} comp ${comp.nid ?? comp.kind}: ${String(error)}`);
+        diagnostics.push({ code: error instanceof ImageMediaError ? error.code : "component-render-failed", severity: "warning", format: "pdf", pageIndex, componentIndex, kind: comp.kind, nid: comp.nid, message: String(error) });
       }
+      const locationDiagnostic = { severity: "warning" as const, format: "pdf" as const, pageIndex, componentIndex, kind: comp.kind, nid: comp.nid };
+      if (renderer.unsupportedTextCount > previousUnsupported) diagnostics.push({ ...locationDiagnostic, code: "unsupported-text", message: "Text contains characters missing from the output font." });
+      for (const message of renderer.fidelityWarnings.slice(previousWarnings)) diagnostics.push({ ...locationDiagnostic, code: "output-degraded", message });
     }
     await outputCheckpoint(options, pageIndex + 1, plan.pages.length);
   }
   checkCancelled(options.signal);
+  diagnostics.slice(initialDiagnosticCount).forEach(entry => notifyOutputDiagnostic(entry, options));
+  if (options.fidelity === "strict" && diagnostics.length) throw new OutputFidelityError(diagnostics);
   await renderer.embedding.finalize();
   const bytes = await pdfDoc.save();
   checkCancelled(options.signal);

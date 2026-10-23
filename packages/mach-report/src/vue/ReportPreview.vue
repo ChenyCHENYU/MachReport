@@ -50,6 +50,10 @@ import ReportDiscardDialog from "./ReportDiscardDialog.vue";
 import ReportTaskStatus from "./ReportTaskStatus.vue";
 import ReportDiagnostics from "./ReportDiagnostics.vue";
 import ReportDataExplanation from "./ReportDataExplanation.vue";
+import ReportDrillActions from "./ReportDrillActions.vue";
+import { useReportDrill } from "./composables/useReportDrill";
+import type { ReportDrillOptions } from "./drill";
+import type { ReportParamOptionsLoader } from "./param-options";
 import ReportPrintSettings from "./ReportPrintSettings.vue";
 import { createPrintCalibrationPlan } from "./print-calibration";
 import { printPlans } from "./composables/usePrintExport";
@@ -92,6 +96,8 @@ import { loadPreviewPlan, importPreviewPlan } from "./preview-plan";
 import { type MachReportToolbarOptions, type ReportEmptyState, type ReportPreviewPreferences, type ReportPreviewTool, type ReportInteractionOptions, type ReportPreferencesOptions, type ReportSection } from "./tools";
 
 const props = defineProps({
+  drill: { type: Object as PropType<ReportDrillOptions>, default: undefined },
+  loadParamOptions: { type: Function as PropType<ReportParamOptionsLoader>, default: undefined },
   reportId: {
     type: [String, Array] as PropType<string | string[] | null>,
     default: null
@@ -298,7 +304,7 @@ const editing = useCellEditing({
 });
 const cells = useCellSelection({
   plan, root: containerRef,
-  enabled: () => !!effectiveEditable.value || calculationsEnabled.value,
+  enabled: () => !!effectiveEditable.value || calculationsEnabled.value || !!(props.drill ?? resolved.value.drill),
   editable: () => !!effectiveEditable.value,
   busy: () => loading.value || importing.value || editing.saving.value || !!exporting.value || printing.value || discard.pending.value,
   differences: () => editing.differences.value,
@@ -316,6 +322,15 @@ const discard = useDiscardGuard({
   error: (cause) => reportError(cause instanceof Error ? cause.message : "修改保护回调失败", "config", cause)
 });
 async function confirmDiscard(reason: ReportDiscardReason = "leave"): Promise<boolean> { return discard.check(reason); }
+const drill = useReportDrill({
+  plan, selection: cells.selection,
+  options: () => props.drill ?? resolved.value.drill,
+  params: () => ({ ...loadedContext.value?.params }),
+  view: () => ({ zoom: zoom.value, scrollTop: containerRef.value?.scrollTop ?? 0, scrollLeft: containerRef.value?.scrollLeft ?? 0 }),
+  messages: () => resolvedMessages.value,
+  busy: () => loading.value || importing.value || editing.saving.value || !!exporting.value || printing.value,
+  beforeOpen: () => confirmDiscard("leave")
+});
 function onBeforeUnload(event: BeforeUnloadEvent): void {
   if (!effectiveGuardChanges.value || !editing.pendingLocalChanges.value) return;
   event.preventDefault(); event.returnValue = "";
@@ -951,6 +966,7 @@ defineExpose({ ...controller, state });
       ref="paramPanelRef"
       v-if="effectiveShowParams && effectiveParamDefs.length > 0"
       :defs="effectiveParamDefs"
+      :load-options="props.loadParamOptions ?? resolved.loadParamOptions"
       v-model="paramValues"
       :messages="resolvedMessages"
       :attempted="paramAttempted"
@@ -998,6 +1014,7 @@ defineExpose({ ...controller, state });
     <ReportTaskStatus :task="task.state.value" :messages="resolvedMessages" @cancel="cancelTask" />
     <ReportDiagnostics :entries="outputDiagnostics" :messages="resolvedMessages" @locate="locateDiagnostic" />
     <ReportDataExplanation :entries="dataExplanations" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @locate="locateDataExplanation" />
+    <ReportDrillActions :entries="drill.entries.value" :pending="drill.pending.value" :error="drill.error.value" :busy="loading || importing || editing.saving.value" :messages="resolvedMessages" @open="drill.open" />
     <ReportSettings v-if="settingsOpen && effectiveShowSettings" :available="availableTools" :enabled="toolState" :messages="resolvedMessages" :persisted-editing="persistedEditing" :interaction="effectiveInteraction" :section="settingsSection" :busy="loading || importing || editing.saving.value || !!exporting || printing" @section="settingsSection = $event" @interaction="sessionInteraction = { ...sessionInteraction, ...$event }" @change="onToolChange" @reset="resetTools" @close="settingsOpen = false">
       <slot name="settings" />
       <ReportPrintSettings v-if="toolState.print" :value="effectivePrintOptions.calibration ?? {}" :messages="resolvedMessages" :busy="printing || loading || importing || editing.saving.value" :can-test="canCalibratePrint" @change="localPrintCalibration = $event" @test="testPrintCalibration" />

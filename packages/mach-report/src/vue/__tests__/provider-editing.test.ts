@@ -19,6 +19,14 @@ async function create(provider: ReportProvider, params: () => Record<string, str
   return { wrapper, report };
 }
 describe("explicit provider editing bridge", () => {
+  it.each([false, true])("does not turn a committed save into failure when a diagnostic observer throws (async=%s)", async asynchronous => {
+    const save = vi.fn().mockResolvedValue({ revision: "v2", diagnostics: [{ code: "info", message: "saved", severity: "info" }] });
+    const observer = () => { if (asynchronous) return Promise.reject(new Error("observer")); throw new Error("observer"); };
+    const editing = createProviderEditing({ query: () => ({ datasets: {} }), save }, { reportId: "A", onDiagnostic: observer });
+    const result = await editing.save!({ address: { pageIndex: 0, componentIndex: 0, rowIndex: 0, columnIndex: 0 }, previousValue: 1, previousText: "1", value: 2, text: "2", source: { datasetId: "detail", rowKey: "1", field: "qty" } }, { signal: new AbortController().signal });
+    expect(result).toMatchObject({ revision: "v2" }); expect(save).toHaveBeenCalledOnce();
+    await Promise.resolve();
+  });
   it("maps report/query/source metadata and atomic edits, then advances revision and preserves undo semantics", async () => {
     const save = vi.fn().mockResolvedValueOnce({ revision: "v2", sourceToken: "token2" }).mockResolvedValue({ revision: "v3", sourceToken: "token3" });
     const provider: ReportProvider = { query: () => ({ datasets: {} }), save };

@@ -297,7 +297,7 @@ app.use(machReportPlugin, { fetcher, config });
 
 PDF 和 XLSX 子路径的发布包声明 Node.js ≥ 18；只导入需要的入口。XLSX 默认 `sheetMode: "auto"`：明确标记的 wide 列表按逻辑表还原连续 Sheet，其余页面仍每页一张。`pages` 强制逐页，`continuous` 要求完整列表元数据，不明布局明确拒绝。wide 默认 raw，其余默认 text；`valueMode` 可覆盖。raw 使用列表保存的原始数值/布尔/文本/空值及数字格式，无元数据的旧计划回退显示文本，日期对象和公式不自动转换。`paperSize` 默认 auto，普通页识别 A3/A4/A5，wide 不强制纸型；显式纸型仅设置打印，不改变列宽。它不做坐标复刻，无法导出的内容返回告警。完整例子见 [Excel 导出指南](./EXCEL.md)。Word 出口生成兼容 HTML `.doc`，不是 `.docx`。
 
-Canvas / PNG 当前不绘制图片型组件（图片、条码、二维码、图表）；预览与各导出后端的支持范围应按实际组件验证。SQL 入口只编译 / 校验字符串，不连接数据库；业务后端仍需使用参数绑定、只读账户和查询权限控制。
+异步 Canvas / PNG 会等待图片型组件解码后绘制（同步 API 保留占位诊断）；顶层富文本在 PDF/XLSX 支持基本字面，Canvas 仍按纯文本降级。完整范围见[输出质量矩阵](./QUALITY.md)。SQL 入口只编译 / 校验字符串，不连接数据库；业务后端仍需使用参数绑定、只读账户和查询权限控制。
 
 ## 模块联邦
 
@@ -345,3 +345,9 @@ pnpm test:e2e
 | `/server/node` | `openFileReportJobStore / reportArtifactSha256` | 单进程文件适配器与可选输出摘要 |
 
 详细配置见[设计器](./DESIGNER.md)、[Excel绑定](./EXCEL_BINDING.md)、[复杂报表](./COMPLEX_REPORTS.md)、[发布验收](./PUBLICATION_REVIEW.md)、[持久任务](./DURABLE_JOBS.md)。常规预览仍只需要报表ID与参数。
+
+### PDF 实际编码门禁与图片预算
+
+`renderPlanToPdf(plan, { fidelity: "strict" })` 对运行期缺字、坏图片、组件失败及已发现版式降级抛出 `OutputFidelityError`；`diagnostics` 中提供稳定错误码与页/组件位置。默认 `warn` 保留文件和诊断，适合显式人工检查；自动归档建议 strict 并提供真实字体字面。`unsupported-text` / `invalid-image-data` / `component-render-failed` / `output-degraded` 会通过 `onDiagnostic` 通知；观察器同步/异步异常不影响输出事务。
+
+`ImageMediaOptions` 从 `/pdf` 与 `/xlsx` 导出，两个编码入口都支持 `maxImageBytes`、`maxTotalImageBytes`、`maxImages`、`maxImagePixels`、`maxTotalImagePixels`、`maxImageDimension`。PNG/JPEG签名和尺寸在像素解码前检查；重复媒体按规范化后的身份去重，预算超限始终失败。

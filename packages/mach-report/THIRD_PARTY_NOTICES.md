@@ -1,4 +1,6 @@
-# Third-party notices for the optional codes entry
+# Third-party notices
+
+The published package also includes `dist/sbom.cdx.json`, `dist/licenses/` and `dist/artifact-integrity.json` for the resolved optional PDF, Excel, SQL and code-generation dependency closure. Missing upstream notice texts are explicitly marked in the inventory. The notices below additionally preserve embedded code/font asset attribution.
 
 The optional `@agile-team/mach-report/codes` build includes the following third-party software. Their original licenses remain applicable to their respective components and embedded font assets. These notices do not change the MachReport license. The encoding and raster libraries are absent from the core entry.
 

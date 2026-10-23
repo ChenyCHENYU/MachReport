@@ -45,7 +45,9 @@ describe("output capability preflight", () => {
 
   it("reports rich text and nested components without loading a renderer", () => {
     const rich = plan({ kind: "text", richParagraphs: [{ segments: [{ text: "Revenue", style: { bold: true } }] }] });
-    expect(inspectOutputCapabilities(rich, "pdf")[0]?.code).toBe("rich-text-flattened");
+    expect(inspectOutputCapabilities(rich, "pdf")).toEqual([]);
+    expect(inspectOutputCapabilities(rich, "xlsx")).toEqual([]);
+    expect(inspectOutputCapabilities(rich, "canvas")[0]?.code).toBe("rich-text-flattened");
     const grid = plan({ kind: "rect", grid: { cells: [[{ text: "cell", children: [{ kind: "qrcode", leftMm: 0, topMm: 0, widthMm: 10, heightMm: 10 }] }]] } });
     expect(inspectOutputCapabilities(grid, "canvas")[0]?.code).toBe("nested-components-omitted");
     expect(inspectOutputCapabilities(grid, "dom")).toEqual([expect.objectContaining({ code: "missing-image", kind: "qrcode", componentPath: [0, 0, 0] })]);

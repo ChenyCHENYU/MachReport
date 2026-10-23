@@ -9,3 +9,5 @@ export * from "./xlsx/bind-template";
 export * from "./xlsx/binding-workflow";
 export * from "./xlsx/binding-preview";
 export * from "./xlsx/region-binding-workflow";
+
+export type { ImageMediaOptions } from "./output/media";

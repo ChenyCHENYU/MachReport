@@ -3,6 +3,7 @@ import { createWriteStream } from "node:fs";
 import { setImmediate as yieldToIo } from "node:timers/promises";
 import { isWritable, type Writable } from "node:stream";
 import ExcelJS from "exceljs";
+import { observeOutput } from "../output/progress";
 
 export type XlsxRowValue = string | number | boolean | Date | null | undefined;
 
@@ -166,7 +167,7 @@ export async function writeRowsToXlsx<Row extends object>(rows: AsyncIterable<Ro
       rowsWritten++;
       if (rowsWritten % (options.batchSize ?? 256) === 0) {
         await downstreamReady(destination, controller.signal);
-        options.onProgress?.({ rowsWritten, elapsedMs: Date.now() - startedAt });
+        observeOutput(() => options.onProgress?.({ rowsWritten, elapsedMs: Date.now() - startedAt }));
       }
     }
     checkBudget(controller.signal, startedAt, options.maxDurationMs);
@@ -174,7 +175,7 @@ export async function writeRowsToXlsx<Row extends object>(rows: AsyncIterable<Ro
     await withAbort(workbook.commit(), controller.signal);
     completed = true;
     const result = { rowsWritten, elapsedMs: Date.now() - startedAt };
-    options.onProgress?.(result);
+    observeOutput(() => options.onProgress?.(result));
     return result;
   } finally {
     clearTimeout(deadline);

@@ -1,7 +1,8 @@
 import { createReportSource, ReportSourceError, type ReportRegistry } from "../source/report-source";
+import { reportOccurrenceScope } from "../source/report-identity";
 import { getReportParamDefs } from "../source/report-params";
 import { reportParamsJsonSchema, ReportParamValidationError, validateReportParams, type ReportParamValidation } from "../source/param-validation";
-import type { PreparedReport, ReportDescription, ReportRuntime, ReportRuntimeBudget, ReportRuntimeExportInput, ReportRuntimeExportResult, ReportRuntimeInput, ReportRuntimeOptions, ReportRuntimePreparedExportInput } from "./types";
+import type { PreparedReport, ReportDescription, ReportRuntime, ReportRuntimeBudget, ReportRuntimeExportInput, ReportRuntimeExportResult, ReportRuntimeInput, ReportRuntimeOptions, ReportRuntimePreparedExportInput, ReportRuntimeSource } from "./types";
 import { assertBudget, controlled, ReportRuntimeError, throwIfAborted, validateBudget } from "./control";
 import type { PlanComponent } from "../schema/render-plan";
 import { validateRenderPlan } from "../schema/validate";
@@ -15,6 +16,10 @@ import { resolvePlanAssets } from "../output/assets";
 import { encodePreparedReport, outputDiagnostics } from "./runtime-output";
 import { checkPreparedFont, reportFontFingerprint, snapshotPreparedReport, snapshotPdfFonts, snapshotXlsxOptions } from "./prepared";
 
+/** Capture IDs and flat parameters before font/Worker loading can yield. */
+function snapshotRuntimeInput<T extends ReportRuntimeInput>(input: T): T {
+  return { ...input, reportIds: [...input.reportIds], ...(input.params ? { params: { ...input.params } } : {}) };
+}
 function definitions(reports: ReportRegistry, ids: string[]) {
   if (ids.length === 0) throw new ReportSourceError("config", "缺少报表 ID");
   return ids.map((id) => {
@@ -75,6 +80,7 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
     let inputCells = 0;
     const diagnostics: PreparedReport["diagnostics"] = [];
     const revisions: PreparedReport["revisions"] = {};
+    const sources: ReportRuntimeSource[] = [];
     const reports = Object.fromEntries(Object.entries(options.reports).map(([id, definition]) => [id, { ...definition,
       pagination: { ...options.pagination, ...definition.pagination, ...(measurer ? { measurer } : {}) },
       dataValidation: { ...definition.dataValidation,
@@ -89,9 +95,12 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
       inputCells += logicalCells(template, data, reports[id]?.pagination);
       assertBudget(budget, "maxCells", inputCells);
     } });
-    const rawPlan = await source({ ...input, params: input.params ?? {}, onWarning: (message) => diagnostics.push({ code: "layout", message, severity: "warning" }), onQueryResult: (id, result) => {
+    const rawPlan = await source({ ...input, params: input.params ?? {}, onWarning: (message) => diagnostics.push({ code: "layout", message, severity: "warning" }), onQueryResult: (id, result, reportIndex = 0) => {
+      const reportScope = reportOccurrenceScope(reportIndex, id);
       Object.defineProperty(revisions, id, { value: { revision: result.revision, sourceToken: result.sourceToken }, enumerable: true, writable: true });
-      diagnostics.push(...result.diagnostics ?? []);
+      sources.push({ reportId: id, reportIndex, reportScope, ...(result.revision === undefined ? {} : { revision: result.revision }), ...(result.sourceToken === undefined ? {} : { sourceToken: result.sourceToken }) });
+      diagnostics.push(...(result.diagnostics ?? []).map(entry => ({ ...entry, ...(entry.target ? { target: { ...entry.target, reportScope,
+        ...(entry.target.tableId ? { tableId: JSON.stringify([reportIndex, id, entry.target.tableId]) } : {}) } } : {}) })));
     } }).catch((error: unknown) => {
       if (error instanceof ReportSourceError && error.cause instanceof PaginatePageLimitError) throw new ReportRuntimeError("budget", error.cause.message, "$.budget.maxPages");
       if (error instanceof ReportSourceError && error.cause instanceof PaginateCellLimitError) throw new ReportRuntimeError("budget", error.cause.message, "$.budget.maxCells");
@@ -107,7 +116,7 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
     assertBudget(budget, "maxPages", plan.pages.length); assertBudget(budget, "maxCells", cells);
     const fingerprint = reportFontFingerprint(input.pdf);
     const providedMetrics = options.pagination?.measurer || Object.values(options.reports).some(definition => definition.pagination?.measurer);
-    return { plan, diagnostics, revisions, layout: { textMetrics: fingerprint ? "font-bytes" : providedMetrics ? "provided" : "heuristic", ...(fingerprint ? { fontFingerprint: fingerprint } : {}) }, stats: { rows, pages: plan.pages.length, cells, durationMs: Date.now() - started } };
+    return { plan, diagnostics, revisions, sources, layout: { textMetrics: fingerprint ? "font-bytes" : providedMetrics ? "provided" : "heuristic", ...(fingerprint ? { fontFingerprint: fingerprint } : {}) }, stats: { rows, pages: plan.pages.length, cells, durationMs: Date.now() - started } };
   };
   const localExport = async (input: ReportRuntimeExportInput): Promise<ReportRuntimeExportResult> => {
     const started = Date.now();
@@ -124,7 +133,7 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
     describe: (ids) => describe(options.reports, ids),
     validate: (input) => validateInput(options.reports, input),
     prepare: (input) => controlled(input.signal, budget.maxDurationMs, async (signal) => {
-      const { signal: _signal, onEvent, ...values } = input;
+      const { signal: _signal, onEvent, ...values } = snapshotRuntimeInput(input);
       const request = { ...values, ...(values.pdf ? { pdf: snapshotPdfFonts(values.pdf) } : {}), taskId: values.taskId ?? reportTaskId() };
       const observe = onEvent ? (event: ReportTaskEvent) => notifyReportTaskEvent(onEvent, event, signal) : undefined;
       const monitoring = { ...request, signal, onEvent: observe };
@@ -161,7 +170,7 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
       return encodePreparedReport(monitoring, budget, started);
     }),
     export: (input) => controlled(input.signal, budget.maxDurationMs, async (signal) => {
-      const { signal: _signal, onEvent, ...values } = input;
+      const { signal: _signal, onEvent, ...values } = snapshotRuntimeInput(input);
       const request = { ...values, xlsx: snapshotXlsxOptions(values.xlsx), ...(values.pdf ? { pdf: snapshotPdfFonts(values.pdf) } : {}), taskId: values.taskId ?? reportTaskId() };
       const observe = onEvent ? (event: ReportTaskEvent) => notifyReportTaskEvent(onEvent, event, signal) : undefined;
       const monitoring = { ...request, signal, onEvent: observe };

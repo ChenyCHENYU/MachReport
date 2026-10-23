@@ -3,11 +3,12 @@ import { paginateTemplate } from "../layout/paginate";
 import type { RenderPlan } from "../schema/render-plan";
 import { createReportCellResolver, type ReportCellContext } from "./context";
 import { editFromContext, sourceChanged, type ReportCellEdit } from "./apply";
-import { applyReportEditResult } from "./result";
+import { applyReportEditResult, applyReportSourceMetadata } from "./result";
 import { reportCellEditKey, type ReportEditBatch, type ReportEditResult } from "./batch";
 import { ReportCellEditError, formatReportCellEdit } from "./value";
-import { createSessionRowResolver, sessionConcurrencyChanges, sessionFingerprint, snapshotSessionParts, updateSessionRows, type ReportEditSessionPart, type SessionRow } from "./session-data";
+import { createSessionRowResolver, sessionConcurrencyChanges, sourceDatasetKey, updateSessionRows, type ReportEditSessionPart, type SessionRow } from "./session-data";
 import { indexSessionContexts } from "./session-context";
+import { captureSessionGuard, snapshotSessionParts } from "./session-snapshot";
 import { reflowReportTemplate } from "./session-pagination";
 
 export interface ReportPreparedEdit {
@@ -63,20 +64,29 @@ function refreshContext(context: ReportCellContext, value: unknown, result?: voi
 }
 function concurrencyParts(parts: readonly ReportEditSessionPart[], batch: ReportEditBatch, result?: void | ReportEditResult): ReportEditSessionPart[] {
   if (!result || result.revision === undefined && result.sourceToken === undefined) return [...parts];
-  const datasets = new Set(batch.edits.flatMap((edit) => edit.source ? [edit.source.datasetId] : []));
+  const datasets = new Set(batch.edits.flatMap((edit) => edit.source ? [sourceDatasetKey(edit.source)] : []));
   return updateSessionRows(parts, sessionConcurrencyChanges(parts, datasets, result));
 }
+function rememberConcurrency(metadata: Map<string, ReportEditResult>, batch: ReportEditBatch, result: ReportEditResult): Set<string> {
+  const affected = new Set(batch.edits.map(edit => sourceDatasetKey(edit.source!)));
+  for (const key of affected) metadata.set(key, { ...metadata.get(key),
+    ...(result.revision !== undefined ? { revision: result.revision } : {}),
+    ...(result.sourceToken !== undefined ? { sourceToken: result.sourceToken } : {}) });
+  return affected;
+}
 
-/** Registers only context references/fingerprint. Read-only loads never deep-copy data or reflow. */
+/** Registers a bounded descriptor guard. Immutable strings are retained, never rescanned character by character. */
 export function registerReportEditSession(initial: RenderPlan, registration: ReportEditSessionRegistration): ReportEditSession {
   let sourceParts: readonly ReportEditSessionPart[] | undefined = registration.parts;
-  const rebuild = registration.rebuild, initialFingerprint = sessionFingerprint(sourceParts);
+  const rebuild = registration.rebuild;
+  let initialGuard: (() => boolean) | undefined = captureSessionGuard(sourceParts);
   let current = initial, parts: ReportEditSessionPart[] | undefined;
   const retainedContexts = new Map<string, ReportCellContext>();
+  const concurrency = new Map<string, ReportEditResult>();
   function baseline(plan: RenderPlan): ReportEditSessionPart[] {
     if (plan !== current) throw new ReportCellEditError("conflict");
     if (parts) return parts;
-    if (sessionFingerprint(sourceParts!) !== initialFingerprint) throw new ReportCellEditError("conflict");
+    if (!initialGuard?.()) throw new ReportCellEditError("conflict");
     return snapshotSessionParts(sourceParts!);
   }
   async function prepare(plan: RenderPlan, batch: ReportEditBatch, contexts: readonly ReportCellContext[], options: ReportEditPreparationOptions = {}): Promise<ReportPreparedEdit> {
@@ -87,7 +97,7 @@ export function registerReportEditSession(initial: RenderPlan, registration: Rep
     // Paint busy indicators before source fingerprint/snapshot and the first layout slice.
     await new Promise<void>((resolve) => setTimeout(resolve, 0)); active(options.signal);
     const base = baseline(plan), nextParts = updateSessionRows(base, changesFor(base, batch.edits));
-    const nextPlan = await rebuild(nextParts, options.signal); active(options.signal);
+    const nextPlan = applyReportSourceMetadata(await rebuild(nextParts, options.signal), concurrency); active(options.signal);
     let committed = false;
     return { plan: nextPlan, commit(result) {
       active(options.signal);
@@ -95,11 +105,11 @@ export function registerReportEditSession(initial: RenderPlan, registration: Rep
       if (result?.conflicts?.length) throw new ReportCellEditError("conflict");
       const committedParts = concurrencyParts(nextParts, batch, result), committedPlan = applyReportEditResult(nextPlan, batch, result);
       if (result) {
-        const affected = new Set(batch.edits.map((edit) => edit.source!.datasetId));
-        for (const [key, context] of retainedContexts) if (affected.has(context.source!.datasetId)) retainedContexts.set(key, refreshContext(context, context.value, result));
+        const affected = rememberConcurrency(concurrency, batch, result);
+        for (const [key, context] of retainedContexts) if (affected.has(sourceDatasetKey(context.source!))) retainedContexts.set(key, refreshContext(context, context.value, result));
       }
       contexts.forEach((context, index) => retainedContexts.set(reportCellEditKey(context), refreshContext(context, batch.edits[index]!.value, result)));
-      committed = true; parts = committedParts; sourceParts = undefined; current = committedPlan; sessions.set(current, session); return current;
+      committed = true; parts = committedParts; sourceParts = undefined; initialGuard = undefined; current = committedPlan; sessions.set(current, session); return current;
     } };
   }
   const session: ReportEditSession = {

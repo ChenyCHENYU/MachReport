@@ -46,7 +46,20 @@ export function snapshotPreparedReport(input: PreparedReport, maxBytes: number, 
   return snapshot;
 }
 
+export function validPreparedSources(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value)) return false;
+  const indexes = new Set<number>();
+  return value.every(source => {
+    if (!source || typeof source !== "object" || Array.isArray(source)) return false;
+    if (typeof source.reportId !== "string" || !source.reportId.trim() || !Number.isSafeInteger(source.reportIndex) || source.reportIndex < 0 || indexes.has(source.reportIndex)) return false;
+    if (typeof source.reportScope !== "string" || !source.reportScope.trim() || source.reportScope.length > 4096) return false;
+    if (source.revision !== undefined && typeof source.revision !== "string" || source.sourceToken !== undefined && typeof source.sourceToken !== "string") return false;
+    indexes.add(source.reportIndex); return true;
+  });
+}
 export function validatePreparedMetadata(snapshot: PreparedReport): void {
+  if (!validPreparedSources(snapshot.sources)) throw new ReportSourceError("validate", "准备结果来源清单无效");
   if (!snapshot?.stats || ["rows", "pages", "cells"].some(key => !Number.isSafeInteger(snapshot.stats[key as "rows"]) || snapshot.stats[key as "rows"] < 0) || !Number.isFinite(snapshot.stats.durationMs) || snapshot.stats.durationMs < 0) throw new ReportSourceError("validate", "准备结果统计无效");
   if (!Array.isArray(snapshot.diagnostics) || snapshot.diagnostics.some(entry => !entry || typeof entry.code !== "string" || typeof entry.message !== "string" || !["info", "warning", "error"].includes(entry.severity) || !hasValidDataExplanation(entry))) throw new ReportSourceError("validate", "准备结果诊断无效");
   if (!snapshot.revisions || typeof snapshot.revisions !== "object" || Array.isArray(snapshot.revisions) || Object.values(snapshot.revisions).some(value => !value || typeof value !== "object" || value.revision !== undefined && typeof value.revision !== "string" || value.sourceToken !== undefined && typeof value.sourceToken !== "string")) throw new ReportSourceError("validate", "准备结果修订无效");

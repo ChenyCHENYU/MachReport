@@ -305,7 +305,7 @@ describe("renderPlanToPdf", () => {
     expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe("%PDF-");
   });
 
-  it("富文本降级为纯文本并计入保真告警", async () => {
+  it("基础富文本段落可直接输出并通过严格保真检查", async () => {
     const plan: RenderPlan = {
       schemaVersion: "t",
       pages: [
@@ -327,8 +327,8 @@ describe("renderPlanToPdf", () => {
         }
       ]
     };
-    const { fidelityWarnings, bytes } = await renderPlanToPdf(plan);
-    expect(fidelityWarnings.some((w) => w.includes("富文本"))).toBe(true);
+    const { fidelityWarnings, bytes } = await renderPlanToPdf(plan, { fidelity: "strict" });
+    expect(fidelityWarnings).toEqual([]);
     expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe("%PDF-");
   });
 

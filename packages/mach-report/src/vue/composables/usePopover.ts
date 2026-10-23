@@ -1,7 +1,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 /** A local popup closes on pointer/focus leaving it, without stealing outside focus. */
-export function usePopover() {
+export function usePopover(options: { focusOnOpen?: boolean } = {}) {
   const opened = ref(false);
   const root = ref<HTMLElement | null>(null);
   const trigger = ref<HTMLButtonElement | null>(null);
@@ -18,7 +18,7 @@ export function usePopover() {
     event.preventDefault(); event.stopPropagation(); close(true);
   }
   watch(opened, (value) => {
-    if (!value) return;
+    if (!value || options.focusOnOpen === false) return;
     void nextTick(() => (panel.value?.querySelector<HTMLElement>("input") ?? panel.value?.querySelector<HTMLElement>("button:not(:disabled)"))?.focus());
   });
   onMounted(() => {

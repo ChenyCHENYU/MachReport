@@ -75,7 +75,25 @@ describe("print calibration", () => {
       return element;
     }) as typeof document.createElement);
     const onError = vi.fn();
-    await printPlans([createPrintCalibrationPlan(80, 55)], { printOptions: { resourceTimeoutMs: 0 }, onError });
+    await expect(printPlans([createPrintCalibrationPlan(80, 55)], { printOptions: { resourceTimeoutMs: 0 }, onError })).rejects.toMatchObject({ code: "print-resource", kind: "config" });
     expect(print).not.toHaveBeenCalled(); expect(onError).toHaveBeenCalledOnce(); expect(document.querySelectorAll("iframe")).toHaveLength(0);
+  });
+  it("immediately removes a prepared iframe when the browser print call throws", async () => {
+    const before = document.createElement.bind(document), failure = new Error("browser rejected print");
+    vi.spyOn(document, "createElement").mockImplementation(((name: string, options?: ElementCreationOptions) => {
+      const element = before(name, options);
+      if (name === "iframe") queueMicrotask(() => {
+        Object.defineProperty((element as HTMLIFrameElement).contentWindow!, "print", { value: () => { throw failure; } });
+      });
+      return element;
+    }) as typeof document.createElement);
+    await expect(printPlans([createPrintCalibrationPlan(80, 55)])).rejects.toBe(failure);
+    expect(document.querySelectorAll("iframe")).toHaveLength(0);
+  });
+  it("rejects the original failure without an observer and isolates throwing observers", async () => {
+    for (const onError of [undefined, () => { throw new Error("observer failure"); }, async () => { throw new Error("async observer failure"); }]) {
+      await expect(printPlans([createPrintCalibrationPlan(80, 55)], { printOptions: { resourceTimeoutMs: 0 }, onError })).rejects.toMatchObject({ code: "print-resource", kind: "config" });
+      expect(document.querySelectorAll("iframe")).toHaveLength(0);
+    }
   });
 });

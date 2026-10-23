@@ -131,3 +131,11 @@ await clearFontCache(); // 清理内存与持久缓存，并隔离迟到加载
 下载会先检查 Content-Length；没有长度或服务端误报时，继续逐块累计，在超限时取消响应读取，不会先读完整大文件再判断。15 秒超时覆盖响应头与正文读取。严格模式给出 URL 和预算诊断，旧接口仍以 `null` 降级。
 
 同一 URL 的并发调用共享下载。`signal` 只取消当前订阅；其他调用继续等待同一请求，取消以 AbortError（或调用者提供的 reason）拒绝，即使未设置 `strict` 也不会伪装成普通字体缺失。缓存淘汰只移除包持有的引用，已经交给 PDF 导出的字节仍可继续使用。`clearFontCache` / `invalidateFontCache` 会阻止旧请求重新填充已清理的缓存。
+
+## 严格交付与基础富文本
+
+`fidelity: "strict"` 同时执行编码前能力检查和编码后的实际诊断门禁；缺字、坏图、组件失败、缺少真实粗斜字面及溢出会拒绝文件交付。默认 `warn` 可返回带诊断的文件供人工检查。每条动态诊断带页/组件位置；不能只检查PDF文件头而忽略 `diagnostics`、`unsupportedTextCount`、`pageErrors`。显式Helvetica使用PDF标准字面，Calibri等其他字体需要真实字节，不能把字体替代视为严格还原。
+
+顶层 `richParagraphs` 支持基本混合字号、颜色、粗体、斜体、下划线、段落换行/间距/缩进与居中/居右。字面仍遵循 `customFontFaces` 配置；两端对齐、片段背景及不支持样式通过预检说明，格内嵌套组件继续显式诊断。
+
+PDF与Excel共享PNG/JPEG媒体预检：`maxImageBytes`默认16 MiB，`maxTotalImageBytes`32 MiB，`maxImages`1000，`maxImagePixels`1600万，`maxTotalImagePixels`6400万，`maxImageDimension`16384。已有data URI同样受限；MIME大小写、jpg/jpeg别名规范化，按唯一媒体累计。预算在进入像素解码前检查并始终拒绝超限，适配器生成资源另外遵循 `assetBudget`。

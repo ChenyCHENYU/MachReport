@@ -5,6 +5,8 @@ import type { TemplatePage } from "../layout/paginate";
 import type { GridCell, PlanComponent } from "../schema/render-plan";
 import { RENDER_PLAN_SCHEMA_VERSION } from "../schema/render-plan";
 import { checkedExcelBytes } from "./import-zip";
+import { createImageMediaInspector } from "../output/media";
+import { createSheetImageImporter } from "./import-images";
 import { importCellValue } from "./import-value";
 import { importTheme, styleImporter } from "./import-style";
 import { excelColumnWidthToMm } from "./column-width";
@@ -155,7 +157,7 @@ function warnSheetFeatures(sheet: ExcelJS.Worksheet, warnings: ImportWarnings): 
   if (Object.keys(featureSource.dataValidations?.model ?? {}).length) warnings.add(`${sheet.name}: Excel 数据验证与下拉输入规则不导入；业务校验应由宿主配置`);
 }
 
-async function importSheet(sheet: ExcelJS.Worksheet, range: CellRange, workbook: ExcelJS.Workbook, options: ResolvedImportOptions, warnings: ImportWarnings, index: number, task: OutputTaskOptions): Promise<TemplatePage[]> {
+async function importSheet(sheet: ExcelJS.Worksheet, range: CellRange, workbook: ExcelJS.Workbook, options: ResolvedImportOptions, warnings: ImportWarnings, index: number, task: OutputTaskOptions, inspectImages: ReturnType<typeof createImageMediaInspector>): Promise<TemplatePage[]> {
   warnSheetFeatures(sheet, warnings);
   const merges = selectedMerges(sheet, range);
   const groups = mergeRowGroups(range, merges);
@@ -173,9 +175,12 @@ async function importSheet(sheet: ExcelJS.Worksheet, range: CellRange, workbook:
     date1904: workbook.properties.date1904 === true, tableId: `xlsx:${index}:${sheet.name}`, headerBottom: groups[0]!.bottom
   };
   const pages: TemplatePage[] = [];
+  const images = createSheetImageImporter(workbook, sheet, range, geometry, warnings, inspectImages);
   for (const segment of segments) {
     assertOutputActive(task.signal);
-    pages.push(segmentPage(context, segment));
+    const page = segmentPage(context, segment);
+    page.components.push(...images(segment));
+    pages.push(page);
     // Conversion checkpoints yield without mixing segments into public Sheet progress.
     if (pages.length % 8 === 0) await outputCheckpoint({ signal: task.signal }, pages.length, segments.length);
   }
@@ -231,6 +236,7 @@ export async function importExcelTemplate(input: ArrayBuffer | Uint8Array | Blob
 
 /** Internal conversion reused by a bounded session without repeating ZIP/ExcelJS parsing. */
 export async function importLoadedWorkbook(workbook: ExcelJS.Workbook, options: ExcelImportOptions, resolved: ResolvedImportOptions, warnings: ImportWarnings): Promise<ExcelImportResult> {
+  const inspectImages = createImageMediaInspector();
   assertOutputActive(options.signal);
   const selected = selectSheets(workbook, options);
   if (!selected.length) throw new Error("Excel 中没有可导入的可见工作表；可通过 sheets 显式选择隐藏工作表");
@@ -241,7 +247,7 @@ export async function importLoadedWorkbook(workbook: ExcelJS.Workbook, options: 
     const range = selectedRange(sheet, sheetRangeOption(options, sheet.name));
     remaining -= checkedRange(range, resolved, remaining);
     const index = workbook.worksheets.indexOf(sheet) + 1;
-    const pages = await importSheet(sheet, range, workbook, resolved, warnings, index, options);
+    const pages = await importSheet(sheet, range, workbook, resolved, warnings, index, options, inspectImages);
     sheets.push({ name: sheet.name, index, range: rangeName(range), rowCount: range.bottom - range.top + 1, columnCount: range.right - range.left + 1, pageStart: template.pages.length, pageCount: pages.length });
     template.pages.push(...pages);
     await outputCheckpoint(options, sheets.length, selected.length);

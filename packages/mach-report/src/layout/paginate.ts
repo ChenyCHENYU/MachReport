@@ -57,6 +57,10 @@ export interface ReportParamDef {
   type?: "text" | "number" | "date" | "month" | "year" | "dateRange" | "select";
   /** select 选项 */
   options?: Array<{ label: string; value: string }>;
+  /** Opaque host-resolved source key. No URL, credentials or executable code is stored. */
+  optionsSource?: string;
+  /** Select dependencies must be declared parameters; changing a parent clears descendants. */
+  dependsOn?: string[];
   defaultValue?: string;
   required?: boolean;
   placeholder?: string;

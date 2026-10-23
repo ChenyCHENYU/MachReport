@@ -10,3 +10,7 @@ export * from "./server/instance-store";
 export * from "./server/generation";
 
 export * from "./server/label-stream";
+
+export * from "./server/workflow";
+
+export * from "./server/template-package";

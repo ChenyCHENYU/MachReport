@@ -229,7 +229,7 @@ describe("renderPlanToXlsx（./xlsx 子路径）", () => {
     expect(warnings.some((w) => w.includes("已跳过"))).toBe(true);
   });
 
-  it("没有文本回退的富文本与未导出的嵌套组件计入告警，保留已有文本", async () => {
+  it("富文本保存真实文字片段，未支持的嵌套组件继续告警", async () => {
     const plan: RenderPlan = {
       schemaVersion: "t",
       pages: [{
@@ -255,14 +255,12 @@ describe("renderPlanToXlsx（./xlsx 子路径）", () => {
       }]
     };
     const { workbook, warnings } = await renderPlanToXlsx(plan);
-    expect(warnings).toHaveLength(4);
-    expect(warnings[0]).toContain("rich-only: 富文本内容");
-    expect(warnings[1]).toContain("rich-fallback: 富文本按已有文本回退导出");
-    expect(warnings[2]).toContain("nested-grid cell 1:1: 嵌套组件内容");
-    expect(warnings[3]).toContain("nested-grid cell 1:2: 嵌套组件内容");
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]).toContain("nested-grid cell 1:1: 嵌套组件内容");
+    expect(warnings[1]).toContain("nested-grid cell 1:2: 嵌套组件内容");
     const sheet = workbook.worksheets[0]!;
-    expect(sheet.getCell("A1").value).toBe("");
-    expect(sheet.getCell("A2").value).toBe("已有文本回退");
+    expect(sheet.getCell("A1").value).toMatchObject({ richText: [{ text: "富文本专有内容" }] });
+    expect(sheet.getCell("A2").value).toMatchObject({ richText: [{ text: "富文本" }] });
     expect(sheet.getCell("A3").value).toBe("");
     expect(sheet.getCell("B3").value).toBe("单元格已有文本");
   });

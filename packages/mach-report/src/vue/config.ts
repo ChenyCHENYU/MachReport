@@ -17,7 +17,11 @@ import { DEFAULT_PRINT_MESSAGES, type ReportPrintMessages, type ReportPrintOptio
  */
 
 /** 工具栏与状态文案（默认简体中文；出海场景覆写） */
-export interface MachReportMessages extends Partial<ReportCalculationMessages>, ReportPrintMessages {
+export interface MachReportMessages extends Partial<ReportCalculationMessages>, ReportPrintMessages, ReportParamOptionsMessages {
+  drillActions?: string;
+  drillOpening?: string;
+  drillMissingValue?: string;
+  drillFailed?: string;
   exportMenu?: string;
   exportMenuDescription?: string;
   clearSearch?: string;
@@ -212,6 +216,8 @@ export function resolveCalculationMessages(messages: Partial<ReportCalculationMe
 }
 
 export const DEFAULT_MESSAGES: MachReportMessages = {
+  ...PARAM_OPTIONS_MESSAGES,
+  drillActions: "查看关联", drillOpening: "正在打开…", drillMissingValue: "当前单元格缺少关联参数", drillFailed: "关联内容打开失败，请重试",
   ...DEFAULT_PRINT_MESSAGES,
   ...DEFAULT_CALCULATION_MESSAGES,
   exportMenu: "导出", exportMenuDescription: "选择文件格式", clearSearch: "清除搜索", searchHint: "Enter 下一个 · Shift+Enter 上一个", searchNoMatches: "没有匹配内容",
@@ -351,6 +357,8 @@ export interface MachReportPreviewOptions {
 
 /** defaults 层可配置项（全部可选，均有内置缺省） */
 export interface MachReportDefaults {
+  drill?: ReportDrillOptions;
+  loadParamOptions?: ReportParamOptionsLoader;
   printOptions?: ReportPrintOptions;
   showExport?: boolean;
   showPrint?: boolean;
@@ -413,6 +421,8 @@ export type ResolvedConfig = Required<
     "showExport" | "showPrint" | "showPdfWindow" | "showSettings" | "showParams" | "gapPx"
   >
 > & {
+  drill?: ReportDrillOptions;
+  loadParamOptions?: ReportParamOptionsLoader;
   pdfFontUrl: string;
   theme: MachReportTheme;
   messages: MachReportMessages;
@@ -498,6 +508,8 @@ export function resolveConfig(
     : undefined;
   const merged = mergeDefaults(config?.defaults, preset);
   return {
+    drill: merged.drill,
+    loadParamOptions: merged.loadParamOptions,
     ...resolveDisplayDefaults(merged),
     pdfFontUrl: merged.pdfFontUrl ?? FALLBACK_CONFIG.pdfFontUrl,
     theme: { ...DEFAULT_THEME, ...merged.theme },
@@ -580,3 +592,5 @@ export function provideMachReportConfig(overlay: MachReportConfigInput | MachRep
 export function useMachReportConfig(): ConfigRef {
   return inject<ConfigRef>(MACH_REPORT_CONFIG_KEY, computed(() => null));
 }
+import type { ReportDrillOptions } from "./drill";
+import { PARAM_OPTIONS_MESSAGES, type ReportParamOptionsLoader, type ReportParamOptionsMessages } from "./param-options";

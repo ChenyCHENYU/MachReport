@@ -7,7 +7,7 @@ import { useCellSelection } from "../composables/useCellSelection";
 
 it("prefers the original mirror for navigation while marking every visible source mirror", async () => {
   const template = createTableTemplate({ layout: "wide", columns: [{ field: "id", header: "ID" }, { field: "qty", header: "Qty" }], listOptions: { rowKey: "id" } });
-  const spec = { template, datasets: { detail: [{ id: "001", qty: 2 }] } }, source = createReportSource({ A: spec, B: spec });
+  const spec = { template, sourceScope: "mirror", datasets: { detail: [{ id: "001", qty: 2 }] } }, source = createReportSource({ A: spec, B: spec });
   const initial = await source({ reportIds: ["A", "B"], params: {} });
   const address = { pageIndex: 0, componentIndex: 1, rowIndex: 0, columnIndex: 1 };
   const batch = createReportCellEditBatch(initial, [{ address, value: 5 }], "mirror");

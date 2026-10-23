@@ -75,7 +75,12 @@ export function useTemplateColumns(
       : selectedColumns.value.filter((value) => value !== index);
   }
   function selectVisible(checked: boolean): void {
-    for (const item of visibleColumns.value) toggleColumn(item.index, checked);
+    const selected = new Set(selectedColumns.value);
+    for (const { index } of visibleColumns.value) {
+      if (checked) selected.add(index);
+      else selected.delete(index);
+    }
+    selectedColumns.value = [...selected];
   }
   function clearSelection(): void {
     selectedColumns.value = [];

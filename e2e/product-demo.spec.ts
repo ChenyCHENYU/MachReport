@@ -1,5 +1,22 @@
 import { expect, test } from "@playwright/test";
 
+test("关联动作仅在选中业务字段后出现，详情可键盘返回原单元格", async ({ page }) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  await page.goto("http://localhost:8610/product.html");
+  const report = page.locator(".product-preview");
+  const heat = report.getByRole("gridcell", { name: "000001", exact: true });
+  await expect(heat).toBeVisible();
+  await expect(report.locator(".mrp-drill-actions")).toHaveCount(0);
+  await heat.click();
+  const action = report.getByRole("button", { name: "查看炉次实绩", exact: true });
+  await expect(action).toBeVisible(); await action.focus(); await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "炉次 000001", exact: true });
+  await expect(dialog).toBeVisible(); await expect(dialog).toContainText("0 kg");
+  await page.screenshot({ path: "/private/tmp/mach-report-drill-detail.png" });
+  await page.keyboard.press("Escape"); await expect(dialog).not.toBeVisible(); await expect(heat).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
 test("复杂体验页使用原生设置/目录/类型编辑与草稿保护切换版式", async ({ page }) => {
   const errors: string[] = []; page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("http://localhost:8610/product.html");

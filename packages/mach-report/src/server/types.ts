@@ -27,11 +27,21 @@ export interface ReportRuntimeBudget {
   maxDurationMs?: number;
 }
 export interface ReportRuntimeStats { rows: number; pages: number; cells: number; durationMs: number; outputBytes?: number }
+/** One query occurrence; repeated report IDs retain independent provenance. */
+export interface ReportRuntimeSource {
+  reportId: string;
+  reportIndex: number;
+  reportScope: string;
+  revision?: string;
+  sourceToken?: string;
+}
 export interface PreparedReport {
   plan: RenderPlan;
   diagnostics: ReportDiagnostic[];
   stats: ReportRuntimeStats;
   revisions: Record<string, { revision?: string; sourceToken?: string }>;
+  /** Ordered occurrences; legacy revisions remains last-value-by-ID for compatibility. */
+  sources?: ReportRuntimeSource[];
   /** Captured metrics identity; absence on old saved instances remains supported with diagnostics. */
   layout?: { textMetrics: "heuristic" | "provided" | "font-bytes"; fontFingerprint?: string };
 }

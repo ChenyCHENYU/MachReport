@@ -13,6 +13,8 @@ import type { ReportProvider, ReportQueryResult } from "./provider";
 import { hasValidDataExplanation } from "./data-explanation";
 import { validateDatasetRows, type DatasetContract, type DatasetValidationOptions } from "../schema/dataset";
 import { templateValidationDatasets } from "./template-tree-data";
+import { reportOccurrenceScope, reportSourceScope } from "./report-identity";
+import { scopePlanComponents } from "./source-scope";
 
 /** 取数与排版共同使用的请求上下文；取消只影响本次调用。 */
 export interface ReportLoadContext {
@@ -44,6 +46,8 @@ export interface ReportSource extends ReportFetcher {
 export type ReportTemplateLoader = (context: ReportLoadContext) => ReportTemplate | Promise<ReportTemplate>;
 
 export interface ReportDefinition {
+  /** Explicitly shared editable data identity. Omit to isolate each report occurrence. */
+  sourceScope?: string;
   /** 静态模板或宿主提供的异步模板加载器；动态模板默认每次重新读取，不缓存版本。 */
   template: ReportTemplate | ReportTemplateLoader;
   /** 静态数据；load 存在时优先使用 load 的结果。 */
@@ -230,7 +234,7 @@ function paginateReport(template: ReportTemplate, data: DatasetRows, definition:
 }
 
 /** 同一模板可被多个报表或重复 ID 使用；只克隆带来源组件，不改宿主模板或数据。 */
-function appendTablePages(pages: RenderPlan["pages"], plan: RenderPlan, reportIndex: number, reportId: string): void {
+function appendTablePages(pages: RenderPlan["pages"], plan: RenderPlan, reportIndex: number, reportId: string, sourceScope?: string): void {
   const tableIds = new Map<string, string>();
   const scopedTableId = (id: string): string => {
     let scoped = tableIds.get(id);
@@ -239,11 +243,8 @@ function appendTablePages(pages: RenderPlan["pages"], plan: RenderPlan, reportIn
   };
   for (const page of plan.pages) pages.push({
     ...page,
-    meta: { ...page.meta, reportScope: JSON.stringify([reportIndex, reportId]) },
-    components: page.components.map((component) => component.table ? {
-      ...component,
-      table: { ...component.table, id: scopedTableId(component.table.id) }
-    } : component)
+    meta: { ...page.meta, reportScope: reportOccurrenceScope(reportIndex, reportId) },
+    components: scopePlanComponents(page.components, sourceScope ?? reportSourceScope(reportIndex, reportId), scopedTableId)
   });
 }
 
@@ -259,7 +260,7 @@ async function reflowSource(parts: readonly ReportEditSessionPart[], definitions
     const plan = await reflowReportTemplate(part.template, part.datasets, sourcePagination(definitions[index]?.pagination, remainingPages, remainingCells, signal));
     usedCells += planCells(plan);
     if (limits.maxCells !== undefined && usedCells > limits.maxCells) throw new PaginateCellLimitError(limits.maxCells, usedCells);
-    appendTablePages(pages, plan, index, reportIds[index]!);
+    appendTablePages(pages, plan, index, reportIds[index]!, part.sourceScope);
   }
   const plan = { schemaVersion: RENDER_PLAN_SCHEMA_VERSION, ...(parts.some((part) => templateRequiresRecalculation(part.template)) ? { requiresRecalculation: true } : {}), pages };
   const validation = validateRenderPlan(plan);
@@ -280,6 +281,7 @@ export function createReportSource(
   function definitionFor(id: string): ReportDefinition {
     const definition = Object.prototype.hasOwnProperty.call(reports, id) ? reports[id] : undefined;
     if (!definition) throw new ReportSourceError("config", `未注册报表 ${id}`);
+    if (definition.sourceScope !== undefined && (typeof definition.sourceScope !== "string" || !definition.sourceScope.trim() || definition.sourceScope.length > 512)) throw new ReportSourceError("config", "sourceScope 应为不超过 512 字符的非空字符串");
     return definition;
   }
 
@@ -317,8 +319,9 @@ export function createReportSource(
       checkAbort(signal);
       const result = reporter.runSync("layout", () => paginateReport(template, data, definition, reportId, { maxPages: options.maxPages, usedPages: pages.length, maxCells: options.maxCells, usedCells }, signal), reportId);
       usedCells += result.cells;
-      editParts.push({ template, datasets: data });
-      appendTablePages(pages, result.plan, index, reportId);
+      const sourceScope = reportSourceScope(index, reportId, definition.sourceScope);
+      editParts.push({ template, datasets: data, sourceScope });
+      appendTablePages(pages, result.plan, index, reportId, sourceScope);
       warnings.push(...result.warnings.map((message) => `${reportId}: ${message}`));
     }
     checkAbort(signal);

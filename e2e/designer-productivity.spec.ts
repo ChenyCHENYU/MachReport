@@ -143,6 +143,8 @@ test("结构大纲跨页定位，改名先展示公式引用并守卫保存", as
     .locator(".mr-outline-tree button")
     .filter({ hasText: "总用电量 (kWh) · energy" })
     .click();
+  await expect(page.locator(".mr-outline")).toBeVisible();
+  await page.getByRole("tab", { name: "字段", exact: true }).click();
   await page.getByLabel("业务字段", { exact: true }).fill("energy_new");
   await page.getByLabel("业务字段", { exact: true }).press("Tab");
   const impact = page.getByRole("alertdialog", {
@@ -187,6 +189,8 @@ test("共享片段独立插入，内容样式实际改变表头且正文数据�
       .filter({ has: page.locator('option[value="brand-header"]') }),
   ).toHaveValue("brand-header");
   await page.getByRole("button", { name: "插入独立副本", exact: true }).click();
+  await expect(page.locator('.mr-product-panel[aria-label="片段与样式"]')).toBeVisible();
+  await expect(page.locator(".mr-canvas")).toBeVisible();
   const inserted = await currentDocument(page);
   const components = inserted.template.pages[0]!.components;
   expect(components).toHaveLength(3);
@@ -260,6 +264,8 @@ for (const width of [1024, 1440]) {
       animations: "disabled",
     });
     await openTools(page, "片段与样式");
+    await expect(page.locator(".mr-canvas")).toBeVisible();
+    await expect(page.getByLabel("选择组件", { exact: true })).toBeVisible();
     await assertContained(page);
     await page.screenshot({
       path: testInfo.outputPath(`fragments-${width}.png`),

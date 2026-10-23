@@ -87,7 +87,7 @@ describe("template-owned edit/recalculate transactions", () => {
 
   it("automatically binds template sources, supports mirrored reports and preserves aggregate limits", async () => {
     const spec = fixture();
-    const source = createReportSource({ A: spec, B: spec }, { maxPages: 10, maxCells: 100 });
+    const source = createReportSource({ A: { ...spec, sourceScope: "shared-production" }, B: { ...spec, sourceScope: "shared-production" } }, { maxPages: 10, maxCells: 100 });
     const plan = await source({ reportIds: ["A", "B"], params: {} });
     const session = getReportEditSession(plan)!; expect(session).toBeDefined();
     const next = (await session.prepare(plan, batch(plan, "001", 5))).commit();

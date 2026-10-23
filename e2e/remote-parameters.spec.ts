@@ -1,0 +1,38 @@
+import { expect, test } from "@playwright/test";
+
+test("远程参数：加载反馈、搜索与输入法确认，联动清空后按已选值查询", async ({ page }) => {
+  await page.goto("http://localhost:8610/parameters.html");
+  const plant = page.getByRole("combobox", { name: "厂别" });
+  const area = page.getByRole("combobox", { name: "区域" });
+  const station = page.getByRole("combobox", { name: "工位" });
+  await expect(area).toBeVisible();
+  await expect(station).toBeDisabled();
+  await area.click();
+  await expect(page.getByText("正在搜索选项…", { exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: /一厂 · 炼钢区域/ })).toBeVisible();
+  await expect(area).toBeFocused();
+  await area.fill("炼");
+  await expect(page.getByText("正在搜索选项…", { exact: true })).toBeVisible();
+  await area.fill("连");
+  const cc = page.getByRole("option", { name: /一厂 · 连铸区域/ });
+  await expect(cc).toBeVisible();
+  await area.dispatchEvent("keydown", { key: "Enter", isComposing: true });
+  await expect(area).toHaveAttribute("aria-expanded", "true");
+  await area.press("Enter");
+  await expect(area).toHaveValue("一厂 · 连铸区域");
+  await station.click();
+  await page.getByRole("option", { name: /一号工位/ }).click();
+  await page.getByRole("button", { name: "查 询", exact: true }).click();
+  await expect(page.getByLabel("已查询参数")).toContainText('"area":"A-CC"');
+  await expect(page.getByLabel("已查询参数")).toContainText('"station":"A-CC-01"');
+  await plant.selectOption("B");
+  await expect(area).toHaveValue("");
+  await expect(station).toBeDisabled();
+  await area.click();
+  await expect(page.getByRole("option", { name: /二厂 · 炼钢区域/ })).toBeVisible();
+  await expect(page.getByRole("listbox", { name: "区域", exact: true }).getByRole("option", { name: /一厂/ })).toHaveCount(0);
+  await page.screenshot({ path: "/private/tmp/mach-report-remote-parameters.png", fullPage: true });
+  await area.press("Escape");
+  await expect(area).toHaveAttribute("aria-expanded", "false");
+  await expect(area).toBeFocused();
+});

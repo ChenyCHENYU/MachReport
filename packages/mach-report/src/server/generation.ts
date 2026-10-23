@@ -54,7 +54,8 @@ export function createReportGenerationService(options: { runtime: ReportRuntime;
       throwIfAborted(signal);
       const sourceRevisions: Record<string, string> = Object.create(null);
       for (const [id, origin] of Object.entries(prepared.revisions)) if (origin.revision !== undefined) sourceRevisions[id] = origin.revision;
-      const { plan, revisions: _revisions, ...output } = prepared;
+      const { plan, revisions: _revisions, sources, ...metadata } = prepared;
+      const output = { ...metadata, ...(sources ? { sources: sources.map(({ sourceToken: _sourceToken, ...source }) => source) } : {}) };
       return manager.save({ scope: snapshot.scope, id: snapshot.id, title: snapshot.title, reportIds: snapshot.reportIds, params: validation.values,
         templateRevisions, sourceRevisions, generatedAt: (options.now?.() ?? new Date()).toISOString(), plan, output
       }, { expectedRevision: snapshot.expectedRevision, signal });

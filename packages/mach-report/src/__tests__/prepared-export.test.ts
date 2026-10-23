@@ -13,7 +13,7 @@ import { runReportWorkerRequest, REPORT_WORKER_PROTOCOL } from "../worker/protoc
 function setup() {
   let value = "FIRST";
   const query = vi.fn(async () => ({ datasets: { rows: [{ value }] }, revision: value }));
-  const template = createTemplate().page(80, 55).list("rows", { leftMm: 4, topMm: 5, widthMm: 70 }, [{ field: "value", header: "Value", widthMm: 70 }]).build();
+  const template = createTemplate().page(80, 55).list("rows", { leftMm: 4, topMm: 5, widthMm: 70 }, [{ field: "value", header: "Value", widthMm: 70, headerStyle: { bold: false } }]).build();
   const reports = { report: { template, provider: { query } } };
   return { runtime: createReportRuntime({ reports }), reports, query, change: () => { value = "SECOND"; } };
 }

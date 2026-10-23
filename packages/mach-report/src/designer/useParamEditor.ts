@@ -23,13 +23,18 @@ export interface ParamDraft {
   minLength: string;
   maxLength: string;
   options: NonNullable<ReportParamDef["options"]>;
+  optionsMode: "static" | "remote";
+  optionsSource: string;
+  dependsOn: string[];
 }
 export const PARAM_TYPES = ["text", "number", "date", "month", "year", "dateRange", "select"] as const;
 export const PARAM_WIRE_FORMAT = { text: "string", number: "string → number", date: "YYYY-MM-DD", month: "YYYY-MM", year: "YYYY", dateRange: "YYYY-MM-DD/YYYY-MM-DD", select: "option.value" };
-export type ParamControl = "field" | "type" | "defaultValue" | "min" | "max" | "minLength" | "maxLength" | "options";
+export type ParamControl = "field" | "type" | "defaultValue" | "min" | "max" | "minLength" | "maxLength" | "options" | "optionsSource" | "dependsOn";
 
 /** Shared validator messages stay intact; the form adds precise, local control locations. */
 function issueControls(message: string): ParamControl[] {
+  if (message.startsWith("远程选项")) return ["optionsSource"];
+  if (message.startsWith("联动依赖")) return ["dependsOn"];
   if (/^(默认值|必填参数的默认值)/.test(message)) return ["defaultValue"];
   if (message.includes("参数名")) return ["field"];
   if (message.includes("选项")) return ["options"];
@@ -47,6 +52,7 @@ function toDraft(def: ReportParamDef): ParamDraft {
     min: def.min === undefined ? "" : String(def.min), max: def.max === undefined ? "" : String(def.max),
     minLength: def.minLength === undefined ? "" : String(def.minLength), maxLength: def.maxLength === undefined ? "" : String(def.maxLength),
     options: def.options ? def.options.map(option => ({ ...option })) : [],
+    optionsMode: def.optionsSource === undefined ? "static" : "remote", optionsSource: def.optionsSource ?? "", dependsOn: [...def.dependsOn ?? []],
   };
 }
 function toDefinition(draft: ParamDraft): ReportParamDef {
@@ -59,7 +65,10 @@ function toDefinition(draft: ParamDraft): ReportParamDef {
     if (draft[key] !== "") def[key] = draft.type === "number" ? Number(draft[key]) : draft[key];
   }
   for (const key of ["minLength", "maxLength"] as const) if (draft[key] !== "") def[key] = Number(draft[key]);
-  if (draft.type === "select") def.options = draft.options.map(option => ({ ...option }));
+  if (draft.type === "select" && draft.optionsMode === "remote") {
+    def.optionsSource = draft.optionsSource.trim();
+    if (draft.dependsOn.length) def.dependsOn = [...draft.dependsOn];
+  } else if (draft.type === "select") def.options = draft.options.map(option => ({ ...option }));
   return def;
 }
 
@@ -134,7 +143,7 @@ export function useParamEditor(props: ParamEditorOptions) {
   useTemplateToolDraft({ key: () => "params", baseline: () => baseline.value, pending: () => pending.value, snapshot: () => JSON.stringify({ rows: rows.value, selected: selected.value, initial: initialDraft.value }), restore(value, source) {
     const state = JSON.parse(value) as { rows: ParamDraft[]; selected: number; initial: string };
     if (!Array.isArray(state.rows) || state.rows.length > 1000 || typeof state.initial !== "string") throw new Error("Invalid parameter draft");
-    rows.value = state.rows; selected.value = Math.max(0, Math.min(state.selected, state.rows.length - 1)); initialDraft.value = state.initial; baseline.value = source;
+    rows.value = state.rows.map(row => ({ ...row, optionsMode: row.optionsMode ?? "static", optionsSource: row.optionsSource ?? "", dependsOn: row.dependsOn ?? [] })); selected.value = Math.max(0, Math.min(state.selected, state.rows.length - 1)); initialDraft.value = state.initial; baseline.value = source;
   } });
   return { m, rows, selected, current, definitions, issues, issuesByRow, firstIssueIndex, controlIssues, currentIssues, changes, pending, conflicted, error, reset, add, remove, move, setType, apply };
 }

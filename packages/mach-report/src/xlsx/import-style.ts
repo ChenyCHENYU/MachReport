@@ -3,7 +3,16 @@ import type { ComponentStyle } from "../schema/render-plan";
 import { ImportWarnings } from "./import-types";
 
 const OFFICE_THEME = ["FFFFFF", "000000", "E7E6E6", "44546A", "4472C4", "ED7D31", "A5A5A5", "FFC000", "5B9BD5", "70AD47", "0563C1", "954F72"];
-const INDEXED = ["000000", "FFFFFF", "FF0000", "00FF00", "0000FF", "FFFF00", "FF00FF", "00FFFF"];
+const INDEXED = [
+  "000000", "FFFFFF", "FF0000", "00FF00", "0000FF", "FFFF00", "FF00FF", "00FFFF",
+  "000000", "FFFFFF", "FF0000", "00FF00", "0000FF", "FFFF00", "FF00FF", "00FFFF",
+  "800000", "008000", "000080", "808000", "800080", "008080", "C0C0C0", "808080",
+  "9999FF", "993366", "FFFFCC", "CCFFFF", "660066", "FF8080", "0066CC", "CCCCFF",
+  "000080", "FF00FF", "FFFF00", "00FFFF", "800080", "800000", "008080", "0000FF",
+  "00CCFF", "CCFFFF", "CCFFCC", "FFFF99", "99CCFF", "FF99CC", "CC99FF", "FFCC99",
+  "3366FF", "33CCCC", "99CC00", "FFCC00", "FF9900", "FF6600", "666699", "969696",
+  "003366", "339966", "003300", "333300", "993300", "993366", "333399", "333333"
+];
 const BORDER_WIDTH: Record<string, number> = { hair: 0.25, dotted: 0.5, dashed: 0.5, thin: 0.5, medium: 1, thick: 1.5, double: 1 };
 
 /** OOXML theme colours are data; no XML entities, links or scripts are executed. */
@@ -27,12 +36,14 @@ function tintColour(hex: string, tint = 0): string {
 
 interface WorkbookColour extends Partial<ExcelJS.Color> { tint?: number; indexed?: number }
 
-function colour(value: WorkbookColour | undefined, theme: string[]): string | undefined {
+function colour(value: WorkbookColour | undefined, theme: string[], warn: () => void = () => {}): string | undefined {
   if (!value) return undefined;
   const argb = value.argb;
   if (argb && /^[A-Fa-f\d]{6,8}$/.test(argb)) return tintColour(argb.slice(-6), value.tint);
-  if (value.theme !== undefined) return tintColour(theme[value.theme] ?? "000000", value.tint);
-  if (value.indexed !== undefined && value.indexed < 16) return tintColour(INDEXED[value.indexed % 8]!, value.tint);
+  if (value.theme !== undefined && theme[value.theme]) return tintColour(theme[value.theme]!, value.tint);
+  if (value.indexed !== undefined && INDEXED[value.indexed]) return tintColour(INDEXED[value.indexed]!, value.tint);
+  if (value.indexed === 64 || value.indexed === 65) { warn(); return value.indexed === 64 ? "#000000" : "#FFFFFF"; }
+  if (value.argb !== undefined || value.theme !== undefined || value.indexed !== undefined) warn();
   return undefined;
 }
 
@@ -42,7 +53,7 @@ function applyBorders(style: ComponentStyle, border: Partial<ExcelJS.Borders>, t
   [style.borderTop, style.borderRight, style.borderBottom, style.borderLeft] = enabled;
   const present = edges.filter((edge) => edge?.style);
   if (!present.length) return;
-  style.borderColor = colour(present[0]?.color, theme) ?? "#000000";
+  style.borderColor = colour(present[0]?.color, theme, warn) ?? "#000000";
   style.lineWidthPt = BORDER_WIDTH[present[0]!.style!] ?? 0.5;
   if (present.some((edge) => edge!.style !== "thin" && edge!.style !== "medium" && edge!.style !== "thick")) warn();
   if (present.some((edge) => colour(edge!.color, theme) !== colour(present[0]!.color, theme) || edge!.style !== present[0]!.style)) warn();
@@ -64,11 +75,12 @@ function createCellStyle(cell: ExcelJS.Cell, theme: string[], sheet: string, war
   if (font.bold !== undefined) style.bold = font.bold;
   if (font.italic !== undefined) style.italic = font.italic;
   if (font.underline !== undefined) style.underline = !!font.underline;
-  const fontColour = colour(font.color, theme);
+  const warnColour = () => warnings.add(`${sheet}!${cell.address}: 系统色按黑/白还原，未知颜色使用默认样式；请在 Excel 中指定明确 RGB 颜色`);
+  const fontColour = colour(font.color, theme, warnColour);
   if (fontColour) style.color = fontColour;
   const fill = source.fill;
   if (fill?.type === "pattern" && fill.pattern === "solid") {
-    const background = colour(fill.fgColor, theme);
+    const background = colour(fill.fgColor, theme, warnColour);
     if (background) style.backgroundColor = background;
   } else if (fill && !(fill.type === "pattern" && fill.pattern === "none")) warnings.add(`${sheet}: 渐变或图案填充暂不支持，保留单元格内容`);
   // 报表网格默认绘制边框；Excel 无边框必须显式关闭，不能凭空增加源模板中不存在的黑框。

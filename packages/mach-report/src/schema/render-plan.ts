@@ -55,6 +55,8 @@ export interface RichSegment {
 
 /** 可持久化的业务身份与计划坐标独立；权限及并发校验仍由业务服务器执行。 */
 export interface ReportCellSource {
+  /** Source identity across report occurrences; sharing must be explicitly declared. */
+  sourceScope?: string;
   datasetId: string;
   rowKey: string | number;
   field: string;

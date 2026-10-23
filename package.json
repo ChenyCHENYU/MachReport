@@ -22,11 +22,13 @@
     "check:docs": "node scripts/check-docs.mjs",
     "check:consumer": "node scripts/check-consumer.mjs",
     "check:quality": "node scripts/check-quality.mjs",
-    "verify": "pnpm typecheck && pnpm lint && pnpm check:quality && pnpm build && pnpm test:coverage && pnpm check:docs && pnpm check:consumer",
+    "verify": "pnpm typecheck && pnpm lint && pnpm check:quality && pnpm build && pnpm check:api && pnpm check:sbom && pnpm test:coverage && pnpm check:docs && pnpm check:consumer",
     "release": "node scripts/check-release.mjs && pnpm install --frozen-lockfile && pnpm verify && pnpm check:server-example && pnpm check:compat && pnpm test:e2e --workers=2 --retries=0 && node scripts/check-release.mjs && pnpm changeset publish",
     "test:coverage": "vitest run --coverage",
     "check:compat": "node scripts/check-compat.mjs",
-    "check:server-example": "node scripts/check-server-example.mjs"
+    "check:server-example": "node scripts/check-server-example.mjs",
+    "check:api": "node scripts/check-public-api.mjs",
+    "check:sbom": "node scripts/check-sbom.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.3",

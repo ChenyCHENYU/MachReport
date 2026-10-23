@@ -132,3 +132,30 @@ const manifest = await runLabelStream(materialRows(), {
 默认每块 100 条，最大 1000；总行数默认 10 万、最大 100 万；清单默认最多 1000 块、最大 1 万块。当前块声明字段与全局去重主键还受 `maxRetainedBytes` 约束（默认 16 MB，最大 64 MB，按 UTF-16 字符与字段开销保守计数）；这不是 JavaScript 进程总堆上限，编码器和字体另有资源预算。总耗时取 `runtime.budget.maxDurationMs`（默认 120 秒）；每块还独立遵守运行时预算。取数、回执等待和来源清理都响应总超时与取消；外部 Promise 忽略取消时不会继续拉取下一块。错误立即停止后续消费并尝试关闭来源，已归档块保持提交状态。`onReceipt` 应增量持久化小回执，以便后续块失败时仍能核对已完成文件；它不是隔离的遥测回调，失败会停止任务。
 
 这是固定标签的分批交付，不承诺任意列表、矩阵、跨块总计或跨块排序可以流式计算；需要这些结果时先在来源侧完成查询与聚合。`execute` 内的外部归档必须自行校验存储权限、幂等性与信号。归档忽略信号并悬挂时，运行器仍在总超时/取消后释放当前执行等待并尝试关闭来源，不启动后续块。同一轮任务中已经成功返回的回执优先按提交成功处理；归档在取消之后才迟到成功时，SDK 只再次尝试交付该块的小回执，`context.signal.aborted` 为 `true`。因此 `onReceipt` 也可能在总 Promise 拒绝之后调用，宿主应依据既有 attempt/租约围栏记录已提交产物并核对，不能据此重新打开已取消的任务。JavaScript Promise 无法强制中断外部归档；需要强终止时由宿主使用隔离执行器或可取消的服务。一个块一个独立文件，SDK 不把所有文件字节留在内存，也不隐式合并为一个 PDF 或归档包。
+
+## 准备结果的来源身份
+
+Runtime 在加载字体或执行器之前复制 `reportIds` 与 `params`，调用之后修改筛选对象不会改变这次准备或 PDF 导出的口径。Prepared 结果的可选 `sources` 按查询出现顺序记录 `reportId/reportIndex/reportScope/revision/sourceToken`，重复报表 ID 不会丢失前一份来源修订。兼容字段 `revisions` 仍按 ID 保留最后值，精确追溯应使用 `sources`。
+
+业务诊断的 `target.reportScope` 与页面出现范围一致；`tableId` 在合并时按报表序号加命名空间。实例归档保留各来源修订，显式剔除临时 `sourceToken`。旧实例没有 `sources` 仍可读取。`reportScope` 表示本次报表出现位置；编辑数据的显式共享 `sourceScope` 是另一种身份，不能互相代替。
+
+## 任务产物提交围栏
+
+持久任务 handler 的 context 新增只读 `attempt` 与 `executionToken`。每次租约接管/重试都会生成新代次；token 是 `[scope, taskId, attempt]` 的不透明标识，不是鉴权凭证。
+
+```ts
+async function handler(payload, context) {
+  const artifact = await generate(payload, { signal: context.signal });
+  // 宿主适配器必须在同一事务/CAS中核对任务当前attempt，再提交产物引用。
+  return artifacts.commitIfCurrent({
+    scope: context.scope,
+    taskId: context.taskId,
+    attempt: context.attempt,
+    executionToken: context.executionToken,
+    signal: context.signal,
+    artifact,
+  });
+}
+```
+
+`artifacts.commitIfCurrent` 是宿主实现的存储边界；先查询再无条件写入不能提供原子围栏。SDK 仍保证过期 attempt 不写回任务成功状态；外部存储也应拒绝过期代次，取消已提交的文件不会被 SDK 假装回滚。

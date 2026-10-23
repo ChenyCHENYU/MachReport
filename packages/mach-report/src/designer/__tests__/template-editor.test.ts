@@ -66,6 +66,22 @@ function harness(options: TemplateEditorOptions) {
 }
 
 describe("轻量模板属性编辑器", () => {
+  it("keeps preview identity for metadata edits and refreshes only layout or dataset changes", async () => {
+    const { wrapper, editor } = harness({ modelValue: document(), datasets: { detail: [{ heat: "A", weight: 0 }] } });
+    await flushPromises();
+    const initial = editor.fetcher.value;
+    editor.setName("New name"); editor.setDescription("Description");
+    await flushPromises();
+    expect(editor.fetcher.value).toBe(initial);
+    expect(editor.pendingLocalChanges.value).toBe(true);
+    editor.setColumn(1, "header", "New header");
+    await flushPromises();
+    expect(editor.fetcher.value).not.toBe(initial);
+    const layout = editor.fetcher.value;
+    await wrapper.setProps({ datasets: { detail: [{ heat: "B", weight: 2 }] } });
+    expect(editor.fetcher.value).not.toBe(layout);
+    wrapper.unmount();
+  });
   it("普通表头的默认对齐及分层覆盖在属性面板与真实分页结果中保持一致", () => {
     const configurations = [
       {},

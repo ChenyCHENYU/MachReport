@@ -18,6 +18,10 @@ class ReportJobResultBudgetError extends ReportJobError {
 export interface ReportJobExecutionContext {
   scope: string;
   taskId: string;
+  /** Immutable claim generation; compare atomically at the host artifact commit boundary. */
+  readonly attempt: number;
+  /** Opaque tuple identity, scoped to this claim; never a credential. */
+  readonly executionToken: string;
   signal: AbortSignal;
   reportProgress(completed: number, total?: number): Promise<void>;
 }
@@ -219,6 +223,8 @@ async function executeJob(
       const value = await handler(cloneJob(claimed.request.payload), {
         scope,
         taskId: id,
+        attempt: claimed.attempt,
+        executionToken: JSON.stringify([scope, id, claimed.attempt]),
         signal: controller.signal,
         reportProgress,
       });

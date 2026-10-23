@@ -1,5 +1,6 @@
 import type { PreparedReport, ReportRuntime, ReportRuntimeExportInput, ReportRuntimeExportResult, ReportRuntimeInput, ReportRuntimePreparedExportInput } from "../server/types";
 import type { ReportTaskEvent, ReportTaskObserver } from "../source/task-events";
+import { validPreparedSources } from "../server/prepared";
 import { hasValidDataExplanation } from "../source/data-explanation";
 import { validateRenderPlan } from "../schema/validate";
 
@@ -42,7 +43,7 @@ function layoutMetrics(value: unknown): boolean {
 }
 /** Worker 响应使用与运行时一致的值契约，不只相信 TypeScript 类型或返回的任务 ID。 */
 export function validReportWorkerResult(value: unknown, operation: ReportWorkerRequest["operation"]): value is PreparedReport | ReportRuntimeExportResult {
-  if (!object(value) || !stats(value.stats) || !diagnostics(value.diagnostics) || !revisions(value.revisions) || !layoutMetrics(value.layout)) return false;
+  if (!object(value) || !stats(value.stats) || !diagnostics(value.diagnostics) || !revisions(value.revisions) || !layoutMetrics(value.layout) || !validPreparedSources(value.sources)) return false;
   if (operation === "prepare") return validateRenderPlan(value.plan).ok;
   const contentType = value.format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   return value.bytes instanceof Uint8Array && (value.format === "pdf" || value.format === "xlsx") && value.contentType === contentType;

@@ -3,17 +3,19 @@ import { computed, nextTick, onMounted, ref, shallowRef } from "vue";
 import { createMemoryTemplateStore, createTemplateManager, parseReportTemplate, type ReportTemplateCatalogOpenContext, type ReportTemplateDocument } from "@agile-team/mach-report";
 import { ReportTemplateEditor, ReportTemplateLibrary, ReportBatchPanel, type TemplateEditorController, type TemplateEditorSaveContext } from "@agile-team/mach-report/designer";
 import { ReportPreview, provideMachReportConfig } from "@agile-team/mach-report/vue";
-import { createMemoryReportInstanceStore, type ReportBatchCase, type ReportInstanceSnapshot, type ReportInstanceSummary } from "@agile-team/mach-report/server";
+import { createReportWorkflow, createMemoryReportInstanceStore, type ReportBatchCase, type ReportInstanceSnapshot, type ReportInstanceSummary } from "@agile-team/mach-report/server";
 import { platformDatasets, platformTemplate } from "./platform-template";
-import { createLocalInstanceIdentities, createLocalPublishedBatch, createManagerTemplateCatalog, saveAndPublishTemplate } from "./platform-workflow";
 provideMachReportConfig({ pdfFontUrl: "/fonts/mach-report-demo.otf" });
 const manager = createTemplateManager(createMemoryTemplateStore()), store = createMemoryReportInstanceStore();
-const provider = createManagerTemplateCatalog(manager), identities = createLocalInstanceIdentities();
+const workflow = createReportWorkflow({ templates: manager, instances: store, scope: "local-demo", data: { datasets: platformDatasets },
+  title: (document, item, params) => `${document.name} · ${params.month ?? item.id}`,
+  catalogMetadata: () => ({ category: "生产运营", tags: ["多区域", "树形汇总"] }) });
+const provider = workflow.catalog;
 const active = ref("library"), document = ref(platformTemplate), documentMode = ref<ReportTemplateCatalogOpenContext["mode"]>("edit"), editor = ref<TemplateEditorController>();
 const ready = ref(false), publishing = ref(false), batchBusy = ref(0);
 const latestPublished = shallowRef<ReportTemplateDocument>();
 const instances = ref<ReportInstanceSummary[]>([]), current = shallowRef<ReportInstanceSnapshot>(), error = ref(""), status = ref("初始化参考存储…");
-type BatchSession = ReturnType<typeof createLocalPublishedBatch> & { key: string; initialCases: ReportBatchCase[] };
+type BatchSession = Awaited<ReturnType<typeof workflow.batch>> & { key: string; initialCases: ReportBatchCase[] };
 const batchSession = shallowRef<BatchSession>();
 let batchNumber = 0, successfulSaves = 0;
 const fetcher = computed(() => { const plan = current.value?.plan; return async () => plan!; });
@@ -29,9 +31,9 @@ onMounted(async () => {
 });
 async function loadPublished() { latestPublished.value = await manager.get(document.value.id); return latestPublished.value; }
 async function refreshInstances() { instances.value = (await store.list("local-demo", { limit: 100 })).items; }
-function startBatch(template: ReportTemplateDocument) {
+async function startBatch(template: ReportTemplateDocument) {
   if (batchBusy.value) throw new Error("请先取消或等待当前批次结束");
-  const batch = createLocalPublishedBatch(template, platformDatasets, store, identities), number = ++batchNumber;
+  const batch = await workflow.batch(template.id, { expectedRevision: template.revision }), number = ++batchNumber;
   const execute = async (item: ReportBatchCase, context: { signal: AbortSignal }) => {
     batchBusy.value++;
     try {
@@ -50,7 +52,7 @@ async function ensureBatch() {
   const published = await loadPublished();
   if (batchSession.value?.document.id === document.value.id || batchBusy.value) return;
   if (!published) throw new Error("请先发布当前模板再生成报表");
-  startBatch(published);
+  await startBatch(published);
 }
 async function navigate(next: string) {
   try {
@@ -80,7 +82,7 @@ async function publish() {
   if (!controller || publishing.value || documentMode.value === "published") return;
   publishing.value = true; error.value = "";
   try {
-    const next = await saveAndPublishTemplate({ editor: controller, manager, document: () => document.value,
+    const next = await workflow.publish({ editor: controller, document: () => document.value,
       successfulSaves: () => successfulSaves, afterSave: nextTick });
     document.value = next.published!; latestPublished.value = parseReportTemplate(next.published!);
     status.value = `已发布模板 · 修订 ${next.revision}`;
@@ -89,7 +91,7 @@ async function publish() {
 }
 async function copy(value: ReportTemplateDocument, { signal }: { signal: AbortSignal }) { const next = await manager.saveDraft(value, { expectedRevision: null, signal }); return next.draft!; }
 async function restartBatch() {
-  try { const published = await loadPublished(); if (!published) throw new Error("请先发布当前模板"); startBatch(published); error.value = ""; }
+  try { const published = await loadPublished(); if (!published) throw new Error("请先发布当前模板"); await startBatch(published); error.value = ""; }
   catch (cause) { error.value = failure(cause); }
 }
 async function openInstance(id: string) {

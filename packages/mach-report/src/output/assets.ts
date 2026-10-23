@@ -1,7 +1,8 @@
 import type { GridCell, PlanComponent, RenderPlan } from "../schema/render-plan";
 import type { OutputDiagnostic, OutputDiagnosticOptions, OutputFormat } from "./capabilities";
 import { notifyOutputDiagnostic } from "./diagnostic-notification";
-import { waitForOutput } from "./progress";
+import { waitForOutput, assertOutputActive } from "./progress";
+import { createImageMediaInspector, ImageMediaError, type ImageMediaOptions } from "./media";
 
 export type ImageComponentKind = "image" | "chart" | "barcode" | "qrcode";
 
@@ -26,7 +27,7 @@ export interface AssetRenderBudget {
   maxDurationMs?: number;
 }
 
-export interface AssetRenderOptions extends OutputDiagnosticOptions {
+export interface AssetRenderOptions extends OutputDiagnosticOptions, ImageMediaOptions {
   assetRenderers?: Partial<Record<ImageComponentKind, ComponentImageRenderer>>;
   assetBudget?: AssetRenderBudget;
   /** Default throw prevents an incomplete export; placeholder retains the component and emits diagnostics. */
@@ -56,6 +57,7 @@ interface AssetState {
   options: ResolvePlanAssetsOptions;
   signal: AbortSignal;
   diagnostics: OutputDiagnostic[];
+  inspectImage: ReturnType<typeof createImageMediaInspector>;
   rendered: number;
   bytes: number;
   budget: Required<AssetRenderBudget>;
@@ -102,9 +104,10 @@ async function renderImage(state: AssetState, component: PlanComponent, context:
     if (image.length > state.budget.maxImageBytes * 4 + 1024) return issue(state, context, "asset-budget-exceeded", "Output exceeded the image payload byte budget.");
     const bytes = imageBytes(image);
     if (bytes > state.budget.maxImageBytes || state.bytes + bytes > state.budget.maxTotalImageBytes) return issue(state, context, "asset-budget-exceeded", "Output exceeded the encoded image byte budget.");
+    if (/^data:image\/(png|jpe?g);base64,/i.test(image)) state.inspectImage(image);
     state.bytes += bytes;
   } catch (error) {
-    if (state.signal.aborted || error instanceof OutputAssetError) throw error;
+    if (state.signal.aborted || error instanceof OutputAssetError || error instanceof ImageMediaError && error.code === "image-budget-exceeded") throw error;
     return issue(state, context, "asset-render-failed", `Asset renderer failed for ${component.kind}; output was not silently omitted.`, error);
   }
   return image;
@@ -150,15 +153,32 @@ async function resolveComponent(state: AssetState, component: PlanComponent, con
   return imageData !== component.imageData || grid !== component.grid ? { ...component, imageData, grid } : component;
 }
 
+function inspectExistingMedia(plan: RenderPlan, inspect: ReturnType<typeof createImageMediaInspector>, signal?: AbortSignal): void {
+  const visited = new Set<PlanComponent>();
+  const inspectComponent = (component: PlanComponent): void => {
+    assertOutputActive(signal);
+    if (visited.has(component)) return;
+    visited.add(component);
+    if (component.imageData && /^data:image\/(png|jpe?g);base64,/i.test(component.imageData)) {
+      try { inspect(component.imageData); }
+      catch (error) { if (!(error instanceof ImageMediaError) || error.code === "image-budget-exceeded") throw error; }
+    }
+    for (const row of component.grid?.cells ?? []) for (const cell of row) for (const child of cell?.children ?? []) inspectComponent(child);
+  };
+  for (const page of plan.pages) for (const component of page.components) inspectComponent(component);
+}
+
 /** Resolve optional third-party chart/barcode/QR adapters once, before any output backend. Input stays immutable. */
 export async function resolvePlanAssets(plan: RenderPlan, options: ResolvePlanAssetsOptions = {}): Promise<{ plan: RenderPlan; diagnostics: OutputDiagnostic[] }> {
   const budget = assetBudget(options);
+  const inspectImage = createImageMediaInspector(options);
+  inspectExistingMedia(plan, inspectImage, options.signal);
   if (options.signal?.aborted) throw options.signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
   const controller = new AbortController();
   const abort = () => controller.abort(options.signal?.reason);
   options.signal?.addEventListener("abort", abort, { once: true });
   if (!options.assetRenderers || !Object.keys(options.assetRenderers).length) { options.signal?.removeEventListener("abort", abort); return { plan, diagnostics: [] }; }
-  const state: AssetState = { options, signal: controller.signal, diagnostics: [], rendered: 0, bytes: 0, budget, cache: new WeakMap() };
+  const state: AssetState = { options, signal: controller.signal, diagnostics: [], rendered: 0, bytes: 0, budget, cache: new WeakMap(), inspectImage };
   const timer = setTimeout(() => timeoutAssets(state, controller), budget.maxDurationMs);
   try {
     const pages = [];

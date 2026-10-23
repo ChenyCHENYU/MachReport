@@ -18,6 +18,8 @@ export * from "./provider-editing";
 export * from "./tools";
 export * from "./guards";
 export * from "./print-options";
+export * from "./param-options";
+export * from "./drill";
 export * from "./print-calibration";
 export { preparePrintResources, ReportPrintResourceError } from "./print-resources";
 export type { ReportCellSelection, ReportFieldTarget } from "./composables/useCellSelection";

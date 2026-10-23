@@ -28,7 +28,7 @@ export const TEMPLATE_PRODUCT_MESSAGES = {
   dataset: "数据集",
   target: "目标字段",
   preserve: "副本独立保存；共享片段更新后不会改变已有模板。",
-  select: "先在画布选择一个组件",
+  select: "选择一个目标组件后应用样式",
   revision: "修订",
   instance: "已插入修订",
   newRevision: "存在可显式应用的新修订",

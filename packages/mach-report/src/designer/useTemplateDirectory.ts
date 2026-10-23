@@ -1,4 +1,5 @@
 import {
+  computed,
   nextTick,
   onBeforeUnmount,
   onMounted,
@@ -31,10 +32,10 @@ export function getTemplateColumnCursor(
 }
 
 /** 字段目录只占用检查器内部空间；焦点、滚动和外部点击不泄漏到宿主弹窗。 */
-export function useTemplateDirectory(
+export function useTemplateDirectory<T extends { index: number }>(
   inspector: Inspector,
   section: Ref<TemplateInspectorSection>,
-  columns: Readonly<Ref<{ index: number }[]>>,
+  columns: Readonly<Ref<T[]>>,
 ) {
   const open = ref(false);
   const cursor = ref(inspector.activeIndex.value);
@@ -42,6 +43,19 @@ export function useTemplateDirectory(
   const panel = ref<HTMLDivElement | null>(null);
   const search = ref<HTMLInputElement | null>(null);
   const list = ref<HTMLDivElement | null>(null);
+  const windowStart = ref(0);
+  const windowSize = 100;
+  const windowColumns = computed(() => columns.value.slice(windowStart.value, windowStart.value + windowSize));
+  function revealWindow(): void {
+    const position = Math.max(0, columns.value.findIndex(item => item.index === cursor.value));
+    windowStart.value = Math.floor(position / windowSize) * windowSize;
+  }
+  async function stepWindow(delta: -1 | 1): Promise<void> {
+    const next = Math.max(0, Math.min(Math.max(0, columns.value.length - 1), windowStart.value + delta * windowSize));
+    cursor.value = columns.value[next]?.index ?? -1;
+    revealWindow();
+    await nextTick(); revealCursor(true);
+  }
 
   function revealCursor(focus = false): void {
     const viewport = list.value;
@@ -72,6 +86,7 @@ export function useTemplateDirectory(
       ? inspector.activeIndex.value
       : indices[0] ?? -1;
     open.value = true;
+    revealWindow();
     await nextTick();
     search.value?.focus({ preventScroll: true });
     revealCursor();
@@ -81,12 +96,13 @@ export function useTemplateDirectory(
     void close(true);
   }
   function escape(event: KeyboardEvent): void {
-    if (!open.value) return;
+    if (!open.value || event.isComposing || event.keyCode === 229) return;
     event.preventDefault();
     event.stopPropagation();
     void close(true);
   }
   async function navigate(event: KeyboardEvent): Promise<void> {
+    if (event.isComposing || event.keyCode === 229) return;
     const target = getTemplateColumnCursor(
       columns.value.map((entry) => entry.index),
       cursor.value,
@@ -94,12 +110,13 @@ export function useTemplateDirectory(
     );
     if (target === undefined) return;
     cursor.value = target;
+    revealWindow();
     event.preventDefault();
     await nextTick();
     revealCursor(true);
   }
   async function searchKeydown(event: KeyboardEvent): Promise<void> {
-    if (!["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) return;
+    if (event.isComposing || event.keyCode === 229 || !["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) return;
     event.preventDefault();
     event.stopPropagation();
     const indices = columns.value.map((entry) => entry.index);
@@ -109,6 +126,7 @@ export function useTemplateDirectory(
       return;
     }
     if (event.key === "ArrowUp") cursor.value = indices.at(-1)!;
+    revealWindow();
     await nextTick();
     revealCursor(true);
   }
@@ -135,6 +153,7 @@ export function useTemplateDirectory(
   watch(columns, (value) => {
     if (!value.some((entry) => entry.index === cursor.value))
       cursor.value = value[0]?.index ?? -1;
+    revealWindow();
   });
   watch(section, () => {
     void close();
@@ -148,6 +167,7 @@ export function useTemplateDirectory(
     panel,
     search,
     list,
+    windowColumns, windowStart, windowSize, stepWindow,
     toggle,
     close,
     choose,

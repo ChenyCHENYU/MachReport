@@ -89,7 +89,7 @@ export function sourceChanged(context: ReportCellContext, edit: ReportCellEdit):
   const source = edit.source;
   if (!source) return false;
   const current = context.source;
-  return !current || ["datasetId", "rowKey", "field", "revision", "sourceToken"].some((key) => !Object.is(current[key as keyof ReportCellSource], source[key as keyof ReportCellSource]));
+  return !current || ["sourceScope", "datasetId", "rowKey", "field", "revision", "sourceToken"].some((key) => !Object.is(current[key as keyof ReportCellSource], source[key as keyof ReportCellSource]));
 }
 
 /** 复制发生变化的页/组件/行；原计划保持不变，并拒绝覆盖已改变的单元格。 */

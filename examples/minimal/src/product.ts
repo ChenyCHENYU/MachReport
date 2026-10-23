@@ -1,7 +1,7 @@
-import { createApp, h, ref } from "vue";
+import { createApp, h, ref, nextTick } from "vue";
 import {
-  ReportPreview, createTableTemplate, defineMachReportConfig, machReportPlugin, useMachReport,
-  type DatasetRows, type PlanGrid, type ReportLoadContext, type ReportRegistry, type TableTemplateColumn
+  ReportPreview, resolveReportDrillReturn, createTableTemplate, defineMachReportConfig, machReportPlugin, useMachReport,
+  type ReportDrillOptions, type DatasetRows, type PlanGrid, type ReportLoadContext, type ReportRegistry, type TableTemplateColumn
 } from "@agile-team/mach-report/vue";
 import "./product.css";
 
@@ -69,6 +69,20 @@ const reports: ReportRegistry = Object.fromEntries(choices.map(({ id }) => [`pro
 const app = createApp({ setup() {
   const report = useMachReport();
   const layout = ref<Layout>("wide");
+  const detailDialog = ref<HTMLDialogElement | null>(null);
+  const detail = ref<Parameters<ReportDrillOptions["open"]>[0] | null>(null);
+  const drill: ReportDrillOptions = {
+    actions: [{ id: "heat-detail", label: "查看炉次实绩", target: { datasetId: "detail", field: "heat", roles: ["body"] }, params: {
+      heat: { from: "value" }, line: { from: "field", field: "line" }, weight: { from: "field", field: "weight" }
+    } }],
+    async open(request) { detail.value = request; await nextTick(); if (!request.signal.aborted) detailDialog.value?.showModal(); }
+  };
+  function closeDetail(): void {
+    detailDialog.value?.close();
+    const current = report.getPlan();
+    const address = detail.value && current ? resolveReportDrillReturn(current, detail.value.returnState) : null;
+    if (address) void report.focusCell(address);
+  }
   async function choose(next: Layout): Promise<void> {
     if (next === layout.value || !await report.confirmDiscard("replace")) return;
     // The explicit guard approves unmounting this draft; the new instance starts clean.
@@ -82,14 +96,21 @@ const app = createApp({ setup() {
     ]),
     h("section", { class: "product-context", "aria-label": "体验说明" }, [
       h("div", { class: "product-local" }, [h("span", { class: "local-dot" }), "本地演示数据", h("small", "144 行 × 44 列 · 不连接业务数据库")]),
-      h("p", "双击 Grade、OK、Date、Target 体验枚举、布尔、日期及数字编辑。修改仅为本地草稿；分组汇总使用只读 Weight / Energy，不随草稿重算。0.00 为真实零，空白为未提供，编号前导零原样保留。"),
+      h("p", "点击 Heat 可查看炉次关联详情。双击 Grade、OK、Date、Target 体验枚举、布尔、日期及数字编辑。修改仅为本地草稿；分组汇总使用只读 Weight / Energy，不随草稿重算。0.00 为真实零，空白为未提供，编号前导零原样保留。"),
       h("p", { class: "product-font-note" }, "字段名使用英文，布尔值显示为是 / 否。此页未配置覆盖全部字符的 PDF 字体，PDF 出口默认关闭；接入时请配置完整业务字体后开放，不能沿用演示子集字体。")
     ]),
     h("div", { class: "product-toolbar" }, [
       h("nav", { class: "product-layouts", "aria-label": "显示版式" }, choices.map((choice) => h("button", { type: "button", "aria-pressed": layout.value === choice.id, class: { selected: layout.value === choice.id }, disabled: report.state.loading || report.state.saving || report.state.importing || !!report.state.exporting, onClick: () => void choose(choice.id) }, [h("strong", choice.label), h("span", choice.hint)]))),
       h("span", { class: "product-state", role: "status" }, report.state.pendingLocalChanges ? "● 有未保存草稿" : report.state.loading ? "正在读取本地数据…" : `${report.state.pageCount} 个预览分段 · 设置内可配置工具`)
     ]),
-    h("section", { class: "product-preview", "aria-label": "复杂报表预览" }, [h(ReportPreview, { key: layout.value, ref: report.ref, reportId: `product-${layout.value}` })]),
+    h("section", { class: "product-preview", "aria-label": "复杂报表预览" }, [h(ReportPreview, { key: layout.value, ref: report.ref, reportId: `product-${layout.value}`, drill })]),
+    h("dialog", { ref: detailDialog, class: "product-drill", "aria-labelledby": "drill-heading", onClose: closeDetail }, [
+      h("p", { class: "product-drill-eyebrow" }, "关联详情 / 本地样例"),
+      h("h2", { id: "drill-heading" }, `炉次 ${detail.value?.params.heat ?? ""}`),
+      h("dl", [h("dt", "产线"), h("dd", detail.value?.params.line), h("dt", "实绩重量"), h("dd", `${detail.value?.params.weight ?? ""} kg`)]),
+      h("p", "此处由宿主接入自己的详情页面或接口；插件只传递白名单参数及原报表位置。"),
+      h("button", { type: "button", autofocus: true, onClick: closeDetail }, "返回原报表位置")
+    ]),
     h("footer", { class: "product-footer" }, layout.value === "review" ? "诊断样例故意保留一个尚未提供图片适配器的图表。原生诊断面板将说明位置；严格输出会拒绝生成已知缺项的文件。" : "工具由 MachReport 原生提供：设置、冻结、列目录、搜索、撤销重做、导入导出、任务进度及草稿保护。A3/A4 保留全部列，密集字段建议优先使用完整宽表阅读。")
   ]);
 } });

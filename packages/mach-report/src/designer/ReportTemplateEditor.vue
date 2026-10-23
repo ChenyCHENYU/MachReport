@@ -92,7 +92,7 @@ const workspace = useTemplateWorkspace(
 );
 const {
   mode,
-  setMode,
+  setMode: setWorkspaceMode,
   canvasSelection,
   canvasPage,
   canvasActive,
@@ -111,6 +111,23 @@ const {
 } = workspace;
 
 const canvasFlow = computed(() => !!draft.value.template.pages[canvasPage.value]?.flow);
+const dockedTools = ref(new Set(["outline", "reuse"]));
+const toolPreview = computed(() => section.value === "tools" && dockedTools.value.has(tool.value));
+function setMode(next: "design" | "preview"): void {
+  if (toolPreview.value) mode.value = next;
+  else setWorkspaceMode(next);
+}
+watch([section, tool], () => { if (toolPreview.value) mode.value = "design"; });
+function toggleToolPreview(): void {
+  const next = new Set(dockedTools.value);
+  if (next.has(tool.value)) next.delete(tool.value); else next.add(tool.value);
+  dockedTools.value = next;
+  if (next.has(tool.value)) mode.value = "design";
+}
+function chooseToolComponent(event: Event): void {
+  const index = Number((event.target as HTMLSelectElement).value);
+  if (Number.isInteger(index) && index >= 0) void chooseCanvas({ pageIndex: canvasPage.value, componentIndex: index });
+}
 const repeatSchema = computed(() => props.dataSchemas?.[draft.value.template.repeat?.dataset ?? ""]);
 const componentDirectory = computed(() => {
   const names = { text: m.value.insertText, list: m.value.insertList, image: m.value.insertImage, rect: m.value.insertRect, qrcode: m.value.insertQrcode, barcode: m.value.insertBarcode, chart: m.value.chartComponent, line: m.value.lineComponent, ellipse: m.value.ellipseComponent };
@@ -222,16 +239,20 @@ async function acceptExcel(result: ExcelBindingWizardApply): Promise<boolean> {
   return true;
 }
 async function chooseCanvas(selection: Parameters<typeof chooseCanvasUnchecked>[0]): Promise<void> {
+  const keepTool = section.value === "tools";
   const target = lists.value.findIndex(item => item.pageIndex === selection.pageIndex && item.componentIndex === selection.componentIndex);
   if (target >= 0 && target !== selected.value && editor.isToolPending("rules") && !await editor.guardChanges()) return;
   chooseCanvasUnchecked(selection);
+  if (keepTool) section.value = "tools";
 }
 async function locateReview(location: Parameters<typeof locateReviewUnchecked>[0]): Promise<void> {
+  const keepTool = section.value === "tools" && tool.value === "outline";
   const path = /\.pages\[(\d+)\]\.components\[(\d+)\]/.exec(location.path ?? "");
   const pageIndex = location.pageIndex ?? (path ? Number(path[1]) : undefined), componentIndex = location.componentIndex ?? (path ? Number(path[2]) : undefined);
   const target = lists.value.findIndex(item => item.pageIndex === pageIndex && item.componentIndex === componentIndex);
   if (target >= 0 && target !== selected.value && editor.isToolPending("rules") && !await editor.guardChanges()) return;
   locateReviewUnchecked(location);
+  if (keepTool) section.value = "tools";
 }
 async function chooseRuleList(event: Event): Promise<void> {
   const target = event.target as HTMLSelectElement, next = Number(target.value);
@@ -411,7 +432,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
         </button>
       </div>
     </div>
-    <div class="mr-designer-body" :class="{ 'is-tools': section === 'tools' }">
+    <div class="mr-designer-body" :class="{ 'is-tools': section === 'tools', 'is-docked': toolPreview }">
       <div
         v-if="visitedTools.size"
         v-show="section === 'tools'"
@@ -430,8 +451,13 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
           >
             {{ m[`${item}Tool`] }}
             <span v-if="editor.isToolPending(item)" class="mr-designer-pending-dot" aria-hidden="true"></span>
-</button><span>{{ m.toolsDescription }}</span>
+</button>
         </nav>
+        <div class="mr-designer-tool-target">
+          <label><span>{{ m.toolTarget }}</span><select :value="canvasPage" :aria-label="m.pageDirectory" @change="canvasPage = Number(($event.target as HTMLSelectElement).value)"><option v-for="(page, index) in draft.template.pages" :key="index" :value="index">{{ pageName(page, index, m.page) }}</option></select></label>
+          <select :value="canvasSelection?.pageIndex === canvasPage ? canvasSelection.componentIndex : -1" :aria-label="m.toolChooseComponent" @change="chooseToolComponent"><option :value="-1" disabled>{{ m.toolChooseComponent }}</option><option v-for="component in componentDirectory" :key="component.index" :value="component.index">{{ component.name }}</option></select>
+          <button type="button" :aria-pressed="toolPreview" @click="toggleToolPreview"><ReportIcon name="columns" :size="14" />{{ toolPreview ? m.toolPreviewHide : m.toolPreview }}</button>
+        </div>
         <div class="mr-designer-tool-content">
           <TemplateOutlinePanel :messages="productMessages" v-if="visitedTools.has('outline')" v-show="tool === 'outline'" :document="draft" :selection="canvasSelection" @locate="locateReview" />
           <TemplateReusePanel :messages="productMessages" v-if="visitedTools.has('reuse')" v-show="tool === 'reuse'" :document="draft" :page-index="canvasPage" :selection="canvasSelection" :fragments="fragments" :styles="documentStyles" :disabled="editDisabled" :accept="editor.transaction" @select="chooseCanvas" />
@@ -787,7 +813,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
                   role="group"
                 >
                   <div
-                    v-for="{ column, index } in visibleColumns"
+                    v-for="{ column, index } in directory.windowColumns.value"
                     :key="index"
                     class="mr-designer-column-row"
                     :class="{ 'is-active': activeIndex === index }"
@@ -823,6 +849,11 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
                     <ReportIcon name="search" :size="20" />{{ m.noColumns }}
                   </p>
                 </div>
+                <nav v-if="visibleColumns.length > directory.windowSize" class="mr-designer-directory-pages" :aria-label="m.columnDirectory">
+                  <button type="button" :disabled="directory.windowStart.value === 0" :aria-label="m.previousColumns" @click="directory.stepWindow(-1)"><ReportIcon name="chevron-left" :size="14" /></button>
+                  <span>{{ m.columnWindow.replace('{start}', String(directory.windowStart.value + 1)).replace('{end}', String(Math.min(visibleColumns.length, directory.windowStart.value + directory.windowSize))).replace('{total}', String(visibleColumns.length)) }}</span>
+                  <button type="button" :disabled="directory.windowStart.value + directory.windowSize >= visibleColumns.length" :aria-label="m.nextColumns" @click="directory.stepWindow(1)"><ReportIcon name="chevron-right" :size="14" /></button>
+                </nav>
                 <div v-if="selectedColumns.length" class="mr-designer-batch">
                   <label>{{ m.batchBody
                     }}<select
@@ -1022,7 +1053,7 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
         </div>
       </aside>
       <div
-        v-if="section !== 'tools'"
+        v-if="section !== 'tools' || toolPreview"
         class="mr-designer-preview"
         :aria-label="m.previewTitle"
       >

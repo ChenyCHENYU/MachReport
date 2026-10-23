@@ -11,6 +11,8 @@ import { computed, ref, watch } from "vue";
 import { validateReportParams, type ReportParamDef, type ReportParamIssue } from "@agile-team/mach-report";
 import type { MachReportMessages } from "./config";
 import { createParamPanelId, paramIssueMessage } from "./composables/useReportParams";
+import ReportRemoteParamSelect from "./ReportRemoteParamSelect.vue";
+import type { ReportParamOptionsLoader } from "./param-options";
 
 const props = withDefaults(defineProps<{
   defs: ReportParamDef[];
@@ -23,7 +25,8 @@ const props = withDefaults(defineProps<{
   showActions?: boolean;
   showTitle?: boolean;
   disabled?: boolean;
-}>(), { showActions: true, showTitle: true, disabled: false, issues: undefined });
+  loadOptions?: ReportParamOptionsLoader;
+}>(), { showActions: true, showTitle: true, disabled: false, issues: undefined, loadOptions: undefined });
 
 const emit = defineEmits<{
   (e: "update:modelValue", value: Record<string, string>): void;
@@ -52,9 +55,22 @@ const items = computed(() =>
     error: props.attempted ? issues.value.find((issue) => issue.field === def.field) : undefined
   }))
 );
+const dependents = computed(() => {
+  const result = new Map<string, string[]>();
+  for (const def of props.defs) for (const parent of Array.isArray(def.dependsOn) ? def.dependsOn : []) {
+    const children = result.get(parent) ?? []; children.push(def.field); result.set(parent, children);
+  }
+  return result;
+});
 
 function setField(field: string, value: string): void {
+  if (props.disabled || local.value[field] === value) return;
   local.value = { ...local.value, [field]: value };
+  const changed = new Set([field]), queue = [field];
+  for (let cursor = 0; cursor < queue.length; cursor++) for (const child of dependents.value.get(queue[cursor]!) ?? []) {
+    if (changed.has(child)) continue;
+    local.value[child] = ""; changed.add(child); queue.push(child);
+  }
   emit("update:modelValue", { ...local.value });
 }
 
@@ -95,8 +111,9 @@ defineExpose({ focusInvalid });
         <span :id="`${item.id}-label`" class="mrp-param-label">
           {{ item.label }}<i v-if="item.def.required" class="mrp-param-star">*</i>
         </span>
+        <ReportRemoteParamSelect v-if="item.def.optionsSource" :id="item.id" :def="item.def" :value="item.value" :values="local" :load-options="loadOptions" :messages="messages" :disabled="disabled" :invalid="!!item.error" @change="setField(item.def.field, $event)" />
         <select
-          v-if="(item.def.type ?? 'text') === 'select'"
+          v-else-if="(item.def.type ?? 'text') === 'select'"
           class="mrp-param-input"
           :value="item.value"
           :disabled="disabled"

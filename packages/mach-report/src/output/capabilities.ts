@@ -6,7 +6,7 @@ import { isImageBackedComponent, isRichText } from "../schema/render-plan";
 export type OutputFormat = "dom" | "canvas" | "pdf" | "xlsx";
 
 export interface OutputDiagnostic {
-  code: "missing-image" | "unsupported-component" | "unsupported-image-format" | "unsupported-style" | "rich-text-flattened" | "nested-components-omitted" | "async-image-required" | "image-decode-failed" | "asset-render-failed" | "asset-budget-exceeded";
+  code: "invalid-image-data" | "image-budget-exceeded" | "component-render-failed" | "unsupported-text" | "output-degraded" | "missing-image" | "unsupported-component" | "unsupported-image-format" | "unsupported-style" | "rich-text-flattened" | "nested-components-omitted" | "async-image-required" | "image-decode-failed" | "asset-render-failed" | "asset-budget-exceeded";
   severity: "warning";
   format: OutputFormat;
   pageIndex: number;
@@ -64,6 +64,18 @@ function unsupportedStyle(style: ComponentStyle | undefined, format: OutputForma
   return unsupported.length ? `${format} does not preserve these styles: ${unsupported.join(", ")}.` : undefined;
 }
 
+function collectRichStyleDiagnostics(comp: PlanComponent, format: OutputFormat, pageIndex: number, componentIndex: number, diagnostics: OutputDiagnostic[]): void {
+    for (const paragraph of comp.richParagraphs ?? []) {
+      if (format === "xlsx" && (paragraph.spaceBeforeMm || paragraph.spaceAfterMm || paragraph.indentMm || paragraph.align || paragraph.lineHeight)) diagnostics.push(diagnostic(comp, format, pageIndex, componentIndex, { code: "unsupported-style", message: "XLSX rich text preserves fonts and paragraph newlines; paragraph spacing, indentation and alignment are not retained." }));
+      const paragraphMessage = unsupportedStyle({ align: paragraph.align }, format);
+      if (paragraphMessage) diagnostics.push(diagnostic(comp, format, pageIndex, componentIndex, { code: "unsupported-style", message: paragraphMessage }));
+      for (const segment of paragraph.segments) {
+        const message = unsupportedStyle(segment.style, format) ?? (format !== "dom" && segment.style?.backgroundColor ? "Inline background colors are not preserved in this output." : undefined);
+        if (message) diagnostics.push(diagnostic(comp, format, pageIndex, componentIndex, { code: "unsupported-style", message }));
+      }
+    }
+}
+
 /** Pure preflight shared by browser and server; no DOM, fonts or output libraries are loaded. */
 function collectComponentDiagnostics(comp: PlanComponent, format: OutputFormat, pageIndex: number, componentIndex: number, componentPath: readonly number[], diagnostics: OutputDiagnostic[], ancestors: ReadonlySet<PlanComponent>): void {
     if (ancestors.has(comp)) return;
@@ -72,9 +84,10 @@ function collectComponentDiagnostics(comp: PlanComponent, format: OutputFormat, 
     if (issue) diagnostics.push({ ...diagnostic(comp, format, pageIndex, componentIndex, issue), componentPath });
     const styleMessage = unsupportedStyle(comp.style, format);
     if (styleMessage) diagnostics.push({ ...diagnostic(comp, format, pageIndex, componentIndex, { code: "unsupported-style", message: styleMessage }), componentPath });
-    if (isRichText(comp) && format !== "dom") {
+    if (isRichText(comp) && format === "canvas") {
       diagnostics.push(diagnostic(comp, format, pageIndex, componentIndex, { code: "rich-text-flattened", message: "Rich text is exported as plain text; inline styles are not preserved." }));
     }
+    collectRichStyleDiagnostics(comp, format, pageIndex, componentIndex, diagnostics);
     for (const [rowIndex, row] of (comp.grid?.cells ?? []).entries()) for (const [columnIndex, cell] of row.entries()) {
       const cellStyleMessage = unsupportedStyle(cell?.style, format);
       if (cellStyleMessage) diagnostics.push({ ...diagnostic(comp, format, pageIndex, componentIndex, { code: "unsupported-style", message: cellStyleMessage }), componentPath: [...componentPath, rowIndex, columnIndex] });

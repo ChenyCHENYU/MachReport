@@ -1,8 +1,9 @@
 import type { ReportParamDef } from "../layout/paginate";
+import { paramDependencyIssues, remoteParamMetadataIssues } from "./param-dependencies";
 import { isReportTemporalBound, parseReportDateRange, reportTemporalIssue } from "./param-temporal";
 export { isReportDate, isReportMonth, isReportYear, parseReportDateRange, formatReportDateRange, type ReportDateRange } from "./param-temporal";
 
-export type ReportParamIssueCode = "definition" | "required" | "type" | "option" | "minimum" | "maximum" | "minLength" | "maxLength";
+export type ReportParamIssueCode = "definition" | "required" | "type" | "option" | "dependency" | "minimum" | "maximum" | "minLength" | "maxLength";
 export interface ReportParamIssue { code: ReportParamIssueCode; path: string; field: string; message: string }
 export interface ReportParamValidation {
   ok: boolean;
@@ -76,11 +77,13 @@ function lengthIssues(def: ReportParamDef): string[] {
 export function validateReportParamDefinitions(defs: readonly ReportParamDef[]): ReportParamIssue[] {
   if (!Array.isArray(defs)) return [{ code: "definition", field: "", path: "$.paramDefs", message: "参数定义应为数组" }];
   const fields = new Set<string>();
-  return defs.flatMap((def, index) => {
+  const issues = defs.flatMap((def, index) => {
     const field = def && typeof def.field === "string" ? def.field : "";
     const messages = definitionIssues(def, fields);
     return messages.map((message): ReportParamIssue => ({ code: "definition", field, path: `$.paramDefs.${index}`, message }));
   });
+  if (issues.length) return issues;
+  return paramDependencyIssues(defs).map(({ index, message }) => ({ code: "definition", field: defs[index]!.field, path: `$.paramDefs.${index}`, message }));
 }
 
 function validOptions(options: unknown): options is NonNullable<ReportParamDef["options"]> {
@@ -96,7 +99,7 @@ function metadataIssues(def: ReportParamDef): string[] {
   if (def.required !== undefined && typeof def.required !== "boolean") issues.push("required 应为布尔值");
   if (def.defaultValue !== undefined && typeof def.defaultValue !== "string") issues.push("默认值应为字符串");
   if (def.options !== undefined && !validOptions(def.options)) issues.push("选项应为包含字符串 label/value 的数组");
-  return issues;
+  return [...issues, ...remoteParamMetadataIssues(def)];
 }
 
 function definitionIssues(def: ReportParamDef, fields: Set<string>): string[] {
@@ -153,7 +156,12 @@ export function validateReportParams(defs: readonly ReportParamDef[], input: Rec
     problems.forEach(([code, message]) => add(code, message));
     typedValues[def.field] = def.type === "number" && validNumber(value) ? Number(value) : value;
   }
+  issues.push(...dependencyValueIssues(defs, values));
   return { ok: issues.length === 0, values, typedValues, issues };
+}
+function dependencyValueIssues(defs: readonly ReportParamDef[], values: Record<string, string>): ReportParamIssue[] {
+  return defs.flatMap(def => !emptyValue(values[def.field]) && def.dependsOn?.some(field => emptyValue(values[field]))
+    ? [{ code: "dependency" as const, path: `$.params.${def.field}`, field: def.field, message: "请先填写联动依赖的上级参数" }] : []);
 }
 
 export function assertReportParams(defs: readonly ReportParamDef[], input: Record<string, unknown> = {}): Record<string, string> {
@@ -178,6 +186,7 @@ function paramSchema(def: ReportParamDef): Record<string, unknown> {
   const schema: Record<string, unknown> = { type: def.type === "number" ? "number" : "string", title: def.label ?? def.field, ...temporalSchema(def) };
   if (def.required && def.type !== "number" && !schema.pattern) schema.pattern = "\\S";
   if (def.type === "select" && def.options) schema.enum = def.options.map((option) => option.value);
+  Object.assign(schema, remoteParamSchema(def));
   if (def.defaultValue !== undefined && (def.type !== "number" || def.defaultValue.trim())) schema.default = def.type === "number" ? Number(def.defaultValue) : def.defaultValue;
   if (def.minLength !== undefined) schema.minLength = def.minLength;
   if (def.maxLength !== undefined) schema.maxLength = def.maxLength;
@@ -186,6 +195,9 @@ function paramSchema(def: ReportParamDef): Record<string, unknown> {
   if (typeof def.min === "string") schema["x-report-minimum"] = def.min;
   if (typeof def.max === "string") schema["x-report-maximum"] = def.max;
   return schema;
+}
+function remoteParamSchema(def: ReportParamDef): Record<string, unknown> {
+  return { ...(def.optionsSource ? { "x-report-options-source": def.optionsSource } : {}), ...(def.dependsOn?.length ? { "x-report-depends-on": [...def.dependsOn] } : {}) };
 }
 
 /** 描述 typedValues 的 Draft 2020-12 Schema；日期区间额外保留 x-report-* 扩展。 */

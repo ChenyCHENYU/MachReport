@@ -1,6 +1,6 @@
 {
   "name": "@agile-team/mach-report",
-  "version": "2.14.0",
+  "version": "2.15.0",
   "description": "独立的 TypeScript 报表引擎：模板分页、DOM/Canvas/PDF/Excel 输出与 Vue 3 预览组件",
   "type": "module",
   "sideEffects": [
@@ -174,7 +174,7 @@
     "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
-    "build": "vite build && vite build --config vite.node.config.ts && node scripts/copy-dcts.mjs",
+    "build": "vite build && vite build --config vite.node.config.ts && node scripts/copy-dcts.mjs && node ../../scripts/build-sbom.mjs",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "prepack": "node scripts/sync-readme.mjs"
   },

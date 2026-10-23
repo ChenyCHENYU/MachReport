@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { provideTemplateToolDrafts } from "./useTemplateToolDrafts";
 import { useTemplateDraftRecovery } from "./useTemplateDraftRecovery";
 import { useTemplateConflict, type TemplateEditorConflictOptions } from "./useTemplateConflict";
@@ -179,17 +179,15 @@ export function useTemplateEditor(
   const { selected, lists, activeList, headerAlignments, setColumn } = columns;
   watch(selected, () => columns.clearSelection());
   // 属性编辑仅预览显式提供的数据，不触发业务查询；模板的参数定义仍完整保存在文档中。
-  const fetcher = computed(() =>
-    validation.value.ok
-      ? createLocalFetcher({
-          draft: {
-            template: draft.value.template,
-            datasets: props.datasets ?? {},
-            params: [],
-          },
-        })
-      : undefined,
-  );
+  // Document metadata does not change the report. Keep its fetcher identity stable
+  // while editing a name/description; only layout/data changes invalidate preview.
+  const previewFetcher = shallowRef<ReturnType<typeof createLocalFetcher>>();
+  watch([() => draft.value.template, () => props.datasets], () => {
+    previewFetcher.value = createLocalFetcher({ draft: {
+      template: draft.value.template, datasets: props.datasets ?? {}, params: [],
+    } });
+  }, { deep: true, immediate: true });
+  const fetcher = computed(() => validation.value.ok ? previewFetcher.value : undefined);
 
   function cancelSave(): void {
     generation++;

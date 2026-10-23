@@ -6,9 +6,13 @@ export interface OutputTaskOptions {
 export function assertOutputActive(signal?: AbortSignal): void {
   if (signal?.aborted) throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
 }
+/** Observers cannot change a completed transaction, including asynchronously rejected callbacks. */
+export function observeOutput(callback: () => unknown): void {
+  try { void Promise.resolve(callback()).catch(() => undefined); } catch { /* Observers do not own output transactions. */ }
+}
 export function notifyOutputProgress(options: OutputTaskOptions, completed: number, total: number): void {
   assertOutputActive(options.signal);
-  try { options.onProgress?.(completed, total); } catch { /* Observers do not own output transactions. */ }
+  observeOutput(() => options.onProgress?.(completed, total));
   assertOutputActive(options.signal);
 }
 /** Stop waiting on an adapter that ignores signal; its late result is never committed. */
@@ -39,4 +43,15 @@ export async function outputCheckpoint(options: OutputTaskOptions, completed: nu
   notifyOutputProgress(options, completed, total);
   if (options.signal || options.onProgress) await new Promise<void>((resolve) => setTimeout(resolve, 0));
   assertOutputActive(options.signal);
+}
+
+/** Cooperative encoding slices keep a single large logical Sheet cancellable. Counts stay stage-owned. */
+export function createOutputScheduler(options: OutputTaskOptions): (units?: number) => Promise<void> | undefined {
+  let count = 0, started = Date.now();
+  return (units = 1) => {
+    assertOutputActive(options.signal); count += units;
+    if (count < 4096 && Date.now() - started < 8) return;
+    count = 0;
+    return new Promise<void>(resolve => setTimeout(resolve, 0)).then(() => { started = Date.now(); assertOutputActive(options.signal); });
+  };
 }

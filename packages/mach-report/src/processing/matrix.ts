@@ -1,4 +1,5 @@
-import { createCrossTable, type CrossTableResult } from "./cross-table";
+import type { CrossTableResult } from "./cross-table";
+import { accumulatePivotRows } from "./pivot-accumulator";
 import {
   createAggregateAccumulator,
   type AggregateDefinition,
@@ -132,88 +133,31 @@ export function estimateMatrixTable(
       (columns.size + Number(!!options.totals)) * options.measures.length + 1;
   return { rowCount, columnCount, cells: rowCount * columnCount };
 }
-function internalField(
-  input: readonly Record<string, unknown>[],
-  seed: string,
-): string {
-  let field = seed;
-  while (input.some((row) => Object.prototype.hasOwnProperty.call(row, field)))
-    field += "_";
-  return field;
-}
-/** Multi-dimension/multi-measure pivot; each total aggregates original rows, never averages averages. */
-export function createMatrixTable(
-  input: readonly Record<string, unknown>[],
-  options: MatrixTableOptions,
-): CrossTableResult {
+/** Multi-measure pivot shares dimensions and original rows; weighted totals never average averages. */
+export function createMatrixTable(input: readonly Record<string, unknown>[], options: MatrixTableOptions): CrossTableResult {
   estimateMatrixTable(input, options);
-  const rowLabels = new Map<string, string>(),
-    columnLabels = new Map<string, string>();
-  const rowField = internalField(input, "__matrix_row"),
-    columnField = internalField(input, "__matrix_column");
-  const normalized = input.map((row) => {
-    const r = dimension(row, options.rowFields),
-      c = dimension(row, options.columnFields);
-    rowLabels.set(r.key, r.label);
-    columnLabels.set(c.key, c.label);
-    return { ...row, [rowField]: r.key, [columnField]: c.key };
+  const pivot = accumulatePivotRows(input, {
+    row: row => dimension(row, options.rowFields), column: row => dimension(row, options.columnFields),
+    measures: options.measures.map(measure => ({ ...measure, field: measure.valueField ?? measure.field })),
+    totals: options.totals, check: () => {}, // Cardinality/budgets were checked before allocating accumulators.
   });
-  const maxCells = options.maxCells ?? 2_000_000;
-  if (
-    (rowLabels.size + Number(!!options.totals)) *
-      ((columnLabels.size + Number(!!options.totals)) *
-        options.measures.length +
-        1) >
-    maxCells
-  )
-    throw new Error("矩阵输出超出 maxCells 预算");
-  const results = options.measures.map((measure) =>
-    createCrossTable(normalized, {
-      rowField,
-      columnField,
-      valueField: measure.valueField ?? measure.field,
-      aggregate: measure.op,
-      countMode: "nonNull",
-      weightField: measure.weightField,
-      numeric: measure.numeric,
-      digits: measure.digits,
-      totals: options.totals,
-      maxRows: options.maxRows,
-      maxColumns: options.maxColumns,
-      maxInputRows: options.maxInputRows,
-      maxCells,
-    }),
-  );
-  const rows = results[0]!.rows.map(
-    (row) =>
-      ({
-        rowLabel: rowLabels.get(String(row.rowLabel)) ?? String(row.rowLabel),
-      }) as Record<string, unknown>,
-  );
-  const columns: CrossTableResult["columns"] = [
-    {
-      field: "rowLabel",
-      header: options.rowHeader ?? options.rowFields.join(" / "),
-      semanticRole: "dimension",
-    },
-  ];
-  for (let metric = 0; metric < results.length; metric++) {
-    const result = results[metric]!,
-      definition = options.measures[metric]!;
-    for (const column of result.columns.slice(1)) {
-      const field = `${column.field}_${metric}`;
-      columns.push({
-        ...column,
-        field,
-        ...(definition.digits === undefined
-          ? {}
-          : { format: { kind: "number" as const, digits: definition.digits } }),
-        header: `${columnLabels.get(column.header) ?? column.header} · ${definition.label ?? `${definition.field} (${definition.op})`}`,
-      });
-      result.rows.forEach((row, index) => {
-        rows[index]![field] = row[column.field];
-      });
+  const rows: Record<string, unknown>[] = [...pivot.groups.values()].map(group => ({ rowLabel: group.label }));
+  const columns: CrossTableResult["columns"] = [{ field: "rowLabel", header: options.rowHeader ?? options.rowFields.join(" / "), semanticRole: "dimension" }];
+  const totalRow: Record<string, unknown> = { rowLabel: "合计" };
+  options.measures.forEach((measure, metric) => {
+    const dimensions = [...pivot.columns.entries()].map(([key, label], index) => ({ key, label, field: `c${index}_${metric}` }));
+    if (options.totals) dimensions.push({ key: "", label: "合计", field: `total_${metric}` });
+    for (const column of dimensions) {
+      const total = column.field === `total_${metric}`;
+      columns.push({ field: column.field, header: `${column.label} · ${measure.label ?? `${measure.field} (${measure.op})`}`, semanticRole: "measure",
+        ...(measure.digits === undefined ? {} : { format: { kind: "number", digits: measure.digits } }) });
+      let index = 0;
+      for (const group of pivot.groups.values()) {
+        rows[index++]![column.field] = (total ? group.totals?.[metric] : group.cells.get(column.key)?.[metric])?.value() ?? (measure.op === "count" ? 0 : null);
+      }
+      totalRow[column.field] = (total ? pivot.totals?.[metric] : pivot.columnTotals.get(column.key)?.[metric])?.value() ?? (measure.op === "count" ? 0 : null);
     }
-  }
+  });
+  if (options.totals && input.length) rows.push(totalRow);
   return { rows, columns };
 }

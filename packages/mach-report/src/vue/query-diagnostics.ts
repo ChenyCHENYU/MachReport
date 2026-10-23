@@ -13,7 +13,7 @@ export function scopeQueryDiagnostics(
   // An ambiguous legacy callback must fail to locate rather than select another report's value.
   const index = candidate >= 0 && ids[candidate] === id ? candidate : -1;
   const reportScope = JSON.stringify([index, id]);
-  return entries.map(entry => ({
+  return entries.map(entry => entry.target?.reportScope ? { ...entry, target: { ...entry.target } } : ({
     ...entry,
     ...(entry.target ? {
       target: {

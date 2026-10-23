@@ -1,8 +1,8 @@
 import {
   createAggregateAccumulator,
-  type AggregateAccumulator,
   type AggregateOperation,
 } from "./aggregate";
+import { accumulatePivotRows } from "./pivot-accumulator";
 import type { TableTemplateColumn } from "../builder/table-template";
 
 export interface CrossTableOptions {
@@ -84,52 +84,21 @@ export function createCrossTable(
   const rowLimit = budget(options.maxRows, 1000),
     columnLimit = budget(options.maxColumns, 200);
   const cellLimit = budget(options.maxCells, 2_000_000);
-  const empty = () =>
-    createAggregateAccumulator({
-      op: kind,
-      field:
-        kind === "count" && options.countMode !== "nonNull"
-          ? undefined
-          : options.valueField,
-      weightField: options.weightField,
-      numeric: options.numeric,
-      digits: options.digits,
-    });
-  const columns = new Map<string, string>(),
-    groups = new Map<
-      string,
-      {
-        label: string;
-        cells: Map<string, AggregateAccumulator>;
-        total: AggregateAccumulator;
-      }
-    >();
-  const columnTotals = new Map<string, AggregateAccumulator>(),
-    total = empty();
-  for (const row of input) {
-    const r = key(own(row, options.rowField)),
-      c = key(own(row, options.columnField));
-    if (!columns.has(c)) columns.set(c, label(own(row, options.columnField)));
-    if (!groups.has(r))
-      groups.set(r, {
-        label: label(own(row, options.rowField)),
-        cells: new Map(),
-        total: empty(),
-      });
-    if (columns.size > columnLimit || groups.size > rowLimit)
-      throw new Error("交叉表维度数量超出预算");
-    checkOutputCells(groups.size, columns.size, options.totals, cellLimit);
-    const group = groups.get(r)!;
-    if (!group.cells.has(c)) group.cells.set(c, empty());
-    if (!columnTotals.has(c)) columnTotals.set(c, empty());
-    for (const state of [
-      group.cells.get(c)!,
-      group.total,
-      columnTotals.get(c)!,
-      total,
-    ])
-      state.add(row);
-  }
+  const measure = {
+    op: kind,
+    field: kind === "count" && options.countMode !== "nonNull" ? undefined : options.valueField,
+    weightField: options.weightField, numeric: options.numeric, digits: options.digits,
+  };
+  createAggregateAccumulator(measure); // Validate even when input is empty.
+  const { groups, columns, columnTotals, totals } = accumulatePivotRows(input, {
+    row: row => ({ key: key(own(row, options.rowField)), label: label(own(row, options.rowField)) }),
+    column: row => ({ key: key(own(row, options.columnField)), label: label(own(row, options.columnField)) }),
+    measures: [measure], totals: options.totals,
+    check: (rows, columns) => {
+      if (rows > rowLimit || columns > columnLimit) throw new Error("交叉表维度数量超出预算");
+      checkOutputCells(rows, columns, options.totals, cellLimit);
+    },
+  });
   const result: CrossTableResult = {
     columns: [
       {
@@ -150,10 +119,10 @@ export function createCrossTable(
       ...Object.fromEntries(
         [...columns.keys()].map((c, index) => [
           `c${index}`,
-          group.cells.get(c)?.value() ?? (kind === "count" ? 0 : null),
+          group.cells.get(c)?.[0]?.value() ?? (kind === "count" ? 0 : null),
         ]),
       ),
-      ...(options.totals ? { total: group.total.value() } : {}),
+      ...(options.totals ? { total: group.totals![0]!.value() } : {}),
     })),
   };
   if (options.totals) {
@@ -168,10 +137,10 @@ export function createCrossTable(
         ...Object.fromEntries(
           [...columns.keys()].map((c, index) => [
             `c${index}`,
-            columnTotals.get(c)?.value() ?? (kind === "count" ? 0 : null),
+            columnTotals.get(c)?.[0]?.value() ?? (kind === "count" ? 0 : null),
           ]),
         ),
-        total: total.value(),
+        total: totals![0]!.value(),
       });
   }
   return result;

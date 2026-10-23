@@ -1,5 +1,9 @@
 import type { ValidationError } from "./validate";
 
+function validateSourceScope(value: unknown, path: string, errors: ValidationError[]): void {
+  if (value !== undefined && (typeof value !== "string" || !value.trim() || value.length > 4096)) errors.push({ path, message: "来源范围应为不超过 4096 字符的非空字符串" });
+}
+
 /** Shared by JSON templates and runtime plans so malformed edit controls cannot change semantics. */
 export function validateEditableMetadata(value: Record<string, unknown>, path: string, errors: ValidationError[]): void {
   if (value.editable !== undefined && typeof value.editable !== "boolean") {
@@ -28,6 +32,7 @@ export function validateBusinessSource(value: unknown, path: string, errors: Val
     return;
   }
   const source = value as Record<string, unknown>;
+  validateSourceScope(source.sourceScope, `${path}.sourceScope`, errors);
   for (const key of ["datasetId", ...(cell ? ["field"] : [])]) {
     if (typeof source[key] !== "string" || !(source[key] as string).trim()) errors.push({ path: `${path}.${key}`, message: "业务标识应为非空字符串" });
   }

@@ -5,7 +5,7 @@ import type { ListComponent } from "../../index";
 import { useTemplateDirectory } from "../useTemplateDirectory";
 import { useTemplateInspector } from "../useTemplateInspector";
 
-function harness() {
+function harness(count = 55) {
   const query = ref("");
   const list = ref<ListComponent>({
     kind: "list",
@@ -13,7 +13,7 @@ function harness() {
     topMm: 0,
     widthMm: 1100,
     dataset: "detail",
-    columns: Array.from({ length: 55 }, (_, index) => ({
+    columns: Array.from({ length: count }, (_, index) => ({
       header: `指标${index + 1}`,
       field: `c${index + 1}`,
       widthMm: 20,
@@ -56,7 +56,7 @@ function harness() {
                     h(
                       "div",
                       { ref: directory.list },
-                      visible.value.map(({ index }) =>
+                      directory.windowColumns.value.map(({ index }) =>
                         h(
                           "button",
                           {
@@ -88,6 +88,25 @@ function harness() {
 }
 
 describe("按需字段目录", () => {
+  it("ignores IME navigation and keeps a 100-field window while End reaches the last real column", async () => {
+    const { wrapper, inspector, directory } = harness(1000);
+    await directory.toggle();
+    for (const key of ["Enter", "ArrowUp", "ArrowDown", "Escape"]) {
+      const event = new KeyboardEvent("keydown", { key, isComposing: true, cancelable: true });
+      await directory.searchKeydown(event); directory.escape(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(directory.open.value).toBe(true); expect(inspector.activeIndex.value).toBe(0);
+    expect(wrapper.findAll("[data-column-index]")).toHaveLength(100);
+    await directory.navigate(new KeyboardEvent("keydown", { key: "End", cancelable: true }));
+    expect(directory.cursor.value).toBe(999);
+    expect(document.activeElement?.getAttribute("data-column-index")).toBe("999");
+    expect(wrapper.findAll("[data-column-index]")).toHaveLength(100);
+    await directory.stepWindow(-1);
+    expect(directory.windowStart.value).toBe(800);
+    expect(inspector.activeIndex.value).toBe(0);
+    wrapper.unmount();
+  });
   it("搜索与方向键只是候选，提交后才切换55列真实物理索引", async () => {
     const { wrapper, query, inspector, directory } = harness();
     await directory.toggle();

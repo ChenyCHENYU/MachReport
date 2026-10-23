@@ -5,7 +5,7 @@ import {
   renderPlanToImages
 } from "@agile-team/mach-report";
 import { waitForOutput } from "../../output/progress";
-import { assertOutputActive, notifyOutputProgress } from "../../output/progress";
+import { assertOutputActive, notifyOutputProgress, observeOutput } from "../../output/progress";
 import { createOutputRun, type OutputRun } from "./output-task";
 import type { ReportPreviewTask } from "../guards";
 import type { PdfExporter } from "../pdf-exporter";
@@ -116,12 +116,13 @@ export async function printPlans(
     await yieldToBrowser();
     await preparePrintResources(doc, printOptions, options.signal);
     notifyOutputProgress(options, merged.pages.length, merged.pages.length);
-    finished = true;
     frame.contentWindow?.focus();
     frame.contentWindow?.print();
+    finished = true;
   } catch (error) {
     if (options.signal?.aborted) throw error;
-    options.onError?.(printResourceMessage(error, options.messages));
+    observeOutput(() => options.onError?.(printResourceMessage(error, options.messages)));
+    throw error;
   } finally {
     // 成功路径等打印框关闭后回收；失败立即回收，杜绝 iframe 泄漏
     if (finished) setTimeout(() => frame.remove(), 60_000);
