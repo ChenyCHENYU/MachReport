@@ -45,6 +45,8 @@ test("分页在真实视口右下，跳页校验与窄屏工具栏均可用", as
   await expect(pagination).toBeVisible();
   await expect(root.locator(".mrp-toolbar .mrp-pageinfo")).toHaveCount(0);
   const shellBox = (await root.boundingBox())!, footerBox = (await footer.boundingBox())!, pagerBox = (await pagination.boundingBox())!;
+  // The SDK must retain intrinsic sizing in a shrink-to-fit flex host.
+  expect(shellBox.width).toBeGreaterThan(800);
   expect(Math.abs(footerBox.y + footerBox.height - (shellBox.y + shellBox.height))).toBeLessThanOrEqual(2);
   expect(Math.abs(pagerBox.x + pagerBox.width - (shellBox.x + shellBox.width))).toBeLessThanOrEqual(2);
   expect(pagerBox.x).toBeGreaterThan(shellBox.x + shellBox.width / 2);

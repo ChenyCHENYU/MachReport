@@ -40,5 +40,5 @@ button:disabled{opacity:.3;cursor:not-allowed}button:focus-visible{outline:2px s
 .mrp-record-info{white-space:nowrap;opacity:.65;font-variant-numeric:tabular-nums}
 code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:160px}
 .mrp-record-face{opacity:.65;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px;padding-left:9px;border-left:1px solid var(--mrp-toolbar-border)}
-@container(max-width:680px){.mrp-record-face{display:none}code{max-width:110px}}
+@media(max-width:900px){.mrp-record-face{display:none}code{max-width:110px}}
 </style>

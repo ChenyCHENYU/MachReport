@@ -18,7 +18,6 @@
   background: var(--mrp-shell-bg);
   color: var(--mrp-shell-fg);
   overflow: hidden;
-  container-type: inline-size;
 }
 .mrp-main { display: flex; flex: 1; min-height: 0; }
 .mrp-footer { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; flex:none; box-sizing:border-box; margin:0; padding:0; border-top:1px solid var(--mrp-toolbar-border); background:var(--mrp-toolbar-bg); color:var(--mrp-toolbar-fg); font-size:12px; font-weight:400; line-height:18px; }
