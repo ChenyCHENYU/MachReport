@@ -4,7 +4,8 @@ import type { PlanComponent } from "../schema/render-plan";
 import { validateTemplateRepeat } from "../source/template-repeat-validation";
 import type { ValidationError } from "../schema/validate";
 import type { DatasetRows, PaginateOptions, ReportTemplate, TemplatePage } from "./paginate";
-import { heuristicMeasurer, wrapText } from "./textwrap";
+import { heuristicMeasurer } from "./textwrap";
+import { createRecordTextWrapper, type RecordTextWrapper } from "./record-pages-text";
 import { isLabelImageData, readRecordScalar as scalar, ReportBindingError, resolveComponentBinding } from "./record-bindings";
 import { PaginatePageLimitError } from "./pagination-errors";
 export { ReportBindingError } from "./record-bindings";
@@ -17,6 +18,7 @@ interface RecordContext {
   rowIndex: number;
   dataset: string;
   options: PaginateOptions;
+  wrapText: RecordTextWrapper;
 }
 function active(signal?: AbortSignal): void {
   if (signal?.aborted) throw signal.reason ?? new DOMException("标签生成已取消", "AbortError");
@@ -83,7 +85,7 @@ function textLayout(component: PlanComponent, context: RecordContext, path: stri
   const style = component.style ?? {}, fontSizePt = resolveFontSize(style).fontSizePt;
   const text = component.text ?? component.lines?.join("\n") ?? "";
   if (text.length > 16_384) throw new ReportBindingError(path, "标签文本超过 16384 字符预算，请缩小字段内容", context.rowIndex);
-  const lines = wrapText(text, component.widthMm, { fontSizePt, bold: style.bold, italic: style.italic, fontFamily: style.fontFamily, letterSpacingPt: style.letterSpacing }, context.options.measurer ?? heuristicMeasurer);
+  const lines = context.wrapText(text, component.widthMm, { fontSizePt, bold: style.bold, italic: style.italic, fontFamily: style.fontFamily, letterSpacingPt: style.letterSpacing }, context.options.measurer ?? heuristicMeasurer);
   const height = lines.length * fontSizePt * resolveLineHeight(style) * 25.4 / 72;
   if (height > component.heightMm + 0.05) throw new ReportBindingError(path, `标签文字需要约 ${height.toFixed(2)}mm 高，超出 ${component.heightMm}mm；请增大文本区域、减少内容或调整字号`, context.rowIndex, component.binding?.field);
   return { ...component, lines };
@@ -115,8 +117,9 @@ export function* repeatTemplatePages(template: ReportTemplate, datasets: Dataset
   if (errors.length) throw new ReportBindingError(errors[0]!.path, errors[0]!.message);
   if (!template.repeat) { for (const [pageIndex, page] of template.pages.entries()) yield { page, pageIndex }; return; }
   const repeat = template.repeat, rows = repeatRows(template, datasets, options);
+  const wrapText = createRecordTextWrapper();
   for (const [rowIndex, row] of rows.entries()) {
-    const context: RecordContext = { row, rowIndex, dataset: repeat.dataset, options }, copies = copiesFor(repeat, row, context), key = recordKey(repeat, row, context);
+    const context: RecordContext = { row, rowIndex, dataset: repeat.dataset, options, wrapText }, copies = copiesFor(repeat, row, context), key = recordKey(repeat, row, context);
     for (let copyIndex = 0; copyIndex < copies; copyIndex++) for (const [pageIndex, page] of template.pages.entries()) {
       active(options.signal);
       yield { page: boundPage(page, pageIndex, context, copyIndex, copies, key), pageIndex };

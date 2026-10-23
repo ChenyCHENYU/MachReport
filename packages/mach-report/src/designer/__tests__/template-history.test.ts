@@ -33,4 +33,20 @@ describe("bounded designer history", () => {
     expect(history.move(-1)).toBeUndefined();
     expect(() => useTemplateHistory("", { entries: 0, bytes: 1 })).toThrow(RangeError);
   });
+  it("retains independent before/after navigation per operation without making navigation an edit", () => {
+    const history = useTemplateHistory("initial", { entries: 3, bytes: 1000 });
+    history.record("front", { pageIndex: 0, componentIndex: 0 });
+    history.annotate({ pageIndex: 1 });
+    history.record("back", { pageIndex: 2, componentIndex: 1 });
+    history.annotate({ pageIndex: 2, componentIndex: 2 });
+    expect(history.record("back", { pageIndex: 0 })).toBe(false);
+    expect(history.move(-1)).toBe("front"); expect(history.context.value).toEqual({ pageIndex: 2, componentIndex: 1 });
+    expect(history.move(-1)).toBe("initial"); expect(history.context.value).toEqual({ pageIndex: 0, componentIndex: 0 });
+    expect(history.move(1)).toBe("front"); expect(history.context.value).toEqual({ pageIndex: 1 });
+    expect(history.move(1)).toBe("back"); expect(history.context.value).toEqual({ pageIndex: 2, componentIndex: 2 });
+    history.record("next", { pageIndex: 2 });
+    expect(history.retainedBytes.value).toBeLessThan(1000);
+    expect(history.move(-1)).toBe("back"); expect(history.move(-1)).toBe("front");
+    expect(history.move(-1)).toBeUndefined();
+  });
 });

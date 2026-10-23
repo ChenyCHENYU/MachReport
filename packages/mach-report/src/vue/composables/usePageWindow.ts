@@ -34,11 +34,20 @@ export function usePageWindow(
   });
   let scrollRaf = 0;
   let disposed = false;
+  let navigation: { top: number; index: number; zoom: number; geometry: typeof geometry.value } | undefined;
 
   function refreshViewport(vp: HTMLElement | null): void {
     if (!vp) return;
     scrollTop.value = vp.scrollTop;
     viewportHeight.value = vp.clientHeight || 800;
+  }
+
+  function scrollToPage(vp: HTMLElement, index: number): void {
+    vp.scrollTop = geometry.value.offsetAt(index) * zoom.value;
+    // Short labels near the end cannot always align to the viewport's top.
+    // Preserve the requested page at the browser-clamped offset until a real scroll.
+    navigation = { top: vp.scrollTop, index, zoom: zoom.value, geometry: geometry.value };
+    refreshViewport(vp);
   }
 
   /** rAF 节流并及时取消；当前页由缓存几何计算，避免读所有页 DOM 的布局。 */
@@ -50,6 +59,11 @@ export function usePageWindow(
         if (disposed) return;
         refreshViewport(vp);
         if (pageCount.value <= 0) return;
+        if (navigation && navigation.top === vp.scrollTop && navigation.zoom === zoom.value && navigation.geometry === geometry.value) {
+          currentPage.value = Math.min(pageCount.value, navigation.index + 1);
+          return;
+        }
+        navigation = undefined;
         // body padding 为 24px；页码切换阈值保留距视口顶约 56px 的原有体验。
         const position = Math.max(0, vp.scrollTop + 32) / zoom.value;
         currentPage.value = Math.min(pageCount.value, geometry.value.pageAt(position) + 1);
@@ -66,6 +80,7 @@ export function usePageWindow(
 
   return {
     contentSize, windowRange, visiblePages, makeScrollHandler, refreshViewport,
+    scrollToPage,
     pageOffsetPx: (index: number) => geometry.value.offsetAt(index),
     destroy
   };

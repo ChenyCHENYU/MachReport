@@ -171,6 +171,8 @@ app.use(machReportPlugin, {
 
 框架无关项目使用 `createReportSource(reports)`，获得兼容 `PlanFetcher` 的可调用数据源；`defineReport({ template, load, mapData })` 用于推导业务响应并映射数据。报表定义还支持 `params` 参数覆盖和 `pagination` 测量选项。详见[项目接入指南](./INTEGRATION.md)。
 
+固定标签可用 `defineLabelReport({ template, rows | load, dataSchema?, params?, pagination?, dataValidation? })`，返回同一个 `ReportDefinition`。数据来源二选一，`load(context)` 直接返回 `readonly object[]` 或 Promise，单个数据契约自动按 `template.repeat.dataset` 映射。模板必须是静态且带有效 `repeat` 的固定布局，不接收动态模板加载器。该 API 位于核心并由 `/vue` 重导出；不加载编码器。详见[工业标签](./LABELS.md)。
+
 数据应覆盖所需报表范围。普通列表接口只返回当前分页时，只能生成该批数据的报表；完整导出需要后端提供完整结果或由应用完成受控取数。权限、租户隔离和数据范围仍由后端校验。模板可在前端定义，也可通过接口加载；不需要专用数据库或固定后端语言。
 
 ## Vue 3 预览组件

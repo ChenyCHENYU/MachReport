@@ -243,7 +243,7 @@ function clearSearch(): void { emit("search-input", ""); searchControls.focus();
 .mrp-search-no-results .mrp-search-count {
   opacity: .6;
 }
-@media(max-width:720px) {
+@container(max-width:720px) {
   .mrp-toolbar {
     gap: 6px;
     padding: 9px 10px;

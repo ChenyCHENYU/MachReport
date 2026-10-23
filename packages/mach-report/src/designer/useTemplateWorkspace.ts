@@ -28,6 +28,19 @@ export function useTemplateWorkspace(
     pageIndex: canvasPage,
     active: canvasActive,
   } = canvas;
+  editor.connectHistoryView({
+    read: () => ({ pageIndex: canvasPage.value, componentIndex: canvasSelection.value?.pageIndex === canvasPage.value ? canvasSelection.value.componentIndex : undefined }),
+    restore: (context) => {
+      canvasPage.value = Math.max(0, Math.min(draft.value.template.pages.length - 1, context.pageIndex));
+      canvas.selection.value = undefined;
+      canvas.selections.value = [];
+      if (context.componentIndex !== undefined && draft.value.template.pages[canvasPage.value]?.components[context.componentIndex])
+        canvas.select({ pageIndex: canvasPage.value, componentIndex: context.componentIndex });
+    },
+  });
+  // A validated command may select its newly inserted page/component after the
+  // document transaction returns. Capture that final view once, after rendering.
+  watch(editor.historyViewRevision, () => editor.captureHistoryView(), { flush: "post" });
   const tool = ref<"excel" | "rules" | "review" | "params">("excel");
   const visitedTools = ref(new Set<string>());
   watch([section, tool], () => {

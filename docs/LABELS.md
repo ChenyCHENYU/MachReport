@@ -5,7 +5,7 @@ MachReport 的固定标签与宽表共用模板、渲染计划、数据来源和
 ## 最少接入
 
 ```ts
-import { createLabelTemplate, createReportSource } from "@agile-team/mach-report";
+import { createLabelTemplate, createReportSource, defineLabelReport } from "@agile-team/mach-report";
 import { createCodeAssetRenderers } from "@agile-team/mach-report/codes";
 
 const template = createLabelTemplate({
@@ -18,14 +18,20 @@ const template = createLabelTemplate({
   ]
 });
 const fetcher = createReportSource({
-  label: { template, load: async ({ signal }) => ({
-    materials: await loadMaterials(signal) // 宿主自己的请求函数，返回记录数组
-  }) }
+  label: defineLabelReport({
+    template,
+    load: ({ signal }) => loadMaterials(signal) // 宿主自己的请求函数，直接返回记录数组
+    // 静态数据使用 rows: materials；可选 dataSchema: materialContract
+  })
 });
 const assets = { assetRenderers: createCodeAssetRenderers({ dpi: 203 }) };
 ```
 
 Vue 使用 `<ReportPreview report-id="label" :fetcher="fetcher" :assets="assets" />`。设计器使用 `<ReportTemplateEditor v-model="document" :datasets="samples" :preview="{ assets }" />`，其中 `document` 用 `defineReportTemplate` 包装模板。中文 PDF 仍需通过 `pdfFontUrl` 提供具有相应字形的字体。字体、编码图和业务请求各有独立错误提示。
+
+`defineLabelReport` 自动用 `template.repeat.dataset` 包装数组与单个 `dataSchema`，支持只读数组和具名业务行类型，不拷贝或转换业务值。`rows` 与 `load` 二选一；`load` 接收既有 `params / signal` 上下文，取消、参数校验、分页预算和错误继续复用统一来源管线。可直接注册到 Vue 插件 `reports` 或 `createReportRuntime({ reports })`。它面向静态固定标签模板和单数据集；动态模板、多数据集继续使用 `defineReport` 或 `{ template, datasets / load }`。
+
+预览底部显示当前记录、业务键与版面名称，多记录可用相邻按钮直接跳至上一条或下一条；右侧分页依旧以物理页为准。空的字段目录自动隐藏，普通表格保留字段搜索。`interaction.navigation: false` 可关闭这些导航，新增记录文案可通过 `messages.recordInfo / recordNavigation / prevRecord / nextRecord` 覆写；业务键和版面名过长时省略显示，完整内容保留在悬停提示中。
 
 无需引用 `/codes` 的场景不会加载编码引擎；默认核心和 Vue 入口不包含它。需要其他码制时仍可通过 `assetRenderers` 注入受信编码器。
 
@@ -60,6 +66,8 @@ const template = createLabelTemplate({
 
 每条份数必须是 1–1000 的整数；字段份数要求数字，字符串不会静默转数值。声明 `rowKey` 时检查键存在和唯一。默认限制 10000 个物理页，分页的 `maxPages` 可显式调整；记录展开在分配页面前检查预算，支持 `AbortSignal`。组件、网格行、全部槽位（含 `null`）及嵌套组件按展开后的总成本限制为 250000，避免固定网格绕过内存护栏；大量打印建议分批，使用逐页生成或既有服务端任务管线。
 
+同次逐页生成内部复用相同文本和完整字体度量参数的折行结果，最多缓存 512 项、256K UTF-16 文本单位；测量器变化会清空缓存，不跨请求保留字段值。每条记录仍单独检查文字高度、取消和诊断位置，输出 `lines` 数组相互独立。可用 `pnpm exec vitest bench --run packages/mach-report/src/__tests__/label-layout.bench.ts` 复跑标签排版基准；该基准不包含字体加载、码图生成或 PDF 导出。
+
 `repeat` 面向固定纸张：不混用 `list`、动态 `flow` 或 `wide`。长明细、分组和宽表继续使用既有报表布局；独立的固定标签可引用其业务标识。绑定文字按统一测量器换行，放不下会指出记录与模板位置，不能靠裁切隐藏错误。
 
 ## 编码与实际输出
@@ -87,7 +95,7 @@ PDF 页面保留真实毫米尺寸。浏览器打印使用对应 `@page`；在�
 
 ## 设计器入口
 
-在“模板”页配置纸张预设或自定义毫米尺寸、边距、页面名称、增删和复制页面，以及逐记录数据集、业务键与份数。在“组件”页插入文本、Logo、二维码或条码，按组件类型配置内容、字段与编码属性；在画布调整几何、吸附、多选对齐、等距、层级和锁定。
+在“模板”页配置纸张预设或自定义毫米尺寸、边距、页面名称、增删和复制页面，以及逐记录数据集、业务键与份数。在“组件”页插入文本、Logo、二维码或条码，按组件类型配置内容、字段与编码属性；在画布调整几何、吸附、多选对齐、等距、层级和锁定。标签属性优先显示内容与绑定，位置尺寸折叠在坐标摘要下，纠错与留白等收在“纠错、留白与使用说明”；目录使用页面名称和“组件类型 · 业务字段”定位。跨页编辑、复制或删除后，撤销 / 重做会恢复操作所在的页面和组件，而不是留在刚浏览的其他版面。
 
 纸张缩小时明确提示超界，不擅自缩小产品信息。设计画布的码占位用于布局，实际码图与绑定结果在“预览”中通过同一个编码器验证。预览不自动保存；修改通过撤销历史和模板 CAS 保存契约管理，发布版仍只读。模板、示例字段与接入应用的权限各有自己的职责。
 

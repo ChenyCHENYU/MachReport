@@ -38,7 +38,7 @@ describe("工业标签设计工作流", () => {
     await wrapper.get('button[aria-label="撤销"]').trigger("click");
     expect(latest(wrapper).template.pages).toHaveLength(2);
     await wrapper.findAll("button").find(item => item.text().includes("新增版面"))!.trigger("click");
-    expect(latest(wrapper).template.pages).toHaveLength(3); expect(latest(wrapper).template.pages[1]!.components).toEqual([]);
+    expect(latest(wrapper).template.pages).toHaveLength(3); expect(latest(wrapper).template.pages[2]!.components).toEqual([]);
     expect(latest(wrapper).revision).toBe("3"); expect(validateReportTemplateDocument(latest(wrapper)).ok).toBe(true);
     wrapper.unmount();
   });
@@ -92,7 +92,11 @@ describe("工业标签设计工作流", () => {
     await wrapper.get('select[aria-label="添加组件"]').setValue("qrcode");
     expect(wrapper.findAll(".mr-canvas-component.is-selected")).toHaveLength(1);
     await wrapper.get('button[aria-label="撤销"]').trigger("click");
-    expect(wrapper.find(".mr-designer-arrange").exists()).toBe(false); wrapper.unmount();
+    expect(wrapper.find(".mr-designer-arrange").exists()).toBe(false);
+    await wrapper.get('button[aria-label="重做"]').trigger("click");
+    expect(wrapper.findAll(".mr-canvas-component.is-selected")).toHaveLength(1);
+    expect(wrapper.getComponent(CanvasComponentInspector).props()).toMatchObject({ component: { kind: "qrcode" } });
+    wrapper.unmount();
     const image = mount(ComponentDataBinding, { props: { component: { kind: "image", leftMm: 0, topMm: 0, widthMm: 20, heightMm: 10, binding: { field: "logo" } }, repeat: { dataset: "labels" } } });
     expect(image.text()).toContain("PNG/JPEG"); expect(image.find("details").exists()).toBe(false); image.unmount();
   });

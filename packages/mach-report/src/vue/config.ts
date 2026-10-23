@@ -26,6 +26,10 @@ export interface MachReportMessages extends Partial<ReportCalculationMessages> {
   pageJumpInvalid?: string;
   pageJumpHint?: string;
   pagination?: string;
+  recordNavigation?: string;
+  recordInfo?: string;
+  prevRecord?: string;
+  nextRecord?: string;
   columnSearchHint?: string;
   columnSearchShortcut?: string;
   closeColumnDirectory?: string;
@@ -203,6 +207,7 @@ export const DEFAULT_MESSAGES: MachReportMessages = {
   ...DEFAULT_CALCULATION_MESSAGES,
   exportMenu: "导出", exportMenuDescription: "选择文件格式", clearSearch: "清除搜索", searchHint: "Enter 下一个 · Shift+Enter 上一个", searchNoMatches: "没有匹配内容",
   pageJump: "跳至页", pageJumpInvalid: "请输入有效页码", pageJumpHint: "Enter 跳转", pagination: "报表分页",
+  recordNavigation: "标签记录", recordInfo: "记录 {cur} / {total}", prevRecord: "上一条记录", nextRecord: "下一条记录",
   columnSearchHint: "输入列名或字段标识", columnSearchShortcut: "↑ ↓ 选择 · Enter 定位", closeColumnDirectory: "关闭字段目录",
   columnResultsMore: "{count} 个匹配字段，显示前 {limit} 个；继续输入可缩小范围", columnCount: "{count} 个字段",
   settingsGeneral: "常规", settingsTools: "工具", settingsAdvanced: "高级", settingsAdvancedDescription: "按需开启分析能力，保持日常阅读简洁。",

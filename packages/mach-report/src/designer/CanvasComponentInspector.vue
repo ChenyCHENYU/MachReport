@@ -87,58 +87,37 @@ async function upload(event: Event): Promise<void> {
 </script>
 <template>
   <fieldset class="mr-component-properties" :disabled="disabled">
-    <h3>{{ m.positionGroup }}</h3>
-    <div class="mr-component-dimensions">
-      <label
-        v-for="(key, index) in dimensions.filter(
-          (key) => component.kind !== 'list' || key !== 'heightMm',
-        )"
-        :key="key"
-        >{{ labels[index]
+    <div class="mr-component-content">
+      <ComponentDataBinding v-if="['text', 'image', 'barcode', 'qrcode'].includes(component.kind) && component.kind !== 'list' && !component.grid" :component="component" :repeat="repeat" :schema="schema" :disabled="disabled" :messages="m" @change="emit('patch', { binding: $event, ...(['barcode', 'qrcode'].includes(component.kind) ? { imageData: undefined } : {}) })" />
+      <label v-if="component.kind === 'text' && !component.binding">{{ m.componentText
+        }}<textarea
+          rows="3"
+          :value="component.text"
+          @change="emit('patch', { text: input($event) })"
+        />
+      </label>
+      <template v-if="component.kind === 'image' && !component.binding">
+        <label>{{ m.imageSource
+          }}<textarea
+            rows="2"
+            :value="component.imageData"
+            @change="emit('patch', { imageData: input($event) })"
+          /></label><label class="mr-component-upload">{{ m.imageUpload
+          }}<input
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/svg+xml"
+            :aria-label="m.imageUpload"
+            @change="upload"
+        /></label>
+        <p v-if="error" role="alert">{{ error }}</p>
+      </template>
+      <CodeComponentInspector v-if="component.kind === 'barcode' || component.kind === 'qrcode'" :component="component" :disabled="disabled" :messages="m" @change="emit('patch', { code: $event, imageData: undefined })" />
+      <label v-if="component.kind === 'list'">{{ m.listDataset
         }}<input
-          type="number"
-          step="0.5"
-          :min="key === 'widthMm' || key === 'heightMm' ? 2 : 0"
-          :value="componentGeometry(component)[key]"
-          :disabled="geometryDisabled"
-          @change="geometry(key, $event)"
+          :value="component.dataset"
+          @change="emit('patch', { dataset: input($event) })"
       /></label>
     </div>
-    <label v-if="component.kind !== 'list' && !repeat">{{ m.repeatPage
-      }}<select
-        :value="component.pageAnchor ?? ''"
-        :disabled="geometryDisabled"
-        @change="emit('patch', { pageAnchor: input($event) || undefined })"
-      >
-        <option value="">{{ m.repeatNone }}</option>
-        <option value="header">{{ m.repeatHeader }}</option>
-        <option value="footer">{{ m.repeatFooter }}</option>
-      </select></label>
-    <h3>{{ m.componentContent }}</h3>
-    <ComponentDataBinding v-if="['text', 'image', 'barcode', 'qrcode'].includes(component.kind) && component.kind !== 'list' && !component.grid" :component="component" :repeat="repeat" :schema="schema" :disabled="disabled" :messages="m" @change="emit('patch', { binding: $event, ...(['barcode', 'qrcode'].includes(component.kind) ? { imageData: undefined } : {}) })" />
-    <label v-if="component.kind === 'text' && !component.binding">{{ m.componentText
-      }}<textarea
-        rows="4"
-        :value="component.text"
-        @change="emit('patch', { text: input($event) })"
-      />
-    </label>
-    <template v-if="component.kind === 'image' && !component.binding">
-      <label>{{ m.imageSource
-        }}<textarea
-          rows="2"
-          :value="component.imageData"
-          @change="emit('patch', { imageData: input($event) })"
-        /></label><label class="mr-component-upload">{{ m.imageUpload
-        }}<input
-          type="file"
-          accept="image/png,image/jpeg,image/webp,image/svg+xml"
-          :aria-label="m.imageUpload"
-          @change="upload"
-      /></label>
-      <p v-if="error" role="alert">{{ error }}</p>
-    </template>
-    <CodeComponentInspector v-if="component.kind === 'barcode' || component.kind === 'qrcode'" :component="component" :disabled="disabled" :messages="m" @change="emit('patch', { code: $event, imageData: undefined })" />
     <div v-if="component.kind === 'text'" class="mr-component-type">
       <h3>{{ m.textFormat }}</h3>
       <div class="mr-component-dimensions">
@@ -179,15 +158,41 @@ async function upload(event: Event): Promise<void> {
         /></label>
       </div>
     </div>
-    <label v-if="component.kind === 'list'">{{ m.listDataset
-      }}<input
-        :value="component.dataset"
-        @change="emit('patch', { dataset: input($event) })"
-    /></label>
+    <details class="mr-component-position" :open="!repeat">
+      <summary><strong>{{ m.positionGroup }}</strong><span>{{ componentGeometry(component).widthMm }} × {{ componentGeometry(component).heightMm }}</span></summary>
+      <div class="mr-component-dimensions">
+        <label
+          v-for="(key, index) in dimensions.filter(
+            (key) => component.kind !== 'list' || key !== 'heightMm',
+          )"
+          :key="key"
+          >{{ labels[index]
+          }}<input
+            type="number"
+            step="0.5"
+            :min="key === 'widthMm' || key === 'heightMm' ? 2 : 0"
+            :value="componentGeometry(component)[key]"
+            :disabled="geometryDisabled"
+            @change="geometry(key, $event)"
+        /></label>
+      </div>
+      <label v-if="component.kind !== 'list' && !repeat">{{ m.repeatPage
+      }}<select
+        :value="component.pageAnchor ?? ''"
+        :disabled="geometryDisabled"
+        @change="emit('patch', { pageAnchor: input($event) || undefined })"
+      >
+        <option value="">{{ m.repeatNone }}</option>
+        <option value="header">{{ m.repeatHeader }}</option>
+        <option value="footer">{{ m.repeatFooter }}</option>
+      </select></label>
+    </details>
   </fieldset>
 </template>
 <style scoped>
 .mr-component-properties {
+  display: flex;
+  flex-direction: column;
   border: 0;
   padding: 0;
   margin: 0;
@@ -195,8 +200,16 @@ async function upload(event: Event): Promise<void> {
   font:
     12px/1.5 system-ui,
     sans-serif;
-  color: #334155;
+  color: var(--mrp-toolbar-fg, #334155);
 }
+.mr-component-content { min-width: 0; }
+.mr-component-position { border-top: 1px solid var(--mrp-toolbar-border, #e2e8f0); margin-top: 12px; padding-top: 10px; }
+.mr-component-position summary { display: flex; align-items: center; gap: 7px; cursor: pointer; list-style: none; font-size: 11px; color: var(--mrp-btn-fg, #64748b); }
+.mr-component-position summary::before { content: ""; width: 5px; height: 5px; flex: 0 0 auto; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform .15s; }
+.mr-component-position[open] summary::before { transform: rotate(45deg); }
+.mr-component-position summary strong { font-weight: 600; }
+.mr-component-position summary span { margin-left: auto; font: 10px/1.5 ui-monospace, monospace; white-space: nowrap; }
+.mr-component-position[open] summary { margin-bottom: 10px; }
 .mr-component-properties h3 {
   font-size: 11px;
   color: #64748b;
@@ -212,8 +225,7 @@ async function upload(event: Event): Promise<void> {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0 10px;
-  border-bottom: 1px solid #e2e8f0;
-  margin-bottom: 12px;
+  margin-bottom: 0;
 }
 .mr-component-properties input,
 .mr-component-properties textarea,
@@ -242,6 +254,8 @@ async function upload(event: Event): Promise<void> {
 }
 .mr-component-type {
   margin-top: 12px;
+  border-top: 1px solid var(--mrp-toolbar-border, #e2e8f0);
+  padding-top: 12px;
 }
 .mr-component-type .mr-component-dimensions {
   border-bottom: 0;

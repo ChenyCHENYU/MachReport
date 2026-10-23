@@ -47,7 +47,7 @@ const labelTemplate = core.createLabelTemplate({ dataset: "labels", rowKey: "id"
   { kind: "text", leftMm: 2, topMm: 2, widthMm: 60, heightMm: 6, binding: { field: "id" } },
   { kind: "qrcode", leftMm: 30, topMm: 15, widthMm: 25, heightMm: 25, binding: { field: "id" } }
 ] });
-const labels = core.paginateTemplate(labelTemplate, { labels: [{ id: "000001" }, { id: "000002" }] }).plan;
+const labels = await core.createReportSource({ labels: core.defineLabelReport({ template: labelTemplate, rows: [{ id: "000001" }, { id: "000002" }] }) })({ reportIds: ["labels"], params: {} });
 const codes = await import("@agile-team/mach-report/codes");
 const encodedLabels = await core.resolvePlanAssets(labels, { assetRenderers: codes.createCodeAssetRenderers() });
 if (encodedLabels.plan.pages.length !== 2 || !encodedLabels.plan.pages[0].components[1].imageData.startsWith("data:image/png;base64,")) throw new Error("Packed record labels/codes failed");
@@ -83,7 +83,7 @@ const xlsxResult = await xlsx.renderPlanToXlsx(plan);
 if (new TextDecoder().decode(pdfResult.bytes.slice(0, 5)) !== "%PDF-") throw new Error("Invalid PDF");
 if (new Uint8Array(xlsxResult.buffer)[0] !== 0x50) throw new Error("Invalid XLSX");
 if (typeof sql.compileDynamicSql !== "function") throw new Error("Missing SQL API");
-if (typeof vue.useMachReport !== "function" || typeof vue.createTableTemplate !== "function" || typeof vue.createProviderEditing !== "function" || typeof asyncVue.preloadMachReport !== "function") throw new Error("Missing Vue runtime API");
+if (typeof vue.useMachReport !== "function" || typeof vue.createTableTemplate !== "function" || typeof vue.defineLabelReport !== "function" || typeof vue.createProviderEditing !== "function" || typeof asyncVue.preloadMachReport !== "function") throw new Error("Missing Vue runtime API");
 const contract = { rowKey: "id", fields: [{ field: "id", type: "text", semanticRole: "identifier" }, { field: "qty", type: "number", required: true }] };
 if (!core.validateDatasetRows([{ id: "0001", qty: 0 }], contract).ok || core.columnsFromContract(contract)[0].semanticRole !== "identifier") throw new Error("Invalid data contract runtime");
 const runtime = server.createReportRuntime({ reports: { sample: { template: tableTemplate, datasets: { detail: [{ name: "0001", qty: 0 }] } } } });
@@ -130,7 +130,7 @@ import { createCodeAssetRenderers } from "@agile-team/mach-report/codes";
 import { renderPlanToXlsx } from "@agile-team/mach-report/xlsx";
 import { renderPlanToPdf } from "@agile-team/mach-report/pdf";
 import { compileDynamicSql } from "@agile-team/mach-report/sql";
-import { machReportPlugin, ReportPreview, createTemplate as createVueTemplate, createTableTemplate, createReportSource, defineReport, defineReportTemplate, parseReportTemplate, serializeReportTemplate, createTemplateRegistry, defineMachReportConfig, useMachReport, type PdfFontCheckResult, type MachReportToolbarOptions, type ReportEmptyState, type ReportPreviewPreferences } from "@agile-team/mach-report/vue";
+import { machReportPlugin, ReportPreview, createTemplate as createVueTemplate, createTableTemplate, createLabelTemplate, createReportSource, defineLabelReport, defineReport, defineReportTemplate, parseReportTemplate, serializeReportTemplate, createTemplateRegistry, defineMachReportConfig, useMachReport, type PdfFontCheckResult, type MachReportToolbarOptions, type ReportEmptyState, type ReportPreviewPreferences } from "@agile-team/mach-report/vue";
 import { preloadMachReport } from "@agile-team/mach-report/vue/async";
 import { createReportRuntime, createReportTaskQueue, reviewReportPublication, createReportJobService, createMemoryReportJobStore } from "@agile-team/mach-report/server";
 import { createNodeReportExecutor, reportArtifactSha256 } from "@agile-team/mach-report/server/node";
@@ -142,6 +142,10 @@ import { Writable } from "node:stream";
 async function consume() {
   const assets = createCodeAssetRenderers({ dpi: 203 });
   void assets;
+  interface Material { id: string; weight: number }
+  const rows: readonly Material[] = [{ id: "0001", weight: 0 }];
+  const labels = defineLabelReport({ template: createLabelTemplate({ dataset: "materials", components: [] }), rows });
+  await createReportSource({ labels })({ reportIds: ["labels"], params: {} });
   const builder: ReturnType<typeof createTemplate> = createVueTemplate();
   const definition = defineReport({
     template: builder.page("a4").build(),

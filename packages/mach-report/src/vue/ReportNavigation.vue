@@ -10,6 +10,7 @@ const props = defineProps<{ sections: readonly ReportSection[]; currentPage: num
 const emit = defineEmits<{ (e: "goto", page: number): void; (e: "locate", field: string): void; (e: "locate-target", target: ReportColumnTarget): void }>();
 const controls = useColumnDirectory({ plan: () => props.plan, sections: () => props.sections, busy: () => props.busy, locate: (target) => emit("locate-target", target), locateField: (field) => emit("locate", field) });
 const { root, trigger, panel, opened, field, active, directory, matches, candidates, groups, listId } = controls;
+const hasFields = computed(() => directory.value.length > 0 || !props.plan || props.plan.pages.some(page => page.components.some(component => component.table?.columnKeys.length)));
 const labels = computed(() => ({ columnDirectory: "字段目录", columnSearch: "搜索列名或字段", columnNoMatches: "未找到匹配字段", columnResults: "匹配字段", ...props.messages }));
 const moreResults = computed(() => (props.messages.columnResultsMore ?? "{count} 个匹配字段，显示前 {limit} 个；继续输入可缩小范围").replace("{count}", String(matches.value.length)).replace("{limit}", String(candidates.value.length)));
 function sectionActive(index: number): boolean {
@@ -18,9 +19,9 @@ function sectionActive(index: number): boolean {
 }
 </script>
 <template>
-  <nav class="mrp-section-nav" :class="{ 'mrp-compact': compact }" :aria-label="messages.sections ?? '工作表与章节'">
+  <nav v-if="sections.length > 1 || hasFields" class="mrp-section-nav" :class="{ 'mrp-compact': compact }" :aria-label="messages.sections ?? '工作表与章节'">
     <div v-if="sections.length > 1" class="mrp-section-tabs"><button v-for="(section, index) in sections" :key="index" type="button" :class="{ active: sectionActive(index) }" :aria-current="sectionActive(index) ? 'page' : undefined" :disabled="busy" @click="emit('goto', section.pageIndex + 1)">{{ section.label }}</button></div>
-    <div ref="root" class="mrp-column-locator" @keydown="controls.onKeydown">
+    <div v-if="hasFields" ref="root" class="mrp-column-locator" @keydown="controls.onKeydown">
       <button ref="trigger" type="button" class="mrp-directory-trigger" :class="{ active: opened }" :aria-expanded="opened" aria-haspopup="dialog" :disabled="busy" @click="opened = !opened"><ReportIcon name="columns" /><span>{{ labels.columnDirectory }}</span><span v-if="directory.length" class="mrp-column-count">{{ directory.length }}</span><ReportIcon name="chevron-down" :size="12" /></button>
       <div v-if="opened" ref="panel" class="mrp-column-directory" role="dialog" :aria-label="labels.columnDirectory">
         <div class="mrp-column-heading"><span><ReportIcon name="columns" />{{ labels.columnDirectory }}</span><button type="button" class="mrp-column-close" :aria-label="messages.closeColumnDirectory ?? '关闭字段目录'" @click="controls.close(true)"><ReportIcon name="close" :size="15" /></button></div>

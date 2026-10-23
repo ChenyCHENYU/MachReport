@@ -19,6 +19,7 @@ export * from "./schema/component-binding";
 export { resolveComponentBinding, ReportBindingError, type ComponentBindingContext } from "./layout/record-bindings";
 export { DEFAULT_LABEL_PAGE_LIMIT } from "./layout/record-pages";
 export * from "./source/report-source";
+export * from "./source/label-report";
 export type { ReportTaskEvent, ReportTaskObserver, ReportTaskMonitoring } from "./source/task-events";
 export * from "./source/template-registry";
 export * from "./source/param-validation";

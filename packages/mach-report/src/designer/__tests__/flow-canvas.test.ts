@@ -43,9 +43,9 @@ describe("region-managed design geometry", () => {
   });
   it("disables only the inspector's position and page anchors, retaining text and style controls", async () => {
     const wrapper = mount(CanvasComponentInspector, { props: { component: fixture().template.pages[0]!.components[0]!, geometryDisabled: true } });
-    const dimensions = wrapper.get(".mr-component-dimensions").findAll("input");
+    const dimensions = wrapper.get(".mr-component-position").findAll("input");
     expect(dimensions.every(input => input.attributes("disabled") !== undefined)).toBe(true);
-    expect(wrapper.get("select").attributes("disabled")).toBeDefined();
+    expect(wrapper.get(".mr-component-position select").attributes("disabled")).toBeDefined();
     await dimensions[0]!.trigger("change"); expect(wrapper.emitted("geometry")).toBeUndefined();
     expect(wrapper.get("textarea").attributes("disabled")).toBeUndefined();
     await wrapper.get("textarea").setValue("业务标题"); await wrapper.get("textarea").trigger("change");

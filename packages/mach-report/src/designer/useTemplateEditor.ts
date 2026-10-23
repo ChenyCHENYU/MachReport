@@ -13,7 +13,7 @@ import {
   type MachReportDefaults,
 } from "@agile-team/mach-report/vue";
 import { useTemplateColumns } from "./useTemplateColumns";
-import { useTemplateHistory } from "./useTemplateHistory";
+import { useTemplateHistory, type TemplateHistoryContext } from "./useTemplateHistory";
 import {
   useTemplateDiscard,
   type TemplateEditorBeforeDiscard,
@@ -142,6 +142,13 @@ export function useTemplateEditor(
       appliedJson: appliedJson.value,
     });
   const history = useTemplateHistory(snapshot());
+  const historyViewRevision = ref(0);
+  let historyView: { read: () => TemplateHistoryContext; restore: (context: TemplateHistoryContext) => void } | undefined;
+  function connectHistoryView(view: NonNullable<typeof historyView>): void {
+    historyView = view;
+    history.annotate(view.read());
+  }
+  function captureHistoryView(): void { history.annotate(historyView?.read()); }
   const discard = useTemplateDiscard(() => props.beforeDiscard);
   const blocked = computed(() => saving.value || discard.pending.value);
   const canEdit = () => !props.readonly && !blocked.value && !jsonPending.value;
@@ -204,7 +211,7 @@ export function useTemplateEditor(
     selected.value = 0;
     columns.clearSelection();
     localDrafts.value = {}; localRevision.value++; toolEpoch.value++;
-    history.reset(snapshot());
+    history.reset(snapshot(), historyView?.read());
   }
   watch(
     () => props.modelValue,
@@ -249,7 +256,9 @@ export function useTemplateEditor(
       appliedJson.value = json.value;
       emit("update:modelValue", parseReportTemplate(draft.value));
     }
-    history.record(snapshot());
+    // Navigation itself is not an edit; each frame retains this operation's
+    // before/after coordinates independently from adjacent edits on other pages.
+    if (history.record(snapshot(), historyView?.read())) historyViewRevision.value++;
   }
   function transaction(
     change: (document: ReportTemplateDocument) => void,
@@ -326,7 +335,7 @@ export function useTemplateEditor(
   function moveHistory(delta: -1 | 1): void {
     if (blocked.value || props.readonly) return;
     // A new JSON edit after undo starts a fresh history branch.
-    history.record(snapshot());
+    history.record(snapshot(), historyView?.read());
     const frame = history.move(delta);
     if (!frame) return;
     discard.cancel();
@@ -341,6 +350,7 @@ export function useTemplateEditor(
     error.value = "";
     selected.value = 0;
     columns.clearSelection();
+    if (history.context.value) historyView?.restore(history.context.value);
     if (validation.value.ok)
       emit("update:modelValue", parseReportTemplate(draft.value));
   }
@@ -366,7 +376,7 @@ export function useTemplateEditor(
       original.value = serializeReportTemplate(saved);
       json.value = original.value;
       appliedJson.value = json.value;
-      history.reset(snapshot());
+      history.reset(snapshot(), historyView?.read());
       emit("saved", parseReportTemplate(saved));
       emit("update:modelValue", parseReportTemplate(saved));
     } catch (cause) {
@@ -388,6 +398,9 @@ export function useTemplateEditor(
   return {
     ...columns,
     editingReadonly: computed(() => props.readonly === true),
+    connectHistoryView,
+    captureHistoryView,
+    historyViewRevision,
     transaction,
     replaceDocument,
     originalDocument: computed(() => parseReportTemplate(original.value)),

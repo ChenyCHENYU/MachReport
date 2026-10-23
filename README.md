@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.12.0-2563eb" alt="Source version 2.12.0" />
+  <img src="https://img.shields.io/badge/source-2.13.0-2563eb" alt="Source version 2.13.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -48,7 +48,7 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 内容编辑 | 默认只读；双击与批量粘贴、原子保存、编辑后重算、撤销 / 重做、恢复与变更清单 |
 | Excel 导入 | 多 Sheet 会话复用、可取消预检、完整宽表、合并样式与缓存公式值转换为模板 |
 | 模板配置 | 可视化画布、Excel 业务绑定向导、计算与规则、变更对比与发布验收、CAS 历史 / 回滚 |
-| 工业标签 | 自定义毫米纸张、逐记录字段绑定、多版相邻与份数、按需 QR / 条码、可视化设计 |
+| 工业标签 | 模板 + 行数组直接接入、逐记录字段绑定、多版相邻与份数、真实 QR / 条码、可视化设计 |
 | 输出 | 浏览器打印、HTML、PDF、真正的 `.xlsx`、逐页 PNG、Word 兼容 HTML `.doc` |
 | 工程接入 | 局部组件、全局插件、异步入口、分层配置、结构化错误与导出告警 |
 | 引擎复用 | 共用契约与计算、逐页排版、Node Runtime / Worker、流式 Excel、可恢复持久任务 |
@@ -189,7 +189,23 @@ document.querySelector("#report")!.replaceChildren(renderPlan(plan, document));
 
 同一引擎可设计 80 × 55 mm 等自定义标签。`createLabelTemplate({ dataset, rowKey, components })` 声明尺寸和字段绑定；多版使用 `pages`，逐条记录按“份数 → 各版”相邻输出。真实零值和前导零保留，缺字段、文字溢出和超预算明确反馈。设计器提供纸张、边距、页面复制、字段与码图属性，复用毫米画布、吸附、对齐和撤销。
 
+```ts
+import { createReportSource, defineLabelReport } from "@agile-team/mach-report";
+
+const fetcher = createReportSource({
+  labels: defineLabelReport({
+    template,
+    load: ({ params, signal }) => materialApi.labels(params, { signal })
+    // 返回记录数组即可；静态数据改为 rows: materials
+  })
+});
+```
+
+模板已声明的数据集由包内自动映射；可选 `dataSchema` 直接接收单个字段契约。Vue 插件的 `reports` 和 Node Runtime 共用此定义。预览底部显示记录、业务键和版面，可直接切换相邻记录，物理页分页仍在右下角。标签属性按内容、位置尺寸和编码高级项分层；撤销与重做同时恢复操作所在的版面和组件。
+
 可选 `/codes` 提供真实 QR、Code 128 / 39、EAN-13 / 8，并统一生成 PNG 供浏览器与 Node 的预览、PDF、打印及 Excel 使用。使用侧只传模板、数据和 `assets: { assetRenderers: createCodeAssetRenderers() }`；编码器不进入核心或默认 Vue 产物。运行 `/labels.html` 体验工业标签设计与输出，详见[标签接入与设备边界](./docs/LABELS.md)。驱动中的纸张、100% 比例与扫码实样需按设备校准；多版输出不等同硬件自动双面。
+
+批量标签在一次分页中复用相同文本与字体参数的折行结果，缓存按条数和文本量双重限制，跨请求隔离；高度、取消和总预算仍逐条检查，不因命中缓存跳过校验。
 
 ## Excel 报表能力与边界
 
@@ -636,7 +652,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.12.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.13.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

@@ -41,6 +41,7 @@ import {
 } from "./composables/useReportSearch";
 import ReportToolbar from "./ReportToolbar.vue";
 import ReportPagination from "./ReportPagination.vue";
+import ReportRecordNavigation from "./ReportRecordNavigation.vue";
 import ReportCalculationPanel from "./ReportCalculationPanel.vue";
 import { useSelectionCalculation } from "./composables/useSelectionCalculation";
 import ReportSettings from "./ReportSettings.vue";
@@ -535,9 +536,8 @@ function gotoPage(n: number): void {
   currentPage.value = target;
   const vp = viewportRef.value;
   if (!vp) return;
-  vp.scrollTop = pageWindow.pageOffsetPx(target - 1) * zoom.value;
+  pageWindow.scrollToPage(vp, target - 1);
   // 程序化翻页即刻更新窗口；无需等待浏览器异步 scroll 事件才挂载目标页。
-  refreshViewport(vp);
   pageRendering.prioritize(target - 1);
 }
 
@@ -1054,6 +1054,7 @@ defineExpose({ ...controller, state });
     </div>
     <footer v-if="pageCount > 0" class="mrp-footer">
       <div class="mrp-footer-context">
+        <ReportRecordNavigation v-if="effectiveInteraction.navigation !== false" :plan="plan" :current-page="currentPage" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @goto="gotoPage" />
         <button v-if="calculationsEnabled && effectiveShowSettings" class="mrp-calculation-toggle" type="button" :aria-label="calculationMessages.calculationTitle" @click="openCalculations"><span aria-hidden="true">∑</span>{{ calculationMessages.calculationTitle }}<strong v-if="calculation.result.value">{{ calculation.result.value.formatted }}</strong></button>
       </div>
       <ReportPagination :page-count="pageCount" :current-page="currentPage" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @goto="gotoPage" />

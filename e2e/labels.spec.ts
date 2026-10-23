@@ -14,6 +14,12 @@ test("industrial labels render real symbols, switch records and export physical-
   await expect(image).toBeVisible();
   expect(await image.evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 100)).toBe(true);
   await expect(page.locator("[role=alert]")).toHaveCount(0);
+  await expect(page.locator(".mrp-record-navigation")).toContainText("MR26010001");
+  await expect(page.getByRole("button", { name: "字段目录", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "下一条记录", exact: true }).click();
+  await expect(page.locator(".mrp-record-navigation")).toContainText("MR26010002");
+  await expect(page.locator(".mrp-pageinfo")).toContainText("3 / 4");
+  await page.getByRole("button", { name: "上一条记录", exact: true }).click();
   await page.getByRole("button", { name: "150%", exact: true }).click();
   await page.screenshot({ path: testInfo.outputPath("industrial-label-preview.png"), fullPage: true });
   await page.getByRole("combobox", { name: "预览数据", exact: true }).selectOption("1");
@@ -54,6 +60,7 @@ test("label designer edits actual paper, binding and symbols through undo and sa
   await expect(page.locator(".mr-page-list > button")).toHaveCount(3);
   await page.getByRole("button", { name: "撤销", exact: true }).click();
   await expect(page.locator(".mr-page-list > button")).toHaveCount(2);
+  await expect(page.locator('.mr-page-list > button[aria-pressed="true"]')).toContainText("产品追溯标签");
   await page.getByRole("tab", { name: "组件", exact: true }).click();
   await page.getByRole("combobox", { name: "添加组件", exact: true }).selectOption("qrcode");
   await expect(page.locator(".mr-canvas-code").last()).toContainText("二维码");
@@ -73,10 +80,32 @@ test("label workspace and design fit narrow screens", async ({ page }, testInfo)
   await page.setViewportSize({ width: 680, height: 900 });
   await page.goto("http://localhost:8610/labels.html");
   await expect(page.locator(".mrp-page-holder").first()).toContainText("S304H3");
+  await expect(page.getByRole("combobox", { name: "预览数据", exact: true })).toBeVisible();
+  await page.getByRole("combobox", { name: "预览数据", exact: true }).selectOption("1");
+  await expect(page.locator(".mrp-page-holder").first()).toContainText("S316LS");
   expect(await page.evaluate(() => document.body.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole("button", { name: "设计标签", exact: true }).click();
   await page.getByRole("tab", { name: "模板", exact: true }).click();
   await expect(page.getByRole("combobox", { name: "纸张规格", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.body.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("industrial-label-narrow.png"), fullPage: true });
+});
+
+test("label copies and renamed datasets stay consistent and discarded drafts are really restored", async ({ page }) => {
+  await page.goto("http://localhost:8610/labels.html");
+  await page.getByRole("button", { name: "设计标签", exact: true }).click();
+  await page.getByRole("tab", { name: "模板", exact: true }).click();
+  const copies = page.getByLabel("每条记录份数", { exact: true });
+  await copies.fill("2"); await copies.press("Tab");
+  await expect(page.locator(".label-output-count")).toHaveText("2 条物料 → 8 张标签");
+  const dataset = page.getByRole("combobox", { name: "记录数据集", exact: true });
+  await dataset.fill("renamed"); await dataset.press("Tab");
+  await expect(page.locator(".mr-designer-preview .mrp-pageinfo")).toContainText("1 / 8");
+  await expect(page.locator('.mr-designer-preview img[src^="data:image/png;base64,"]').first()).toBeVisible();
+  await expect(page.locator(".mr-designer [role=alert]")).toHaveCount(0);
+  await page.getByRole("button", { name: "打印预览", exact: true }).click();
+  await page.getByRole("button", { name: "丢弃修改并继续", exact: true }).click();
+  await expect(page.locator(".label-output-count")).toHaveText("2 条物料 → 4 张标签");
+  await expect(page.locator(".mrp-pageinfo")).toContainText("1 / 4");
+  await expect(page.locator(".mrp-page-holder").first()).toContainText("S304H3");
 });

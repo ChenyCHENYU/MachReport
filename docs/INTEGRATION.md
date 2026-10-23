@@ -30,6 +30,8 @@ app.use(machReportPlugin, {
 
 `orderApi` 为宿主自己的请求客户端，需返回业务数据并消费 `signal` 才能取消真实网络请求。`defineReport()` 推导 `load` 的返回类型供 `mapData` 使用；不会猜测 `response.data`、`result` 或其它后端包装。数据集键 `detail` 对应模板 `.list("detail", ...)`，行字段对应列的 `field`。
 
+固定标签使用 `defineLabelReport({ template, load: ({ params, signal }) => labelApi(params, { signal }) })`，接口直接返回行数组即可。静态数据用 `rows` 替代 `load`，单个 `dataSchema` 不再套数据集名称；注册方式、取消、错误、分页预算与普通报表相同。模板与单数据集约束、真实编码和设备边界见[标签指南](./LABELS.md)。
+
 页面只需：
 
 ```vue

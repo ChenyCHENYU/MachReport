@@ -15,7 +15,7 @@ import TemplateDesignCanvas from "./TemplateDesignCanvas.vue";
 import CanvasComponentInspector from "./CanvasComponentInspector.vue";
 import TemplatePageInspector from "./TemplatePageInspector.vue";
 import TemplateRepeatInspector from "./TemplateRepeatInspector.vue";
-import { applyPageCommand, type PageCommand } from "./page-commands";
+import { applyPageCommand, pageName, type PageCommand } from "./page-commands";
 import HeaderStructureEditor from "./HeaderStructureEditor.vue";
 import { useTemplateWorkspace } from "./useTemplateWorkspace";
 import AlignmentControl from "./AlignmentControl.vue";
@@ -108,6 +108,16 @@ const {
 
 const canvasFlow = computed(() => !!draft.value.template.pages[canvasPage.value]?.flow);
 const repeatSchema = computed(() => props.dataSchemas?.[draft.value.template.repeat?.dataset ?? ""]);
+const componentDirectory = computed(() => {
+  const names = { text: m.value.insertText, list: m.value.insertList, image: m.value.insertImage, rect: m.value.insertRect, qrcode: m.value.insertQrcode, barcode: m.value.insertBarcode, chart: m.value.chartComponent, line: m.value.lineComponent, ellipse: m.value.ellipseComponent };
+  const fields = new Map(repeatSchema.value?.fields.map(field => [field.field, field.label || field.field]));
+  return draft.value.template.pages[canvasPage.value]?.components.map((component, index) => {
+    const type = names[component.kind];
+    const content = component.kind === "list" ? component.title || component.dataset : component.binding ? fields.get(component.binding.field) || component.binding.field : component.text;
+    const title = content?.replace(/\s+/g, " ").trim().slice(0, 60);
+    return { index, name: title && title !== type ? `${type} · ${title}` : type };
+  }) ?? [];
+});
 function pageCommand(command: PageCommand): void {
   let next = canvasPage.value;
   if (editor.transaction(document => { next = applyPageCommand(document, canvasPage.value, command); })) {
@@ -861,17 +871,17 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
             <label v-if="draft.template.pages.length > 1">{{ m.page
               }}<select v-model.number="canvasPage">
                 <option
-                  v-for="(_, pageIndex) in draft.template.pages"
+                  v-for="(page, pageIndex) in draft.template.pages"
                   :key="pageIndex"
                   :value="pageIndex"
                 >
-                  {{ pageIndex + 1 }}
+                  {{ pageName(page, pageIndex, m.page) }}
                 </option>
               </select></label>
             <label class="mr-designer-stacked">{{ m.components
               }}<select
                 :value="
-                  canvasSelection?.pageIndex === canvasPage
+                  canvasSelection && canvasSelection.pageIndex === canvasPage
                     ? canvasSelection.componentIndex
                     : -1
                 "
@@ -884,18 +894,11 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
               >
                 <option :value="-1" disabled>{{ m.noComponent }}</option>
                 <option
-                  v-for="(component, componentIndex) in draft.template.pages[
-                    canvasPage
-                  ]?.components"
-                  :key="componentIndex"
-                  :value="componentIndex"
+                  v-for="item in componentDirectory"
+                  :key="item.index"
+                  :value="item.index"
                 >
-                  {{ componentIndex + 1 }} ·
-                  {{
-                    component.kind === "list"
-                      ? component.title || component.dataset
-                      : component.text || component.kind
-                  }}
+                  {{ item.index + 1 }} · {{ item.name }}
                 </option>
               </select></label>
             <div v-if="canvas.selections.value.length" class="mr-designer-arrange"><strong>{{ canvas.selections.value.length }} {{ m.component }}</strong><button type="button" :disabled="editDisabled" @click="canvas.toggleLock">{{ canvas.allLocked.value ? m.unlockSelection : m.lockSelection }}</button><select :aria-label="m.alignSelection" :disabled="editDisabled || canvasFlow || canvas.selections.value.length < 2" @change="canvas.align(value($event) as Parameters<typeof canvas.align>[0]); ($event.target as HTMLSelectElement).value = ''"><option value="">{{ m.alignSelection }}</option><option value="left">{{ m.leftEdges }}</option><option value="center">{{ m.centers }}</option><option value="right">{{ m.rightEdges }}</option><option value="top">{{ m.topEdges }}</option><option value="middle">{{ m.middles }}</option><option value="bottom">{{ m.bottomEdges }}</option></select><button type="button" :disabled="editDisabled || canvasFlow || canvas.selections.value.length < 3" @click="canvas.distribute('horizontal')">{{ m.horizontalSpacing }}</button><button type="button" :disabled="editDisabled || canvasFlow || canvas.selections.value.length < 3" @click="canvas.distribute('vertical')">{{ m.verticalSpacing }}</button><small v-if="canvas.allLocked.value">{{ m.sessionLock }}</small></div>
