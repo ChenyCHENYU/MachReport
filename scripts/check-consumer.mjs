@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packageDir = resolve(root, "packages/mach-report");
@@ -24,6 +24,8 @@ try {
   const extracted = resolve(scratch, "package");
   const manifest = JSON.parse(readFileSync(resolve(extracted, "package.json"), "utf8"));
   if (!manifest.exports["."].import.default.startsWith("./dist/")) throw new Error("Packed exports still point to source");
+  const encodingEntry = manifest.exports["./worker/encoding"];
+  if (typeof encodingEntry !== "string" || !readFileSync(resolve(extracted, encodingEntry), "utf8").trim()) throw new Error("Missing built-in encoding Worker asset");
   for (const file of ["README.md", "LICENSE", "LICENSING.md"]) readFileSync(resolve(extracted, file), "utf8");
   if (/\]\(\.\/|\b(?:src|href)="\.\//.test(readFileSync(resolve(extracted, "README.md"), "utf8"))) throw new Error("Packed README has relative repository links");
 
@@ -92,6 +94,11 @@ const runtime = server.createReportRuntime({ reports: { sample: { template: tabl
 const prepared = await runtime.prepare({ reportIds: ["sample"] });
 const remoteExcel = await runtime.export({ reportIds: ["sample"], format: "xlsx" });
 if (!prepared.stats.pages || remoteExcel.bytes[0] !== 0x50 || remoteExcel.stats.outputBytes !== remoteExcel.bytes.byteLength) throw new Error("Invalid Node runtime/export");
+const automatic = nodeServer.createNodeAutoReportExporter({ mode: "worker" });
+try {
+  const isolated = await automatic.exportPrepared({ prepared, format: "xlsx" });
+  if (isolated.bytes[0] !== 80 || isolated.execution.mode !== "worker" || !isolated.execution.hardCancellation) throw new Error("Packed automatic Node encoding failed");
+} finally { automatic.dispose(); }
 const confirmedPdf = await runtime.exportPrepared({ prepared, format: "pdf" });
 if (confirmedPdf.bytes[0] !== 37 || confirmedPdf.stats.pages !== prepared.plan.pages.length) throw new Error("Packed prepared output failed");
 const sheetPlan = core.imposeLabelSheets(encodedLabels.plan, { paper: "a4", columns: 2, rows: 4, marginMm: 5, gapMm: 2, startSlot: 1 });
@@ -261,6 +268,10 @@ void consume;
     writeFileSync(resolve(scratch, config), JSON.stringify({ compilerOptions: { target: "ES2020", module, moduleResolution, strict: true, noEmit: true, skipLibCheck: false, esModuleInterop: true, types: [], lib: ["ES2020", "DOM", "DOM.Iterable"] }, files: [file] }));
     run(process.execPath, [resolve(root, "node_modules/typescript/bin/tsc"), "-p", config]);
   }
+  writeFileSync(resolve(scratch, "worker-consumer.js"), 'import EncodingWorker from "@agile-team/mach-report/worker/encoding?worker"; window.createReportEncodingWorker = () => new EncodingWorker();');
+  const { build } = await import(pathToFileURL(packageRequire.resolve("vite")).href);
+  await build({ root: scratch, configFile: false, logLevel: "error", worker: { format: "es" }, build: { outDir: resolve(scratch, "browser-dist"), lib: { entry: resolve(scratch, "worker-consumer.js"), formats: ["es"], fileName: "worker-consumer" } } });
+  if (!readdirSync(resolve(scratch, "browser-dist/assets")).some(file => /report-encoding-worker.*\.js$/.test(file))) throw new Error("Published encoding Worker failed production bundling");
   console.log("Packed npm consumer checked: Vue-free core/Node entries, ESM/CJS runtime, real Worker/streaming XLSX/PDF bytes, all public TypeScript entries, licensing and README");
 } finally {
   rmSync(scratch, { recursive: true, force: true });

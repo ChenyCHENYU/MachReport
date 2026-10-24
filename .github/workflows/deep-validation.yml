@@ -1,0 +1,57 @@
+name: Seeded format and accessibility validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "Replay seed from a prior failure (blank uses run ID)"
+        required: false
+  schedule:
+    - cron: "23 19 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  formats:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MR_FUZZ_SEED: ${{ inputs.seed || github.run_id }}
+      MR_FUZZ_RUNS: 3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Property and binary input corpus (seed and replay path are retained on failure)
+        run: pnpm test:fuzz 2>&1 | tee fuzz.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fuzz-seed-${{ env.MR_FUZZ_SEED }}
+          path: fuzz.log
+          retention-days: 14
+
+  accessibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install chromium --with-deps
+      - run: pnpm test:a11y
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: accessibility-results
+          path: test-results/
+          retention-days: 14

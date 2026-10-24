@@ -37,7 +37,7 @@ const loadParamOptions: ReportParamOptionsLoader = ({ source, params, query, lim
 <template>
   <main class="product-shell parameters-demo">
     <header class="product-heading">
-      <a class="product-brand" href="/" aria-label="MachReport 首页">M<span>R</span></a>
+      <a class="product-brand" href="/" aria-label="MR · MachReport 首页">M<span>R</span></a>
       <div class="product-title"><p>MACHREPORT / QUERY EXPERIENCE</p><h1>搜索即定位，联动有边界</h1><p>一个选项加载函数，统一驱动参数表单</p></div>
       <a class="designer-link" href="/designer.html">在设计器中配置参数 ↗</a>
     </header>

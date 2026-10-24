@@ -1,4 +1,4 @@
-import type { PreparedReport, ReportRuntime, ReportRuntimeExportInput, ReportRuntimeExportResult, ReportRuntimeInput, ReportRuntimePreparedExportInput } from "../server/types";
+import type { PreparedReport, ReportRuntime, ReportRuntimeExportInput, ReportRuntimeExportResult, ReportRuntimeInput, ReportRuntimePreparedExportInput, ReportRuntimeBudget } from "../server/types";
 import type { ReportTaskEvent, ReportTaskObserver } from "../source/task-events";
 import { validPreparedSources } from "../server/prepared";
 import { hasValidDataExplanation } from "../source/data-explanation";
@@ -6,7 +6,7 @@ import { validateRenderPlan } from "../schema/validate";
 
 export const REPORT_WORKER_PROTOCOL = "mach-report-worker/1" as const;
 export type ReportWorkerInput = Omit<ReportRuntimeInput, "signal" | "onEvent"> | Omit<ReportRuntimeExportInput, "signal" | "onEvent"> | Omit<ReportRuntimePreparedExportInput, "signal" | "onEvent">;
-export interface ReportWorkerRequest { protocol: typeof REPORT_WORKER_PROTOCOL; id: string; operation: "prepare" | "export" | "exportPrepared"; input: ReportWorkerInput }
+export interface ReportWorkerRequest { protocol: typeof REPORT_WORKER_PROTOCOL; id: string; operation: "prepare" | "export" | "exportPrepared"; input: ReportWorkerInput; budget?: ReportRuntimeBudget }
 export interface ReportWorkerEvent { protocol: typeof REPORT_WORKER_PROTOCOL; id: string; type: "event"; event: ReportTaskEvent }
 export interface SerializedReportError { name: string; message: string; code?: string; path?: string; issues?: unknown; diagnostics?: unknown }
 export interface ReportWorkerResponse {
@@ -65,7 +65,7 @@ function serializeDiagnostic(value: unknown): Record<string, unknown> {
   if (Array.isArray(value.componentPath) && value.componentPath.every((index) => Number.isSafeInteger(index) && index >= 0)) result.componentPath = value.componentPath;
   return result;
 }
-function serializeError(error: unknown): SerializedReportError {
+export function serializeError(error: unknown): SerializedReportError {
   if (!(error instanceof Error)) return { name: "Error", message: String(error) };
   const detail = error as Error & { code?: unknown; path?: unknown; issues?: unknown; diagnostics?: unknown };
   return { name: error.name, message: error.message,

@@ -62,7 +62,7 @@ describe("Canvas 网格样式与内容区域", () => {
     const calls: { text: string; font: string; color: string; x: number; y: number }[] = [];
     const context = {
       font: "", fillStyle: "", textAlign: "", textBaseline: "",
-      scale: vi.fn(), fillRect: vi.fn(),
+      scale: vi.fn(), fillRect: vi.fn(), save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), rect: vi.fn(), clip: vi.fn(),
       fillText(text: string, x: number, y: number) {
         calls.push({ text, font: this.font, color: this.fillStyle, x, y });
       }

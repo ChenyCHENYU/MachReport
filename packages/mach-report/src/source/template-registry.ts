@@ -398,10 +398,7 @@ function validateList(list: JsonObject, path: string, errors: ValidationError[])
   validateListTotal(list.grandTotal, `${path}.grandTotal`, errors);
 }
 
-function validateStaticFields(component: JsonObject, path: string, errors: ValidationError[]): void {
-  validateStyle(component.style, `${path}.style`, errors);
-  for (const key of ["text", "rawText", "imageData", "fallbackText", "nid", "rkey"]) stringField(component, key, path, errors);
-  if (component.lines !== undefined && (!Array.isArray(component.lines) || component.lines.some((line) => typeof line !== "string"))) errors.push({ path: `${path}.lines`, message: "文本行应为字符串数组" });
+function validateRichStyles(component: JsonObject, path: string, errors: ValidationError[]): void {
   if (Array.isArray(component.richParagraphs)) component.richParagraphs.forEach((paragraph, index) => {
     if (!isObject(paragraph)) return;
     const here = `${path}.richParagraphs.${index}`;
@@ -415,6 +412,13 @@ function validateStaticFields(component: JsonObject, path: string, errors: Valid
       validateStyle(segment.style, `${segmentPath}.style`, errors);
     });
   });
+}
+
+function validateStaticFields(component: JsonObject, path: string, errors: ValidationError[]): void {
+  validateStyle(component.style, `${path}.style`, errors);
+  for (const key of ["text", "rawText", "imageData", "fallbackText", "nid", "rkey"]) stringField(component, key, path, errors);
+  if (component.lines !== undefined && (!Array.isArray(component.lines) || component.lines.some((line) => typeof line !== "string"))) errors.push({ path: `${path}.lines`, message: "文本行应为字符串数组" });
+  validateRichStyles(component, path, errors);
   if (!isObject(component.grid)) return;
   const grid = component.grid;
   numberField(grid, "gapMm", `${path}.grid`, errors);
@@ -436,6 +440,7 @@ function validateStaticFields(component: JsonObject, path: string, errors: Valid
       }
       if (cell.value !== undefined && cell.value !== null && !["string", "number", "boolean"].includes(typeof cell.value)) errors.push({ path: `${here}.value`, message: "Excel 原始值应为字符串、数字、布尔值或 null" });
       validateStyle(cell.style, `${here}.style`, errors);
+      validateRichStyles(cell, here, errors);
       if (cell.children !== undefined) {
         if (!Array.isArray(cell.children)) errors.push({ path: `${here}.children`, message: "嵌套组件应为数组" });
         else cell.children.forEach((child, index) => { if (isObject(child)) validateStaticFields(child, `${here}.children.${index}`, errors); });

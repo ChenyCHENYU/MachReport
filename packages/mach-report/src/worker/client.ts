@@ -1,13 +1,17 @@
-import type { ReportRuntimeExecutor } from "../server/types";
+import { snapshotPdfFonts } from "../server/prepared";
+import type { ReportRuntimeExecutor, ReportRuntimeBudget } from "../server/types";
 import { notifyReportTaskEvent, type ReportTaskObserver } from "../source/task-events";
 import { REPORT_WORKER_PROTOCOL, ReportWorkerError, validReportWorkerEvent, validReportWorkerResult, type ReportWorkerRequest, type ReportWorkerResponse } from "./protocol";
 
 export interface ReportWorkerConnection {
-  postMessage(value: ReportWorkerRequest): void;
+  postMessage(value: ReportWorkerRequest, transfer?: ArrayBuffer[]): void;
   terminate(): void | number | Promise<void | number>;
   subscribe(message: (value: unknown) => void, error: (error: unknown) => void): () => void;
 }
-export interface ReportWorkerOptions { timeoutMs?: number }
+export interface ReportWorkerOptions { timeoutMs?: number; budget?: ReportRuntimeBudget }
+export class ReportWorkerStartError extends Error {
+  constructor(readonly cause: unknown) { super("报表 Worker 无法启动"); this.name = "ReportWorkerStartError"; }
+}
 let sequence = 0;
 function abortError(reason?: unknown): Error {
   const error = new Error("报表 Worker 任务已取消"); error.name = "AbortError";
@@ -27,7 +31,7 @@ export function createReportWorkerExecutor(factory: () => ReportWorkerConnection
     if (signal?.aborted) return Promise.reject(abortError(signal.reason));
     return new Promise<T>((resolve, reject) => {
       let connection: ReportWorkerConnection;
-      try { connection = factory(); } catch (error) { reject(error); return; }
+      try { connection = factory(); } catch (error) { reject(new ReportWorkerStartError(error)); return; }
       const id = `mach-report-${Date.now()}-${++sequence}`;
       let settled = false;
       let unsubscribe: () => void = () => {};
@@ -35,7 +39,10 @@ export function createReportWorkerExecutor(factory: () => ReportWorkerConnection
       const finish = (error?: unknown, value?: T) => {
         if (settled) return;
         settled = true; if (timer) clearTimeout(timer);
-        unsubscribe(); signal?.removeEventListener("abort", onAbort);
+        let cleanupError: unknown;
+        try { unsubscribe(); } catch (failure) { cleanupError = failure; }
+        signal?.removeEventListener("abort", onAbort);
+        error ??= cleanupError;
         Promise.resolve().then(() => connection.terminate()).then(
           () => error === undefined ? resolve(value!) : reject(error),
           (terminationError: unknown) => reject(error ?? terminationError)
@@ -63,10 +70,19 @@ export function createReportWorkerExecutor(factory: () => ReportWorkerConnection
         if (signal?.aborted) onAbort();
         else {
           const { onEvent: _onEvent, signal: _signal, ...serializable } = input as typeof input & { onEvent?: unknown; signal?: unknown };
-          connection.postMessage({ protocol: REPORT_WORKER_PROTOCOL, id, operation, input: serializable });
+          const transfer = snapshotWorkerFontInputs(serializable);
+          connection.postMessage({ protocol: REPORT_WORKER_PROTOCOL, id, operation, input: serializable, ...(options.budget ? { budget: options.budget } : {}) }, transfer);
         }
       } catch (error) { finish(error); }
     });
   };
   return { exportPrepared: (input, signal, onEvent) => execute("exportPrepared", input, signal, onEvent), prepare: (input, signal, onEvent) => execute("prepare", input, signal, onEvent), export: (input, signal, onEvent) => execute("export", input, signal, onEvent) };
+}
+
+/** Transfer only owned snapshots, never detach the host's font bytes. */
+function snapshotWorkerFontInputs(input: ReportWorkerRequest["input"]): ArrayBuffer[] {
+  if (!input.pdf) return [];
+  input.pdf = snapshotPdfFonts(input.pdf);
+  const fonts = input.pdf?.customFontFaces ? Object.values(input.pdf.customFontFaces) : [input.pdf?.customFontBytes];
+  return fonts.filter((font): font is Uint8Array => font instanceof Uint8Array).map(font => font.buffer as ArrayBuffer);
 }

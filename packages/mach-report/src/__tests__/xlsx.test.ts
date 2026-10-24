@@ -254,14 +254,12 @@ describe("renderPlanToXlsx（./xlsx 子路径）", () => {
         ]
       }]
     };
-    const { workbook, warnings } = await renderPlanToXlsx(plan);
-    expect(warnings).toHaveLength(2);
-    expect(warnings[0]).toContain("nested-grid cell 1:1: 嵌套组件内容");
-    expect(warnings[1]).toContain("nested-grid cell 1:2: 嵌套组件内容");
+    const { workbook, diagnostics } = await renderPlanToXlsx(plan);
+    expect(diagnostics).toEqual([expect.objectContaining({ code: "missing-image", componentPath: [0, 1, 0] })]);
     const sheet = workbook.worksheets[0]!;
     expect(sheet.getCell("A1").value).toMatchObject({ richText: [{ text: "富文本专有内容" }] });
     expect(sheet.getCell("A2").value).toMatchObject({ richText: [{ text: "富文本" }] });
-    expect(sheet.getCell("A3").value).toBe("");
+    expect(sheet.getCell("A3").value).toMatchObject({ richText: [{ text: "子组件" }] });
     expect(sheet.getCell("B3").value).toBe("单元格已有文本");
   });
 

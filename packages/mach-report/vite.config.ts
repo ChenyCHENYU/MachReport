@@ -58,6 +58,7 @@ export default defineConfig({
         analytics: "src/analytics.ts",
         codes: "src/codes.ts",
         worker: "src/worker.ts",
+        "report-encoding-worker": "src/worker/encoding-entry.ts",
         vue: "src/vue/index.ts",
         "vue-async": "src/vue/async.ts"
       },

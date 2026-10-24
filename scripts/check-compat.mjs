@@ -45,6 +45,8 @@ try {
 import { ReportPreview, type ReportPreviewTask, type MachReportController } from '@agile-team/mach-report/vue';
 import { ReportTemplateEditor, ExcelBindingWizard, RuleEditor, TemplateReviewPanel } from '@agile-team/mach-report/designer';
 import { createReportRuntime, type ReportRuntimeInput } from '@agile-team/mach-report/server';
+import { createNodeAutoReportExporter } from '@agile-team/mach-report/server/node';
+import type { ReportExportExecutionOptions } from '@agile-team/mach-report/worker';
 import type { ReportTaskEvent, ReportTemplateDocument } from '@agile-team/mach-report';
 type PreviewProps = InstanceType<typeof ReportPreview>['$props'];
 const props: PreviewProps = { reportId: 'sample', onLoaded: (count: number) => { void count; } };
@@ -71,7 +73,9 @@ void [invalidParams, invalidLoaded, invalidEditor, editorProps];
 const input: ReportRuntimeInput = { reportIds: ['sample'], onEvent(event: ReportTaskEvent) { void event.stage; } };
 const task: ReportPreviewTask | null = null;
 const controller: MachReportController | null = null;
-void [props, input, task, controller, createReportRuntime, ReportTemplateEditor];
+const execution: ReportExportExecutionOptions = { mode: 'worker', onDecision(decision) { void decision.hardCancellation; } };
+const isolatedProps: PreviewProps = { reportId: 'sample', exportExecution: execution };
+void [props, input, task, controller, createReportRuntime, ReportTemplateEditor, isolatedProps, createNodeAutoReportExporter];
 `);
   writeFileSync(resolve(scratch, "consumer.cts"), readFileSync(resolve(scratch, "consumer.mts"), "utf8"));
   writeFileSync(resolve(scratch, "tsconfig.json"), JSON.stringify({ compilerOptions: { module: "NodeNext", moduleResolution: "NodeNext", target: "ES2022", lib: ["ES2022", "DOM", "DOM.Iterable"], strict: true, skipLibCheck: false, noEmit: true, types: [] }, files: ["consumer.mts", "consumer.cts"] }));
@@ -85,6 +89,14 @@ void [props, input, task, controller, createReportRuntime, ReportTemplateEditor]
  await service.submit(input); await service.runNext('cjs-worker');
  if((await service.prune({terminalBefore:1000})).archived!==1 || !(await service.submit(input)).archived) throw Error('CommonJS durable archive');
  await service.close(); console.log('CommonJS imports and durable SHA-256 archive OK');
+ const {createReportRuntime}=require('@agile-team/mach-report/server');
+ const {createTableTemplate}=require('@agile-team/mach-report');
+ const {createNodeAutoReportExporter}=require('@agile-team/mach-report/server/node');
+ const runtime=createReportRuntime({reports:{sample:{template:createTableTemplate({columns:[{field:'id',header:'ID'}]}),datasets:{detail:[{id:'0001'}]}}}});
+ const automatic=createNodeAutoReportExporter({mode:'worker'});
+ try { const file=await automatic.exportPrepared({prepared:await runtime.prepare({reportIds:['sample']}),format:'xlsx'});
+ if(file.bytes[0]!==80 || file.execution.mode!=='worker') throw Error('CommonJS automatic encoding'); }
+ finally { automatic.dispose(); }
 })().catch(error=>{console.error(error);process.exitCode=1});`);
   writeFileSync(resolve(scratch, "smoke.mjs"), `
 import { createSSRApp } from 'vue';
@@ -92,7 +104,7 @@ import { renderToString } from '@vue/server-renderer';
 import { ReportPreview, machReportPlugin } from '@agile-team/mach-report/vue';
 import { createTableTemplate } from '@agile-team/mach-report';
 import { createReportRuntime,createMemoryReportJobStore,createReportJobService } from '@agile-team/mach-report/server';
-import { openFileReportJobStore } from '@agile-team/mach-report/server/node';
+import { openFileReportJobStore, createNodeAutoReportExporter } from '@agile-team/mach-report/server/node';
 import { mkdtemp,rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -103,6 +115,10 @@ const runtime=createReportRuntime({reports});
 const events=[];
 const prepared=await runtime.prepare({reportIds:['sample'],onEvent:event=>events.push(event)});
 if(prepared.stats.rows!==1 || !events.some(e=>e.stage==='layout'&&e.status==='completed')) throw Error('prepare contract');
+const automatic=createNodeAutoReportExporter({mode:'worker'});
+try { const file=await automatic.exportPrepared({prepared,format:'xlsx'});
+ if(file.bytes[0]!==80 || file.execution.mode!=='worker' || !file.execution.hardCancellation) throw Error('ESM automatic encoding'); }
+finally { automatic.dispose(); }
 let workbook;
 for(const format of ['pdf','xlsx']) {
  const result=await runtime.export({reportIds:['sample'],format});
@@ -142,7 +158,7 @@ try{
  await service.close(); await store.close();
 }finally{await rm(directory,{recursive:true,force:true})}
 console.log('Durable memory/file SHA-256 archive, conflict and restart OK; global crypto='+typeof globalThis.crypto);
-const app=createSSRApp(ReportPreview,{reportIds:['sample'],autoLoad:false});
+const app=createSSRApp(ReportPreview,{reportId:['sample'],autoLoad:false});
 app.use(machReportPlugin,{reports});
 const html=await renderToString(app);
 if(!html.includes('mach-report')) throw Error('Vue SSR smoke failed');

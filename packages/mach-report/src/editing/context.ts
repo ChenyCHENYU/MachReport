@@ -75,7 +75,7 @@ function readOnlyReason(cell: GridCell, component: PlanComponent): ReportCellRea
   if (cell.derived) return "derived";
   if (cell.editable === false) return "cell";
   if (cell.formula !== undefined) return "formula";
-  if (cell.children?.length) return "complex";
+  if (cell.children?.length || cell.richParagraphs?.length) return "complex";
   if (component.table && component.table.role !== "body" && cell.editable !== true) return "structure";
   return undefined;
 }

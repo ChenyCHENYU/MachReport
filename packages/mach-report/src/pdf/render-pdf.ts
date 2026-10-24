@@ -1,5 +1,5 @@
-import { outputCheckpoint, type OutputTaskOptions } from "../output/progress";
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
+import { outputCheckpoint, createOutputScheduler, type OutputTaskOptions } from "../output/progress";
+import { PDFDocument, StandardFonts, rgb, pushGraphicsState, popGraphicsState, rectangle, clip, endPath, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
 import { drawPdfRichText } from "./rich-text";
 import { createPdfFontEmbedding, type PdfFontEmbedding } from "./font-embedding";
 import type { ComponentStyle, PlanComponent, RenderPlan } from "../schema/render-plan";
@@ -97,6 +97,8 @@ function encodeText(font: PDFFont, text: string): { encoded: string; supported: 
 }
 
 interface PdfRenderer {
+  signal?: AbortSignal;
+  schedule: ReturnType<typeof createOutputScheduler>;
   document: PDFDocument;
   fonts: { regular: PDFFont; bold: PDFFont; italic: PDFFont; boldItalic: PDFFont };
   customFont?: PDFFont;
@@ -214,6 +216,8 @@ function drawTextComponent(renderer: PdfRenderer, page: PDFPage, comp: PlanCompo
       },
       draw(text, runStyle, x, baseline, width) {
         checkTextStyle(renderer, runStyle, location);
+        const size = resolveFontSize(runStyle).fontSizePt;
+        drawBackground(page, { x, yTop: baseline + size, width, height: size * resolveLineHeight(runStyle) }, runStyle.backgroundColor);
         drawTextLine(renderer, page, text, runStyle, { ...box, x, width }, baseline);
       }
     });
@@ -277,18 +281,17 @@ function drawGridEdges(page: PDFPage, comp: PlanComponent, box: TextBox, layout:
   }
 }
 
-function drawGridCell(
+async function drawGridCell(
   renderer: PdfRenderer, page: PDFPage, comp: PlanComponent,
   cell: ReturnType<typeof resolveGridLayout>["cells"][number], origin: TextBox, location: string
-): void {
+): Promise<void> {
   const style = mergeComponentStyles(comp.style, cell.cell.style);
   const box = {
     x: origin.x + mmToPt(cell.xMm), yTop: origin.yTop - mmToPt(cell.yMm),
     width: mmToPt(cell.widthMm), height: mmToPt(cell.heightMm)
   };
   drawBackground(page, box, style.backgroundColor);
-  if (cell.cell.children?.length) renderer.fidelityWarnings.push(`${location}: 嵌套组件暂不支持 PDF 导出，已跳过；单元格文本保留`);
-  if (!cell.cell.text) return;
+
   checkTextStyle(renderer, style, location);
   const paddingMm = comp.grid?.paddingMm ?? 0.5;
   const padding = mmToPt(paddingMm);
@@ -297,21 +300,37 @@ function drawGridCell(
     x: box.x + padding + indent, yTop: box.yTop - padding,
     width: Math.max(0, box.width - 2 * padding - indent), height: Math.max(0, box.height - 2 * padding)
   };
-  const lines = wrappedLines(renderer, cell.cell.text, Math.max(0, cell.widthMm - 2 * paddingMm - indentMm), style);
-  const lineHeight = resolveFontSize(style).fontSizePt * resolveLineHeight(style);
-  const capacity = Math.floor((content.height + TEXT_HEIGHT_EPSILON_PT) / lineHeight);
-  const maxLines = Math.max(1, capacity);
-  if (lines.length > capacity) {
-    renderer.fidelityWarnings.push(`${location}: 单元格文本超出可用高度，PDF 文本裁切；请增加行高或减少字号（${lines.length} 行，可容纳 ${capacity} 行）`);
-  }
-  drawTextLines(renderer, page, lines.slice(0, maxLines), { verticalAlign: "middle", ...style }, content);
+  page.pushOperators(pushGraphicsState(), rectangle(content.x, content.yTop - content.height, content.width, content.height), clip(), endPath());
+  try {
+    drawCellText(renderer, page, cell.cell, style, content, location);
+    for (const child of cell.cell.children ?? []) {
+      const positioned = { ...child, leftMm: content.x * 25.4 / 72 + child.leftMm, topMm: -content.yTop * 25.4 / 72 + child.topMm };
+      await drawComponent(renderer, page, positioned, 0, location);
+    }
+  } finally { page.pushOperators(popGraphicsState()); }
 }
 
-function drawGrid(renderer: PdfRenderer, page: PDFPage, comp: PlanComponent, box: TextBox, location: string): void {
+function drawCellText(renderer: PdfRenderer, page: PDFPage, cell: import("../schema/render-plan").GridCell, style: ComponentStyle, content: TextBox, location: string): void {
+  if (cell.richParagraphs?.length) {
+    drawTextComponent(renderer, page, { kind: "text", leftMm: 0, topMm: 0, widthMm: content.width * 25.4 / 72, heightMm: content.height * 25.4 / 72, richParagraphs: cell.richParagraphs, style: { verticalAlign: "middle", ...style } }, content, location);
+    return;
+  }
+  if (!cell.text) return;
+  const lines = wrappedLines(renderer, cell.text, content.width * 25.4 / 72, style);
+  const lineHeight = resolveFontSize(style).fontSizePt * resolveLineHeight(style);
+  const capacity = Math.floor((content.height + TEXT_HEIGHT_EPSILON_PT) / lineHeight);
+  if (lines.length > capacity) renderer.fidelityWarnings.push(`${location}: 单元格文本超出可用高度，PDF 文本裁切；请增加行高或减少字号（${lines.length} 行，可容纳 ${capacity} 行）`);
+  drawTextLines(renderer, page, lines.slice(0, Math.max(1, capacity)), { verticalAlign: "middle", ...style }, content);
+}
+
+async function drawGrid(renderer: PdfRenderer, page: PDFPage, comp: PlanComponent, box: TextBox, location: string): Promise<void> {
   const layout = resolveGridLayout(comp.grid!, comp.widthMm, comp.heightMm);
   drawBackground(page, box, comp.style?.backgroundColor);
   // 底色先绘制，边框最后一次绘制，避免重复外框与覆盖内部网格线。
-  for (const cell of layout.cells) drawGridCell(renderer, page, comp, cell, box, `${location} cell ${cell.ri + 1}:${cell.ci + 1}`);
+  for (const cell of layout.cells) {
+    await drawGridCell(renderer, page, comp, cell, box, `${location} cell ${cell.ri + 1}:${cell.ci + 1}`);
+    const pause = renderer.schedule(); if (pause) await pause;
+  }
   drawGridEdges(page, comp, box, layout);
 }
 
@@ -345,13 +364,17 @@ function drawShape(page: PDFPage, comp: PlanComponent, box: TextBox): boolean {
 }
 
 async function drawComponent(renderer: PdfRenderer, page: PDFPage, comp: PlanComponent, pageHeightPt: number, location: string): Promise<void> {
+  checkCancelled(renderer.signal);
   const box = componentBox(comp, pageHeightPt);
   if (isImageBackedComponent(comp)) {
     const image = await embedImage(renderer, comp.imageData!);
-    if (image) page.drawImage(image, { x: box.x, y: box.yTop - box.height, width: box.width, height: box.height });
+    if (image) {
+      const ratio = Math.min(box.width / image.width, box.height / image.height), width = image.width * ratio, height = image.height * ratio;
+      page.drawImage(image, { x: box.x + (box.width - width) / 2, y: box.yTop - (box.height + height) / 2, width, height });
+    }
     else renderer.fidelityWarnings.push(`${location}: 图片仅支持 data:image/(png|jpeg) base64，已跳过`);
   } else if (comp.grid) {
-    drawGrid(renderer, page, comp, box, location);
+    await drawGrid(renderer, page, comp, box, location);
   } else if (comp.kind === "text") {
     drawTextComponent(renderer, page, comp, box, location);
   } else if (!drawShape(page, comp, box)) {
@@ -380,7 +403,7 @@ async function createRenderer(document: PDFDocument, options: PdfRenderOptions):
     boldItalic: await embedFace(embedding, options.customFontFaces?.boldItalic, customFont, fontCache)
   } : { regular, bold, italic, boldItalic };
   return {
-    document, fonts, customFont, customFontFaces: options.customFontFaces, embedding,
+    signal: options.signal, schedule: createOutputScheduler(options), document, fonts, customFont, customFontFaces: options.customFontFaces, embedding,
     measurer: options.measurer ?? heuristicMeasurer,
     imageCache: new Map(), inspectImage: createImageMediaInspector(options), fidelityWarnings: [], styleWarnings: new Set(), unsupportedTextCount: 0
   };

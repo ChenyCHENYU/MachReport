@@ -1,5 +1,5 @@
 import type * as ExcelJS from "exceljs";
-import type { ComponentStyle } from "../schema/render-plan";
+import type { ComponentStyle, RichSegment } from "../schema/render-plan";
 import { ImportWarnings } from "./import-types";
 
 const OFFICE_THEME = ["FFFFFF", "000000", "E7E6E6", "44546A", "4472C4", "ED7D31", "A5A5A5", "FFC000", "5B9BD5", "70AD47", "0563C1", "954F72"];
@@ -108,4 +108,19 @@ export function styleImporter(theme: string[], sheet: string, warnings: ImportWa
     const numericBlank = value == null && /[0#?]/.test((cell.numFmt ?? "").replace(/"[^"]*"|\\.|\[[^\]]*\]/g, ""));
     return typeof value === "boolean" ? variants.center : typeof value === "number" || value instanceof Date || numericBlank ? variants.right : variants.left;
   };
+}
+
+/** Reuse workbook theme/indexed colour mapping for each native rich text run. */
+export function importRichSegments(runs: ExcelJS.RichText[], theme: string[], warnings: ImportWarnings, location: string, scale: number): RichSegment[] {
+  return runs.map(run => {
+    const font = run.font ?? {}, style: ComponentStyle = {};
+    if (font.name) style.fontFamily = font.name;
+    if (font.size) style.fontSize = font.size * scale;
+    for (const key of ["bold", "italic"] as const) if (font[key] !== undefined) style[key] = font[key];
+    if (font.underline !== undefined) style.underline = !!font.underline;
+    const color = colour(font.color, theme, () => warnings.add(`${location}: 富文本系统色/未知色按默认颜色还原`));
+    if (color) style.color = color;
+    if (font.strike || font.vertAlign || typeof font.underline === "string" && font.underline !== "single") warnings.add(`${location}: 富文本删除线、上下标或特殊下划线暂不支持`);
+    return { text: run.text, style };
+  });
 }

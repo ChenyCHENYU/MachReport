@@ -37,11 +37,11 @@ xlsx/node ── AsyncIterable → 逐行工作表（不构造完整计划）
 
 常规页面只传报表ID和参数；宿主集中注册模板与数据源。只有用到远程编辑、资源渲染、存储、公式引擎或Worker时才提供对应适配器，不要求业务页面维护内部状态机。
 
-编辑以`datasetId / rowKey / field`识别业务格，计划坐标仅用于屏幕定位；保存的`requestId / revision / sourceToken`与数据库协议衔接。保存、撤销、重做和恢复共用一个事务路径。冻结仅改变屏幕呈现，不改打印或导出几何。
+编辑以`sourceScope / datasetId / rowKey / field`识别业务格，计划坐标仅用于屏幕定位；默认来源隔离，同源镜像显式声明共享。保存的`requestId / revision / sourceToken`与数据库协议衔接。保存、撤销、重做和恢复共用一个事务路径。冻结仅改变屏幕呈现，不改打印或导出几何。
 
 模板状态与不可变历史分离；常规草稿保存不读取整份历史。存储器的CAS需在同一事务内更新状态并追加发布版本。默认内存实现说明协议，可由文件、HTTP或数据库适配替换。
 
-浏览器和Node声明 / 产物分开生成，避免浏览器ExcelJS替代Node流式实现。十三个代码入口均验证ESM / CJS和类型；隔离消费端刻意不安装ExcelJS / PDF / SQL / 码图源依赖，检查公开包是否可独立使用。
+浏览器和Node声明 / 产物分开生成，避免浏览器ExcelJS替代Node流式实现。十三个代码入口均验证ESM / CJS和类型，CSS与内置编码Worker另作为发布资产校验；隔离消费端刻意不安装ExcelJS / PDF / SQL / 码图源依赖，检查公开包是否可独立使用。Worker资产另经Vite实际生产构建，不能仅核对文件存在。
 
 固定标签由核心的逐记录生成器展开，静态字段绑定只读取自有标量数据，按记录、份数和模板页顺序生成；完整页预算在分配前检查。码制配置是可序列化数据，实际编码和 PNG 生成仅位于可选 `/codes`，复用 `output/assets`。设计器和 Node Runtime 使用同一适配器，核心及默认 Vue 构建不依赖编码库。第三方版权声明随发布包保留。
 
@@ -66,6 +66,17 @@ xlsx/node ── AsyncIterable → 逐行工作表（不构造完整计划）
 ## 操作生命周期与公开声明
 
 `usePreviewConfiguration` 集中处理配置层级与工具能力交集；`usePreviewFont` 管理字体检查/缓存；`preview-plan` 负责查询与导入计划准备。`useDiscardGuard`、`usePreviewTask`、`usePreviewDiagnostics` 各自管理替换决定、任务与诊断，组件只做生命周期接线。观察者不能改变事务结果，代际与小型身份快照阻止旧确认、旧输出、旧诊断污染新报表。
+
+| 稳定边界 | 持有状态与依赖方向 |
+| --- | --- |
+| `usePreviewSession` | 查询/导入的参数快照、代际、取消、错误、已查询上下文；只通过明确view/events回调提交结果 |
+| `usePreviewEditing` | 编辑事务、选区、草稿与离开保护；来源身份由核心editing维护 |
+| `usePreviewOutput` | 保真策略、任务通知和物理打印配置；调用编码/下载，不自行取数 |
+| `usePreviewEncoding` | 默认PDF字体准备与已显示计划的编码适配，保留自定义导出器/Excel函数选项兼容 |
+| `useReportExportExecution` | 首次导出按需加载执行器、等待期间快照/取消、实例释放与旧决策隔离 |
+| `useDesignerNavigation` | 目标/工具/未应用配置的切换及异步确认代际；文档修改仍走useTemplateEditor事务 |
+
+`worker/auto-policy` 只做有界估算；`auto-core` 管并发、快照、取消与回退；browser/Node适配器负责原生实例。`render/rich-text-layout` 只产出排版结果，Canvas和PDF各自绘制；`schema/component-tree` 在递归前限制节点/深度及循环，不扫描无关元数据或媒体字符。边界按状态所有权拆分，不给每个业务页面暴露内部状态机。
 
 `editing/fields` 的字段约束由单格、批量、历史与Node共用；`vue/cell-editor` 仅负责单实例控件和焦点。设计器使用独立列操作、受预算历史与丢弃保护hooks，复用同一模板文档/CAS协议。
 

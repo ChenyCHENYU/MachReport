@@ -22,23 +22,29 @@
     "check:docs": "node scripts/check-docs.mjs",
     "check:consumer": "node scripts/check-consumer.mjs",
     "check:quality": "node scripts/check-quality.mjs",
-    "verify": "pnpm typecheck && pnpm lint && pnpm check:quality && pnpm build && pnpm check:api && pnpm check:sbom && pnpm test:coverage && pnpm check:docs && pnpm check:consumer",
+    "verify": "pnpm typecheck && pnpm lint && pnpm check:quality && pnpm build && pnpm check:api && pnpm check:sbom && pnpm test:coverage && pnpm check:docs && pnpm check:consumer && pnpm check:acceptance",
     "release": "node scripts/check-release.mjs && pnpm install --frozen-lockfile && pnpm verify && pnpm check:server-example && pnpm check:compat && pnpm test:e2e --workers=2 --retries=0 && node scripts/check-release.mjs && pnpm changeset publish",
     "test:coverage": "vitest run --coverage",
     "check:compat": "node scripts/check-compat.mjs",
     "check:server-example": "node scripts/check-server-example.mjs",
     "check:api": "node scripts/check-public-api.mjs",
-    "check:sbom": "node scripts/check-sbom.mjs"
+    "check:sbom": "node scripts/check-sbom.mjs",
+    "test:fuzz": "vitest run packages/mach-report/src/__tests__/fuzz",
+    "test:a11y": "playwright test e2e/accessibility.spec.ts --workers=1 --retries=0",
+    "check:acceptance": "node scripts/create-acceptance-pack.mjs"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@changesets/cli": "^3.0.3",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.63.0",
     "@types/node": "^26.6.0",
     "@vitejs/plugin-vue": "^6.0.9",
     "@vitest/coverage-v8": "4.1.11",
+    "@zxing/library": "0.21.3",
     "eslint": "^10.10.0",
     "eslint-plugin-vue": "^10.11.0",
+    "fast-check": "^4.10.2",
     "globals": "^17.12.0",
     "happy-dom": "^20.8.9",
     "playwright": "^1.63.0",
@@ -47,7 +53,6 @@
     "vitest": "^4.1.11",
     "vue": "^3.5.42",
     "vue-eslint-parser": "^10.4.1",
-    "vue-tsc": "^3.3.11",
-    "@zxing/library": "0.21.3"
+    "vue-tsc": "^3.3.11"
   }
 }

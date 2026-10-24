@@ -756,7 +756,7 @@
   padding: 3px 8px;
   background: transparent;
   font-size: 11px;
-  color: #64748b;
+  color: #52647b;
 }
 .mr-designer-mode button[aria-pressed="true"] {
   color: #245aa4;
@@ -786,7 +786,7 @@
   flex-wrap: wrap;
 }
 .mr-designer-tool-target label { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 120px; }
-.mr-designer-tool-target label span { white-space: nowrap; font-size: 10px; color: var(--mrp-btn-fg, #64748b); }
+.mr-designer-tool-target label span { white-space: nowrap; font-size: 10px; color: var(--mrp-btn-fg, #52647b); }
 .mr-designer-tool-target > select { flex: 2 1 140px; width: auto; }
 .mr-designer-tool-target > button { flex: none; font-size: 10px; }
 .mr-designer-directory-pages { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-top: 1px solid var(--mrp-toolbar-border, #e2e8f0); font-size: 11px; }

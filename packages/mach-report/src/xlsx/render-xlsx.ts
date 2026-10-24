@@ -1,3 +1,4 @@
+import { cellRichText, excelRichText } from "./rich-text";
 import { assertOutputActive, outputCheckpoint, createOutputScheduler } from "../output/progress";
 import ExcelJSRuntime from "exceljs";
 import type * as ExcelJS from "exceljs";
@@ -215,9 +216,7 @@ function validateTableFragment(comp: PlanComponent, layout: GridLayout, pageInde
     }
     state.expectedRow += layout.rows.length;
   }
-  if (layout.cells.some((box) => box.cell.children?.length)) {
-    throw new Error(`page ${pageIndex + 1}: 连续 Excel 暂不支持嵌套组件；请使用独立 Sheet 导出并检查告警`);
-  }
+
 }
 
 function validateContinuousTable(unit: SheetUnit, grids: Map<PlanComponent, GridLayout>): void {
@@ -328,6 +327,7 @@ function applyGridCellStyle(cell: ExcelJS.Cell, style: ComponentStyle): void {
 }
 
 interface SheetWriter {
+  images: XlsxImageWriter;
   sheet: ExcelJS.Worksheet;
   warnings: string[];
   limits: DimensionLimits;
@@ -360,14 +360,17 @@ function mergeGridCell(sheet: ExcelJS.Worksheet, box: GridLayout["cells"][number
   }
 }
 
-async function writeGrid(writer: SheetWriter, comp: PlanComponent, layout: GridLayout, cursorRow: number, pageIndex: number): Promise<number> {
+async function writeGrid(writer: SheetWriter, comp: PlanComponent, layout: GridLayout, cursorRow: number): Promise<number> {
   if (cursorRow + layout.rows.length - 1 > 1_048_576) throw new Error("Excel 最多支持 1048576 行，无法无损导出此报表");
   configureGridDimensions(writer, layout, cursorRow);
   for (const box of layout.cells) {
     const cell = writer.sheet.getCell(cursorRow + box.ri, box.ci + 1);
     setCellValue(cell, box.cell, writer.valueMode, writer.warnings);
-    if (box.cell.children?.length) {
-      writer.warnings.push(`page ${pageIndex + 1} ${comp.nid ?? comp.kind} cell ${box.ri + 1}:${box.ci + 1}: 嵌套组件内容暂不支持 xlsx 导出，已跳过`);
+    const rich = cellRichText(box.cell, comp.style);
+    if (rich) { validateCellText(rich.richText.map(run => run.text).join(""), cell.address); cell.value = rich; }
+    const padding = comp.grid?.paddingMm ?? 0.5;
+    for (const child of box.cell.children ?? []) {
+      if (isImageBackedComponent(child) && !child.grid) writer.images.write(writer.sheet, child, cursorRow + box.ri, { leftMm: box.xMm + padding + (box.cell.indentMm ?? 0) + child.leftMm, offsetMm: padding + child.topMm });
     }
     applyGridCellStyle(cell, mergeComponentStyles(comp.style, box.cell.style));
     if (box.cell.indentMm) cell.alignment = { ...cell.alignment, indent: Math.min(250, Math.max(1, Math.round(box.cell.indentMm / 2.5))) };
@@ -383,13 +386,7 @@ function writeText(writer: SheetWriter, comp: PlanComponent, cursorRow: number, 
   const row = writer.sheet.getRow(cursorRow);
   const cell = row.getCell(1);
   if (!comp.richParagraphs?.length) validateCellText(text, cell.address);
-  cell.value = comp.richParagraphs?.length ? { richText: comp.richParagraphs.flatMap((paragraph, index) => [
-    ...(index ? [{ text: "\n" }] : []),
-    ...paragraph.segments.map(segment => {
-      const style = mergeComponentStyles(comp.style, segment.style), value = segment.kind === "field" ? segment.field ?? "" : segment.text ?? "";
-      return { text: value, font: { name: style.fontFamily, bold: style.bold, italic: style.italic, underline: style.underline, size: resolveFontSize(style).fontSizePt, ...(argbOf(style.color) ? { color: { argb: argbOf(style.color)! } } : {}) } };
-    })
-  ]) } : text;
+  cell.value = comp.richParagraphs?.length ? excelRichText(comp.richParagraphs, comp.style) : text;
   if (typeof cell.value === "object" && cell.value && "richText" in cell.value) validateCellText(cell.value.richText.map(run => run.text).join(""), cell.address);
   cell.alignment = { horizontal: comp.style?.align ?? "left", vertical: comp.style?.verticalAlign ?? "middle", wrapText: true };
   const background = argbOf(comp.style?.backgroundColor);
@@ -424,7 +421,7 @@ async function writeSheet(writer: SheetWriter, contents: SheetContents, continuo
     const layout = contents.grids.get(comp);
     if (layout) {
       if (header) { freezeHeader(writer.sheet, cursorRow, layout.rows.length); headerWritten = true; }
-      cursorRow = await writeGrid(writer, comp, layout, cursorRow, pageIndex);
+      cursorRow = await writeGrid(writer, comp, layout, cursorRow);
     } else if (comp.kind === "text") {
       cursorRow = writeText(writer, comp, cursorRow, contents.columnCount);
     } else if (isImageBackedComponent(comp)) {
@@ -469,7 +466,7 @@ export async function renderPlanToXlsx(plan: RenderPlan, options: XlsxRenderOpti
     const sheet = workbook.addWorksheet(name, worksheetOptions(unit, options.paperSize, warnings));
     const valueMode = options.valueMode ?? (isWidePage(page) || unit.continuous || unit.flow ? "raw" : "text");
     assertOutputActive(options.signal);
-    await writeSheet({ sheet, warnings, limits, valueMode, schedule }, contents, unit.continuous, images);
+    await writeSheet({ sheet, warnings, limits, valueMode, schedule, images }, contents, unit.continuous, images);
     await outputCheckpoint(options, sheetIndex + 1, units.length);
   }
   assertOutputActive(options.signal);

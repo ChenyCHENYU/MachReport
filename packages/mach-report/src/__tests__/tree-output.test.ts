@@ -48,7 +48,7 @@ describe("hierarchy fidelity through real outputs", () => {
   });
   it("passes identical physical indentation to the Canvas text drawing backend", () => {
     const calls: Array<{ text: string; x: number }> = [];
-    const context = { font: "", fillStyle: "", textAlign: "", textBaseline: "", scale() {}, fillRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, setLineDash() {}, save() {}, restore() {}, fillText(text: string, x: number) { calls.push({ text, x }); } };
+    const context = { font: "", fillStyle: "", textAlign: "", textBaseline: "", scale() {}, fillRect() {}, beginPath() {}, rect() {}, clip() {}, moveTo() {}, lineTo() {}, stroke() {}, setLineDash() {}, save() {}, restore() {}, fillText(text: string, x: number) { calls.push({ text, x }); } };
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(context as unknown as CanvasRenderingContext2D);
     renderPlanToCanvas(fixture(), { dpr: 1 });
     expect(calls.find(call => call.text === "Leaf A")!.x - calls.find(call => call.text === "Root")!.x).toBeCloseTo(6 * 96 / 25.4, 3);

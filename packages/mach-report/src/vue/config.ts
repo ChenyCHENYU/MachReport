@@ -357,6 +357,8 @@ export interface MachReportPreviewOptions {
 
 /** defaults 层可配置项（全部可选，均有内置缺省） */
 export interface MachReportDefaults {
+  /** Small encodes stay local; optional Worker isolation uses the same prepared plan for large output. */
+  exportExecution?: ReportExportExecutionOptions;
   drill?: ReportDrillOptions;
   loadParamOptions?: ReportParamOptionsLoader;
   printOptions?: ReportPrintOptions;
@@ -421,6 +423,7 @@ export type ResolvedConfig = Required<
     "showExport" | "showPrint" | "showPdfWindow" | "showSettings" | "showParams" | "gapPx"
   >
 > & {
+  exportExecution?: ReportExportExecutionOptions;
   drill?: ReportDrillOptions;
   loadParamOptions?: ReportParamOptionsLoader;
   pdfFontUrl: string;
@@ -509,6 +512,7 @@ export function resolveConfig(
   const merged = mergeDefaults(config?.defaults, preset);
   return {
     drill: merged.drill,
+    exportExecution: merged.exportExecution,
     loadParamOptions: merged.loadParamOptions,
     ...resolveDisplayDefaults(merged),
     pdfFontUrl: merged.pdfFontUrl ?? FALLBACK_CONFIG.pdfFontUrl,
@@ -593,4 +597,5 @@ export function useMachReportConfig(): ConfigRef {
   return inject<ConfigRef>(MACH_REPORT_CONFIG_KEY, computed(() => null));
 }
 import type { ReportDrillOptions } from "./drill";
+import type { ReportExportExecutionOptions } from "../worker/auto-types";
 import { PARAM_OPTIONS_MESSAGES, type ReportParamOptionsLoader, type ReportParamOptionsMessages } from "./param-options";

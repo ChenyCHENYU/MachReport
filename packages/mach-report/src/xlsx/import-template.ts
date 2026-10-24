@@ -8,7 +8,7 @@ import { checkedExcelBytes } from "./import-zip";
 import { createImageMediaInspector } from "../output/media";
 import { createSheetImageImporter } from "./import-images";
 import { importCellValue } from "./import-value";
-import { importTheme, styleImporter } from "./import-style";
+import { importTheme, styleImporter, importRichSegments } from "./import-style";
 import { excelColumnWidthToMm } from "./column-width";
 import { checkedRange, columnName, mergeLookup, mergeRowGroups, rangeName, rowSegments, selectedMerges, selectedRange, type CellRange, type RowSegment } from "./import-range";
 import { ImportWarnings, resolveImportOptions, type ExcelImportOptions, type ExcelImportedSheet, type ExcelImportResult, type ResolvedImportOptions } from "./import-types";
@@ -83,6 +83,7 @@ interface SheetImportContext {
   geometry: SheetGeometry;
   merges: ReturnType<typeof mergeLookup>;
   style: ReturnType<typeof styleImporter>;
+  theme: string[];
   date1904: boolean;
   warnings: ImportWarnings;
   tableId: string;
@@ -91,7 +92,7 @@ interface SheetImportContext {
 }
 
 function gridCells(context: SheetImportContext, segment: RowSegment): Array<Array<GridCell | null>> {
-  const { sheet, range, merges, style, date1904, warnings } = context;
+  const { sheet, range, merges, style, date1904, warnings, geometry } = context;
   const rows: Array<Array<GridCell | null>> = [];
   for (let row = segment.top; row <= segment.bottom; row++) {
     const cells: GridCell[] = [];
@@ -103,6 +104,11 @@ function gridCells(context: SheetImportContext, segment: RowSegment): Array<Arra
       const protectedSheet = (sheet as unknown as { sheetProtection?: { sheet?: boolean } }).sheetProtection?.sheet === true;
       if (protectedSheet && source.protection?.locked !== false) cell.editable = false;
       cell.style = style(source);
+      const raw = source.value;
+      if (raw && typeof raw === "object" && "richText" in raw) {
+        cell.richParagraphs = [{ segments: importRichSegments(raw.richText, context.theme, warnings, `${sheet.name}!${source.address}`, geometry.scale) }];
+        cell.editable = false;
+      }
       const merge = merges.masters.get(key);
       if (merge) { cell.colSpan = merge.right - merge.left + 1; cell.rowSpan = merge.bottom - merge.top + 1; }
       cells.push(cell);
@@ -171,7 +177,7 @@ async function importSheet(sheet: ExcelJS.Worksheet, range: CellRange, workbook:
   const segments = rowSegments(groups, rowBudget, options.layout === "wide" ? Infinity : geometry.pageHeight - geometry.margin * 2, geometry.rowHeight);
   const context: SheetImportContext = {
     sheet, range, geometry, options, warnings,
-    merges: mergeLookup(merges), style: styleImporter(importTheme(workbook), sheet.name, warnings, geometry.scale),
+    theme: importTheme(workbook), merges: mergeLookup(merges), style: styleImporter(importTheme(workbook), sheet.name, warnings, geometry.scale),
     date1904: workbook.properties.date1904 === true, tableId: `xlsx:${index}:${sheet.name}`, headerBottom: groups[0]!.bottom
   };
   const pages: TemplatePage[] = [];

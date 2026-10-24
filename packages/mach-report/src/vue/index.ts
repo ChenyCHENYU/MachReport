@@ -20,6 +20,7 @@ export * from "./guards";
 export * from "./print-options";
 export * from "./param-options";
 export * from "./drill";
+export type { ReportExportExecutionOptions, ReportExportDecision, ReportExportThresholds } from "../worker/auto-types";
 export * from "./print-calibration";
 export { preparePrintResources, ReportPrintResourceError } from "./print-resources";
 export type { ReportCellSelection, ReportFieldTarget } from "./composables/useCellSelection";

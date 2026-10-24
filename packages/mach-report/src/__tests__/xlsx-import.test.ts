@@ -136,7 +136,7 @@ describe("importExcelTemplate", () => {
     ]);
     expect(result.warnings.join("\n")).toMatch(/不会自动重算公式/);
     expect(result.warnings.join("\n")).toMatch(/没有缓存结果/);
-    expect(result.warnings.join("\n")).toMatch(/混合字体/);
+    expect(importedCells(result)[3]).toMatchObject({ editable: false, richParagraphs: [{ segments: [{ text: "不同", style: { bold: true } }, { text: "字体" }] }] });
   });
 
   it.each([false, true])("retains UTC calendar dates as numeric Excel serials (date1904=%s)", async (date1904) => {

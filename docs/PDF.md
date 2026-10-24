@@ -104,7 +104,7 @@ const result = await renderPlanToPdf(plan, {
 });
 ```
 
-也可在任何输出前调用核心 `resolvePlanAssets(plan, options)`，随后把返回的 `plan` 交给各渲染器。已有 `imageData` 不重复生成；未变页和组件保留引用，输入计划不被修改。网格子组件递归准备资产，但 PDF / Canvas 当前仍明确告警省略子组件，资产准备本身不会使原先未支持的布局自动获得支持。
+也可在任何输出前调用核心 `resolvePlanAssets(plan, options)`，随后把返回的 `plan` 交给各渲染器。已有 `imageData` 不重复生成；未变页和组件保留引用，输入计划不被修改。网格子组件递归准备资产；PDF / Canvas 按单元格内容区原点绘制子文字、网格、图形和图片，并裁切越界内容。嵌套图片同样执行字节、像素与取消检查。
 
 适配器默认失败即拒绝导出，错误为带 `diagnostic` 的 `OutputAssetError`；只有显式 `assetFailure: "placeholder"` 才保留占位组件并返回告警。默认预算为 1000 个新资产、每个 32 MiB 图像负载、合计 128 MiB、30 秒；`signal` 可取消等待，即使适配器忽略取消，也不会把迟到结果写回原计划。适配器自身资源仍应响应传入的 signal。
 
@@ -136,6 +136,6 @@ await clearFontCache(); // 清理内存与持久缓存，并隔离迟到加载
 
 `fidelity: "strict"` 同时执行编码前能力检查和编码后的实际诊断门禁；缺字、坏图、组件失败、缺少真实粗斜字面及溢出会拒绝文件交付。默认 `warn` 可返回带诊断的文件供人工检查。每条动态诊断带页/组件位置；不能只检查PDF文件头而忽略 `diagnostics`、`unsupportedTextCount`、`pageErrors`。显式Helvetica使用PDF标准字面，Calibri等其他字体需要真实字节，不能把字体替代视为严格还原。
 
-顶层 `richParagraphs` 支持基本混合字号、颜色、粗体、斜体、下划线、段落换行/间距/缩进与居中/居右。字面仍遵循 `customFontFaces` 配置；两端对齐、片段背景及不支持样式通过预检说明，格内嵌套组件继续显式诊断。
+文字组件及 `GridCell.richParagraphs` 支持基本混合字号、颜色、粗体、斜体、下划线、片段背景、段落换行/间距/缩进与居中/居右，Canvas 共用富文本排版逻辑。PDF 字面仍遵循 `customFontFaces` 配置；两端对齐、旋转、透明度等不支持样式通过预检说明。格内子组件按内容区坐标递归绘制并裁切；嵌套层级上限为 64，组件与单元格合计访问预算为 100 万，循环引用在渲染前拒绝。
 
 PDF与Excel共享PNG/JPEG媒体预检：`maxImageBytes`默认16 MiB，`maxTotalImageBytes`32 MiB，`maxImages`1000，`maxImagePixels`1600万，`maxTotalImagePixels`6400万，`maxImageDimension`16384。已有data URI同样受限；MIME大小写、jpg/jpeg别名规范化，按唯一媒体累计。预算在进入像素解码前检查并始终拒绝超限，适配器生成资源另外遵循 `assetBudget`。

@@ -159,7 +159,8 @@ function renderGridCell(
     .add("overflow-wrap", "anywhere")
     .add("overflow", "hidden")
     .applyTo(payload);
-  if (cell.text != null) payload.append(cell.text);
+  if (cell.richParagraphs?.length) payload.appendChild(renderTextContent({ ...comp, kind: "text", grid: undefined, richParagraphs: cell.richParagraphs }, dpi, options, doc) as HTMLElement);
+  else if (cell.text != null) payload.append(cell.text);
   for (const child of cell.children ?? []) payload.appendChild(renderComponent(child, dpi, options, doc));
   cellEl.appendChild(payload);
   return cellEl;
@@ -241,7 +242,8 @@ function renderRichParagraph(
     // An unstyled run inherits the paragraph's font rather than resetting to the engine default.
     if (seg.style) {
       const st = seg.style;
-      segBag.add("color", st.color).add("font-family", st.fontFamily)
+      segBag.add("color", st.color).add("background-color", st.backgroundColor).add("font-family", st.fontFamily)
+        .add("line-height", st.lineHeight).add("letter-spacing", st.letterSpacing == null ? undefined : `${st.letterSpacing * dpi / 72}px`)
         .add("font-weight", st.bold != null ? (st.bold ? "700" : "400") : undefined)
         .add("font-style", st.italic != null ? (st.italic ? "italic" : "normal") : undefined)
         .add("text-decoration", st.underline != null ? (st.underline ? "underline" : "none") : undefined);

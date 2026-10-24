@@ -205,7 +205,7 @@ button:focus-visible {
   padding: 6px 8px;
   font-size: 11px;
   font-weight: 500;
-  opacity: .7;
+  color: var(--mrp-btn-fg);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -230,7 +230,7 @@ button:focus-visible {
 .mrp-column-results code {
   display: block;
   margin-top: 3px;
-  opacity: .7;
+  color: var(--mrp-btn-fg);
   font-family: ui-monospace,SFMono-Regular,Consolas,monospace;
   font-size: 11px;
   overflow: hidden;
@@ -263,7 +263,7 @@ button:focus-visible {
   border-top: 1px solid var(--mrp-toolbar-border);
   font-size: 11px;
   line-height: 1.6;
-  opacity: .7;
+  color: var(--mrp-btn-fg);
 }
 @media(max-width:600px) {
   .mrp-section-nav {

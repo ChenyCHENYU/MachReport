@@ -37,9 +37,28 @@ export function reportFontFingerprint(pdf?: ReportPdfFontOptions): string | unde
   return portableSha256Hex(new TextEncoder().encode(JSON.stringify(entries)));
 }
 
+// Only a fresh private capture can mint a one-use handoff. Public prepare() results are never registered.
+const preparedHandoffs = new WeakMap<PreparedReport, number>();
+/** Internal closure owns its captured object; callers never brand an arbitrary host-owned plan. */
+export function capturePreparedHandoff(input: PreparedReport, maxBytes: number, signal?: AbortSignal): { prepared: PreparedReport; forward(): PreparedReport } {
+  const prepared = snapshotPreparedReport(input, maxBytes, signal);
+  let available = true;
+  return { prepared, forward() {
+    if (!available) throw new Error("报表快照只能交接一次");
+    available = false; preparedHandoffs.set(prepared, maxBytes); return prepared;
+  } };
+}
+
 /** No accessors, host prototypes, sparse arrays or cycles enter an immutable output snapshot. */
 export function snapshotPreparedReport(input: PreparedReport, maxBytes: number, signal?: AbortSignal): PreparedReport {
-  const snapshot = snapshotReportJson(input, { maxBytes, check: () => throwIfAborted(signal),
+  throwIfAborted(signal);
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new ReportRuntimeError("budget", "快照预算应为正安全整数", "$.budget.maxPreparedBytes");
+  const handedBudget = preparedHandoffs.get(input);
+  preparedHandoffs.delete(input);
+  if (handedBudget !== undefined && handedBudget <= maxBytes) return input;
+  // A JSON value contributes at least one serialized byte. Prepared reports use their explicit
+  // byte budget rather than a generic property-count cap that rejects ordinary styled wide grids.
+  const snapshot = snapshotReportJson(input, { maxBytes, maxNodes: maxBytes, check: () => throwIfAborted(signal),
     error: (code, message) => code === "budget" ? new ReportRuntimeError("budget", message, "$.budget.maxPreparedBytes") : new ReportSourceError("validate", message)
   });
   validatePreparedMetadata(snapshot);
@@ -67,7 +86,12 @@ export function validatePreparedMetadata(snapshot: PreparedReport): void {
 }
 
 export function checkPreparedFont(input: ReportRuntimePreparedExportInput): void {
+  if (input.layoutPolicy !== undefined && !["verify", "preserve"].includes(input.layoutPolicy)) throw new ReportSourceError("validate", "无效的 layoutPolicy");
   if (input.format !== "pdf") return;
+  if (input.layoutPolicy === "preserve" && !input.prepared.layout?.fontFingerprint) {
+    input.prepared.diagnostics.push({ code: "prepared-layout-preserved", severity: "info", message: "显式保持现有分页与几何；未验证排版字体身份，实际 PDF 输出仍遵循 fidelity 校验。" });
+    return;
+  }
   const expected = input.prepared.layout?.fontFingerprint, actual = reportFontFingerprint(input.pdf);
   if (expected === actual && (expected !== undefined || input.prepared.layout?.textMetrics === "heuristic" && !actual)) return;
   const message = "已准备计划的字体度量无法与本次 PDF 字体确认一致；保持现有分页，未重新查询或排版。请在 prepare 和 exportPrepared 提供相同字体字节。";

@@ -185,7 +185,8 @@ describe("连续完整 Excel 宽表", () => {
     nested.pages[0]!.components.find((comp) => comp.table?.rowIndex === 0)!.grid!.cells[0]![0]!.children = [
       { kind: "text", leftMm: 0, topMm: 0, widthMm: 10, heightMm: 3, text: "嵌套内容" }
     ];
-    await expect(renderPlanToXlsx(nested)).rejects.toThrow("嵌套组件");
+    const output = await renderPlanToXlsx(nested);
+    expect(output.workbook.worksheets[0]!.getCell("A3").value).toMatchObject({ richText: expect.arrayContaining([{ text: "\n" }, expect.objectContaining({ text: "嵌套内容" })]) });
     await expect(renderPlanToXlsx(make(), { sheetMode: "wrong" as "auto" })).rejects.toThrow("sheetMode");
   });
 

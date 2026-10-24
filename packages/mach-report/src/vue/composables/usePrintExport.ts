@@ -10,6 +10,7 @@ import { createOutputRun, type OutputRun } from "./output-task";
 import type { ReportPreviewTask } from "../guards";
 import type { PdfExporter } from "../pdf-exporter";
 import type { XlsxRenderOptions } from "../../xlsx/render-xlsx";
+import type { PreviewEncoding } from "./usePreviewEncoding";
 import { preparePrintResources, printResourceMessage } from "../print-resources";
 import { printCalibration, snapshotPrintOptions, type ReportPrintOptions, type ReportPrintMessages } from "../print-options";
 
@@ -158,6 +159,8 @@ export function usePrintExport(
     /** Flush the active editor and await source-backed calculation/persistence before capturing the output plan. */
     beforeOutput?: () => boolean | Promise<boolean>;
     getPdfExporter: () => PdfExporter;
+    /** Optional prepared-plan encoders; legacy callers keep their injected exporter unchanged. */
+    encoding?: PreviewEncoding;
     onError: (message: string, code?: string) => void;
     onWarning?: (message: string) => void;
     onBusy?: (format: string | null) => void;
@@ -346,9 +349,11 @@ export function usePrintExport(
     if (pdfInFlight?.plan === p && pdfInFlight.epoch === epoch) return pdfInFlight.promise;
     const promise = Promise.resolve().then(() => {
       if (!isActive(p, epoch)) throw new Error("报表已切换或卸载");
-      return waitForOutput(hooks.getPdfExporter()(p, (message) => {
+      const warning = (message: string) => {
         if (isActive(p, epoch)) hooks.onWarning?.(message);
-      }, run ? taskOptions(p, epoch, run) : undefined), run?.controller.signal);
+      };
+      const exporter = hooks.getPdfExporter(), task = run ? taskOptions(p, epoch, run) : undefined;
+      return waitForOutput(hooks.encoding ? hooks.encoding.pdf(p, exporter, warning, task) : exporter(p, warning, task), run?.controller.signal);
     }).finally(() => {
       if (pdfInFlight?.promise === promise) pdfInFlight = null;
     });
@@ -389,10 +394,16 @@ export function usePrintExport(
     const token = beginBusy(p, epoch, "Excel");
     const promise = (async () => {
       try {
-        const { renderPlanToXlsx } = await import("@agile-team/mach-report/xlsx");
         if (!isActive(p, epoch)) return;
         const run = busyTasks.get(token)!.run;
-        const { buffer, warnings } = await waitForOutput(renderPlanToXlsx(p, { ...xlsxOptions, ...taskOptions(p, epoch, run) }), run.controller.signal);
+        const options = taskOptions(p, epoch, run);
+        const encoded = hooks.encoding ? hooks.encoding.xlsx(p, xlsxOptions, options)
+          : import("@agile-team/mach-report/xlsx").then(async ({ renderPlanToXlsx }) => {
+            assertOutputActive(run.controller.signal);
+            const result = await renderPlanToXlsx(p, { ...xlsxOptions, ...options });
+            return { buffer: new Uint8Array(result.buffer), warnings: result.warnings };
+          });
+        const { buffer, warnings } = await waitForOutput<{ buffer: Uint8Array; warnings: string[] }>(encoded, run.controller.signal);
         if (!isActive(p, epoch)) return;
         if (warnings.length > 0) hooks.onWarning?.(`Excel 导出有 ${warnings.length} 条提示：${warnings.slice(0, 2).join("；")}`);
         if (!isActive(p, epoch)) return;

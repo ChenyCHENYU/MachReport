@@ -91,14 +91,14 @@ describe("synthetic complex reports: shared data and real output acceptance", ()
     expect(text.replace(/\s+/g, " ")).toContain(LONG_NOTE);
   }, 15000);
 
-  it("refuses unsupported nested content and missing assets before producing a misleading export", async () => {
+  it("retains supported nested text and refuses missing assets before producing a misleading export", async () => {
     const unsupported: RenderPlan = { schemaVersion: "unsupported", pages: [{ pageWidthMm: 210, pageHeightMm: 297, components: [{
       kind: "rect", nid: "nested-grid", leftMm: 0, topMm: 0, widthMm: 50, heightMm: 10,
       grid: { colWidthsMm: [50], cells: [[{ text: "Parent", children: [{ kind: "text", leftMm: 0, topMm: 0, widthMm: 20, heightMm: 5, text: "Nested" }] }]] }
     }, { kind: "chart", nid: "missing-chart", leftMm: 0, topMm: 20, widthMm: 50, heightMm: 20 }] }] };
-    expect(inspectOutputCapabilities(unsupported, "xlsx")).toEqual(expect.arrayContaining([expect.objectContaining({ code: "nested-components-omitted", nid: "nested-grid", componentPath: [0, 0] }), expect.objectContaining({ code: "missing-image", nid: "missing-chart", pageIndex: 0, componentIndex: 1 })]));
+    expect(inspectOutputCapabilities(unsupported, "xlsx")).toEqual(expect.arrayContaining([expect.objectContaining({ code: "missing-image", nid: "missing-chart", pageIndex: 0, componentIndex: 1 })]));
     await expect(renderPlanToXlsx(unsupported, { fidelity: "strict" })).rejects.toBeInstanceOf(OutputFidelityError);
-    await expect(renderPlanToPdf(unsupported, { fidelity: "strict" })).rejects.toMatchObject({ code: "output-fidelity", diagnostics: expect.arrayContaining([expect.objectContaining({ code: "nested-components-omitted" })]) });
+    await expect(renderPlanToPdf(unsupported, { fidelity: "strict" })).rejects.toMatchObject({ code: "output-fidelity", diagnostics: expect.arrayContaining([expect.objectContaining({ code: "missing-image", nid: "missing-chart" })]) });
     expect(() => renderPlan(unsupported, document, { fidelity: "strict" })).toThrow(OutputFidelityError);
   });
 });

@@ -13,7 +13,7 @@ MachReport 支持生成真正的 `.xlsx` 工作簿。入口是 `@agile-team/mach
 | 标题 | 合并到当前页表格的实际列数 | 纯文本页使用单列，绝对坐标转为组件顺序 |
 | 字体与样式 | 共享字号规则、字体族、加粗/斜体/下划线、颜色、水平/垂直对齐、换行、底色、边框开关/颜色 | 边框线型为细线，不映射旋转、透明度等 |
 | 单元格值 | text 模式写显示文本；raw 模式写原始 primitive 和数字格式 | Date/对象回退显示文本，不猜数字字符串 |
-| 图片与复杂内容 | PNG/JPEG data URI 的 Logo、图片型二维码/条码/图表可嵌入，重复媒体复用 | 图片使用独立流式行带；SVG与嵌套组件仍告警或 strict 阻止；顶层富文本保留基本字面 |
+| 图片与复杂内容 | PNG/JPEG data URI 的 Logo、图片型二维码/条码/图表可嵌入，重复媒体复用 | 顶层图片使用独立流式行带；格内文字保留原生富文本，PNG/JPEG 按锚点叠加且不插入数据行；SVG、格内网格与不可表达几何仍诊断 |
 | 打印配置 | 普通页 auto 识别 A3/A4/A5；wide 默认不强制纸型，可显式 paperSize | 纸型仅影响打印；不是 PDF 坐标复刻 |
 | 运行环境 | `/xlsx` 支持浏览器、Node.js；`/xlsx/node` 提供 Node 流式数据导出 | `/xlsx` 的计划、工作簿与 buffer 仍在内存中；流式入口直接消费数据行，不复刻页面布局 |
 
@@ -160,7 +160,7 @@ await writeRowsToXlsx(queryRows({ signal }), {
 
 ## 结构化输出诊断
 
-`renderPlanToXlsx` 保留原有 `warnings`，并返回 `diagnostics`；可传 `onDiagnostic` 接收格式、页 / 组件索引及稳定错误码。核心 `inspectOutputCapabilities(plan, "xlsx")` 可提前列出缺少图片数据、SVG/非PNG/JPEG图片、形状、不支持的段落样式和嵌套组件的降级范围；预检不会创建工作簿，也不会把未支持组件变成已支持。
+`renderPlanToXlsx` 保留原有 `warnings`，并返回 `diagnostics`；可传 `onDiagnostic` 接收格式、页 / 组件索引及稳定错误码。核心 `inspectOutputCapabilities(plan, "xlsx")` 可提前列出缺少图片数据、SVG/非PNG/JPEG图片、形状、不支持的段落样式、格内网格及子组件位置/裁切的降级范围；预检不会创建工作簿，也不会把未支持组件变成已支持。
 
 
 ## Logo 与图片型二维码
@@ -186,6 +186,6 @@ const result = await renderPlanToXlsx(planWithLogo, {
 
 连续Sheet在写入过程中分片让出并检查取消，不再只在Sheet边界响应。进度仍以完成的工作表计数；编码/压缩并非恒定内存，超大数据沿用独立Node流式出口。其进度回调属于观察器，回调异常不反转写入成功事实。
 
-顶层 `richParagraphs` 输出为Excel原生 `richText`，保留片段文字、字号、粗斜体、下划线、颜色，段落间写入换行。段落自己的对齐、间距与缩进无法在一个Excel单元格内逐段表达，会返回结构化诊断；strict阻止这种降级。普通单元格内嵌套组件仍保留既有告警边界。
+文字组件及 `GridCell.richParagraphs` 输出为 Excel 原生 `richText`，保留片段文字、字体族、字号、粗斜体、下划线、颜色，段落间写入换行。格内子文字按组件顺序合并为富文本，PNG/JPEG 子图片按内容区锚点叠加，不增加数据行。段落自己的对齐、间距、缩进、片段背景及子文字独立位置不能在一个 Excel 单元格内逐项表达；格内网格、图形及图片越界裁切也存在格式边界，均返回具名诊断，strict 阻止降级交付。
 
 导入Excel的原生Logo使用专用overlay锚点，重新导出时不为图片插入额外数据行；一般业务图片组件仍遵循上述独立行带规则。PDF与XLSX现在共用PNG/JPEG媒体检查，另可配置 `maxImagePixels`（默认1600万）、`maxTotalImagePixels`（6400万）、`maxImageDimension`（16384），在进入解码器前约束高压缩大图。

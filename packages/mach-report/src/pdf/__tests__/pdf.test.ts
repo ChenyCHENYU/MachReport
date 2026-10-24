@@ -135,7 +135,7 @@ describe("renderPlanToPdf", () => {
     }] }] };
     const result = await renderPlanToPdf(plan);
     expect(result.fidelityWarnings.some((warning) => warning.includes("文本") && warning.includes("裁切"))).toBe(true);
-    expect(result.fidelityWarnings.some((warning) => warning.includes("嵌套组件"))).toBe(true);
+    expect(result.diagnostics.some((entry) => entry.code === "nested-components-omitted")).toBe(false);
   });
 
   it("内置粗斜体选择真实字体，下划线实际绘制；自定义字体限制明确返回", async () => {

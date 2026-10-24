@@ -1,5 +1,5 @@
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTableTemplate, defineReportTemplate } from "../../index";
 import ReportTemplateEditor from "../ReportTemplateEditor.vue";
 import TemplateDesignCanvas from "../TemplateDesignCanvas.vue";
@@ -8,6 +8,10 @@ function label() { return defineReportTemplate({ id: "label-navigation", name: "
 function table() { return defineReportTemplate({ id: "table-navigation", name: "日报", template: createTableTemplate({ columns: [{ field: "id", header: "编号" }] }) }); }
 function tab(wrapper: VueWrapper, name: string) { return wrapper.findAll('[role="tab"]').find(item => item.text() === name)!; }
 function editor(document = label()) { return mount(ReportTemplateEditor, { props: { modelValue: document, datasets: { labels: [{}] } }, global: { stubs: { ReportPreview: true, ExcelBindingWizard: true } } }); }
+// A named async-component stub may resolve its module before Vue identifies it.
+// Unmount stops component effects, but ESM imports are not abortable: drain the
+// actual import graph before Vitest destroys its module environment (no timers).
+afterEach(async () => { await vi.dynamicImportSettled(); await flushPromises(); });
 describe("label-aware inspector navigation", () => {
   it("starts in component properties, removes inapplicable fields, and keyboards through only visible tabs", async () => {
     const wrapper = editor();

@@ -85,7 +85,7 @@ export function importCellValue(cell: ExcelJS.Cell, date1904: boolean, sheet: st
     if (date1904) warnings.add(`${sheet}: 1904 日期系统已统一转换为 1900 日期系统，保留相同日历日期`);
   }
   if (formula) applyFormulaMetadata(imported, cell, result, sheet, warnings);
-  if (raw && typeof raw === "object" && "richText" in raw) warnings.add(`${sheet}: 单元格内混合字体已合并为纯文本，保留单元格级样式`);
+
   if (typeof imported.text === "string" && /\{\{[^}]+\}\}/.test(imported.text)) warnings.add(`${sheet}: {{字段}} 占位符按原文导入；动态业务数据需显式绑定，不会自动推断接口字段`);
   return imported;
 }

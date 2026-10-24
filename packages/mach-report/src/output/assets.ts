@@ -1,3 +1,4 @@
+import { assertBoundedRenderTree } from "../schema/component-tree";
 import type { GridCell, PlanComponent, RenderPlan } from "../schema/render-plan";
 import type { OutputDiagnostic, OutputDiagnosticOptions, OutputFormat } from "./capabilities";
 import { notifyOutputDiagnostic } from "./diagnostic-notification";
@@ -170,6 +171,8 @@ function inspectExistingMedia(plan: RenderPlan, inspect: ReturnType<typeof creat
 
 /** Resolve optional third-party chart/barcode/QR adapters once, before any output backend. Input stays immutable. */
 export async function resolvePlanAssets(plan: RenderPlan, options: ResolvePlanAssetsOptions = {}): Promise<{ plan: RenderPlan; diagnostics: OutputDiagnostic[] }> {
+  assertOutputActive(options.signal);
+  assertBoundedRenderTree(plan);
   const budget = assetBudget(options);
   const inspectImage = createImageMediaInspector(options);
   inspectExistingMedia(plan, inspectImage, options.signal);

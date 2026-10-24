@@ -1,11 +1,13 @@
 {
   "name": "@agile-team/mach-report",
-  "version": "2.15.0",
+  "version": "2.16.0",
   "description": "独立的 TypeScript 报表引擎：模板分页、DOM/Canvas/PDF/Excel 输出与 Vue 3 预览组件",
   "type": "module",
   "sideEffects": [
     "**/*.css",
-    "**/*.vue"
+    "**/*.vue",
+    "**/report-encoding-worker.js",
+    "**/worker/encoding-entry.ts"
   ],
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -23,7 +25,8 @@
     "./analytics": "./src/analytics.ts",
     "./worker": "./src/worker.ts",
     "./server/node": "./src/server/node.ts",
-    "./codes": "./src/codes.ts"
+    "./codes": "./src/codes.ts",
+    "./worker/encoding": "./src/worker/encoding-entry.ts"
   },
   "publishConfig": {
     "access": "public",
@@ -162,7 +165,8 @@
           "types": "./dist/codes.d.cts",
           "default": "./dist/codes.cjs"
         }
-      }
+      },
+      "./worker/encoding": "./dist/report-encoding-worker.js"
     }
   },
   "engines": {

@@ -22,20 +22,18 @@ import {
   watchEffect
 } from "vue";
 import type { PropType } from "vue";
-import type { RenderPlan, ReportCellEdit, AssetRenderOptions, OutputFormat } from "@agile-team/mach-report";
+import type { RenderPlan, ReportCellEdit, AssetRenderOptions } from "@agile-team/mach-report";
 import {
-  renderPlanToCanvas,
-  ReportCellEditError
+  renderPlanToCanvas
 } from "@agile-team/mach-report";
 import { normalizeReportIds, type PlanFetcher } from "./adapters";
 import { usePageWindow } from "./composables/usePageWindow";
 import { usePageRendering } from "./composables/usePageRendering";
 import { useZoom } from "./composables/useZoom";
-import { usePrintExport } from "./composables/usePrintExport";
+import { usePreviewOutput } from "./composables/usePreviewOutput";
 import { clearHighlights, highlightTextNodes } from "./composables/useHighlight";
 import {
   useDebugPanel,
-  useLoadTiming,
   useReportSearch,
   useThumbs
 } from "./composables/useReportSearch";
@@ -53,17 +51,16 @@ import ReportDataExplanation from "./ReportDataExplanation.vue";
 import ReportDrillActions from "./ReportDrillActions.vue";
 import { useReportDrill } from "./composables/useReportDrill";
 import type { ReportDrillOptions } from "./drill";
+import type { ReportExportExecutionOptions } from "../worker/auto-types";
 import type { ReportParamOptionsLoader } from "./param-options";
 import ReportPrintSettings from "./ReportPrintSettings.vue";
-import { createPrintCalibrationPlan } from "./print-calibration";
-import { printPlans } from "./composables/usePrintExport";
-import type { ReportPrintOptions, ReportPrintCalibration } from "./print-options";
+import type { ReportPrintOptions } from "./print-options";
 import type { ReportDataTarget } from "../source/data-explanation";
 import { usePreviewFont } from "./composables/usePreviewFont";
-import { useDiscardGuard } from "./composables/useDiscardGuard";
+import { usePreviewEditing } from "./composables/usePreviewEditing";
 import { usePreviewTask } from "./composables/usePreviewTask";
 import { usePreviewDiagnostics } from "./composables/usePreviewDiagnostics";
-import type { ReportBeforeDiscard, ReportDiscardReason, ReportOutputOptions, ReportPreviewTask, ReportPreviewDiagnostic } from "./guards";
+import type { ReportBeforeDiscard, ReportOutputOptions, ReportPreviewTask, ReportPreviewDiagnostic } from "./guards";
 import ReportParamPanel from "./ReportParamPanel.vue";
 import ReportEditBar from "./ReportEditBar.vue";
 import ReportNavigation from "./ReportNavigation.vue";
@@ -80,19 +77,16 @@ import {
   type MachReportMessages
 } from "./config";
 
-import { MachReportError, normalizeReportLoadError, toErrorDetail, type MachReportErrorCode } from "./errors";
+import { MachReportError, type MachReportErrorCode } from "./errors";
 import type { MachReportController, MachReportState, MachReportStateError } from "./controller";
 import type { ReportEditingOptions } from "./editing";
 import type { ExcelImportOptions, ExcelImportResult } from "../xlsx/import-types";
-import { useCellEditing } from "./composables/useCellEditing";
 import { cloneReportSnapshot } from "./snapshot";
 import { usePreviewConfiguration } from "./composables/usePreviewConfiguration";
-import { scopeQueryDiagnostics } from "./query-diagnostics";
-import { useCellSelection, type ReportFieldTarget } from "./composables/useCellSelection";
+import { type ReportFieldTarget } from "./composables/useCellSelection";
 import { useFrozenPanes } from "./composables/useFrozenPanes";
 import { useReportParams } from "./composables/useReportParams";
-import { forwardOutputAbort } from "../output/progress";
-import { loadPreviewPlan, importPreviewPlan } from "./preview-plan";
+import { usePreviewSession } from "./composables/usePreviewSession";
 import { type MachReportToolbarOptions, type ReportEmptyState, type ReportPreviewPreferences, type ReportPreviewTool, type ReportInteractionOptions, type ReportPreferencesOptions, type ReportSection } from "./tools";
 
 const props = defineProps({
@@ -119,6 +113,7 @@ const props = defineProps({
   guardChanges: { type: Boolean, default: undefined },
   beforeDiscard: { type: Function as PropType<ReportBeforeDiscard>, default: undefined },
   output: { type: Object as PropType<ReportOutputOptions>, default: undefined },
+  exportExecution: { type: Object as PropType<ReportExportExecutionOptions>, default: undefined },
   assets: { type: Object as PropType<AssetRenderOptions>, default: undefined },
   printOptions: { type: Object as PropType<ReportPrintOptions>, default: undefined },
   /** 保留表头的零行业务结果；不改变计划和导出内容。 */
@@ -157,12 +152,8 @@ const emit = defineEmits<{
   (e: "preferences-change", preferences: Readonly<ReportPreviewPreferences>): void;
 }>();
 
-const plan = shallowRef<RenderPlan | null>(null);
-const loading = ref(false);
 const errorMessage = ref("");
 const lastError = shallowRef<Readonly<MachReportStateError> | null>(null);
-const exporting = ref<string | null>(null);
-const printing = ref(false);
 
 const exportNotice = ref<{ kind: "error" | "warning" | "progress"; message: string } | null>(null);
 const currentPage = ref(1);
@@ -170,20 +161,35 @@ const containerRef = ref<HTMLElement | null>(null);
 const viewportRef = ref<HTMLElement | null>(null);
 const thumbsRef = ref<HTMLElement | null>(null);
 const showThumbs = ref(false);
-const importing = ref(false);
 const settingsOpen = ref(false);
 const settingsSection = ref<"general" | "tools" | "advanced">("general");
-const importedResult = shallowRef<Pick<ExcelImportResult, "sheets" | "warnings"> | null>(null);
 const importInputRef = ref<HTMLInputElement | null>(null);
 const toolbarRef = ref<InstanceType<typeof ReportToolbar> | null>(null);
-const timing = useLoadTiming();
 let viewportObserver: ResizeObserver | null = null;
 let destroyed = false;
 const task = usePreviewTask((value) => emit("task", value));
 const diagnostics = usePreviewDiagnostics((value) => emit("diagnostic", value));
 const dataExplanations = computed(() => diagnostics.entries.value.filter(entry => entry.valueState && entry.target));
 const outputDiagnostics = computed(() => diagnostics.entries.value.filter(entry => !entry.valueState));
-const loadedContext = shallowRef<{ reportIds: readonly string[]; params: Readonly<Record<string, string>> } | null>(null);
+
+const session = usePreviewSession({
+  source: { ids: () => reportIds.value, fetcher: () => effectiveFetcher.value, readParams: () => paramMetadata.value.error ? { error: paramMetadata.value.error, quiet: false } : queryParams.query(), invalidParams: () => { if (!paramMetadata.value.error) paramAttempted.value = true; } },
+  policy: { guard: reason => effectiveGuardChanges.value && editing.pendingLocalChanges.value ? discard.check(reason) : true, assets: () => effectiveAssets.value, importOptions: () => effectiveExcelImport.value, importingMessage: () => resolvedMessages.value.importing },
+  feedback: { errorMessage, lastError, notice: exportNotice, reportError }, task, diagnostics,
+  view: {
+    invalidate: () => { editing.reset(); cells.reset(); output.invalidate(); currentPage.value = 1; search.reset(); },
+    beforeImport: () => { editing.cancel(); output.invalidatePending(); },
+    accepted: kind => {
+      currentPage.value = 1;
+      if (viewportRef.value) { viewportRef.value.scrollTop = 0; viewportRef.value.scrollLeft = 0; }
+      const nextMemoryKey = wideReport.value ? WIDE_UI_MEMORY_KEY : UI_MEMORY_KEY;
+      if (kind === "import" || nextMemoryKey !== zoomMemoryKey) { zoomMemoryKey = nextMemoryKey; loadZoomMemory(); }
+      if (kind === "query" && zoomMode.value === "fit") applyFitZoom();
+    }
+  },
+  events: { warning: message => emit("warning", message), logWarning: message => resolved.value.logger.warn("[mach-report] 报表告警:", message), loaded: count => emit("loaded", count), imported: result => emit("template-import", result) }
+});
+const { plan, loading, importing, importedResult, loadedContext, timing, reload, importExcel } = session;
 
 const wideReport = computed(() => !!plan.value?.pages.length && plan.value.pages.every((page) => page.layout === "wide"));
 const PX_PER_MM = 96 / 25.4;
@@ -234,10 +240,6 @@ const {
   effectiveGapPx, effectiveShowParams, availableTools, tools, toolState, visibleExportFormats,
   effectiveEditable, effectiveExcelImport, persistedEditing, emptyStateContent, sessionInteraction
 } = usePreviewConfiguration(props, wideReport, (message) => emit("warning", message));
-const localPrintCalibration = ref<ReportPrintCalibration>();
-const effectivePrintOptions = computed<ReportPrintOptions>(() => ({ ...resolved.value.printOptions, ...props.printOptions, calibration: localPrintCalibration.value ?? { ...resolved.value.printOptions?.calibration, ...props.printOptions?.calibration } }));
-watch([() => props.printOptions, () => resolved.value.printOptions], () => { localPrintCalibration.value = undefined; });
-let calibrationPrintController: AbortController | undefined;
 const pdfToolsEnabled = computed(() => toolState.value.pdf || toolState.value.pdfWindow);
 const calculationsEnabled = computed(() => effectiveInteraction.value.calculations === true);
 const calculationMessages = computed(() => resolveCalculationMessages(resolvedMessages.value));
@@ -270,58 +272,34 @@ async function toggleSettings(section: "general" | "tools" | "advanced" = "gener
   settingsSection.value = section;
   settingsOpen.value = true;
 }
-function editErrorMessage(cause: unknown): string {
-  if (cause instanceof ReportCellEditError) {
-    const messages: Record<string, string | undefined> = {
-      number: resolvedMessages.value.editInvalidNumber,
-      boolean: resolvedMessages.value.editInvalidBoolean,
-      conflict: resolvedMessages.value.editConflict,
-      atomic: resolvedMessages.value.editAtomicRequired,
-      limit: resolvedMessages.value.clipboardLimit,
-      readonly: resolvedMessages.value.editReadOnly,
-      missing: resolvedMessages.value.editMissing,
-      recalculation: resolvedMessages.value.editRecalculationUnavailable,
-      duplicate: resolvedMessages.value.editDuplicate,
-      clipboard: resolvedMessages.value.clipboardInvalid
-    };
-    return messages[cause.code] ?? cause.message;
-  }
-  return cause instanceof Error ? cause.message : "单元格保存失败";
-}
-const editing = useCellEditing({
-  plan,
-  options: effectiveEditable,
-  blocked: () => loading.value || importing.value || exporting.value !== null || printing.value || discard.pending.value,
-  label: () => resolvedMessages.value.editCell ?? "编辑单元格",
-  errorMessage: editErrorMessage,
-  suspendBlur: () => discard.request.value !== null,
-  onChange: (edit) => { lastError.value = null; exportNotice.value = null; emit("cell-edit", edit); },
-  onError: (message, cause) => {
-    exportNotice.value = { kind: "error", message };
-    reportError(message, "edit", cause);
+const { editing, cells, discard, confirmDiscard } = usePreviewEditing({
+  plan, root: containerRef, options: effectiveEditable,
+  selectionEnabled: () => !!effectiveEditable.value || calculationsEnabled.value || !!(props.drill ?? resolved.value.drill),
+  busy: () => loading.value || importing.value || exporting.value !== null || printing.value,
+  messages: () => resolvedMessages.value, gotoPage,
+  guard: {
+    reportIds: () => loadedContext.value?.reportIds ?? reportIds.value,
+    hook: () => props.beforeDiscard ?? resolved.value.beforeDiscard,
+    enabled: () => effectiveGuardChanges.value,
+    error: cause => reportError(cause instanceof Error ? cause.message : "修改保护回调失败", "config", cause)
   },
-  onNavigate: (address, key, backwards) => cells.navigate(address, key, backwards)
+  changed: edit => { lastError.value = null; exportNotice.value = null; emit("cell-edit", edit); },
+  failed: (message, cause) => { exportNotice.value = { kind: "error", message }; reportError(message, "edit", cause); }
 });
-const cells = useCellSelection({
-  plan, root: containerRef,
-  enabled: () => !!effectiveEditable.value || calculationsEnabled.value || !!(props.drill ?? resolved.value.drill),
-  editable: () => !!effectiveEditable.value,
-  busy: () => loading.value || importing.value || editing.saving.value || !!exporting.value || printing.value || discard.pending.value,
-  differences: () => editing.differences.value,
-  gotoPage, edit: editing.editCell, apply: editing.apply, undo: editing.undo, redo: editing.redo,
-  error: (cause) => { const message = editErrorMessage(cause); exportNotice.value = { kind: "error", message }; reportError(message, "edit", cause); }
+const output = usePreviewOutput({
+  plan, editing, diagnostics, task,
+  busy: () => loading.value || importing.value, wide: () => wideReport.value,
+  defaultsPrint: () => resolved.value.printOptions, printOverrides: () => props.printOptions,
+  messages: () => resolvedMessages.value, fidelity: () => effectiveOutput.value.fidelity,
+  execution: () => props.exportExecution ?? resolved.value.exportExecution,
+  getPdfExporter, getXlsxOptions: () => resolved.value.xlsx,
+  feedback: { lastError, notice: exportNotice, reportError, warning: message => emit("warning", message) }
 });
+const { exporting, printing, localPrintCalibration, effectivePrintOptions, canCalibratePrint,
+  testPrintCalibration, print, exportAs, openPdfWindow, getOutputDiagnostics } = output;
+
 const calculation = useSelectionCalculation({ plan, selection: cells.selection, enabled: () => calculationsEnabled.value });
 function openCalculations(): void { void toggleSettings("advanced"); }
-const discard = useDiscardGuard({
-  pending: () => editing.pendingLocalChanges.value,
-  reportIds: () => loadedContext.value?.reportIds ?? reportIds.value,
-  hook: () => props.beforeDiscard ?? resolved.value.beforeDiscard,
-  enabled: () => effectiveGuardChanges.value,
-  snapshot: () => [plan.value, editing.active.value?.editor.input.value],
-  error: (cause) => reportError(cause instanceof Error ? cause.message : "修改保护回调失败", "config", cause)
-});
-async function confirmDiscard(reason: ReportDiscardReason = "leave"): Promise<boolean> { return discard.check(reason); }
 const drill = useReportDrill({
   plan, selection: cells.selection,
   options: () => props.drill ?? resolved.value.drill,
@@ -331,10 +309,6 @@ const drill = useReportDrill({
   busy: () => loading.value || importing.value || editing.saving.value || !!exporting.value || printing.value,
   beforeOpen: () => confirmDiscard("leave")
 });
-function onBeforeUnload(event: BeforeUnloadEvent): void {
-  if (!effectiveGuardChanges.value || !editing.pendingLocalChanges.value) return;
-  event.preventDefault(); event.returnValue = "";
-}
 function cancelTask(): void { task.cancel(); }
 function locateEdit(edit: ReportCellEdit): void {
   const address = editing.resolveAddress(edit);
@@ -348,23 +322,6 @@ function locateDiagnostic(entry: Readonly<ReportPreviewDiagnostic>): void {
   gotoPage(entry.pageIndex + 1);
   const path = entry.componentPath;
   if (entry.componentIndex !== undefined && path && path.length === 2) void cells.focusCell({ pageIndex: entry.pageIndex, componentIndex: entry.componentIndex, rowIndex: path[0]!, columnIndex: path[1]! });
-}
-function outputAllowed(format: string): boolean {
-  const snapshot = plan.value;
-  if (!snapshot) return false;
-  const normalized = ({ excel: "xlsx", image: "png", doc: "word" } as Record<string, string>)[format] ?? format;
-  const target: OutputFormat = normalized === "pdf" ? "pdf" : normalized === "xlsx" ? "xlsx" : normalized === "png" ? "canvas" : "dom";
-  const issues = diagnostics.inspect(snapshot, target);
-  if (plan.value !== snapshot) return false;
-  if (issues.length && effectiveOutput.value.fidelity === "strict") {
-    exportNotice.value = { kind: "error", message: resolvedMessages.value.diagnosticsStrict ?? "输出存在已知降级" };
-    reportError(exportNotice.value.message, "export", { diagnostics: issues });
-    return false;
-  }
-  return true;
-}
-function getOutputDiagnostics(format: OutputFormat): readonly Readonly<ReportPreviewDiagnostic>[] {
-  return plan.value ? diagnostics.inspect(plan.value, format) : [];
 }
 const sections = computed<ReportSection[]>(() => {
   if (importedResult.value) return importedResult.value.sheets.map((sheet) => ({ label: sheet.name, pageIndex: sheet.pageStart }));
@@ -427,143 +384,6 @@ function setZoomRaw(next: number): void {
   setZoom(next * 100);
 }
 
-function invalidate(): void {
-  calibrationPrintController?.abort();
-  importing.value = false;
-  editing.reset();
-  cells.reset();
-  importedResult.value = null;
-  releasePrintFrame();
-  plan.value = null;
-  loadedContext.value = null;
-  diagnostics.reset();
-  currentPage.value = 1;
-  search.reset();
-}
-
-/** 代际令牌：报表 ID 快速切换时，旧请求即使后返回也不得覆盖新数据 */
-let reloadSeq = 0;
-let loadController: AbortController | null = null;
-function isCurrentLoad(seq: number, controller: AbortController): boolean {
-  return seq === reloadSeq && !controller.signal.aborted && !destroyed;
-}
-function resetViewport(): void {
-  if (!viewportRef.value) return;
-  viewportRef.value.scrollTop = 0; viewportRef.value.scrollLeft = 0;
-}
-function emitImportWarnings(warnings: readonly string[], seq: number): boolean {
-  for (const message of warnings) {
-    if (seq !== reloadSeq) return false;
-    emit("warning", message);
-  }
-  return seq === reloadSeq;
-}
-
-function readQueryParams(): Record<string, string> | null {
-  if (paramMetadata.value.error) {
-    const error = paramMetadata.value.error;
-    invalidate(); errorMessage.value = error.message; reportError(error.message, error.code, error.cause);
-    return null;
-  }
-  const query = queryParams.query();
-  if (query.params) return query.params;
-  invalidate();
-  errorMessage.value = query.quiet ? "" : query.error!.message;
-  if (!query.quiet) {
-    paramAttempted.value = true;
-    reportError(query.error!.message, query.error!.code, query.error!.cause);
-  }
-  return null;
-}
-
-async function reload(): Promise<void> {
-  if (destroyed) return;
-  if (effectiveGuardChanges.value && editing.pendingLocalChanges.value && !await discard.check("reload")) return;
-  if (destroyed) return;
-  const seq = ++reloadSeq;
-  importing.value = false;
-  loadController?.abort();
-  loadController = null;
-  const fetcher = effectiveFetcher.value;
-  // 新一轮负责结束旧 loading；参数/配置早退时旧请求的 finally 已失去代际权限。
-  loading.value = false;
-  lastError.value = null;
-  if (reportIds.value.length === 0) {
-    errorMessage.value = "缺少报表 ID";
-    invalidate();
-    reportError(errorMessage.value, "param");
-    return;
-  }
-  if (!fetcher) {
-    errorMessage.value = "未提供渲染数据源 fetcher";
-    invalidate();
-    reportError(errorMessage.value, "config");
-    return;
-  }
-  const params = readQueryParams();
-  if (!params) return;
-  loading.value = true;
-  errorMessage.value = "";
-  exportNotice.value = null;
-  invalidate();
-  const t0 = timing.start();
-  const controller = new AbortController();
-  loadController = controller;
-  const operation = task.start("query", "query", () => {
-    if (loadController !== controller) return;
-    controller.abort(); reloadSeq++; loadController = null; loading.value = false;
-  });
-  const requestedIds = [...reportIds.value];
-  const requestedParams = Object.freeze({ ...params });
-  const reportedWarnings = new Set<string>();
-  function reportWarning(message: string): void {
-    if (seq !== reloadSeq || controller.signal.aborted || reportedWarnings.has(message)) return;
-    reportedWarnings.add(message);
-    resolved.value.logger.warn("[mach-report] 报表告警:", message);
-    diagnostics.add({ code: "layout", severity: "warning", message });
-    emit("warning", message);
-  }
-  try {
-    const next = await loadPreviewPlan(fetcher, {
-      reportIds: requestedIds,
-      params,
-      taskId: operation.taskId,
-      onEvent: (event) => { if (seq === reloadSeq && !controller.signal.aborted) operation.update(event.stage, event.completed, event.total); },
-      onQueryResult: (id, result, index) => { if (seq === reloadSeq && !controller.signal.aborted) diagnostics.addMany(scopeQueryDiagnostics(requestedIds, id, result.diagnostics ?? [], index)); },
-      signal: controller.signal,
-      onWarning: reportWarning
-    }, effectiveAssets.value, operation.update);
-    if (!isCurrentLoad(seq, controller)) return;
-    plan.value = next;
-    loadedContext.value = Object.freeze({ reportIds: Object.freeze(requestedIds), params: requestedParams });
-    diagnostics.inspect(next, "dom");
-    if (!isCurrentLoad(seq, controller)) return;
-    operation.finish();
-    currentPage.value = 1;
-    timing.end(t0);
-    resetViewport();
-    // 纸张与宽表分别记忆，旧的适宽偏好不会把新宽表默认压成小字。
-    const nextMemoryKey = wideReport.value ? WIDE_UI_MEMORY_KEY : UI_MEMORY_KEY;
-    if (nextMemoryKey !== zoomMemoryKey) {
-      zoomMemoryKey = nextMemoryKey;
-      loadZoomMemory();
-    }
-    if (zoomMode.value === "fit") applyFitZoom();
-    emit("loaded", next.pages.length);
-  } catch (error) {
-    if (seq !== reloadSeq) return;
-    if (controller.signal.aborted) { operation.finish("cancelled"); return; }
-    operation.finish("failed");
-    const normalized = normalizeReportLoadError(error);
-    errorMessage.value = normalized.message;
-    const detail = toErrorDetail(normalized);
-    reportError(normalized.message, detail.code, detail.cause);
-  } finally {
-    if (seq === reloadSeq) loading.value = false;
-    if (loadController === controller) loadController = null;
-  }
-}
-
 function gotoPage(n: number): void {
   if (destroyed || pageCount.value <= 0) return;
   const target = Math.max(1, Math.min(pageCount.value, n));
@@ -573,73 +393,6 @@ function gotoPage(n: number): void {
   pageWindow.scrollToPage(vp, target - 1);
   // 程序化翻页即刻更新窗口；无需等待浏览器异步 scroll 事件才挂载目标页。
   pageRendering.prioritize(target - 1);
-}
-
-const exportApi = usePrintExport(plan, {
-  getPdfExporter,
-  beforeOutput: () => editing.settle(),
-  onTask: (value) => task.receive(value, () => exportApi.cancel()),
-  onDiagnostic: diagnostics.add,
-  getXlsxOptions: () => resolved.value.xlsx,
-  getPrintOptions: () => effectivePrintOptions.value,
-  getPrintMessages: () => resolvedMessages.value,
-  onError: (message, code) => {
-    exportNotice.value = { kind: "error", message };
-    reportError(message, (code ?? "print") as MachReportErrorCode);
-  },
-  onWarning: (message) => {
-    exportNotice.value = { kind: "warning", message };
-    diagnostics.add({ code: "output", severity: "warning", message });
-    emit("warning", message);
-  },
-  onBusy: (format) => {
-    exporting.value = format;
-    if (format) {
-      exportNotice.value = {
-        kind: "progress",
-        message: resolvedMessages.value.exporting.replace("{format}", format)
-      };
-    } else if (exportNotice.value?.kind === "progress") {
-      exportNotice.value = null;
-    }
-  },
-  onPrinting: (value) => { printing.value = value; }
-});
-const { releasePrintFrame, dispose } = exportApi;
-const canCalibratePrint = computed(() => {
-  const page = plan.value?.pages[0];
-  return !!page && !wideReport.value && [page.pageWidthMm, page.pageHeightMm].every(size => size >= 25 && size <= 600);
-});
-async function testPrintCalibration(): Promise<void> {
-  if (!canCalibratePrint.value || printing.value || loading.value || importing.value) return;
-  const page = plan.value!.pages[0]!;
-  printing.value = true;
-  const controller = new AbortController(); calibrationPrintController = controller;
-  try { await printPlans([createPrintCalibrationPlan(page.pageWidthMm, page.pageHeightMm)], { printOptions: effectivePrintOptions.value, signal: controller.signal, messages: resolvedMessages.value, onError: message => { exportNotice.value = { kind: "error", message }; } }); }
-  catch { /* Superseded calibration output is cancelled without replacing the next report's status. */ }
-  finally { if (calibrationPrintController === controller) { printing.value = false; calibrationPrintController = undefined; } }
-}
-async function print(): Promise<void> {
-  if (loading.value || importing.value) return;
-  const ready = editing.settle();
-  if (!(typeof ready === "boolean" ? ready : await ready)) return;
-  lastError.value = null;
-  if (outputAllowed("html")) await exportApi.print();
-}
-async function exportAs(format: string): Promise<void> {
-  if (loading.value || importing.value) return;
-  const ready = editing.settle();
-  if (!(typeof ready === "boolean" ? ready : await ready)) return;
-  lastError.value = null;
-  if (outputAllowed(format)) await exportApi.exportAs(format);
-}
-function openPdfWindow(): void {
-  if (loading.value || importing.value || editing.active.value || editing.saving.value) {
-    exportNotice.value = { kind: "warning", message: resolvedMessages.value.editingHint ?? "请先确认单元格修改" };
-    return;
-  }
-  lastError.value = null;
-  if (outputAllowed("pdf")) exportApi.openPdfWindow();
 }
 
 /** 控制器注入：后代组件 useReportPreview() 免模板 ref 编程式访问（与 expose 同面） */
@@ -665,79 +418,6 @@ provide(MACH_REPORT_CONTROLLER_KEY, controller);
 
 function getPlan(): RenderPlan | null {
   return plan.value ? cloneReportSnapshot(plan.value) : null;
-}
-
-function mergeExcelImportOptions(options?: ExcelImportOptions): ExcelImportOptions {
-  const defaults = typeof effectiveExcelImport.value === "object" ? effectiveExcelImport.value : {};
-  return { ...defaults, ...options, limits: { ...defaults.limits, ...options?.limits } };
-}
-
-function acceptImportedPlan(next: RenderPlan, result: ExcelImportResult): void {
-  editing.reset();
-  cells.reset();
-  releasePrintFrame();
-  search.reset();
-  plan.value = next;
-  loadedContext.value = null;
-  diagnostics.reset();
-  importedResult.value = { sheets: cloneReportSnapshot(result.sheets), warnings: [...result.warnings] };
-  currentPage.value = 1;
-  errorMessage.value = "";
-  exportNotice.value = result.warnings.length ? { kind: "warning", message: result.warnings.join("；") } : null;
-  resetViewport();
-  zoomMemoryKey = wideReport.value ? WIDE_UI_MEMORY_KEY : UI_MEMORY_KEY;
-  loadZoomMemory();
-  diagnostics.addMany(result.warnings.map((message) => ({ code: "excel-import", severity: "warning" as const, message })));
-  if (plan.value === next) diagnostics.inspect(next, "dom");
-}
-
-/** Import is an explicit local replacement; business mapping/storage remains in the host. */
-async function importExcel(input: ArrayBuffer | Uint8Array | Blob, options?: ExcelImportOptions): Promise<ExcelImportResult | null> {
-  if (destroyed) throw new MachReportError("config", "报表预览已卸载");
-  if (effectiveGuardChanges.value && editing.pendingLocalChanges.value && !await discard.check("import")) return null;
-  if (destroyed) return null;
-  const seq = ++reloadSeq;
-  loadController?.abort();
-  loadController = null;
-  loading.value = false;
-  editing.cancel();
-  exportApi.invalidatePending();
-  importing.value = true;
-  const controller = new AbortController();
-  loadController = controller;
-  lastError.value = null;
-  exportNotice.value = { kind: "progress", message: resolvedMessages.value.importing ?? "正在导入 Excel…" };
-  const operation = task.start("import", "import", () => {
-    if (loadController !== controller) return;
-    controller.abort(); reloadSeq++; loadController = null; importing.value = false; exportNotice.value = null;
-  });
-  const importOptions = mergeExcelImportOptions(options);
-  const unlink = forwardOutputAbort(importOptions.signal, controller);
-  try {
-    const { result, plan: next } = await importPreviewPlan(input, {
-      ...importOptions, onProgress: (done, total) => { operation.update("import", done, total); importOptions.onProgress?.(done, total); }
-    }, effectiveAssets.value, controller.signal, (message) => { if (seq === reloadSeq) emit("warning", message); }, operation.update);
-    if (!isCurrentLoad(seq, controller)) return null;
-    if (!emitImportWarnings(result.warnings, seq)) return null;
-    acceptImportedPlan(next, result);
-    if (!isCurrentLoad(seq, controller)) return null;
-    operation.finish();
-    emit("template-import", result);
-    if (seq === reloadSeq) emit("loaded", next.pages.length);
-    return result;
-  } catch (cause) {
-    if (seq !== reloadSeq) return null;
-    if (controller.signal.aborted) { operation.finish("cancelled"); return null; }
-    operation.finish("failed");
-    const error = new MachReportError("import", cause instanceof Error ? cause.message : "Excel 模板导入失败", cause);
-    exportNotice.value = { kind: "error", message: error.message };
-    reportError(error.message, "import", cause);
-    throw error;
-  } finally {
-    unlink();
-    if (seq === reloadSeq) importing.value = false;
-    if (loadController === controller) loadController = null;
-  }
 }
 
 function onImportFile(event: Event): void {
@@ -907,7 +587,6 @@ function loadZoomMemory(): void {
 
 onMounted(() => {
   window.addEventListener("resize", onResize);
-  window.addEventListener("beforeunload", onBeforeUnload);
   if (typeof ResizeObserver !== "undefined" && viewportRef.value) {
     viewportObserver = new ResizeObserver(onResize);
     viewportObserver.observe(viewportRef.value);
@@ -919,22 +598,14 @@ onMounted(() => {
 
 onUnmounted(() => {
   destroyed = true;
-  calibrationPrintController?.abort();
-  discard.cancel();
   task.cancel();
-  editing.reset();
   importing.value = false;
   cancelFontCheck();
-  reloadSeq++; // 卸载后未完成请求的成功/失败回调均失效
-  loadController?.abort();
-  loadController = null;
   window.removeEventListener("resize", onResize);
-  window.removeEventListener("beforeunload", onBeforeUnload);
   viewportObserver?.disconnect();
   viewportObserver = null;
   thumbs.destroy();
   search.reset(); // 清防抖计时器（若挂载期间恰在防抖窗口内）
-  dispose();
 });
 
 watch(
@@ -946,14 +617,7 @@ watch(
     }
     if (!await discard.check("replace") || destroyed) return;
     // 手动加载模式也不能继续呈现已切换的 ID / 查询 / 数据源的旧结果。
-    reloadSeq++;
-    loadController?.abort();
-    loadController = null;
-    loading.value = false;
-    errorMessage.value = "";
-    lastError.value = null;
-    exportNotice.value = null;
-    invalidate();
+    session.clear();
   }
 );
 

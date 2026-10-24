@@ -109,7 +109,7 @@ defineExpose({ focusInvalid });
         :class="{ 'mrp-param-missing': !!item.error }"
       >
         <span :id="`${item.id}-label`" class="mrp-param-label">
-          {{ item.label }}<i v-if="item.def.required" class="mrp-param-star">*</i>
+          {{ item.label }}<i v-if="item.def.required" class="mrp-param-star" aria-hidden="true">*</i>
         </span>
         <ReportRemoteParamSelect v-if="item.def.optionsSource" :id="item.id" :def="item.def" :value="item.value" :values="local" :load-options="loadOptions" :messages="messages" :disabled="disabled" :invalid="!!item.error" @change="setField(item.def.field, $event)" />
         <select

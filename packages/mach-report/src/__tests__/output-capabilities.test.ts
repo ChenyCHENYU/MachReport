@@ -47,9 +47,9 @@ describe("output capability preflight", () => {
     const rich = plan({ kind: "text", richParagraphs: [{ segments: [{ text: "Revenue", style: { bold: true } }] }] });
     expect(inspectOutputCapabilities(rich, "pdf")).toEqual([]);
     expect(inspectOutputCapabilities(rich, "xlsx")).toEqual([]);
-    expect(inspectOutputCapabilities(rich, "canvas")[0]?.code).toBe("rich-text-flattened");
+    expect(inspectOutputCapabilities(rich, "canvas")).toEqual([]);
     const grid = plan({ kind: "rect", grid: { cells: [[{ text: "cell", children: [{ kind: "qrcode", leftMm: 0, topMm: 0, widthMm: 10, heightMm: 10 }] }]] } });
-    expect(inspectOutputCapabilities(grid, "canvas")[0]?.code).toBe("nested-components-omitted");
+    expect(inspectOutputCapabilities(grid, "canvas")).toEqual([expect.objectContaining({ code: "missing-image", kind: "qrcode", componentPath: [0, 0, 0] })]);
     expect(inspectOutputCapabilities(grid, "dom")).toEqual([expect.objectContaining({ code: "missing-image", kind: "qrcode", componentPath: [0, 0, 0] })]);
   });
 

@@ -1,10 +1,12 @@
+import { drawTextBlock } from "./canvas-text";
+import { drawCanvasRichText } from "./canvas-rich-text";
 import { outputCheckpoint } from "../output/progress";
 import type { PlanComponent, PlanPage, PlanGrid, RenderPlan } from "../schema/render-plan";
 import { isImageBackedComponent, isRichText } from "../schema/render-plan";
 import { OutputFidelityError, reportOutputDiagnostics, type OutputDiagnostic, type OutputDiagnosticOptions } from "../output/capabilities";
 import { notifyOutputDiagnostic } from "../output/diagnostic-notification";
 import { resolvePlanAssets, type AssetRenderOptions } from "../output/assets";
-import { drawCanvasImage, loadCanvasImage, loadPageImages, throwIfAborted, type CanvasImageLoader } from "./canvas-images";
+import { drawCanvasImage, loadCanvasImage, loadPageImages, pageImageComponents, throwIfAborted, type CanvasImageLoader } from "./canvas-images";
 import { resolveGridLayout, type GridLayout } from "./grid-geometry";
 import { resolveGridStrokes } from "./grid-strokes";
 import { wrapText, type TextMeasurer } from "../layout/textwrap";
@@ -93,64 +95,6 @@ export function planFontSizePx(
   return resolveFontSize(style, dpi).fontSizePx;
 }
 
-interface TextDrawSpec {
-  text: string;
-  fontSizePx: number;
-  bold: boolean;
-  italic?: boolean;
-  color: string;
-  align: "left" | "center" | "right" | "justify";
-  lineHeight: number;
-  letterSpacingPx?: number;
-}
-
-function drawTextBlock(
-  ctx: CanvasRenderingContext2D,
-  spec: TextDrawSpec,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  fontFamily: string,
-  verticalAlign: "top" | "middle" | "bottom" = "top"
-): void {
-  ctx.font = `${spec.italic ? "italic " : ""}${spec.bold ? "bold " : ""}${spec.fontSizePx}px ${fontFamily}`;
-  if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
-  ctx.fillStyle = spec.color;
-  ctx.textBaseline = "alphabetic";
-  const lineH = spec.fontSizePx * spec.lineHeight;
-  const lines = spec.text === "" ? [""] : spec.text.split("\n");
-  const totalH = lines.length * lineH;
-  let topY = y;
-  if (verticalAlign === "middle") topY = y + (h - totalH) / 2;
-  else if (verticalAlign === "bottom") topY = y + h - totalH;
-  lines.forEach((line, i) => {
-    drawSpacedLine(ctx, line, spec, x, topY + i * lineH + spec.fontSizePx * 0.8, w);
-  });
-  ctx.textAlign = "left";
-}
-
-function drawSpacedLine(ctx: CanvasRenderingContext2D, line: string, spec: TextDrawSpec, x: number, baseline: number, width: number): void {
-  const letters = Array.from(line);
-  const spacing = spec.letterSpacingPx ?? 0;
-  // Preserve native anchors when no spacing is requested; measurement and painting share kerning.
-  if (!spacing) {
-    ctx.textAlign = spec.align === "center" ? "center" : spec.align === "right" ? "right" : "left";
-    const anchor = spec.align === "center" ? x + width / 2 : spec.align === "right" ? x + width : x;
-    ctx.fillText(line, anchor, baseline);
-    return;
-  }
-  const textWidth = ctx.measureText(line).width + Math.max(0, letters.length - 1) * spacing;
-  const left = spec.align === "center" ? x + (width - textWidth) / 2 : spec.align === "right" ? x + width - textWidth : x;
-  ctx.textAlign = "left";
-  // Do not use fillText(maxWidth): it silently compresses text and differs from DOM/PDF geometry.
-  let prefix = "";
-  letters.forEach((letter, index) => {
-    ctx.fillText(letter, left + ctx.measureText(prefix).width + index * spacing, baseline);
-    prefix += letter;
-  });
-}
-
 function drawGridBorders(
   ctx: CanvasRenderingContext2D,
   layout: GridLayout,
@@ -193,7 +137,8 @@ function drawGrid(
   x: number, y: number, w: number, h: number,
   pxPerMm: number, dpi: number,
   fontFamily: string,
-  measurer: TextMeasurer
+  measurer: TextMeasurer,
+  images?: Map<string, CanvasImageSource>
 ): void {
   const layout = resolveGridLayout(grid, w / pxPerMm, h / pxPerMm);
   for (const box of layout.cells) {
@@ -203,24 +148,30 @@ function drawGrid(
     ctx.fillRect(x + box.xMm * pxPerMm, y + box.yMm * pxPerMm, box.widthMm * pxPerMm, box.heightMm * pxPerMm);
   }
   drawGridBorders(ctx, layout, comp, x, y, pxPerMm, dpi);
-  const paddingMm = grid.paddingMm ?? 0.5;
-  for (const box of layout.cells) {
+  for (const box of layout.cells) drawCanvasGridCell(ctx, box, comp, x, y, pxPerMm, dpi, fontFamily, measurer, images);
+}
+function drawCanvasGridCell(ctx: CanvasRenderingContext2D, box: GridLayout["cells"][number], comp: PlanComponent, x: number, y: number, pxPerMm: number, dpi: number, fontFamily: string, measurer: TextMeasurer, images?: Map<string, CanvasImageSource>): void {
+  const paddingMm = comp.grid?.paddingMm ?? 0.5;
     const text = box.cell.text ?? "";
-    if (!text) continue;
+
     const style = mergeComponentStyles(comp.style, box.cell.style);
     const font = resolveFontSize(style, dpi);
     const indentMm = box.cell.indentMm ?? 0;
     const contentWidthMm = Math.max(0, box.widthMm - 2 * paddingMm - indentMm);
     const lines = wrapText(text, contentWidthMm, { fontSizePt: font.fontSizePt, bold: style.bold, italic: style.italic, fontFamily: style.fontFamily ?? fontFamily, letterSpacingPt: style.letterSpacing }, measurer).join("\n");
-    drawTextBlock(ctx, {
+    const childBox = { x: x + (box.xMm + paddingMm + indentMm) * pxPerMm, y: y + (box.yMm + paddingMm) * pxPerMm, width: contentWidthMm * pxPerMm, height: Math.max(0, box.heightMm - 2 * paddingMm) * pxPerMm };
+    ctx.save(); ctx.beginPath(); ctx.rect(childBox.x, childBox.y, childBox.width, childBox.height); ctx.clip();
+    if (box.cell.richParagraphs?.length) drawCanvasRichText(ctx, { ...comp, kind: "text", richParagraphs: box.cell.richParagraphs, style: { verticalAlign: "middle", ...style } }, childBox, dpi, fontFamily);
+    else drawTextBlock(ctx, {
       text: lines, fontSizePx: font.fontSizePx,
-      bold: style.bold ?? false, italic: style.italic,
+      bold: style.bold ?? false, italic: style.italic, underline: style.underline,
       color: resolveTextColor(style, DEFAULT_TEXT_COLOR),
       align: style.align ?? "left", lineHeight: resolveLineHeight(style), letterSpacingPx: ptToPx(style.letterSpacing ?? 0, dpi)
     }, x + (box.xMm + paddingMm + indentMm) * pxPerMm, y + (box.yMm + paddingMm) * pxPerMm,
     contentWidthMm * pxPerMm, Math.max(0, box.heightMm - 2 * paddingMm) * pxPerMm,
     style.fontFamily ?? fontFamily, style.verticalAlign ?? "middle");
-  }
+    for (const child of box.cell.children ?? []) drawComponent(ctx, { ...child, leftMm: child.leftMm + childBox.x / pxPerMm, topMm: child.topMm + childBox.y / pxPerMm }, pxPerMm, dpi, fontFamily, measurer, images);
+    ctx.restore();
 }
 
 function drawTextComponent(
@@ -231,11 +182,10 @@ function drawTextComponent(
 ): void {
   const style = comp.style ?? {};
   const font = resolveFontSize(style, dpi);
-  const text = isRichText(comp)
-    ? comp.richParagraphs!.map((paragraph) => paragraph.segments.map((segment) => segment.text ?? segment.field ?? "").join("")).join("\n")
-    : comp.lines?.length ? comp.lines.join("\n") : wrapText(comp.text ?? "", comp.widthMm, { fontSizePt: font.fontSizePt, bold: style.bold, italic: style.italic, fontFamily: style.fontFamily ?? fontFamily, letterSpacingPt: style.letterSpacing }, measurer).join("\n");
+  if (isRichText(comp)) { drawCanvasRichText(ctx, comp, { x, y, width: w, height: h }, dpi, fontFamily); return; }
+  const text = comp.lines?.length ? comp.lines.join("\n") : wrapText(comp.text ?? "", comp.widthMm, { fontSizePt: font.fontSizePt, bold: style.bold, italic: style.italic, fontFamily: style.fontFamily ?? fontFamily, letterSpacingPt: style.letterSpacing }, measurer).join("\n");
   drawTextBlock(ctx, {
-    text, fontSizePx: font.fontSizePx, bold: style.bold ?? false, italic: style.italic,
+    text, fontSizePx: font.fontSizePx, bold: style.bold ?? false, italic: style.italic, underline: style.underline,
     color: resolveTextColor(style), align: style.align ?? "left", lineHeight: resolveLineHeight(style), letterSpacingPx: ptToPx(style.letterSpacing ?? 0, dpi)
   }, x, y, w, h, style.fontFamily ?? fontFamily, style.verticalAlign);
 }
@@ -263,7 +213,7 @@ function drawComponent(
   }
 
   if (comp.grid) {
-    drawGrid(ctx, comp.grid, comp, x, y, w, h, pxPerMm, dpi, fontFamily, measurer);
+    drawGrid(ctx, comp.grid, comp, x, y, w, h, pxPerMm, dpi, fontFamily, measurer, images);
     return;
   }
   switch (comp.kind) {
@@ -441,10 +391,10 @@ export function renderPlanToCanvas(
 
 function syncImageDiagnostics(plan: RenderPlan, start: number, end: number): OutputDiagnostic[] {
   if (end < start) return [];
-  return plan.pages.slice(start, end + 1).flatMap((page, offset) => page.components.flatMap((comp, componentIndex): OutputDiagnostic[] => isImageBackedComponent(comp) ? [{
-    code: "async-image-required", severity: "warning", format: "canvas", pageIndex: start + offset, componentIndex, kind: comp.kind, nid: comp.nid,
+  return plan.pages.slice(start, end + 1).flatMap((page, offset) => [...pageImageComponents(page)].map(({ component: comp, componentIndex, componentPath }) => ({
+    code: "async-image-required", severity: "warning", format: "canvas", pageIndex: start + offset, componentIndex, componentPath, kind: comp.kind, nid: comp.nid,
     message: "Use renderPlanToCanvasAsync or renderPlanToImages to decode and include images."
-  }] : []));
+  })));
 }
 
 /** Browser async raster output: waits for every image and preserves component paint order. */
@@ -479,9 +429,9 @@ async function imagesForOutput(page: PlanPage, pageIndex: number, options: Async
     try { return await loader(source, signal); }
     catch (error) {
       if (signal?.aborted) throw error;
-      const componentIndex = page.components.findIndex((comp) => comp.imageData === source);
-      const comp = page.components[componentIndex]!;
-      const entry: OutputDiagnostic = { code: "image-decode-failed", severity: "warning", format: "canvas", pageIndex, componentIndex, kind: comp.kind, nid: comp.nid, message: "Image decoding failed; raster output was cancelled instead of omitting the image." };
+      const found = [...pageImageComponents(page)].find(({ component }) => component.imageData === source)!;
+      const { component: comp, componentIndex, componentPath } = found;
+      const entry: OutputDiagnostic = { code: "image-decode-failed", severity: "warning", format: "canvas", pageIndex, componentIndex, componentPath, kind: comp.kind, nid: comp.nid, message: "Image decoding failed; raster output was cancelled instead of omitting the image." };
       diagnostics.push(entry);
       notifyOutputDiagnostic(entry, options);
       throw error;

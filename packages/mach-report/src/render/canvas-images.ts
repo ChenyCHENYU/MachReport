@@ -1,4 +1,4 @@
-import type { PlanPage } from "../schema/render-plan";
+import type { PlanPage, PlanComponent } from "../schema/render-plan";
 import { isImageBackedComponent } from "../schema/render-plan";
 
 export type CanvasImageLoader = (source: string, signal?: AbortSignal) => Promise<CanvasImageSource>;
@@ -42,10 +42,19 @@ function loadWithAbort(loader: CanvasImageLoader, source: string, signal?: Abort
   });
 }
 
+export function* pageImageComponents(page: PlanPage): Generator<{ component: PlanComponent; componentIndex: number; componentPath: number[] }> {
+  function* visit(component: PlanComponent, componentIndex: number, path: number[], ancestors: Set<PlanComponent>): Generator<{ component: PlanComponent; componentIndex: number; componentPath: number[] }> {
+    if (ancestors.has(component)) throw new TypeError("Cyclic grid children cannot be rendered.");
+    if (isImageBackedComponent(component)) yield { component, componentIndex, componentPath: path };
+    const next = new Set(ancestors).add(component);
+    for (const [ri, row] of (component.grid?.cells ?? []).entries()) for (const [ci, cell] of row.entries()) for (const [ki, child] of (cell?.children ?? []).entries()) yield* visit(child, componentIndex, [...path, ri, ci, ki], next);
+  }
+  for (const [index, component] of page.components.entries()) yield* visit(component, index, [], new Set());
+}
 /** Page-scoped cache bounds decoded image residency to the page currently being drawn. */
 export async function loadPageImages(page: PlanPage, loader: CanvasImageLoader, signal?: AbortSignal): Promise<Map<string, CanvasImageSource>> {
   const images = new Map<string, CanvasImageSource>();
-  for (const component of page.components) {
+  for (const { component } of pageImageComponents(page)) {
     if (!isImageBackedComponent(component) || images.has(component.imageData!)) continue;
     images.set(component.imageData!, await loadWithAbort(loader, component.imageData!, signal));
   }

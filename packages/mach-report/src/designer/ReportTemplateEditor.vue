@@ -19,6 +19,7 @@ import TemplateFieldImpactPanel from "./TemplateFieldImpactPanel.vue";
 import TemplateRecoveryPanel from "./TemplateRecoveryPanel.vue";
 import { applyPageCommand, pageName, type PageCommand } from "./page-commands";
 import HeaderStructureEditor from "./HeaderStructureEditor.vue";
+import { useDesignerNavigation } from "./useDesignerNavigation";
 import { useTemplateWorkspace } from "./useTemplateWorkspace";
 import AlignmentControl from "./AlignmentControl.vue";
 import { useTemplateDirectory } from "./useTemplateDirectory";
@@ -28,7 +29,6 @@ import {
 } from "./useTemplateEditor";
 import {
   useTemplateInspector,
-  type TemplateInspectorSection,
 } from "./useTemplateInspector";
 
 const ExcelBindingWizard = defineAsyncComponent(
@@ -78,13 +78,6 @@ function acceptParams(definitions: ReportParamDef[]): boolean {
 const inspector = useTemplateInspector(selected, activeList);
 const { section, activeIndex, activeColumn } = inspector;
 const id = `mr-designer-${getCurrentInstance()?.uid ?? 0}`;
-const sections = computed<TemplateInspectorSection[]>(() => [
-  ...(lists.value.length ? ["fields" as const] : []),
-  "component",
-  "template",
-  "tools",
-  "advanced",
-]);
 const workspace = useTemplateWorkspace(
   editor,
   inspector,
@@ -92,7 +85,6 @@ const workspace = useTemplateWorkspace(
 );
 const {
   mode,
-  setMode: setWorkspaceMode,
   canvasSelection,
   canvasPage,
   canvasActive,
@@ -100,34 +92,19 @@ const {
   visitedTools,
   editDisabled,
   dataSchema,
-  chooseCanvas: chooseCanvasUnchecked,
   insertComponent,
   patchCanvas,
   changeList,
   moveColumn,
   headerCommand,
-  locateReview: locateReviewUnchecked,
   canvas,
 } = workspace;
 
+const { sections, toolPreview, setMode, toggleToolPreview, chooseToolComponent, openBinding,
+  pendingConfigurations, saveReason, openPending, headingStatus, chooseCanvas, locateReview,
+  chooseRuleList, navigateSection } = useDesignerNavigation(editor, workspace, inspector, { id, readonly: () => props.readonly === true });
+
 const canvasFlow = computed(() => !!draft.value.template.pages[canvasPage.value]?.flow);
-const dockedTools = ref(new Set(["outline", "reuse"]));
-const toolPreview = computed(() => section.value === "tools" && dockedTools.value.has(tool.value));
-function setMode(next: "design" | "preview"): void {
-  if (toolPreview.value) mode.value = next;
-  else setWorkspaceMode(next);
-}
-watch([section, tool], () => { if (toolPreview.value) mode.value = "design"; });
-function toggleToolPreview(): void {
-  const next = new Set(dockedTools.value);
-  if (next.has(tool.value)) next.delete(tool.value); else next.add(tool.value);
-  dockedTools.value = next;
-  if (next.has(tool.value)) mode.value = "design";
-}
-function chooseToolComponent(event: Event): void {
-  const index = Number((event.target as HTMLSelectElement).value);
-  if (Number.isInteger(index) && index >= 0) void chooseCanvas({ pageIndex: canvasPage.value, componentIndex: index });
-}
 const repeatSchema = computed(() => props.dataSchemas?.[draft.value.template.repeat?.dataset ?? ""]);
 const componentDirectory = computed(() => {
   const names = { text: m.value.insertText, list: m.value.insertList, image: m.value.insertImage, rect: m.value.insertRect, qrcode: m.value.insertQrcode, barcode: m.value.insertBarcode, chart: m.value.chartComponent, line: m.value.lineComponent, ellipse: m.value.ellipseComponent };
@@ -147,39 +124,6 @@ function pageCommand(command: PageCommand): void {
   }
 }
 const fieldFlow = computed(() => !!draft.value.template.pages[lists.value[selected.value]?.pageIndex ?? -1]?.flow);
-function openBinding(): void { section.value = "tools"; tool.value = "excel"; }
-type PendingTarget = "excel" | "rules" | "params" | "json";
-const pendingConfigurations = computed(() => {
-  const tools = (["excel", "rules", "params"] as const)
-    .filter(item => editor.pendingTools.value.includes(item))
-    .map(target => ({ target: target as PendingTarget, label: m.value[`${target}Tool`] }));
-  if (jsonPending.value) tools.push({ target: "json", label: m.value.json });
-  return tools;
-});
-const saveReason = computed(() => {
-  if (saving.value) return m.value.saving;
-  if (props.readonly) return m.value.saveReadonly;
-  if (blocked.value) return m.value.saveConfirmation;
-  if (pendingConfigurations.value.length) return pendingConfigurations.value.map(item => `${item.label} · ${m.value.unapplied}`).join("；");
-  if (!validation.value.ok) return m.value.saveInvalid;
-  return pendingLocalChanges.value ? "" : m.value.saveUnchanged;
-});
-async function openPending(target: PendingTarget): Promise<void> {
-  if (target === "json") section.value = "advanced";
-  else { section.value = "tools"; tool.value = target; }
-  await nextTick();
-  const selector = target === "json" ? `#${id}-panel-advanced textarea` : `#${id}-tool-${target}`;
-  document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
-}
-const headingStatus = computed(() =>
-  saving.value
-    ? m.value.saving
-    : props.readonly
-      ? m.value.readonly
-      : pendingLocalChanges.value
-        ? m.value.dirty
-        : m.value.ready,
-);
 const keepButton = ref<HTMLButtonElement | null>(null);
 const inspectorPanel = ref<HTMLDivElement | null>(null);
 const directory = useTemplateDirectory(inspector, section, visibleColumns);
@@ -238,27 +182,6 @@ async function acceptExcel(result: ExcelBindingWizardApply): Promise<boolean> {
   emit("excel-bound", { ...result, document, session: { ...result.session, identity: { id: document.id, name: document.name } } });
   return true;
 }
-async function chooseCanvas(selection: Parameters<typeof chooseCanvasUnchecked>[0]): Promise<void> {
-  const keepTool = section.value === "tools";
-  const target = lists.value.findIndex(item => item.pageIndex === selection.pageIndex && item.componentIndex === selection.componentIndex);
-  if (target >= 0 && target !== selected.value && editor.isToolPending("rules") && !await editor.guardChanges()) return;
-  chooseCanvasUnchecked(selection);
-  if (keepTool) section.value = "tools";
-}
-async function locateReview(location: Parameters<typeof locateReviewUnchecked>[0]): Promise<void> {
-  const keepTool = section.value === "tools" && tool.value === "outline";
-  const path = /\.pages\[(\d+)\]\.components\[(\d+)\]/.exec(location.path ?? "");
-  const pageIndex = location.pageIndex ?? (path ? Number(path[1]) : undefined), componentIndex = location.componentIndex ?? (path ? Number(path[2]) : undefined);
-  const target = lists.value.findIndex(item => item.pageIndex === pageIndex && item.componentIndex === componentIndex);
-  if (target >= 0 && target !== selected.value && editor.isToolPending("rules") && !await editor.guardChanges()) return;
-  locateReviewUnchecked(location);
-  if (keepTool) section.value = "tools";
-}
-async function chooseRuleList(event: Event): Promise<void> {
-  const target = event.target as HTMLSelectElement, next = Number(target.value);
-  if (editor.isToolPending("rules") && !await editor.guardChanges()) { target.value = String(selected.value); return; }
-  selected.value = next;
-}
 function value(event: Event): string {
   return (event.target as HTMLInputElement).value;
 }
@@ -272,30 +195,6 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
     select.value as "left" | "center" | "right" | "justify" | "auto",
   );
   select.value = "";
-}
-async function navigateSection(event: KeyboardEvent): Promise<void> {
-  const keys: Record<string, number> = {
-    ArrowRight: 1,
-    ArrowLeft: -1,
-    Home: -sections.value.length,
-    End: sections.value.length,
-  };
-  const delta = keys[event.key];
-  if (delta === undefined) return;
-  event.preventDefault();
-  const current = sections.value.indexOf(section.value);
-  const next =
-    event.key === "Home"
-      ? 0
-      : event.key === "End"
-        ? sections.value.length - 1
-        : (current + delta + sections.value.length) % sections.value.length;
-  section.value = sections.value[next]!;
-  const tabs = (event.currentTarget as HTMLElement).parentElement;
-  await nextTick();
-  tabs
-    ?.querySelector<HTMLButtonElement>(`#${id}-tab-${section.value}`)
-    ?.focus();
 }
 </script>
 
@@ -438,6 +337,9 @@ async function navigateSection(event: KeyboardEvent): Promise<void> {
         v-show="section === 'tools'"
         :key="editor.toolEpoch.value"
         class="mr-designer-tools"
+        :id="`${id}-panel-tools`"
+        role="tabpanel"
+        :aria-labelledby="`${id}-tab-tools`"
       >
         <nav class="mr-designer-tool-tabs" :aria-label="m.toolsSection">
           <button

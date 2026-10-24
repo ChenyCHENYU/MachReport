@@ -18,7 +18,10 @@ pnpm check:server-example     # Java17目标客户端→Node真实HTTP、精度�
 pnpm check:quality            # 生产代码圈复杂度 ≤20，统计全部 TS / Vue 函数
 pnpm check:api                # 十三入口公开声明签名；调整API后审查差异再用 --update
 pnpm check:sbom               # 依赖版本/许可证证据、锁文件和构建产物摘要
-pnpm verify                   # 类型 → lint/复杂度 → build → API/SBOM → 覆盖率 → 文档 → 消费端
+pnpm test:fuzz                # 有种子的格式属性测试；MR_FUZZ_SEED/PATH可回放
+pnpm test:a11y                # axe真实浏览器多状态检查，零规则豁免
+pnpm check:acceptance         # 严格PDF、XLSX回读及独立码图解码，生成人工验收包
+pnpm verify                   # 类型 → lint/复杂度 → build → API/SBOM → 覆盖率 → 文档 → 消费端 → 验收包
 pnpm test:e2e                 # E2E（真 Chromium；配置自动启动 examples dev server）
 pnpm run version              # 合并 changeset 并同步 README 版本，检查后提交推送
 pnpm release                  # 已提交版本的发版：clean gate → install → verify → Java/Node参考 → 当前环境兼容消费 → E2E → publish

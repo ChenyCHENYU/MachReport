@@ -1,4 +1,7 @@
-import { parentPort, Worker, type WorkerOptions } from "node:worker_threads";
+import { createAutoExporterController } from "../worker/auto-core";
+import type { ReportAutoExporter, ReportExportExecutionOptions } from "../worker/auto-types";
+import { runReportEncodingRequest } from "../worker/encoding";
+import { parentPort, workerData, Worker, type WorkerOptions } from "node:worker_threads";
 import { createHash } from "node:crypto";
 import type { ReportRuntime, ReportRuntimeExecutor } from "./types";
 import { createReportWorkerExecutor, type ReportWorkerOptions } from "../worker/client";
@@ -16,7 +19,7 @@ export function createNodeReportExecutor(options: NodeReportExecutorOptions): Re
   return createReportWorkerExecutor(() => {
     const worker = new Worker(filename, options.workerOptions);
     return {
-      postMessage: (value) => worker.postMessage(value), terminate: () => worker.terminate(),
+      postMessage: (value, transfer) => worker.postMessage(value, transfer), terminate: () => worker.terminate(),
       subscribe: (message, error) => {
         const onExit = (code: number) => error(new Error(`报表 Worker 在响应前退出（code ${code}）`));
         worker.on("message", message); worker.on("error", error); worker.on("messageerror", error); worker.on("exit", onExit);
@@ -40,3 +43,22 @@ export { openFileReportJobStore } from "./node-job-store";
 export type { FileReportJobStore, FileReportJobStoreOptions } from "./node-job-store";
 /** Optional publication digest for Node hosts; use as reviewReportPublication({ digest }). */
 export function reportArtifactSha256(bytes: Uint8Array): string { return createHash("sha256").update(bytes).digest("hex"); }
+
+/** Node needs no URL factory: this module is the isolated encoding entry in both ESM and CommonJS builds. */
+export function createNodeAutoReportExporter(options: Omit<ReportExportExecutionOptions, "workerFactory"> = {}): ReportAutoExporter {
+  const workerOptions = { timeoutMs: options.timeoutMs ?? options.budget?.maxDurationMs, budget: { ...options.budget } };
+  return createAutoExporterController(options, timeoutMs => createNodeReportExecutor({
+    filename: typeof __filename === "string" ? __filename : new URL(import.meta.url),
+    workerOptions: { workerData: { machReportEncoding: "prepared-v1" } },
+    ...workerOptions, timeoutMs
+  }));
+}
+if (parentPort && workerData?.machReportEncoding === "prepared-v1") {
+  const port = parentPort;
+  port.on("message", (request: unknown) => {
+    if (!isReportWorkerRequest(request)) return;
+    void runReportEncodingRequest(request, event => port.postMessage({ protocol: REPORT_WORKER_PROTOCOL, id: request.id, type: "event", event }))
+      .then(result => port.postMessage(result, reportWorkerTransferList(result)));
+  });
+}
+export type { ReportAutoExporter, ReportAutoExportResult, ReportExportDecision, ReportExportExecutionOptions } from "../worker/auto-types";

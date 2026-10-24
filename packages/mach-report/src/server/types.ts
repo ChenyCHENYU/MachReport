@@ -4,6 +4,7 @@ import type { ReportDiagnostic } from "../source/provider";
 import type { RenderPlan } from "../schema/render-plan";
 import type { ReportParamValidation } from "../source/param-validation";
 import type { PaginateOptions, ReportParamDef } from "../layout/paginate";
+import type { ImageMediaOptions } from "../output/media";
 import type { AssetRenderOptions } from "../output/assets";
 
 /** Licensed local font bytes; never downloaded implicitly by the runtime. */
@@ -49,11 +50,13 @@ export interface ReportRuntimeExportInput extends ReportRuntimeInput {
   format: "pdf" | "xlsx";
   /** strict 在编码前拒绝已识别的输出降级；默认保留诊断并继续。 */
   fidelity?: "warn" | "strict";
-  xlsx?: { sheetMode?: "auto" | "pages" | "continuous"; valueMode?: "text" | "raw"; paperSize?: "auto" | "a3" | "a4" | "a5" };
+  xlsx?: ImageMediaOptions & { sheetMode?: "auto" | "pages" | "continuous"; valueMode?: "text" | "raw"; paperSize?: "auto" | "a3" | "a4" | "a5"; sheetName?: (sheetIndex: number) => string };
 }
 /** Encode an existing plan without querying providers or repaginating. */
 export interface ReportRuntimePreparedExportInput extends ReportTaskMonitoring {
   prepared: PreparedReport;
+  /** verify checks font metric identity; preserve explicitly keeps existing geometry, with a diagnostic. Encoding fidelity is unchanged. */
+  layoutPolicy?: "verify" | "preserve";
   format: ReportRuntimeExportInput["format"];
   fidelity?: ReportRuntimeExportInput["fidelity"];
   pdf?: ReportPdfFontOptions;

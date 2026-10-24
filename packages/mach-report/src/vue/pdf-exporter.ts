@@ -2,6 +2,7 @@ import type { OutputDiagnostic } from "@agile-team/mach-report";
 import type { OutputTaskOptions } from "../output/progress";
 import { assertOutputActive, waitForOutput } from "../output/progress";
 import type { RenderPlan } from "@agile-team/mach-report";
+import type { ReportPdfFontOptions } from "../server/types";
 
 /** available 仅表示字体资源可达；实际导出仍会校验文字能否编码。 */
 export type PdfFontStatus = "unchecked" | "checking" | "available" | "disabled" | "unverified" | "error";
@@ -18,6 +19,8 @@ export interface PdfExporter {
   (plan: RenderPlan, onWarning?: (message: string) => void, task?: OutputTaskOptions & { onDiagnostic?: (entry: OutputDiagnostic) => void }): Promise<Uint8Array>;
   /** 可选轻量字体检查；旧版自定义导出函数无需实现。取消时拒绝 AbortError。 */
   checkFont?: (signal?: AbortSignal) => Promise<PdfFontCheckResult>;
+  /** Optional resource preparation for isolated encoding; custom exporters without it keep their own pipeline. */
+  prepare?: (signal?: AbortSignal) => Promise<ReportPdfFontOptions>;
 }
 
 export interface DefaultPdfExporterOptions {
@@ -41,6 +44,19 @@ function withCause(message: string, cause: unknown): Error & { cause: unknown } 
 
 function fontHint(fontUrl: string, detail: string): string {
   return `PDF 字体 ${JSON.stringify(fontUrl)}：${detail}。请部署支持报表文字的字体文件，并将 pdfFontUrl 配置为可访问的字体 URL；西文报表可设为空串`;
+}
+
+async function requiredFont(fontUrl: string, load: typeof import("../pdf/font-loader").loadFontWithCache, signal?: AbortSignal): Promise<Uint8Array | null> {
+  assertOutputActive(signal);
+  if (!fontUrl) return null;
+  try {
+    const font = await waitForOutput(load(fontUrl, { strict: true, signal }), signal);
+    if (!font?.byteLength) throw new Error("字体文件为空或加载失败");
+    return font;
+  } catch (cause) {
+    assertOutputActive(signal);
+    throw withCause(fontHint(fontUrl, cause instanceof Error ? cause.message : String(cause)), cause);
+  }
 }
 
 function abortError(signal?: AbortSignal): Error {
@@ -163,16 +179,7 @@ export function createDefaultPdfExporter(
       pdfModule = await import("@agile-team/mach-report/pdf");
     }
     assertOutputActive(task.signal);
-    let font: Uint8Array | null = null;
-    if (options.fontUrl) {
-      try {
-        font = await waitForOutput(pdfModule.loadFontWithCache(options.fontUrl, { strict: true, signal: task.signal }), task.signal);
-        if (!font?.byteLength) throw new Error("字体文件为空或加载失败");
-      } catch (cause) {
-        const detail = cause instanceof Error ? cause.message : String(cause);
-        throw withCause(fontHint(options.fontUrl, detail), cause);
-      }
-    }
+    const font = await requiredFont(options.fontUrl, pdfModule.loadFontWithCache, task.signal);
     let rendered: Awaited<ReturnType<typeof pdfModule.renderPlanToPdf>>;
     try {
       assertOutputActive(task.signal);
@@ -197,5 +204,12 @@ export function createDefaultPdfExporter(
     return bytes;
   };
   exporter.checkFont = (signal) => checkDefaultFont(options.fontUrl, signal);
+  exporter.prepare = async (signal) => {
+    assertOutputActive(signal);
+    if (!options.fontUrl) return {};
+    const { loadFontWithCache } = await import("../pdf/font-loader");
+    const font = await requiredFont(options.fontUrl, loadFontWithCache, signal);
+    return font ? { customFontBytes: font } : {};
+  };
   return exporter;
 }

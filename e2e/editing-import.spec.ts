@@ -286,7 +286,10 @@ test("导入默认只读；开启编辑后公式缓存格仍只读；导出保�
   await root.locator("td").filter({ hasText: /^2\.00$/ }).dblclick();
   await expect(root.locator(".mrp-cell-editor")).toHaveCount(0);
   const downloadPromise = page.waitForEvent("download", { predicate: (download) => download.suggestedFilename().endsWith(".xlsx") });
+  // If encoding fails, surface its actual diagnostic instead of masking it with a download timeout.
+  void downloadPromise.catch(() => {});
   await page.evaluate(() => window.mrImportFixture.exportExcel());
+  expect(await root.locator(".mrp-export-error").allTextContents()).toEqual([]);
   const download = await downloadPromise;
   expect(await download.failure()).toBeNull();
   const saved = await readFile((await download.path())!);

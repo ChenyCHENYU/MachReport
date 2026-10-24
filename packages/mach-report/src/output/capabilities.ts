@@ -1,7 +1,9 @@
+import { resolveGridLayout } from "../render/grid-geometry";
+import { assertBoundedRenderTree } from "../schema/component-tree";
 import { assertOutputActive, type OutputTaskOptions } from "./progress";
 import { notifyOutputDiagnostic } from "./diagnostic-notification";
-import type { ComponentStyle, PlanComponent, RenderPlan } from "../schema/render-plan";
-import { isImageBackedComponent, isRichText } from "../schema/render-plan";
+import type { ComponentStyle, GridCell, PlanComponent, RenderPlan } from "../schema/render-plan";
+import { isImageBackedComponent } from "../schema/render-plan";
 
 export type OutputFormat = "dom" | "canvas" | "pdf" | "xlsx";
 
@@ -59,19 +61,31 @@ function unsupportedStyle(style: ComponentStyle | undefined, format: OutputForma
   if (style.rotateDeg) unsupported.push("rotateDeg");
   if (style.opacity !== undefined && style.opacity !== 1) unsupported.push("opacity");
   if (format !== "xlsx" && style.align === "justify") unsupported.push("justify");
-  if (format === "canvas" && style.underline) unsupported.push("underline");
+
   if (format === "xlsx" && style.letterSpacing) unsupported.push("letterSpacing");
   return unsupported.length ? `${format} does not preserve these styles: ${unsupported.join(", ")}.` : undefined;
 }
 
-function collectRichStyleDiagnostics(comp: PlanComponent, format: OutputFormat, pageIndex: number, componentIndex: number, diagnostics: OutputDiagnostic[]): void {
+function richExcelStyleIssue(style: ComponentStyle | undefined): string | undefined {
+  if (!style) return;
+  const properties = (["backgroundColor", "align", "verticalAlign", "lineHeight", "borderTop", "borderRight", "borderBottom", "borderLeft", "borderColor", "lineColor", "lineWidthPt"] as const).filter(key => style[key] !== undefined);
+  return properties.length ? `XLSX rich text does not retain independent run styles: ${properties.join(", ")}.` : undefined;
+}
+function nestedExcelTextIssue(child: PlanComponent): Pick<OutputDiagnostic, "code" | "message"> | undefined {
+  if (child.kind !== "text") return;
+  const style = richExcelStyleIssue(child.style);
+  if (child.leftMm || child.topMm || style) return { code: "unsupported-style", message: `Nested XLSX text is retained as rich text in component order; absolute child offsets and independent paragraph styles are not retained.${style ? ` ${style}` : ""}` };
+}
+
+function collectRichStyleDiagnostics(comp: PlanComponent, format: OutputFormat, pageIndex: number, componentIndex: number, diagnostics: OutputDiagnostic[], componentPath: readonly number[]): void {
+    const add = (message: string): void => { diagnostics.push({ ...diagnostic(comp, format, pageIndex, componentIndex, { code: "unsupported-style", message }), componentPath }); };
     for (const paragraph of comp.richParagraphs ?? []) {
-      if (format === "xlsx" && (paragraph.spaceBeforeMm || paragraph.spaceAfterMm || paragraph.indentMm || paragraph.align || paragraph.lineHeight)) diagnostics.push(diagnostic(comp, format, pageIndex, componentIndex, { code: "unsupported-style", message: "XLSX rich text preserves fonts and paragraph newlines; paragraph spacing, indentation and alignment are not retained." }));
+      if (format === "xlsx" && (paragraph.spaceBeforeMm || paragraph.spaceAfterMm || paragraph.indentMm || paragraph.align || paragraph.lineHeight)) add("XLSX rich text preserves fonts and paragraph newlines; paragraph spacing, indentation and alignment are not retained.");
       const paragraphMessage = unsupportedStyle({ align: paragraph.align }, format);
-      if (paragraphMessage) diagnostics.push(diagnostic(comp, format, pageIndex, componentIndex, { code: "unsupported-style", message: paragraphMessage }));
+      if (paragraphMessage) add(paragraphMessage);
       for (const segment of paragraph.segments) {
-        const message = unsupportedStyle(segment.style, format) ?? (format !== "dom" && segment.style?.backgroundColor ? "Inline background colors are not preserved in this output." : undefined);
-        if (message) diagnostics.push(diagnostic(comp, format, pageIndex, componentIndex, { code: "unsupported-style", message }));
+        const message = unsupportedStyle(segment.style, format) ?? (format === "xlsx" ? richExcelStyleIssue(segment.style) : undefined);
+        if (message) add(message);
       }
     }
 }
@@ -84,22 +98,44 @@ function collectComponentDiagnostics(comp: PlanComponent, format: OutputFormat, 
     if (issue) diagnostics.push({ ...diagnostic(comp, format, pageIndex, componentIndex, issue), componentPath });
     const styleMessage = unsupportedStyle(comp.style, format);
     if (styleMessage) diagnostics.push({ ...diagnostic(comp, format, pageIndex, componentIndex, { code: "unsupported-style", message: styleMessage }), componentPath });
-    if (isRichText(comp) && format === "canvas") {
-      diagnostics.push(diagnostic(comp, format, pageIndex, componentIndex, { code: "rich-text-flattened", message: "Rich text is exported as plain text; inline styles are not preserved." }));
-    }
-    collectRichStyleDiagnostics(comp, format, pageIndex, componentIndex, diagnostics);
+    collectRichStyleDiagnostics(comp, format, pageIndex, componentIndex, diagnostics, componentPath);
+    collectGridDiagnostics(comp, format, pageIndex, componentIndex, componentPath, diagnostics, visited);
+}
+
+function nestedExcelIssue(child: PlanComponent, width: number, height: number): Pick<OutputDiagnostic, "code" | "message"> | undefined {
+  if (child.grid) return { code: "nested-components-omitted", message: "XLSX cannot place a nested grid inside a single cell; the nested grid is omitted." };
+  const textIssue = nestedExcelTextIssue(child);
+  if (textIssue) return textIssue;
+  if (isImageBackedComponent(child) && (child.leftMm < 0 || child.topMm < 0 || child.leftMm + child.widthMm > width + 0.001 || child.topMm + child.heightMm > height + 0.001)) return { code: "unsupported-style", message: "XLSX cannot clip a child image to a cell; it retains the original image dimensions." };
+}
+function nestedExcelInspector(comp: PlanComponent): (child: PlanComponent, row: number, column: number, cell: GridCell | null) => Pick<OutputDiagnostic, "code" | "message"> | undefined {
+  let bounds: Map<string, { widthMm: number; heightMm: number }> | undefined;
+  return (child, row, column, cell) => {
+    bounds ??= new Map(resolveGridLayout(comp.grid!, comp.widthMm, comp.heightMm).cells.map(box => [`${box.ri}:${box.ci}`, box]));
+    const box = bounds.get(`${row}:${column}`), padding = 2 * (comp.grid?.paddingMm ?? 0.5);
+    return nestedExcelIssue(child, (box?.widthMm ?? 0) - padding - (cell?.indentMm ?? 0), (box?.heightMm ?? 0) - padding);
+  };
+}
+function collectGridDiagnostics(comp: PlanComponent, format: OutputFormat, pageIndex: number, componentIndex: number, componentPath: readonly number[], diagnostics: OutputDiagnostic[], visited: ReadonlySet<PlanComponent>): void {
+    const inspectNestedExcel = nestedExcelInspector(comp);
     for (const [rowIndex, row] of (comp.grid?.cells ?? []).entries()) for (const [columnIndex, cell] of row.entries()) {
       const cellStyleMessage = unsupportedStyle(cell?.style, format);
       if (cellStyleMessage) diagnostics.push({ ...diagnostic(comp, format, pageIndex, componentIndex, { code: "unsupported-style", message: cellStyleMessage }), componentPath: [...componentPath, rowIndex, columnIndex] });
-      if (cell?.children?.length && format !== "dom") {
-        diagnostics.push({ ...diagnostic(comp, format, pageIndex, componentIndex, { code: "nested-components-omitted", message: "Nested grid components are omitted; cell text is preserved." }), componentPath: [...componentPath, rowIndex, columnIndex] });
-      } else if (format === "dom") {
-        for (const [childIndex, child] of (cell?.children ?? []).entries()) collectComponentDiagnostics(child, format, pageIndex, componentIndex, [...componentPath, rowIndex, columnIndex, childIndex], diagnostics, visited);
+      if (cell?.richParagraphs?.length) collectRichStyleDiagnostics({ ...comp, richParagraphs: cell.richParagraphs }, format, pageIndex, componentIndex, diagnostics, [...componentPath, rowIndex, columnIndex]);
+      for (const [childIndex, child] of (cell?.children ?? []).entries()) {
+        const path = [...componentPath, rowIndex, columnIndex, childIndex];
+        if (format === "xlsx") {
+          const issue = inspectNestedExcel(child, rowIndex, columnIndex, cell);
+          if (issue) diagnostics.push({ ...diagnostic(child, format, pageIndex, componentIndex, issue), componentPath: path });
+          if (child.grid) continue;
+        }
+        collectComponentDiagnostics(child, format, pageIndex, componentIndex, path, diagnostics, visited);
       }
     }
 }
 
 export function inspectOutputCapabilities(plan: RenderPlan, format: OutputFormat): OutputDiagnostic[] {
+  assertBoundedRenderTree(plan);
   const diagnostics: OutputDiagnostic[] = [];
   plan.pages.forEach((page, pageIndex) => page.components.forEach((comp, componentIndex) => collectComponentDiagnostics(comp, format, pageIndex, componentIndex, [], diagnostics, new Set())));
   return diagnostics;

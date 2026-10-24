@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.15.0-2563eb" alt="Source version 2.15.0" />
+  <img src="https://img.shields.io/badge/source-2.16.0-2563eb" alt="Source version 2.16.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -43,15 +43,15 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 页面模型 | 毫米单位、纸张预设与自定义尺寸、页边距、横纵向、文本与表格几何 |
 | 完整宽表 | 自然列宽、横向滚动、默认 100% 预览；纵向分段窗口化，Excel 自动合并连续 Sheet |
 | 明细与汇总 | 自动分页、多级分组与加权小计、业务键主从明细、动态矩阵、重复页眉页脚 |
-| 数据呈现 | 表头与内容独立对齐、类型自动对齐、数值 / 百分比 / 日期格式化、条件格式 |
+| 数据呈现 | 表头与内容独立对齐、类型自动对齐、数值 / 百分比 / 日期格式化、条件格式、富文本与格内子组件 |
 | 预览交互 | 远程级联参数、受控关联详情、右下分页、分组导出菜单、内容搜索与字段目录、跨页选区、冻结窗格、Sheet 导航 |
 | 内容编辑 | 默认只读；双击与批量粘贴、原子保存、编辑后重算、撤销 / 重做、恢复与变更清单 |
-| Excel 导入 | PNG/JPEG Logo、完整索引色、多 Sheet 会话复用、可取消预检、完整宽表、合并样式与缓存公式值转换为模板 |
+| Excel 导入 | 混合字体与只读富文本、PNG/JPEG Logo、完整索引色、多 Sheet 会话复用、可取消预检、合并样式与缓存公式值转换为模板 |
 | 模板配置 | 可视化画布、Excel 业务绑定向导、计算与规则、变更对比与发布验收、CAS 历史 / 回滚 |
 | 工业标签 | 模板 + 行数组直接接入、逐记录字段绑定、多版相邻与份数、真实 QR / 条码、可视化设计 |
 | 输出 | 浏览器打印、HTML、PDF、真正的 `.xlsx`、逐页 PNG、Word 兼容 HTML `.doc` |
 | 工程接入 | 局部组件、全局插件、异步入口、分层配置、结构化错误与导出告警 |
-| 引擎复用 | 共用契约与计算、逐页排版、Node Runtime / Worker、流式 Excel、可恢复持久任务 |
+| 引擎复用 | 共用契约与计算、逐页排版、Node Runtime / 自动隔离编码、流式 Excel、可恢复持久任务 |
 | 分析扩展 | 可选只读选区计算、交叉汇总、声明式计算、柱图 / 折线图基础图元与资源适配 |
 
 数据接口、鉴权与业务规则由宿主应用决定。包内统一校验、分页、编辑事务、设计器和版本流程；宿主提供请求与存储适配器。审批和业务数据库部署按项目现有治理执行。
@@ -76,10 +76,12 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 跨项目搬运模板、资源、字段契约与脱敏样例 | [可搬运模板包](./docs/TEMPLATE_PACKAGE.md) |
 | 字典搜索、厂别/产线级联、查看关联详情 | [参数](./docs/PARAMETERS.md) · [关联动作与隔离](./docs/RELIABILITY.md) · `/parameters.html`、`/product.html` |
 | 大批量标签、标准纸张拼版、持久任务 | [交付](./docs/DELIVERY.md) · [持久任务](./docs/DURABLE_JOBS.md) · [打印校准](./docs/PRINT_AND_DATA.md) |
+| 大文件编码、压缩期硬取消 | [自动执行策略](./docs/guides/automatic-export.md)：浏览器一个Worker工厂，Node自动定位线程入口 |
+| 持续回归与设备交接 | [深层测试](./docs/DEEP_VALIDATION.md) · [Office与设备验收](./docs/EXTERNAL_ACCEPTANCE.md) · [迭代安排](./docs/NEXT_ITERATION.md) |
 
 稳定业务键的数据源自动维护编辑重算会话，独立报表默认隔离；镜像来源显式声明共享。保存前准备重算，成功后更新派生结果与修订，导出等待在途编辑。工作簿公式继续只显示缓存结果。严格输出拒绝已知缺字或损坏图片，宽松策略返回明确诊断。
 
-设计工具按需加载；画布拖动只在松手时提交事务，修改模板名称不重复排版。大列目录窗口化，连续 Excel 按工作量让出执行并响应取消。已准备结果可通过 `runtime.exportPrepared()` 原样导出，无需再次取数。
+设计工具按需加载；画布拖动只在松手时提交事务，修改模板名称不重复排版。大列目录窗口化，连续 Excel 按工作量让出执行并响应取消。可选自动执行按任务规模隔离编码，覆盖最终压缩期硬取消；已准备结果原样交付，无需再次取数。
 
 产品分层和暂缓的数据库连接、企业权限、调度与渠道见[产品能力](./docs/PRODUCT_PLATFORM.md)；还原边界、验证方式和上游依赖证据见[质量说明](./docs/QUALITY.md)、[可靠性与升级](./docs/RELIABILITY.md)、[依赖清单](./docs/DEPENDENCIES.md)。
 
@@ -243,7 +245,7 @@ await writeFile("report.xlsx", new Uint8Array(buffer));
 | 标题文本 | 按组件顺序写入合并行；页面绝对坐标转换为工作表行流 |
 | 单元格类型 | 宽表默认 raw，普通页面默认 text；可显式覆盖，raw 保留数值、布尔、文本编号、空值和汇总数值 |
 | 数字格式 | `raw` 模式沿用小数位、千分位和百分比格式，不猜测文本编号的类型 |
-| 非表格内容 | 图片、条码、二维码、图表、嵌套组件和无文本回退的富文本等暂不导出，跳过时返回 `warnings` |
+| 图片与富文本 | PNG/JPEG及图片型码图可嵌入；顶层/格内文字保留原生richText，格内图片保留锚点；未生成的图表/码图与不可表达的嵌套几何具名诊断 |
 | 版式与打印 | 普通页面自动识别 A3 / A4 / A5；宽表默认不强制纸型，可选 paperSize，工作表列宽保持完整 |
 | Excel 模板导入 | `.xlsx` 转普通模板，多 Sheet、合并、尺寸、基础样式与原始值；默认完整宽表 |
 | 内容修改 | 预览按需双击编辑；公式格只读且不重算，工作簿编辑器与透视表交互不在当前范围 |
@@ -330,7 +332,7 @@ const template = createTableTemplate({
 | 输出 | 验收重点与范围 |
 | --- | --- |
 | DOM / 浏览器打印 | 固定几何、合并格、字体继承、独立边框、普通宿主 CSS 隔离；自定义纸张保留毫米精度 |
-| Canvas / PNG | 文本、表格、基础形状、真实斜线；异步等待图片解码并逐页编码，完整富文本仍有限制 |
+| Canvas / PNG | 基础富文本、混合字面、格内递归内容与裁切；异步等待图片解码并逐页编码，不支持样式具名诊断 |
 | PDF | 网格、内距、行高、垂直对齐、字体与图片输出；缺字、裁切及不支持样式提供诊断 |
 | Excel | 完整行列、原始值、合并、行高、连续表；按工作表语义输出，不复刻自由页面坐标 |
 
@@ -620,10 +622,13 @@ pnpm test:e2e
 | `pnpm lint` | ESLint 检查 |
 | `pnpm test` / `pnpm test:coverage` | Vitest 单元测试 / 覆盖率 |
 | `pnpm build` | 引擎、Vue、联邦与示例构建 |
-| `pnpm verify` | 类型、Lint、复杂度、构建、覆盖率、文档与打包消费端校验 |
+| `pnpm verify` | 类型、Lint、复杂度、构建、API/依赖摘要、覆盖率、文档、打包消费与验收样例 |
 | `pnpm check:quality` | 生产 TS / Vue 函数圈复杂度上限 20，输出可复核统计 |
 | `pnpm check:consumer` | npm 产物在隔离目录的 ESM / CJS 运行与类型验证 |
 | `pnpm test:e2e` | Playwright 浏览器端到端验证 |
+| `pnpm test:fuzz` | 有种子的模板、参数、媒体、ZIP、XLSX与HTML属性测试 |
+| `pnpm test:a11y` | 真实浏览器axe与交互状态可访问性检查 |
+| `pnpm check:acceptance` | 生成并回读Office、字体、标签及设备验收包，人工状态保持未执行 |
 | `pnpm check:compat` | 实际包的严格 ESM/CJS 类型、运行、SSR 与输出兼容检查 |
 | `pnpm check:server-example` | Java→Node 真实 HTTP、精度、错误、取消、下载与混合并发 |
 | `pnpm --filter @agile-team/example-minimal dev` | 启动本地报表示例 |
@@ -665,7 +670,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.15.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.16.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

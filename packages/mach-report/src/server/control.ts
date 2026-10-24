@@ -1,5 +1,7 @@
 import type { ReportRuntimeBudget } from "./types";
 
+export const DEFAULT_REPORT_RUNTIME_BUDGET: Readonly<Required<ReportRuntimeBudget>> = Object.freeze({ maxRows: 100_000, maxPages: 10_000, maxCells: 2_000_000, maxOutputBytes: 100_000_000, maxPreparedBytes: 64_000_000, maxDurationMs: 120_000 });
+
 export class ReportRuntimeError extends Error {
   constructor(readonly code: "budget" | "timeout" | "queue-full" | "closed", message: string, readonly path?: string) {
     super(message); this.name = "ReportRuntimeError";

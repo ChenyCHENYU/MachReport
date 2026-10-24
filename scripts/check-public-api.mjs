@@ -25,8 +25,12 @@ for (const [index, [entry]] of entries.entries()) {
     exports[entry][symbol.name] = key;
   }
 }
-const result = `${JSON.stringify({ format: 1, exports, declarations: Object.fromEntries([...declarations].sort(([a], [b]) => a.localeCompare(b))) }, null, 2)}\n`;
+const assets = Object.fromEntries(Object.entries(manifest.publishConfig.exports).filter(([, value]) => typeof value === "string").map(([name, file]) => {
+  if (!existsSync(join(pkg, file))) throw new Error(`Missing public asset: ${name} -> ${file}`);
+  return [name, file];
+}));
+const result = `${JSON.stringify({ format: 2, assets, exports, declarations: Object.fromEntries([...declarations].sort(([a], [b]) => a.localeCompare(b))) }, null, 2)}\n`;
 const baseline = join(root, "scripts/public-api.json");
 if (process.argv.includes("--update")) { writeFileSync(baseline, result); console.log("Public API baseline updated; review the diff before committing"); }
 else if (!existsSync(baseline) || readFileSync(baseline, "utf8") !== result) throw new Error("Public API changed. Review signatures and migration compatibility, then run pnpm check:api --update");
-else console.log(`Public API checked: ${entries.length} entry points, ${declarations.size} unique declarations`);
+else console.log(`Public API checked: ${entries.length} code APIs + ${Object.keys(assets).length} assets, ${declarations.size} unique declarations`);

@@ -12,5 +12,10 @@ for (const component of inventory.components) {
   const path = component.properties.find(item => item.name === "mach-report:license-file")?.value;
   if (!path || !existsSync(join(dist, path))) throw new Error(`Missing license for ${component.name}`);
 }
+const manifest = read(join(pkg, "package.json"));
+for (const value of Object.values(manifest.publishConfig.exports)) {
+  const file = typeof value === "string" ? value.replace(/^\.\/dist\//, "") : undefined;
+  if (file && !integrity.files[file]) throw new Error(`Published asset absent from integrity inventory: ${file}`);
+}
 for (const [file, expected] of Object.entries(integrity.files)) if (hash(readFileSync(join(dist, file))) !== expected) throw new Error(`Artifact changed after SBOM: ${file}`);
 console.log(`SBOM verified: ${inventory.components.length} components, lockfile and built artifact integrity`);

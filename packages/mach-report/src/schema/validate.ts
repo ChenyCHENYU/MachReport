@@ -1,3 +1,4 @@
+import { componentTreeIssue, renderTreeIssue } from "./component-tree";
 import type { PlanComponent, PlanPage } from "./render-plan";
 import { validateBusinessSource, validateGridCellEditingMetadata } from "./cell-edit-validation";
 import { codeOptionIssues } from "./code-options";
@@ -28,10 +29,16 @@ function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+function describeValue(value: unknown): string {
+  if (value === null) return "null";
+  if (typeof value === "string") return JSON.stringify(value.slice(0, 120));
+  if (["number", "boolean", "undefined"].includes(typeof value)) return String(value);
+  return `[${typeof value}]`;
+}
 function checkNumber(obj: Record<string, unknown>, key: string, path: string, errors: ValidationError[]): void {
   const v = obj[key];
   if (typeof v !== "number" || !Number.isFinite(v)) {
-    errors.push({ path: `${path}.${key}`, message: `应为有限数字，实际 ${JSON.stringify(v)}` });
+    errors.push({ path: `${path}.${key}`, message: `应为有限数字，实际 ${describeValue(v)}` });
   }
 }
 
@@ -73,9 +80,10 @@ function validateGrid(grid: unknown, path: string, errors: ValidationError[], wa
             return;
           }
           validateGridCellEditingMetadata(cell, here, errors);
+          validateRichText(cell["richParagraphs"], here, errors);
           if (Array.isArray(cell["children"])) {
             (cell["children"] as unknown[]).forEach((child, ki) => {
-              validateComponent(child, `${path}.grid.cells.${ri}.${ci}.children.${ki}`, errors, warnings);
+              validateComponentFields(child, `${path}.grid.cells.${ri}.${ci}.children.${ki}`, errors, warnings);
             });
           }
         });
@@ -84,20 +92,57 @@ function validateGrid(grid: unknown, path: string, errors: ValidationError[], wa
   }
 }
 
+function richEnum(value: unknown, allowed: string[], path: string, errors: ValidationError[]): void {
+  if (value !== undefined && !allowed.includes(value as string)) errors.push({ path, message: "未知富文本属性值" });
+}
+function richNumbers(value: Record<string, unknown>, keys: string[], path: string, errors: ValidationError[], minimum = 0): void {
+  for (const key of keys) {
+    const number = value[key];
+    if (number !== undefined && (typeof number !== "number" || !Number.isFinite(number) || number < minimum)) errors.push({ path: `${path}.${key}`, message: "富文本数值应为范围内有限数字" });
+  }
+}
+function validateRichStyle(value: unknown, path: string, errors: ValidationError[]): void {
+  if (value === undefined) return;
+  if (!isObj(value)) { errors.push({ path, message: "富文本样式应为对象" }); return; }
+  for (const key of ["fontFamily", "color", "backgroundColor", "lineColor", "borderColor"]) {
+    if (value[key] !== undefined && typeof value[key] !== "string") errors.push({ path: `${path}.${key}`, message: "富文本样式应为字符串" });
+  }
+  for (const key of ["bold", "italic", "underline", "borderTop", "borderRight", "borderBottom", "borderLeft"]) {
+    if (value[key] !== undefined && typeof value[key] !== "boolean") errors.push({ path: `${path}.${key}`, message: "富文本样式应为布尔值" });
+  }
+  richNumbers(value, ["fontSize", "fontSizePx", "lineWidthPt", "lineHeight", "opacity"], path, errors);
+  richNumbers(value, ["letterSpacing", "rotateDeg"], path, errors, -Infinity);
+  if (typeof value.opacity === "number" && value.opacity > 1) errors.push({ path: `${path}.opacity`, message: "透明度不能大于1" });
+  richEnum(value.align, ["left", "center", "right", "justify"], `${path}.align`, errors);
+  richEnum(value.verticalAlign, ["top", "middle", "bottom"], `${path}.verticalAlign`, errors);
+}
+function validateRichSegment(value: unknown, path: string, errors: ValidationError[]): void {
+  if (!isObj(value)) { errors.push({ path, message: "富文本片段应为对象" }); return; }
+  richEnum(value.kind, ["text", "field"], `${path}.kind`, errors);
+  for (const key of ["text", "field"]) {
+    if (value[key] !== undefined && typeof value[key] !== "string") errors.push({ path: `${path}.${key}`, message: "富文本内容应为字符串" });
+  }
+  validateRichStyle(value.style, `${path}.style`, errors);
+}
 function validateRichText(rich: unknown, path: string, errors: ValidationError[]): void {
-  if (rich !== undefined) {
-    if (!Array.isArray(rich)) {
-      errors.push({ path: `${path}.richParagraphs`, message: "richParagraphs 应为数组" });
-    } else {
-      rich.forEach((para, i) => {
-        if (!isObj(para) || !Array.isArray(para["segments"])) {
-          errors.push({ path: `${path}.richParagraphs.${i}`, message: "段落缺少 segments 数组" });
-        }
-      });
-    }
-  }}
+  if (rich === undefined) return;
+  if (!Array.isArray(rich)) { errors.push({ path: `${path}.richParagraphs`, message: "richParagraphs 应为数组" }); return; }
+  rich.forEach((para: unknown, index) => {
+    const here = `${path}.richParagraphs.${index}`;
+    if (!isObj(para) || !Array.isArray(para.segments)) { errors.push({ path: here, message: "段落缺少 segments 数组" }); return; }
+    richEnum(para.align, ["left", "center", "right", "justify"], `${here}.align`, errors);
+    richNumbers(para, ["lineHeight", "spaceBeforeMm", "spaceAfterMm", "indentMm"], here, errors);
+    para.segments.forEach((segment: unknown, segmentIndex) => validateRichSegment(segment, `${here}.segments.${segmentIndex}`, errors));
+  });
+}
 
-export function validateComponent(
+export function validateComponent(comp: unknown, path: string, errors: ValidationError[], warnings: ValidationError[] = []): void {
+  const issue = componentTreeIssue([comp], path);
+  if (issue) { errors.push(issue); return; }
+  validateComponentFields(comp, path, errors, warnings);
+}
+
+function validateComponentFields(
   comp: unknown,
   path: string,
   errors: ValidationError[],
@@ -113,7 +158,7 @@ export function validateComponent(
   } else if (!KNOWN_KINDS.has(kind)) {
     warnings.push({
       path: `${path}.kind`,
-      message: `未知组件类型 ${JSON.stringify(kind)}，将以兜底方式渲染`
+      message: `未知组件类型 ${describeValue(kind)}，将以兜底方式渲染`
     });
   }
   for (const key of ["leftMm", "topMm", "widthMm", "heightMm"]) {
@@ -167,10 +212,10 @@ export function validatePage(
   const w = page["pageWidthMm"];
   const h = page["pageHeightMm"];
   if (typeof w !== "number" || !Number.isFinite(w) || w <= 0) {
-    errors.push({ path: `${path}.pageWidthMm`, message: `页宽非法: ${JSON.stringify(w)}` });
+    errors.push({ path: `${path}.pageWidthMm`, message: `页宽非法: ${describeValue(w)}` });
   }
   if (typeof h !== "number" || !(h > 0 && h < 5000)) {
-    errors.push({ path: `${path}.pageHeightMm`, message: `页高非法: ${JSON.stringify(h)}` });
+    errors.push({ path: `${path}.pageHeightMm`, message: `页高非法: ${describeValue(h)}` });
   }
   if (page["layout"] !== undefined && page["layout"] !== "page" && page["layout"] !== "wide") {
     errors.push({ path: `${path}.layout`, message: "布局应为 page 或 wide" });
@@ -179,8 +224,10 @@ export function validatePage(
   if (!Array.isArray(comps)) {
     errors.push({ path: `${path}.components`, message: "components 应为数组" });
   } else if (Array.isArray(comps)) {
+    const issue = componentTreeIssue(comps, `${path}.components`);
+    if (issue) { errors.push(issue); return; }
     comps.forEach((comp, i) => {
-      validateComponent(comp, `${path}.components.${i}`, errors, warnings);
+      validateComponentFields(comp, `${path}.components.${i}`, errors, warnings);
       validateResolvedBinding(comp, `${path}.components.${i}`, errors);
     });
   }
@@ -197,6 +244,8 @@ export function validateRenderPlan(input: unknown): ValidationResult {
       message: input == null ? "渲染计划为空" : "渲染计划缺少 pages 数组"
     });
   } else {
+    const issue = renderTreeIssue(pages);
+    if (issue) return { ok: false, errors: [...errors, issue], warnings };
     pages.forEach((page, i) => validatePage(page, `$.pages.${i}`, errors, warnings));
     // 规模告警：异常大的计划（网关异常/模板失控）提前预警，不阻塞渲染
     if (pages.length > 2_000) {

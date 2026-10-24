@@ -3,7 +3,7 @@ import { reportOccurrenceScope } from "../source/report-identity";
 import { getReportParamDefs } from "../source/report-params";
 import { reportParamsJsonSchema, ReportParamValidationError, validateReportParams, type ReportParamValidation } from "../source/param-validation";
 import type { PreparedReport, ReportDescription, ReportRuntime, ReportRuntimeBudget, ReportRuntimeExportInput, ReportRuntimeExportResult, ReportRuntimeInput, ReportRuntimeOptions, ReportRuntimePreparedExportInput, ReportRuntimeSource } from "./types";
-import { assertBudget, controlled, ReportRuntimeError, throwIfAborted, validateBudget } from "./control";
+import { DEFAULT_REPORT_RUNTIME_BUDGET, assertBudget, controlled, ReportRuntimeError, throwIfAborted, validateBudget } from "./control";
 import type { PlanComponent } from "../schema/render-plan";
 import { validateRenderPlan } from "../schema/validate";
 import type { TextMeasurer } from "../layout/textwrap";
@@ -56,7 +56,7 @@ function validateInput(reports: ReportRegistry, input: Omit<ReportRuntimeInput, 
   return { ...result, ok: unique.size === 0, issues: [...unique.values()] };
 }
 
-function enforcePrepared(result: PreparedReport, budget: ReportRuntimeBudget): PreparedReport {
+export function enforcePrepared(result: PreparedReport, budget: ReportRuntimeBudget): PreparedReport {
   const validation = validateRenderPlan(result.plan);
   if (!validation.ok) throw new ReportSourceError("validate", `执行器返回无效计划：${validation.errors[0]?.path}`);
   const pages = result.plan.pages.length;
@@ -72,7 +72,7 @@ function assertInput(options: ReportRuntimeOptions, input: Omit<ReportRuntimeInp
 
 /** 无 Vue、无 HTTP 框架的可选服务端外观；PDF/Excel 仅在对应 export 调用时加载。 */
 export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntime {
-  const budget = { maxRows: 100_000, maxPages: 10_000, maxCells: 2_000_000, maxOutputBytes: 100_000_000, maxPreparedBytes: 64_000_000, maxDurationMs: 120_000, ...options.budget };
+  const budget = { ...DEFAULT_REPORT_RUNTIME_BUDGET, ...options.budget };
   validateBudget(budget);
   const localPrepare = async (input: ReportRuntimeInput, measurer?: TextMeasurer): Promise<PreparedReport> => {
     const started = Date.now();

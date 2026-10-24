@@ -54,7 +54,7 @@ async function navigate(next: string) {
 <template>
   <main class="label-demo">
     <header class="label-heading">
-      <a class="label-brand" href="/" aria-label="MachReport 首页">M<span>R</span></a>
+      <a class="label-brand" href="/" aria-label="MR · MachReport 首页">M<span>R</span></a>
       <div><p>MACHREPORT / LABEL STUDIO</p><h1>材料标识工作台</h1><span>从字段到实物，让信息清晰可追溯</span></div>
       <a class="label-guide" href="https://github.com/ChenyCHENYU/MachReport/blob/main/docs/LABELS.md" target="_blank" rel="noreferrer">接入指南 <span aria-hidden="true">↗</span></a>
     </header>

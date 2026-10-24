@@ -65,6 +65,8 @@ export interface ReportCellSource {
 }
 
 export interface GridCell {
+  /** Styled cell content; text remains a plain-text fallback. Imported rich cells are read-only. */
+  richParagraphs?: RichParagraph[];
   text?: string;
   rawText?: string;
   /** 原始值，仅供 Excel raw 模式消费；不参与预览、分页与 PDF 绘制。 */

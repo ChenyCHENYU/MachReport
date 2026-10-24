@@ -196,14 +196,14 @@ body {
   margin: 0;
   font: 10px/1.5 system-ui;
   letter-spacing: 2px;
-  color: #64748b;
+  color: #52647b;
 }
 .workbench-heading h1 {
   font-size: 24px;
   margin: 4px 0 8px;
 }
 .workbench-heading span {
-  color: #64748b;
+  color: #52647b;
   font-size: 12px;
 }
 .workbench-heading a {
@@ -219,10 +219,10 @@ body {
   justify-content: space-between;
   padding: 0 2px 10px;
   font-size: 11px;
-  color: #64748b;
+  color: #52647b;
 }
 .workbench-status span:first-child {
-  color: #14806b;
+  color: #10715f;
 }
 .workbench > .mr-designer {
   height: calc(100vh - 205px);
