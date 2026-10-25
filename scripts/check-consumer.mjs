@@ -55,6 +55,19 @@ const encodedLabels = await core.resolvePlanAssets(labels, { assetRenderers: cod
 if (encodedLabels.plan.pages.length !== 2 || !encodedLabels.plan.pages[0].components[1].imageData.startsWith("data:image/png;base64,")) throw new Error("Packed record labels/codes failed");
 const labelPdf = await pdf.renderPlanToPdf(encodedLabels.plan);
 if (labelPdf.bytes[0] !== 37) throw new Error("Packed label PDF failed");
+const compound = core.validateReportParams([{ field: "plants", type: "multiSelect" }, { field: "range", type: "numberRange" }], { plants: ["0001", "0002"], range: [0, 2] });
+if (!compound.ok || compound.values.plants !== '["0001","0002"]' || compound.typedValues.range[0] !== 0) throw new Error("Packed compound parameter contract failed");
+const validationRules = [{ id: "balance", assert: { all: [{ field: "output", op: ">=", value: 0 }, { field: "output", op: "<=", right: { field: "input" } }] }, message: "Invalid balance" }];
+const validationIssues = core.validateReportDataset([{ id: "A", input: 1, output: 2 }], { rowKey: "id", rules: validationRules });
+if (validationIssues.length !== 1) throw new Error("Packed candidate validation failed");
+try { core.assertReportValidation(validationIssues); throw new Error("Validation did not block"); } catch (error) { if (!(error instanceof core.ReportValidationError)) throw error; }
+const compared = core.compareReportData({ datasetId: "detail", rows: [{ rowKey: "A", values: { n: "9007199254740993.001" } }] }, { datasetId: "detail", rows: [{ rowKey: "A", values: { n: "9007199254740993.003" } }] }, { fields: [{ field: "n", type: "decimal" }] });
+if (compared.differences[0].delta !== "0.002") throw new Error("Packed decimal comparison failed");
+const boundChart = core.createReportChartData([{ shift: "A", n: "1.1" }, { shift: "A", n: "2.2" }], { dataset: "detail", categoryField: "shift", type: "bar", measures: [{ field: "n", op: "sum", numeric: "decimal" }] });
+if (boundChart.series[0].values[0] !== 3.3) throw new Error("Packed declarative chart aggregation failed");
+const visual = core.createTableTemplate({ columns: [{ field: "n", header: "Value", visual: { kind: "dataBar" } }] });
+const visualExcel = await xlsx.renderPlanToXlsx(core.paginateTemplate(visual, { detail: [{ n: 2 }] }).plan, { fidelity: "strict" });
+if (!visualExcel.notes?.length || visualExcel.warnings.length) throw new Error("Packed static data-bar semantics failed");
 const template = core.createTemplate().page("a4").text("Consumer", { leftMm: 10, topMm: 10, widthMm: 80, heightMm: 8 }).build();
 const { plan } = core.paginateTemplate(template, {});
 const tableTemplate = core.createTableTemplate({ title: "Consumer", columns: [{ header: "Name", field: "name" }, { header: "Qty", field: "qty", widthMm: 25 }] });
@@ -153,6 +166,7 @@ if (isolatedPdf.bytes[0] !== 37 || isolatedExcel.bytes[0] !== 0x50 || isolatedPd
 
   const consumer = `import { createTemplate, paginateTemplate, paginateTemplatePages, reviewReportTemplate, reviewReportTemplateAsync, type ReportTemplateReviewProgress, imposeLabelSheets, type LabelSheetOptions } from "@agile-team/mach-report";
 import { createCodeAssetRenderers } from "@agile-team/mach-report/codes";
+import { validateReportDataset, assertReportValidation, compareReportData, createReportChartData, reportDateDefault, type ReportValidationRule } from "@agile-team/mach-report";
 import { renderPlanToXlsx } from "@agile-team/mach-report/xlsx";
 import { renderPlanToPdf } from "@agile-team/mach-report/pdf";
 import { compileDynamicSql } from "@agile-team/mach-report/sql";
@@ -166,6 +180,13 @@ import { ReportTemplateEditor, ExcelBindingWizard, RuleEditor, TemplateReviewPan
 import { computeDataset, createCrossTable, createChartComponents } from "@agile-team/mach-report/analytics";
 import { Writable } from "node:stream";
 async function consume() {
+  const dataRules: ReportValidationRule[] = [{ id: "balance", assert: { all: [{ field: "output", op: ">=", value: 0 }, { field: "output", op: "<=", right: { field: "input" }, numeric: "decimal" }] }, message: "Balance" }];
+  assertReportValidation(validateReportDataset([{ id: "A", input: "2", output: "1" }], { rowKey: "id", rules: dataRules }));
+  const dataToolProps: InstanceType<typeof ReportPreview>["$props"] = { editable: { validation: { rules: dataRules } }, prefill: { datasetId: "detail", fields: [{ field: "note" }], load: () => [{ rowKey: "A", values: { note: "From history" } }] }, dataComparison: { datasetId: "detail", fields: [{ field: "n", type: "decimal", tolerance: "0.001" }], load: () => [] } };
+  const visualChart = createReportChartData([{ shift: "A", n: 0 }], { dataset: "detail", categoryField: "shift", type: "percentBar", measures: [{ field: "n", op: "sum" }] });
+  compareReportData({ datasetId: "detail", rows: [] }, { datasetId: "detail", rows: [] }, { fields: [{ field: "n" }] });
+  reportDateDefault({ preset: "today", now: 0, timeZone: "Asia/Shanghai" });
+  void [dataToolProps, visualChart];
   const assets = createCodeAssetRenderers({ dpi: 203 });
   void assets;
   interface Material { id: string; weight: number }

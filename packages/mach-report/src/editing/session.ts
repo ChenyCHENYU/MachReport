@@ -1,3 +1,6 @@
+import type { FormulaAdapter } from "../processing/computed";
+import { validateSessionCandidates } from "./session-validation";
+import { assertReportValidation, type ReportCandidateValidationOptions, type ReportValidationIssue } from "./validation";
 import type { PaginateOptions, ReportTemplate, DatasetRows } from "../layout/paginate";
 import { paginateTemplate } from "../layout/paginate";
 import type { RenderPlan } from "../schema/render-plan";
@@ -14,10 +17,13 @@ import { reflowReportTemplate } from "./session-pagination";
 export interface ReportPreparedEdit {
   /** Calculated preview; no source/session state changes until commit succeeds. */
   readonly plan: RenderPlan;
+  readonly validationIssues: readonly ReportValidationIssue[];
+  /** Validate complete candidate source rows and derived fields before invoking persistence. */
+  validate(options: ReportCandidateValidationOptions): readonly ReportValidationIssue[];
   /** Call after persistence. A stale or repeated commit fails instead of publishing mixed state. */
   commit(result?: void | ReportEditResult): RenderPlan;
 }
-export interface ReportEditPreparationOptions { signal?: AbortSignal }
+export interface ReportEditPreparationOptions { signal?: AbortSignal; validation?: ReportCandidateValidationOptions }
 export interface ReportHistoryPreparation { batch: ReportEditBatch; prepared: ReportPreparedEdit; contexts: readonly ReportCellContext[] }
 export interface ReportEditSession {
   readonly plan: RenderPlan;
@@ -26,6 +32,8 @@ export interface ReportEditSession {
 }
 export interface ReportEditSessionRegistration {
   parts: readonly ReportEditSessionPart[];
+  /** Trusted runtime adapters stay outside the serializable guarded source snapshot. */
+  validationFormulas?: readonly (FormulaAdapter | undefined)[];
   rebuild(parts: readonly ReportEditSessionPart[], signal?: AbortSignal): Promise<RenderPlan>;
 }
 const sessions = new WeakMap<RenderPlan, ReportEditSession>();
@@ -79,6 +87,7 @@ function rememberConcurrency(metadata: Map<string, ReportEditResult>, batch: Rep
 export function registerReportEditSession(initial: RenderPlan, registration: ReportEditSessionRegistration): ReportEditSession {
   let sourceParts: readonly ReportEditSessionPart[] | undefined = registration.parts;
   const rebuild = registration.rebuild;
+  const validationFormulas = [...(registration.validationFormulas ?? [])];
   let initialGuard: (() => boolean) | undefined = captureSessionGuard(sourceParts);
   let current = initial, parts: ReportEditSessionPart[] | undefined;
   const retainedContexts = new Map<string, ReportCellContext>();
@@ -99,10 +108,22 @@ export function registerReportEditSession(initial: RenderPlan, registration: Rep
     const base = baseline(plan), nextParts = updateSessionRows(base, changesFor(base, batch.edits));
     const nextPlan = applyReportSourceMetadata(await rebuild(nextParts, options.signal), concurrency); active(options.signal);
     let committed = false;
-    return { plan: nextPlan, commit(result) {
+    let validationIssues: readonly ReportValidationIssue[] = [], warningPolicy: "allow" | "block" = "allow";
+    let validationFailed = false;
+    function validate(validation: ReportCandidateValidationOptions): readonly ReportValidationIssue[] {
+      validationFailed = true;
+      validationIssues = Object.freeze(validateSessionCandidates(nextParts, validation, options.signal, validationFormulas).map(issue => Object.freeze({ ...issue })));
+      validationFailed = false;
+      warningPolicy = validation.warningPolicy ?? "allow";
+      return validationIssues;
+    }
+    if (options.validation) validate(options.validation);
+    return { plan: nextPlan, get validationIssues() { return validationIssues; }, validate, commit(result) {
       active(options.signal);
       if (committed || current !== plan) throw new ReportCellEditError("conflict");
       if (result?.conflicts?.length) throw new ReportCellEditError("conflict");
+      if (validationFailed) throw new Error("候选规则校验未完成，不能提交");
+      assertReportValidation(validationIssues, warningPolicy);
       const committedParts = concurrencyParts(nextParts, batch, result), committedPlan = applyReportEditResult(nextPlan, batch, result);
       if (result) {
         const affected = rememberConcurrency(concurrency, batch, result);
@@ -139,5 +160,5 @@ export function registerReportEditSession(initial: RenderPlan, registration: Rep
 /** Optional standalone entry; normal createReportSource/createLocalFetcher already register it. */
 export function createReportEditSession(options: { template: ReportTemplate; datasets: DatasetRows; pagination?: PaginateOptions }): ReportEditSession {
   const plan = paginateTemplate(options.template, options.datasets, options.pagination).plan;
-  return registerReportEditSession(plan, { parts: [{ template: options.template, datasets: options.datasets }], rebuild: (parts, signal) => reflowReportTemplate(parts[0]!.template, parts[0]!.datasets, { ...options.pagination, signal }) });
+  return registerReportEditSession(plan, { validationFormulas: [options.pagination?.formula], parts: [{ template: options.template, datasets: options.datasets }], rebuild: (parts, signal) => reflowReportTemplate(parts[0]!.template, parts[0]!.datasets, { ...options.pagination, signal }) });
 }

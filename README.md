@@ -4,11 +4,11 @@
 
 <p align="center">
   <strong>面向业务宽表、明细台账与工业标签的 TypeScript 报表引擎</strong><br />
-  完整宽表 · Excel 模板绑定 · 工业标签 · 前后端共用契约 · 受控服务端输出
+  完整宽表 · Excel 模板绑定 · 规则填报与数据核对 · 工业标签 · 前后端共用契约
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.17.0-2563eb" alt="Source version 2.17.0" />
+  <img src="https://img.shields.io/badge/source-2.18.0-2563eb" alt="Source version 2.18.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -22,6 +22,7 @@
   <a href="#excel-报表能力与边界"><strong>Excel 能力</strong></a> ·
   <a href="#工业标签与材料标识">工业标签</a> ·
   <a href="#单元格编辑">单元格编辑</a> ·
+  <a href="./docs/DATA_WORKFLOW.md">填报与核对</a> ·
   <a href="#对齐与可读性">对齐配置</a> ·
   <a href="#模板配置与管理扩展">模板管理</a> ·
   <a href="#接入项目数据">数据接入</a> ·
@@ -43,16 +44,16 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 页面模型 | 毫米单位、纸张预设与自定义尺寸、页边距、横纵向、文本与表格几何 |
 | 完整宽表 | 自然列宽、横向滚动、默认 100% 预览；页级与宽表行列视口裁剪，Excel 自动合并连续 Sheet |
 | 明细与汇总 | 自动分页、多级分组与加权小计、业务键主从明细、层级动态矩阵、独立区域流式组合、重复页眉页脚 |
-| 数据呈现 | 表头与内容独立对齐、类型自动对齐、数值 / 百分比 / 日期格式化、条件格式、富文本与格内子组件 |
-| 预览交互 | 远程级联参数、受控关联详情、右下分页、分组导出菜单、内容搜索与字段目录、跨页选区、冻结窗格、Sheet 导航 |
-| 内容编辑 | 默认只读；双击与批量粘贴、原子保存、按行依赖增量计算、编辑后重排、撤销 / 重做、恢复与变更清单 |
+| 数据呈现 | 独立对齐与字段格式、组合条件、数据条 / 色阶、声明式聚合图表、富文本与格内子组件 |
+| 预览交互 | 多选 / 级联 / 数值范围、远程字典、紧凑数据工具、搜索与字段目录、右下分页、跨页选区、冻结与 Sheet 导航 |
+| 内容编辑 | 默认只读；双击 / 粘贴、整批候选校验、安全预填、原子保存、按行依赖增量计算、撤销 / 重做与差异审阅 |
 | Excel 导入 | 混合字体与只读富文本、PNG/JPEG Logo、完整索引色、多 Sheet 会话复用、可取消预检、合并样式与缓存公式值转换为模板 |
 | 模板配置 | 可视化画布、Excel 业务绑定向导、计算与规则、变更对比与发布验收、CAS 历史 / 回滚 |
 | 工业标签 | 模板 + 行数组直接接入、逐记录字段绑定、多版相邻与份数、真实 QR / 条码、可视化设计 |
 | 输出 | 浏览器打印、HTML、PDF、真正的 `.xlsx`、逐页 PNG、Word 兼容 HTML `.doc` |
 | 工程接入 | 局部组件、全局插件、异步入口、分层配置、结构化错误与导出告警 |
 | 引擎复用 | 共用业务语义与计算、逐页排版、按页文档存储、OpenAPI / Java客户端、自动隔离编码、流式 Excel、可恢复持久任务 |
-| 分析扩展 | 可选只读选区计算、交叉汇总、声明式计算、柱图 / 折线图基础图元与资源适配 |
+| 分析扩展 | 只读选区计算、按业务键精确期间对比、交叉汇总、IF / 数值 / 文本 / 日期表达式与按需资源适配 |
 
 数据接口、鉴权与业务规则由宿主应用决定。包内统一校验、分页、编辑事务、设计器和版本流程；宿主提供请求与存储适配器。审批和业务数据库部署按项目现有治理执行。
 
@@ -74,6 +75,7 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | Excel 区域绑定、主从/树形/矩阵 | [Excel绑定](./docs/EXCEL_BINDING.md) · [复杂报表](./docs/COMPLEX_REPORTS.md) |
 | 模板库 → 发布 → 批次 → 可追溯实例 | [最小工作流](./docs/WORKFLOW.md) · [发布验收](./docs/PUBLICATION_REVIEW.md) · `/platform.html` |
 | 跨项目搬运模板、资源、字段契约与脱敏样例 | [可搬运模板包](./docs/TEMPLATE_PACKAGE.md) |
+| 安全预填、整批校验、期间数据对比、视觉分析 | [数据工作流](./docs/DATA_WORKFLOW.md) · `/data-tools.html` |
 | 字典搜索、厂别/产线级联、查看关联详情 | [参数](./docs/PARAMETERS.md) · [关联动作与隔离](./docs/RELIABILITY.md) · `/parameters.html`、`/product.html` |
 | 大批量标签、标准纸张拼版、持久任务 | [交付](./docs/DELIVERY.md) · [持久任务](./docs/DURABLE_JOBS.md) · [打印校准](./docs/PRINT_AND_DATA.md) |
 | 层级交叉表、复杂区域、指标语义与组件扩展 | [复杂报表](./docs/COMPLEX_REPORTS.md) · [组件扩展](./docs/COMPONENT_EXTENSIONS.md) · [稳定接入](./docs/API_STABILITY.md) |
@@ -181,7 +183,7 @@ app.use(machReportPlugin, {
 
 模板的 `params` 会自动生成查询面板，显式 `paramDefs` 可覆盖。父页面用 `useMachReport()` 获得 `ref`、可等待的控制方法和只读响应式 `state`；例如 `report.state.canExport` 直接驱动外部按钮，加载、页数、导出、打印与错误无需另建状态。完整示例及接入边界见[项目接入指南](./docs/INTEGRATION.md)。旧 `fetcher` 与 `createLocalFetcher` 继续支持。
 
-查询面板复用同一参数契约，校验类型、范围、日期、枚举和Unicode长度。首次缺少必填条件时显示填写引导并等待查询；提交后标明具体字段并聚焦首个问题项。可选下拉能清空，中文输入法确认不会误提交。原始`fetcher + paramDefs`和编程式`setParams`同样在请求前校验；自动首载所需的必填值请通过`params`或`defaultValue`提供。
+查询面板复用同一参数契约，校验类型、范围、日期、枚举和Unicode长度。新增多选、完整叶节点级联与数值范围保留规范JSON wire，旧单选继续使用原字符串；显式业务时钟/时区可通过 `reportDateDefault` 生成日历默认值。首次缺少必填条件时显示填写引导并等待查询；提交后标明具体字段并聚焦首个问题项。可选下拉能清空，中文输入法确认不会误提交。原始`fetcher + paramDefs`和编程式`setParams`同样在请求前校验；自动首载所需的必填值请通过`params`或`defaultValue`提供。
 
 ### 原生 TypeScript：生成并渲染页面
 
@@ -305,6 +307,12 @@ const { template, warnings } = bindExcelTemplate(imported, [{
 
 本地修改不会写入后台。持久化可配置 `{ canEdit, validate, save, saveBatch }`，或使用 `createProviderEditing` 桥接统一 Provider。包内先验证并原子保存，再更新计划；失败保留原值。已保存数据的撤销 / 重做也经过保存回调。`listOptions.rowKey` 声明稳定业务主键，修订号与来源令牌随编辑传递；屏幕行号不会被当作数据库身份。文本编号与真实 0 保留原始类型；表头、汇总和公式默认只读。详见 [编辑指南](./docs/CELL_EDITING.md)与[交互指南](./docs/INTERACTION.md)。
 
+### 规则填报与业务核对
+
+`editable.validation` 用共享声明规则检查完整来源候选、隐藏行和派生结果；错误阻止整批保存，警告是否阻止由业务显式配置。`prefill` 只声明参考 loader 与字段白名单，默认仅补空白、保留真实零和只读格，审阅后复用同一原子编辑与撤销链路。`dataComparison` 按稳定业务键比较期间或实例数据，精确十进制差额、容差与零分母策略均显式配置。
+
+配置这些能力后才出现紧凑的“数据工具”菜单；包内维护侧栏、差异分页、取消和原报表定位，不要求项目增加第二张表或一套保存历史。保存及参考数据接口仍用现有业务客户端，Node可执行同一校验器，授权与数据库事务由宿主负责。见[最小接入、预算和边界](./docs/DATA_WORKFLOW.md)，或运行 `/data-tools.html` 体验本地闭环。
+
 ## 对齐与可读性
 
 `createTableTemplate()` 提供适合业务报表的默认值，常规列无需逐个配置。表头和内容独立设置，整表配置可被单列覆盖。
@@ -420,7 +428,7 @@ const { bytes, contentType, diagnostics, stats } = await runtime.export({
 
 `/worker` 与 `/server/node` 提供真实浏览器 Worker / worker_threads 适配器，运行同步分页时可硬取消；有界队列限制并发和排队。默认同步执行仅在阶段边界检查取消，不宣称阻塞期间可抢占。接入与预算详见[服务端与 Worker](./docs/SERVER.md)。
 
-交叉汇总、声明式计算和基础柱图 / 折线图位于可选 `/analytics`。图形展开成共享基础图元；公式字符串需显式引擎适配器，不执行 `eval`，不重算导入 Excel 的公式。二维码与条码可选内置 `/codes`；其他码制与图表仍可配置 `assets.assetRenderers`，异步准备一次后供预览和导出共用，并返回缺失 / 不支持的结构化诊断。用法见[分析与资源适配](./docs/ANALYTICS.md)。
+交叉汇总、声明式计算和柱图 / 折线 / 堆叠 / 百分比图元位于可选 `/analytics`。模板也可用 `chartBinding` 直接声明数据集、分类、度量和聚合，不必在使用侧拼图形。`ListColumn.visual` 提供数据条和色阶，保持原始值；Excel数据条为静态快照，不会随Excel编辑重算，并返回明确说明。图形展开成共享基础图元；公式字符串需显式引擎适配器，不执行 `eval`，不重算导入 Excel 的公式。二维码与条码可选内置 `/codes`；其他码制与图表仍可配置 `assets.assetRenderers`，异步准备一次后供预览和导出共用，并返回缺失 / 不支持的结构化诊断。用法见[分析与资源适配](./docs/ANALYTICS.md)。
 
 ## 大报表预览与性能
 
@@ -655,6 +663,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 | 设计效率 | [结构、片段与验收](./docs/DESIGNER_PRODUCTIVITY.md) · [草稿恢复与版本冲突](./docs/DRAFT_RECOVERY.md) |
 | 输出交付 | [准备结果与标签分批](./docs/DELIVERY.md) · [打印校准与来源说明](./docs/PRINT_AND_DATA.md) |
 | Excel业务绑定 | [绑定向导](./docs/EXCEL_BINDING.md)：区域识别、契约映射与可重开会话 |
+| 填报与核对 | [数据工作流](./docs/DATA_WORKFLOW.md)：复合参数、整批校验、安全预填、精确对比、图表与静态视觉 |
 | 复杂报表 | [计算与布局](./docs/COMPLEX_REPORTS.md)：精确数值、多级分组、主从、动态矩阵与逐页生成 |
 | 发布验收 | [变更与输出](./docs/PUBLICATION_REVIEW.md)：兼容检查、样例和真实文件验收 |
 | 持久任务 | [任务恢复](./docs/DURABLE_JOBS.md)：幂等、租约、取消与存储适配 |
@@ -674,7 +683,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.17.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.18.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

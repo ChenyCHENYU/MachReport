@@ -3,7 +3,7 @@ import type { ReportParamDef } from "../layout/paginate";
 export function remoteParamMetadataIssues(def: ReportParamDef): string[] {
   const issues: string[] = [];
   if (def.optionsSource !== undefined) {
-    if (def.type !== "select" || typeof def.optionsSource !== "string" || !/^[\w][\w.:-]{0,127}$/.test(def.optionsSource)) issues.push("远程选项来源应为 select 的有效来源键（最多 128 字符）");
+    if (!["select", "multiSelect", "cascader"].includes(def.type ?? "") || typeof def.optionsSource !== "string" || !/^[\w][\w.:-]{0,127}$/.test(def.optionsSource)) issues.push("远程选项来源应为选择参数的有效来源键（最多 128 字符）");
     if (def.options !== undefined) issues.push("远程选项来源与静态选项不能同时配置");
   }
   if (def.dependsOn !== undefined && (!def.optionsSource || !Array.isArray(def.dependsOn) || def.dependsOn.length > 32 || def.dependsOn.some(field => typeof field !== "string" || !field) || new Set(def.dependsOn).size !== def.dependsOn.length)) issues.push("联动依赖应为远程选项的最多 32 个唯一参数名");

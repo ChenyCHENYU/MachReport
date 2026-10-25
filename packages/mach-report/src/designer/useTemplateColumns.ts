@@ -1,10 +1,15 @@
 import { computed, ref, watch, type Ref } from "vue";
+import type { ColumnVisual } from "../layout/column-visual";
 import {
   resolveGridLayout,
   type ListComponent,
   type ReportTemplateDocument,
 } from "@agile-team/mach-report";
 import { inspectTemplateFieldUsage, type TemplateFieldUsage } from "../source/template-outline";
+function assignColumnValue(column: ListComponent["columns"][number], key: string, value: string | boolean | ColumnVisual | undefined): void {
+  if (key === "visual" && value === undefined) delete column.visual;
+  else Object.assign(column, { [key]: key === "widthMm" ? Number(value) : value });
+}
 
 export function useTemplateColumns(
   draft: Ref<ReportTemplateDocument>,
@@ -95,8 +100,9 @@ export function useTemplateColumns(
       | "headerAlign"
       | "semanticRole"
       | "editable"
+      | "visual"
       | "hidden",
-    value: string | boolean,
+    value: string | boolean | ColumnVisual | undefined,
   ): void {
     if (!canEdit()) return;
     const location = lists.value[selected.value];
@@ -117,7 +123,7 @@ export function useTemplateColumns(
       )
     )
       return;
-    Object.assign(column, { [key]: key === "widthMm" ? Number(value) : value });
+    assignColumnValue(column, key, value);
     if (key === "header") updateMergedHeader(index, String(value));
     if (key === "headerAlign")
       updateMergedHeaderAlignment(

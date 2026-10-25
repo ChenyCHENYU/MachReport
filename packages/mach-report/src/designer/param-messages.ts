@@ -57,5 +57,12 @@ export const PARAM_EDITOR_MESSAGES = {
   paramYear: "年份",
   paramDateRange: "日期范围",
   paramSelect: "下拉选择",
+  paramMultiSelect: "多选",
+  paramCascader: "层级选择",
+  paramNumberRange: "数值范围",
+  paramMinItems: "最少选择项数",
+  paramMaxItems: "最多选择项数",
+  paramChildAdd: "添加下级",
+  paramTreeHint: "选择完整叶节点路径；同级选项值须唯一，最多 16 级。",
 };
 export type ParamEditorMessages = typeof PARAM_EDITOR_MESSAGES;

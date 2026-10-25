@@ -34,6 +34,9 @@ const BASE_TEMPLATE_EDITOR_MESSAGES = {
   invalid: "请先修正模板错误，再预览或保存。",
 };
 const PRODUCT_TEMPLATE_EDITOR_MESSAGES = {
+  chartNumeric: "数值口径", chartNumber: "真实数字", chartDecimal: "精确小数文本", chartDigits: "小数位", chartWeight: "权重字段", chartWeightedAverage: "加权平均", chartNumberOptions: "数值与精度",
+  chartStacked: "堆叠柱形", chartPercent: "占比柱形",
+  chartDataset: "数据集", chartCategory: "分类字段", chartMeasure: "度量与聚合", chartAggregation: "聚合方式", chartSeries: "系列名称（可选）", chartAddSeries: "添加系列", chartRemoveSeries: "移除系列", chartRecordCount: "计数", chartSum: "求和", chartAverage: "平均", chartMinimum: "最小值", chartMaximum: "最大值", chartType: "图表", chartBar: "柱形", chartLine: "折线", chartSort: "分类顺序", chartNatural: "数据顺序", chartAscending: "升序", chartDescending: "降序", chartTitle: "图表标题", chartValues: "显示数值", chartBindingNote: "复用本次查询的数据，先聚合再绘图；不改变原始数值。Excel 图形输出限制会在导出检查中提示。",
   toolTarget: "当前目标",
   toolPreview: "显示画布",
   toolPreviewHide: "收起画布",

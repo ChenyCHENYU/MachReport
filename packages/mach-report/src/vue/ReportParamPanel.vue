@@ -11,6 +11,7 @@ import { computed, ref, watch } from "vue";
 import { validateReportParams, type ReportParamDef, type ReportParamIssue } from "@agile-team/mach-report";
 import type { MachReportMessages } from "./config";
 import { createParamPanelId, paramIssueMessage } from "./composables/useReportParams";
+import ReportCascaderParam from "./ReportCascaderParam.vue";
 import ReportRemoteParamSelect from "./ReportRemoteParamSelect.vue";
 import type { ReportParamOptionsLoader } from "./param-options";
 
@@ -79,16 +80,20 @@ function inputType(def: ReportParamDef): string {
   if (def.type === "date" || def.type === "month") return def.type;
   return "text";
 }
-function rangePart(value: string, index: number): string { return value.split("/")[index] ?? ""; }
+function rangePart(value: string, index: number, number = false): string {
+  if (!number) return value.split("/")[index] ?? "";
+  try { const parts: unknown = JSON.parse(value); return Array.isArray(parts) && (typeof parts[index] === "number" || typeof parts[index] === "string") ? String(parts[index]) : ""; } catch { return ""; }
+}
 function rangeInvalid(value: string, index: number, error: ReportParamIssue | undefined): boolean | undefined {
   if (!error) return undefined;
   const partial = !!rangePart(value, 0) !== !!rangePart(value, 1);
   return partial ? !rangePart(value, index) || undefined : true;
 }
-function setRangeField(field: string, index: number, value: string): void {
-  const parts = [rangePart(local.value[field] ?? "", 0), rangePart(local.value[field] ?? "", 1)];
-  parts[index] = value;
-  setField(field, parts.every(part => !part) ? "" : parts.join("/"));
+function setRangeField(def: ReportParamDef, index: number, value: string): void {
+  const number = def.type === "numberRange", current = local.value[def.field] ?? "";
+  const parts = [rangePart(current, 0, number), rangePart(current, 1, number)]; parts[index] = value;
+  const encoded = number ? JSON.stringify(parts.map(part => part === "" ? null : Number(part))) : parts.join("/");
+  setField(def.field, parts.every(part => !part) ? "" : encoded);
 }
 
 function query(event: KeyboardEvent): void {
@@ -111,7 +116,8 @@ defineExpose({ focusInvalid });
         <span :id="`${item.id}-label`" class="mrp-param-label">
           {{ item.label }}<i v-if="item.def.required" class="mrp-param-star" aria-hidden="true">*</i>
         </span>
-        <ReportRemoteParamSelect v-if="item.def.optionsSource" :id="item.id" :def="item.def" :value="item.value" :values="local" :load-options="loadOptions" :messages="messages" :disabled="disabled" :invalid="!!item.error" @change="setField(item.def.field, $event)" />
+        <ReportCascaderParam v-if="item.def.type === 'cascader'" :id="item.id" :def="item.def" :value="item.value" :values="local" :load-options="loadOptions" :messages="messages" :disabled="disabled" :invalid="!!item.error" @change="setField(item.def.field, $event)" />
+        <ReportRemoteParamSelect v-else-if="item.def.optionsSource || item.def.type === 'multiSelect'" :id="item.id" :def="item.def" :value="item.value" :values="local" :load-options="loadOptions" :messages="messages" :disabled="disabled" :invalid="!!item.error" @change="setField(item.def.field, $event)" />
         <select
           v-else-if="(item.def.type ?? 'text') === 'select'"
           class="mrp-param-input"
@@ -129,21 +135,22 @@ defineExpose({ focusInvalid });
             {{ opt.label }}
           </option>
         </select>
-        <div v-else-if="item.def.type === 'dateRange'" class="mrp-param-range" role="group" :aria-labelledby="`${item.id}-label`">
+        <div v-else-if="item.def.type === 'dateRange' || item.def.type === 'numberRange'" class="mrp-param-range" role="group" :aria-labelledby="`${item.id}-label`">
           <input
-            v-for="(part, index) in [messages.paramRangeStart ?? '开始日期', messages.paramRangeEnd ?? '结束日期']"
+            v-for="(part, index) in item.def.type === 'numberRange' ? [messages.paramNumberRangeStart ?? '最小值', messages.paramNumberRangeEnd ?? '最大值'] : [messages.paramRangeStart ?? '开始日期', messages.paramRangeEnd ?? '结束日期']"
             :key="index"
             class="mrp-param-input"
-            type="date"
-            :value="rangePart(item.value, index)"
+            :type="item.def.type === 'numberRange' ? 'number' : 'date'"
+            :step="item.def.type === 'numberRange' ? 'any' : undefined"
+            :value="rangePart(item.value, index, item.def.type === 'numberRange')"
             :disabled="disabled"
             :min="item.def.min"
             :max="item.def.max"
             :aria-label="`${item.label} · ${part}`"
-            :aria-invalid="rangeInvalid(item.value, index, item.error)"
+            :aria-invalid="item.def.type === 'numberRange' ? !!item.error || undefined : rangeInvalid(item.value, index, item.error)"
             :aria-describedby="item.error ? `${item.id}-error` : undefined"
             :aria-required="item.def.required || undefined"
-            @input="setRangeField(item.def.field, index, ($event.target as HTMLInputElement).value)"
+            @input="setRangeField(item.def, index, ($event.target as HTMLInputElement).value)"
             @keydown.enter="query"
           >
         </div>

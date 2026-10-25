@@ -1,3 +1,5 @@
+import { REPORT_EXPRESSION_FUNCTIONS, evaluateScalarFunction, type ReportExpressionOperation } from "./expression-functions";
+import { compileReportPredicate, reportPredicateFields, type ReportPredicate } from "./predicate";
 import { aggregateRows, type AggregateOperation } from "./aggregate";
 import {
   addDecimal,
@@ -11,7 +13,9 @@ export type ReportExpression =
   | { value: string | number | boolean | null }
   | { aggregate: AggregateOperation; field?: string; weightField?: string }
   | {
-      op: "add" | "subtract" | "multiply" | "divide" | "coalesce";
+      op: ReportExpressionOperation;
+      /** Required for if; args are [then, else], and only the selected branch is evaluated. */
+      condition?: ReportPredicate;
       args: readonly ReportExpression[];
     };
 export interface ExpressionContext {
@@ -172,27 +176,17 @@ function compileOperation(
   budget: { nodes: number },
   depth: number,
 ): ExpressionReader {
-  if (
-    !["add", "subtract", "multiply", "divide", "coalesce"].includes(
-      expression.op,
-    ) ||
-    !Array.isArray(expression.args)
-  )
-    throw new Error("未知计算操作");
-  if (
-    expression.args.length > 256 ||
-    Object.keys(expression.args).length !== expression.args.length
-  )
-    throw new Error("计算参数超出预算或包含空位");
-  if (
-    expression.args.length < 2 ||
-    (["subtract", "divide"].includes(expression.op) &&
-      expression.args.length !== 2)
-  )
-    throw new Error("运算参数数量不正确");
+  const definition = REPORT_EXPRESSION_FUNCTIONS.find(item => item.name === expression.op);
+  if (!definition || !Array.isArray(expression.args)) throw new Error("未知计算操作");
+  if (expression.args.length > 256 || Object.keys(expression.args).length !== expression.args.length) throw new Error("计算参数超出预算或包含空位");
+  if (expression.args.length < definition.minArgs || expression.args.length > definition.maxArgs) throw new Error("运算参数数量不正确");
+  const condition = expression.op === "if" ? compileReportPredicate(expression.condition!, budget, depth + 1) : undefined;
+  if (expression.op !== "if" && expression.condition !== undefined) throw new Error("仅 IF 运算接受 condition");
   const readers = expression.args.map((argument) =>
     compileReportExpression(argument, options, budget, depth + 1),
   );
+  if (condition) return context => readers[condition(context.row) ? 0 : 1]!(context);
+  if (!["add", "subtract", "multiply", "divide", "coalesce"].includes(expression.op)) return context => evaluateScalarFunction(expression.op, readers.map(read => read(context)), options.numeric, options.digits, options.nulls);
   if (expression.op === "coalesce")
     return (context) => coalesce(readers, context);
   return (context) =>
@@ -209,7 +203,7 @@ export function expressionFields(expression: ReportExpression): string[] {
   const visit = (node: ReportExpression) => {
     if ("field" in node && node.field) fields.add(node.field);
     if ("aggregate" in node && node.weightField) fields.add(node.weightField);
-    if ("args" in node) node.args.forEach(visit);
+    if ("args" in node) { node.args.forEach(visit); if (node.condition) reportPredicateFields(node.condition).forEach(field => fields.add(field)); }
   };
   visit(expression);
   return [...fields];

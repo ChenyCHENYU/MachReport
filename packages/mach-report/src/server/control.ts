@@ -1,6 +1,6 @@
 import type { ReportRuntimeBudget } from "./types";
 
-export const DEFAULT_REPORT_RUNTIME_BUDGET: Readonly<Required<ReportRuntimeBudget>> = Object.freeze({ maxRows: 100_000, maxPages: 10_000, maxCells: 2_000_000, maxOutputBytes: 100_000_000, maxPreparedBytes: 64_000_000, maxDurationMs: 120_000 });
+export const DEFAULT_REPORT_RUNTIME_BUDGET: Readonly<Required<ReportRuntimeBudget>> = Object.freeze({ maxRows: 100_000, maxPages: 10_000, maxCells: 2_000_000, maxChartComponents: 50_000, maxOutputBytes: 100_000_000, maxPreparedBytes: 64_000_000, maxDurationMs: 120_000 });
 
 export class ReportRuntimeError extends Error {
   constructor(readonly code: "budget" | "timeout" | "queue-full" | "closed", message: string, readonly path?: string) {
@@ -23,6 +23,7 @@ export function validateBudget(budget: ReportRuntimeBudget): void {
     if (value !== undefined && (!Number.isFinite(value) || value <= 0)) throw new ReportRuntimeError("budget", `${key} 应为正有限数字`, `$.budget.${key}`);
     if (key !== "maxDurationMs" && value !== undefined && !Number.isSafeInteger(value)) throw new ReportRuntimeError("budget", `${key} 应为正安全整数`, `$.budget.${key}`);
     if (key === "maxDurationMs" && value !== undefined && value > 2_147_483_647) throw new ReportRuntimeError("budget", "maxDurationMs 不能超过 2147483647", `$.budget.${key}`);
+    if (key === "maxChartComponents" && value !== undefined && value > 1_000_000) throw new ReportRuntimeError("budget", "maxChartComponents 不能超过 1000000", "$.budget.maxChartComponents");
   }
 }
 /** 默认同步分页只在阶段边界响应取消；硬终止 CPU 任务请使用隔离 executor。 */

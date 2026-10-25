@@ -1,4 +1,5 @@
-import { formatDecimal, parseDecimal, compareDecimal } from "./processing/decimal";
+import { formatDecimal } from "./processing/decimal";
+import { compileReportPredicate, type ReportPredicate } from "./processing/predicate";
 /**
  * 列值格式化（声明式、JSON 可序列化）。
  * 在 paginate 的 cellText 出口统一消费：格式化发生在进 RenderPlan 之前，
@@ -110,13 +111,7 @@ export function formatValue(value: unknown, format?: ColumnFormat): string {
 
 /** 条件格式规则求值（声明式，见 ListColumn.rules） */
 export interface StyleRule {
-  when: {
-    field: string;
-    op: ">" | ">=" | "<" | "<=" | "==" | "!=";
-    value: number | string;
-    /** Explicit decimal comparisons retain decimal thresholds as text. */
-    numeric?: "number" | "decimal";
-  };
+  when: ReportPredicate;
   /** 命中时合并进单元格样式（color/bold/backgroundColor 等） */
   style: Record<string, unknown>;
 }
@@ -130,30 +125,5 @@ export function evalStyleRule(
   row: Record<string, unknown>,
   when: StyleRule["when"]
 ): boolean {
-  const raw = row[when.field];
-  if (raw == null || raw === "") return false;
-  if (typeof when.value === "number" || when.numeric !== undefined) {
-    let n: number;
-    try { n = compareDecimal(parseDecimal(raw), parseDecimal(when.value)); } catch { return false; }
-    if (!Number.isFinite(n)) return false;
-    switch (when.op) {
-      case ">": return n > 0;
-      case ">=": return n >= 0;
-      case "<": return n < 0;
-      case "<=": return n <= 0;
-      case "==": return n === 0;
-      case "!=": return n !== 0;
-    }
-  }
-  const s = String(raw);
-  const t = String(when.value);
-  switch (when.op) {
-    case "==": return s === t;
-    case "!=": return s !== t;
-    case ">": return s > t;
-    case ">=": return s >= t;
-    case "<": return s < t;
-    case "<=": return s <= t;
-  }
-  return false;
+  return compileReportPredicate(when)(row);
 }

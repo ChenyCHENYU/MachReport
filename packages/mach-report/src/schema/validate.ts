@@ -1,7 +1,9 @@
+import { validDataBar } from "./data-bar";
 import { componentTreeIssue, renderTreeIssue } from "./component-tree";
 import type { PlanComponent, PlanPage } from "./render-plan";
 import { validateBusinessSource, validateGridCellEditingMetadata } from "./cell-edit-validation";
 import { codeOptionIssues } from "./code-options";
+import { validateReportChartBinding, type ReportChartBinding } from "../processing/chart-data";
 
 export interface ValidationError {
   path: string;
@@ -80,6 +82,7 @@ function validateGrid(grid: unknown, path: string, errors: ValidationError[], wa
             return;
           }
           validateGridCellEditingMetadata(cell, here, errors);
+          if (cell.dataBar !== undefined && !validDataBar(cell.dataBar)) errors.push({ path: `${here}.dataBar`, message: "数据条应包含 0–1 有序比例与 #RRGGBB 颜色" });
           validateRichText(cell["richParagraphs"], here, errors);
           if (Array.isArray(cell["children"])) {
             (cell["children"] as unknown[]).forEach((child, ki) => {
@@ -174,10 +177,20 @@ function validateComponentFields(
   }
   validateTableSource(comp["table"], path, errors);
   validateCodeOptions(comp["code"], kind, path, errors);
+  validateChartBinding(comp, path, errors);
   if (comp["pageAnchor"] !== undefined && !["header", "footer"].includes(comp["pageAnchor"] as string)) errors.push({ path: `${path}.pageAnchor`, message: "页面锚点应为 header 或 footer" });
   if (comp["lineDirection"] !== undefined && !["down", "up"].includes(comp["lineDirection"] as string)) errors.push({ path: `${path}.lineDirection`, message: "线段方向应为 down 或 up" });
   validateGrid(comp["grid"], path, errors, warnings);
   validateRichText(comp["richParagraphs"], path, errors);
+}
+
+function validateChartBinding(comp: Record<string, unknown>, path: string, errors: ValidationError[]): void {
+  if (comp.chartBinding === undefined) return;
+  try {
+    validateReportChartBinding(comp.chartBinding as ReportChartBinding);
+    if (comp.kind !== "chart" || ["binding", "imageData", "grid", "pageAnchor"].some(key => comp[key] !== undefined)) throw new Error("绑定图表不能设置图片、网格、记录绑定或页眉页脚");
+    if (typeof comp.widthMm !== "number" || comp.widthMm < 45 || typeof comp.heightMm !== "number" || comp.heightMm < 35) throw new Error("绑定图表至少需要 45×35mm");
+  } catch (error) { errors.push({ path: `${path}.chartBinding`, message: error instanceof Error ? error.message : String(error) }); }
 }
 
 function validateCodeOptions(value: unknown, kind: unknown, path: string, errors: ValidationError[]): void {
@@ -188,6 +201,7 @@ function validateCodeOptions(value: unknown, kind: unknown, path: string, errors
 function validateResolvedBinding(comp: unknown, path: string, errors: ValidationError[]): void {
   if (!isObj(comp)) return;
   if (comp["binding"] !== undefined) errors.push({ path: `${path}.binding`, message: "渲染计划不允许未解析字段绑定" });
+  if (comp["chartBinding"] !== undefined) errors.push({ path: `${path}.chartBinding`, message: "渲染计划不允许未解析图表绑定" });
   const grid = comp["grid"];
   if (!isObj(grid) || !Array.isArray(grid["cells"])) return;
   grid["cells"].forEach((row: unknown, ri: number) => {

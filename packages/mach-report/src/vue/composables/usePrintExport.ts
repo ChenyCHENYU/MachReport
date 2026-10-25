@@ -163,6 +163,8 @@ export function usePrintExport(
     encoding?: PreviewEncoding;
     onError: (message: string, code?: string) => void;
     onWarning?: (message: string) => void;
+    /** Informational output semantics, separate from fidelity failures. */
+    onNote?: (message: string) => void;
     onBusy?: (format: string | null) => void;
     onPrinting?: (printing: boolean) => void;
     onTask?: (task: Readonly<ReportPreviewTask>) => void;
@@ -401,10 +403,11 @@ export function usePrintExport(
           : import("@agile-team/mach-report/xlsx").then(async ({ renderPlanToXlsx }) => {
             assertOutputActive(run.controller.signal);
             const result = await renderPlanToXlsx(p, { ...xlsxOptions, ...options });
-            return { buffer: new Uint8Array(result.buffer), warnings: result.warnings };
+            return { buffer: new Uint8Array(result.buffer), warnings: result.warnings, notes: result.notes };
           });
-        const { buffer, warnings } = await waitForOutput<{ buffer: Uint8Array; warnings: string[] }>(encoded, run.controller.signal);
+        const { buffer, warnings, notes } = await waitForOutput<{ buffer: Uint8Array; warnings: string[]; notes?: string[] }>(encoded, run.controller.signal);
         if (!isActive(p, epoch)) return;
+        for (const note of notes ?? []) { if (isActive(p, epoch)) hooks.onNote?.(note); }
         if (warnings.length > 0) hooks.onWarning?.(`Excel 导出有 ${warnings.length} 条提示：${warnings.slice(0, 2).join("；")}`);
         if (!isActive(p, epoch)) return;
         downloadForRun(p, epoch, run, new Blob([buffer as unknown as globalThis.BlobPart], {

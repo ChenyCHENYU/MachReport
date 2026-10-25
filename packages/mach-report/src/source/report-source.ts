@@ -1,12 +1,12 @@
-import { PaginateCellLimitError, PaginatePageLimitError, paginateTemplate, type DatasetRows, type PaginateOptions, type ReportParamDef, type ReportTemplate } from "../layout/paginate";
-import { RENDER_PLAN_SCHEMA_VERSION, type PlanComponent, type RenderPlan } from "../schema/render-plan";
+import { paginateTemplate, type DatasetRows, type PaginateOptions, type ReportParamDef, type ReportTemplate } from "../layout/paginate";
+import { RENDER_PLAN_SCHEMA_VERSION, type RenderPlan } from "../schema/render-plan";
 import { validateRenderPlan } from "../schema/validate";
 import { getReportParamDefs } from "./report-params";
 import { ReportTemplateError, validateReportTemplate } from "./template-registry";
 import { templateRequiresRecalculation } from "../layout/template-calculations";
 import { assertReportParams } from "./param-validation";
 import { registerReportEditSession } from "../editing/session";
-import { reflowReportTemplate } from "../editing/session-pagination";
+import { reflowReportTemplateResult } from "../editing/session-pagination";
 import type { ReportEditSessionPart } from "../editing/session-data";
 import { createReportTaskReporter, type ReportTaskMonitoring } from "./task-events";
 import type { ReportProvider, ReportQueryResult } from "./provider";
@@ -15,6 +15,7 @@ import { validateDatasetRows, type DatasetContract, type DatasetValidationOption
 import { templateValidationDatasets } from "./template-tree-data";
 import { reportOccurrenceScope, reportSourceScope } from "./report-identity";
 import { scopePlanComponents } from "./source-scope";
+import { accountSourcePagination, createSourcePaginationBudget, sourcePagination, sourcePaginationError, type SourcePaginationBudget, type SourcePaginationLimits } from "./source-pagination-budget";
 
 /** 取数与排版共同使用的请求上下文；取消只影响本次调用。 */
 export interface ReportLoadContext {
@@ -200,35 +201,14 @@ function validateDataContract(definition: ReportDefinition, data: DatasetRows, r
   }
 }
 
-interface SourcePaginationBudget { maxPages?: number; usedPages: number; maxCells?: number; usedCells: number }
-function emptyRepeatedDataset(template: ReportTemplate, datasets: DatasetRows): boolean {
-  if (!template.repeat) return false;
-  const rows = Object.prototype.hasOwnProperty.call(datasets, template.repeat.dataset) ? datasets[template.repeat.dataset] : undefined;
-  return Array.isArray(rows) && rows.length === 0;
-}
-function planCells(plan: RenderPlan): number {
-  const count = (component: PlanComponent): number => component.grid?.cells.reduce((sum, row) => sum + row.reduce((size, cell) => size + (cell ? 1 + (cell.children?.reduce((total, child) => total + count(child), 0) ?? 0) : 0), 0), 0) ?? 0;
-  return plan.pages.reduce((sum, page) => sum + page.components.reduce((size, component) => size + count(component), 0), 0);
-}
-function sourcePagination(options: PaginateOptions | undefined, pages: number | undefined, cells: number | undefined, signal?: AbortSignal): PaginateOptions {
-  return { ...options, signal: signal ?? options?.signal,
-    ...(pages === undefined ? {} : { maxPages: Math.max(1, Math.min(pages, options?.maxPages ?? pages)) }),
-    ...(cells === undefined ? {} : { maxCells: Math.max(1, Math.min(cells, options?.maxCells ?? cells)) }) };
-}
-function paginateReport(template: ReportTemplate, data: DatasetRows, definition: ReportDefinition, reportId: string, budget: SourcePaginationBudget, signal?: AbortSignal): ReturnType<typeof paginateTemplate> & { cells: number } {
-  const remainingPages = budget.maxPages === undefined ? undefined : budget.maxPages - budget.usedPages;
-  const remainingCells = budget.maxCells === undefined ? undefined : budget.maxCells - budget.usedCells;
+function paginateReport(template: ReportTemplate, data: DatasetRows, definition: ReportDefinition, reportId: string, budget: SourcePaginationBudget, signal?: AbortSignal): ReturnType<typeof paginateTemplate> {
   try {
-    if (remainingPages !== undefined && remainingPages < 1 && template.pages.length && !emptyRepeatedDataset(template, data)) throw new PaginatePageLimitError(0, 1);
-    const pagination = sourcePagination(definition.pagination, remainingPages, remainingCells, signal);
+    const pagination = sourcePagination(definition.pagination, budget, template, data, signal);
     const result = paginateTemplate(template, data, pagination);
-    const cells = planCells(result.plan);
-    if (remainingCells !== undefined && cells > remainingCells) throw new PaginateCellLimitError(remainingCells, cells);
-    return { ...result, cells };
+    accountSourcePagination(budget, result);
+    return result;
   } catch (error) {
-    let cause = error;
-    if (error instanceof PaginatePageLimitError && budget.maxPages !== undefined && error.limit === remainingPages) cause = new PaginatePageLimitError(budget.maxPages, budget.usedPages + error.actual);
-    if (error instanceof PaginateCellLimitError && budget.maxCells !== undefined) cause = new PaginateCellLimitError(budget.maxCells, budget.usedCells + error.actual);
+    const cause = sourcePaginationError(error, budget);
     throw new ReportSourceError("validate", `报表 ${reportId} 排版失败：${cause instanceof Error ? cause.message : String(cause)}`, cause);
   }
 }
@@ -249,18 +229,16 @@ function appendTablePages(pages: RenderPlan["pages"], plan: RenderPlan, reportIn
 }
 
 /** Editing reuses the exact templates, limits and namespace order of the completed query. */
-async function reflowSource(parts: readonly ReportEditSessionPart[], definitions: readonly ReportDefinition[], reportIds: readonly string[], limits: { maxPages?: number; maxCells?: number }, signal?: AbortSignal): Promise<RenderPlan> {
+async function reflowSource(parts: readonly ReportEditSessionPart[], definitions: readonly ReportDefinition[], reportIds: readonly string[], limits: SourcePaginationLimits, signal?: AbortSignal): Promise<RenderPlan> {
   const pages: RenderPlan["pages"] = [];
-  let usedCells = 0;
+  const budget = createSourcePaginationBudget(limits);
   for (const [index, part] of parts.entries()) {
     checkAbort(signal);
-    const remainingPages = limits.maxPages === undefined ? undefined : limits.maxPages - pages.length;
-    const remainingCells = limits.maxCells === undefined ? undefined : limits.maxCells - usedCells;
-    if (remainingPages !== undefined && remainingPages < 1 && part.template.pages.length && !emptyRepeatedDataset(part.template, part.datasets)) throw new PaginatePageLimitError(limits.maxPages!, pages.length + 1);
-    const plan = await reflowReportTemplate(part.template, part.datasets, sourcePagination(definitions[index]?.pagination, remainingPages, remainingCells, signal));
-    usedCells += planCells(plan);
-    if (limits.maxCells !== undefined && usedCells > limits.maxCells) throw new PaginateCellLimitError(limits.maxCells, usedCells);
-    appendTablePages(pages, plan, index, reportIds[index]!, part.sourceScope);
+    try {
+      const result = await reflowReportTemplateResult(part.template, part.datasets, sourcePagination(definitions[index]?.pagination, budget, part.template, part.datasets, signal));
+      accountSourcePagination(budget, result);
+      appendTablePages(pages, result.plan, index, reportIds[index]!, part.sourceScope);
+    } catch (error) { throw sourcePaginationError(error, budget); }
   }
   const plan = { schemaVersion: RENDER_PLAN_SCHEMA_VERSION, ...(parts.some((part) => templateRequiresRecalculation(part.template)) ? { requiresRecalculation: true } : {}), pages };
   const validation = validateRenderPlan(plan);
@@ -274,10 +252,11 @@ async function reflowSource(parts: readonly ReportEditSessionPart[], definitions
  */
 export function createReportSource(
   reports: ReportRegistry,
-  options: { onWarning?: (message: string) => void; onDatasets?: (reportId: string, datasets: DatasetRows, template: ReportTemplate) => void; maxPages?: number; maxCells?: number } = {}
+  options: { onWarning?: (message: string) => void; onDatasets?: (reportId: string, datasets: DatasetRows, template: ReportTemplate) => void; maxPages?: number; maxCells?: number; maxChartComponents?: number } = {}
 ): ReportSource {
   if (options.maxPages !== undefined && (!Number.isSafeInteger(options.maxPages) || options.maxPages < 1)) throw new ReportSourceError("config", "maxPages 应为正安全整数");
   if (options.maxCells !== undefined && (!Number.isSafeInteger(options.maxCells) || options.maxCells < 1)) throw new ReportSourceError("config", "maxCells 应为正安全整数");
+  try { createSourcePaginationBudget(options); } catch (error) { throw new ReportSourceError("config", "maxChartComponents 应为 1..1000000 的安全整数", error); }
   function definitionFor(id: string): ReportDefinition {
     const definition = Object.prototype.hasOwnProperty.call(reports, id) ? reports[id] : undefined;
     if (!definition) throw new ReportSourceError("config", `未注册报表 ${id}`);
@@ -300,7 +279,7 @@ export function createReportSource(
     )));
     const pages: RenderPlan["pages"] = [];
     const editParts: ReportEditSessionPart[] = [];
-    let usedCells = 0;
+    const paginationBudget = createSourcePaginationBudget(options);
     const warnings: string[] = [];
     for (const [index, definition] of definitions.entries()) {
       checkAbort(signal);
@@ -317,8 +296,7 @@ export function createReportSource(
         validateDataContract(definition, data, reportId, template, signal);
       }, reportId);
       checkAbort(signal);
-      const result = reporter.runSync("layout", () => paginateReport(template, data, definition, reportId, { maxPages: options.maxPages, usedPages: pages.length, maxCells: options.maxCells, usedCells }, signal), reportId);
-      usedCells += result.cells;
+      const result = reporter.runSync("layout", () => paginateReport(template, data, definition, reportId, paginationBudget, signal), reportId);
       const sourceScope = reportSourceScope(index, reportId, definition.sourceScope);
       editParts.push({ template, datasets: data, sourceScope });
       appendTablePages(pages, result.plan, index, reportId, sourceScope);
@@ -333,8 +311,8 @@ export function createReportSource(
     });
     warnings.push(...validation.warnings.map((warning) => `${warning.path}: ${warning.message}`));
     const reflowDefinitions = definitions.map((definition) => ({ ...definition, pagination: { ...definition.pagination } }));
-    const reflowLimits = { maxPages: options.maxPages, maxCells: options.maxCells };
-    try { registerReportEditSession(plan, { parts: editParts, rebuild: (parts, editSignal) => reflowSource(parts, reflowDefinitions, requestedIds, reflowLimits, editSignal) }); }
+    const reflowLimits = { maxPages: options.maxPages, maxCells: options.maxCells, maxChartComponents: options.maxChartComponents };
+    try { registerReportEditSession(plan, { parts: editParts, validationFormulas: reflowDefinitions.map(definition => definition.pagination?.formula), rebuild: (parts, editSignal) => reflowSource(parts, reflowDefinitions, requestedIds, reflowLimits, editSignal) }); }
     catch { warnings.push("来源数据无法建立本地重算口径；当前预览仅支持计划内编辑，请使用可序列化模板数据启用规则重算"); }
     const warn = onWarning ?? options.onWarning ?? ((message: string) => console.warn("[mach-report]", message));
     for (const message of warnings) {

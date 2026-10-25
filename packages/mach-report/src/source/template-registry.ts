@@ -9,6 +9,7 @@ import { validateReportPageFlow, type ReportPageFlow } from "../layout/flow";
 import type { TemplateComponent } from "../layout/paginate";
 import { validateListTree } from "./template-tree-validation";
 import { validateTemplateRepeat } from "./template-repeat-validation";
+import { validColumnVisual } from "../layout/column-visual";
 
 /** 模板存储文档版本；与渲染计划版本独立演进。 */
 export const REPORT_TEMPLATE_DOCUMENT_VERSION = "1.0";
@@ -199,7 +200,7 @@ function validateParams(value: unknown, path: string, errors: ValidationError[])
       if (fields.has(param.field)) errors.push({ path: `${here}.field`, message: "参数名重复" });
       fields.add(param.field);
     }
-    if (param.type !== undefined && !["text", "number", "date", "month", "year", "dateRange", "select"].includes(param.type as string)) {
+    if (param.type !== undefined && !["text", "number", "date", "month", "year", "dateRange", "select", "multiSelect", "cascader", "numberRange"].includes(param.type as string)) {
       errors.push({ path: `${here}.type`, message: "未知参数类型" });
     }
     for (const key of ["label", "defaultValue", "placeholder"]) stringField(param, key, here, errors);
@@ -229,7 +230,7 @@ function validateParamBounds(param: JsonObject, path: string, errors: Validation
   for (const key of ["min", "max"]) {
     const value = param[key];
     if (value === undefined) continue;
-    const valid = isReportTemporalBound(param.type as string | undefined, value) || param.type === "number" && typeof value === "number" && Number.isFinite(value);
+    const valid = isReportTemporalBound(param.type as string | undefined, value) || ["number", "numberRange"].includes(param.type as string) && typeof value === "number" && Number.isFinite(value);
     if (!valid) errors.push({ path: `${path}.${key}`, message: "数字使用有限数字边界，日期/月/年使用对应规范字符串边界" });
   }
   const reversedNumber = typeof param.min === "number" && typeof param.max === "number" && param.min > param.max;
@@ -248,6 +249,7 @@ function validateListColumns(columns: unknown, path: string, errors: ValidationE
     const here = `${path}.${index}`;
     if (!isObject(column)) { errors.push({ path: here, message: "列应为对象" }); return; }
     validateEditableMetadata(column, here, errors);
+    if (column.visual !== undefined && !validColumnVisual(column.visual)) errors.push({ path: `${here}.visual`, message: "列可视化配置无效，请检查类型、数值范围和颜色" });
     booleanField(column, "hidden", here, errors);
     validateRowCondition(column.visibleWhen, `${here}.visibleWhen`, errors);
     if (typeof column.header !== "string") errors.push({ path: `${here}.header`, message: "表头应为字符串（允许空白表头）" });
@@ -276,9 +278,6 @@ function validateListColumns(columns: unknown, path: string, errors: ValidationE
         const rulePath = `${here}.rules.${ri}`;
         if (!isObject(rule) || !isObject(rule.when)) { errors.push({ path: rulePath, message: "条件格式缺少 when 对象" }); return; }
         validateRowCondition(rule.when, `${rulePath}.when`, errors);
-        stringField(rule.when, "field", `${rulePath}.when`, errors, true);
-        if (![">", ">=", "<", "<=", "==", "!="].includes(rule.when.op as string)) errors.push({ path: `${rulePath}.when.op`, message: "未知条件运算符" });
-        if (typeof rule.when.value !== "number" && typeof rule.when.value !== "string") errors.push({ path: `${rulePath}.when.value`, message: "条件值应为数字或字符串" });
         validateStyle(rule.style, `${rulePath}.style`, errors);
       });
     }

@@ -2,7 +2,8 @@ import { computed, shallowRef, type Ref } from "vue";
 import {
   applyReportCellEditBatch, applyReportEditResult, createReportCellEditBatch,
   createReportCellResolver, ReportCellEditError, summarizeReportCellEdits,
-  parseReportCellFieldInput, reportCellEditKey,
+  parseReportCellFieldInput, reportCellEditKey, assertReportValidation,
+  type ReportValidationIssue,
   type RenderPlan, type ReportCellAddress, type ReportCellContext, type ReportCellEdit, type ReportCellInput, type ReportEditBatch, type ReportPreparedEdit,
   type ReportEditConflict, type ReportEditResult
 } from "@agile-team/mach-report";
@@ -39,6 +40,7 @@ export function useEditHistory(host: EditHistoryHost) {
   const redoStack = shallowRef<ReportCellEdit[][]>([]);
   const conflicts = shallowRef<readonly ReportEditConflict[]>([]);
   const saving = shallowRef(false);
+  const validationIssues = shallowRef<readonly ReportValidationIssue[]>([]);
   const lastError = shallowRef<string | null>(null);
   const localDifferences = shallowRef<ReportCellEdit[]>([]);
   const hasLocalDrafts = computed(() => localDifferences.value.length > 0);
@@ -56,7 +58,7 @@ export function useEditHistory(host: EditHistoryHost) {
   let retry: { plan: RenderPlan; signature: string; requestId: string } | null = null;
 
   function cancel(): void { controller?.abort(); controller = null; saving.value = false; pending = null; }
-  function reset(): void { generation++; cancel(); retry = null; changes.value = []; undoStack.value = []; redoStack.value = []; conflicts.value = []; localDifferences.value = []; lastError.value = null; }
+  function reset(): void { generation++; cancel(); retry = null; changes.value = []; undoStack.value = []; redoStack.value = []; conflicts.value = []; validationIssues.value = []; localDifferences.value = []; lastError.value = null; }
   function options(): ReportEditingOptions | null {
     const option = host.options.value;
     return option ? typeof option === "object" ? option : {} : null;
@@ -110,6 +112,18 @@ export function useEditHistory(host: EditHistoryHost) {
     lastError.value = host.errorMessage?.(cause) ?? (cause instanceof Error ? cause.message : "Cell edit failed");
     host.onError(lastError.value, cause);
   }
+  async function validateCandidate(transaction: EditTransaction, plan: RenderPlan, option: ReportEditingOptions, operation: ReportEditOperation): Promise<void> {
+    if (option.validation) {
+      if (!transaction.prepared) throw new Error("整批规则校验需要来源数据会话；请使用 createReportSource 或 createReportEditSession");
+      validationIssues.value = [...transaction.prepared.validate(option.validation)];
+    }
+    if (option.validateBatch) {
+      const candidate = transaction.prepared?.plan ?? applyReportCellEditBatch(plan, transaction.batch);
+      const issues = await option.validateBatch(cloneReportSnapshot(transaction.batch), cloneReportSnapshot(candidate), operation);
+      if (issues && !operation.signal.aborted) validationIssues.value = [...validationIssues.value, ...cloneReportSnapshot(issues)];
+    }
+    if (!operation.signal.aborted) assertReportValidation(validationIssues.value, option.validation?.warningPolicy);
+  }
   async function execute(inputs: readonly ReportCellInput[] | HistoryEditTarget, action: NonNullable<ReportEditOperation["action"]>): Promise<boolean> {
     const plan = host.plan.value;
     const option = options();
@@ -119,6 +133,7 @@ export function useEditHistory(host: EditHistoryHost) {
     controller = current;
     saving.value = true;
     lastError.value = null;
+    validationIssues.value = [];
     const isCurrent = () => controller === current && !current.signal.aborted && host.plan.value === plan && host.options.value !== false;
     try {
       const building = buildTransaction(plan, inputs, newRequestId(), current.signal);
@@ -138,6 +153,8 @@ export function useEditHistory(host: EditHistoryHost) {
       if (preparing) transaction.prepared = await preparing;
       if (!isCurrent()) return false;
       allowed(plan, batch, option, contexts);
+      await validateCandidate(transaction, plan, option, operation);
+      if (!isCurrent()) return false;
       const result = await persist(batch, option, operation);
       if (!isCurrent()) return false;
       if (result?.conflicts?.length) { conflicts.value = cloneReportSnapshot(result.conflicts); throw new ReportEditConflictError(result.conflicts); }
@@ -192,5 +209,5 @@ export function useEditHistory(host: EditHistoryHost) {
   function resolveAddress(edit: ReportCellEdit): ReportCellAddress | null {
     return host.plan.value ? createEditAddressResolver(host.plan.value)(edit) : null;
   }
-  return { settle, resolveAddress, changes, differences, localDifferences, hasLocalDrafts, lastError, conflicts, saving, canUndo, canRedo, apply, undo, redo, restore, cancel, reset };
+  return { settle, resolveAddress, validationIssues, changes, differences, localDifferences, hasLocalDrafts, lastError, conflicts, saving, canUndo, canRedo, apply, undo, redo, restore, cancel, reset };
 }

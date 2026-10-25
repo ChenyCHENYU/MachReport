@@ -32,6 +32,7 @@ export async function encodePreparedReport(input: ReportRuntimePreparedExportInp
       bytes = new Uint8Array(result.buffer);
       prepared.diagnostics.push(...outputDiagnostics(result.diagnostics));
       prepared.diagnostics.push(...result.warnings.map((message) => ({ code: "xlsx-fidelity", message, severity: "warning" as const })));
+      prepared.diagnostics.push(...(result.notes ?? []).map(message => ({ code: "xlsx-snapshot", message, severity: "info" as const })));
     }
     throwIfAborted(input.signal);
     return bytes;

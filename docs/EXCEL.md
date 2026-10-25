@@ -12,6 +12,7 @@ MachReport 支持生成真正的 `.xlsx` 工作簿。入口是 `@agile-team/mach
 | 尺寸与合并 | 列宽、行高、`colSpan` / `rowSpan` | 越界跨度裁剪在当前网格内；同 Sheet 的网格共用列宽 |
 | 标题 | 合并到当前页表格的实际列数 | 纯文本页使用单列，绝对坐标转为组件顺序 |
 | 字体与样式 | 共享字号规则、字体族、加粗/斜体/下划线、颜色、水平/垂直对齐、换行、底色、边框开关/颜色 | 边框线型为细线，不映射旋转、透明度等 |
+| 数据条与色阶 | 色阶保留底色；数据条以共享媒体的静态半透明绘图快照保留 | 原生格值保持；不是 Excel 动态条件格式，修改格值不会重算条形；`maxDataBars` 有界并超限拒绝 |
 | 单元格值 | text 模式写显示文本；raw 模式写原始 primitive 和数字格式 | Date/对象回退显示文本，不猜数字字符串 |
 | 图片与复杂内容 | PNG/JPEG data URI 的 Logo、图片型二维码/条码/图表可嵌入，重复媒体复用 | 顶层图片使用独立流式行带；格内文字保留原生富文本，PNG/JPEG 按锚点叠加且不插入数据行；SVG、格内网格与不可表达几何仍诊断 |
 | 打印配置 | 普通页 auto 识别 A3/A4/A5；wide 默认不强制纸型，可显式 paperSize | 纸型仅影响打印；不是 PDF 坐标复刻 |
@@ -189,3 +190,12 @@ const result = await renderPlanToXlsx(planWithLogo, {
 文字组件及 `GridCell.richParagraphs` 输出为 Excel 原生 `richText`，保留片段文字、字体族、字号、粗斜体、下划线、颜色，段落间写入换行。格内子文字按组件顺序合并为富文本，PNG/JPEG 子图片按内容区锚点叠加，不增加数据行。段落自己的对齐、间距、缩进、片段背景及子文字独立位置不能在一个 Excel 单元格内逐项表达；格内网格、图形及图片越界裁切也存在格式边界，均返回具名诊断，strict 阻止降级交付。
 
 导入Excel的原生Logo使用专用overlay锚点，重新导出时不为图片插入额外数据行；一般业务图片组件仍遵循上述独立行带规则。PDF与XLSX现在共用PNG/JPEG媒体检查，另可配置 `maxImagePixels`（默认1600万）、`maxTotalImagePixels`（6400万）、`maxImageDimension`（16384），在进入解码器前约束高压缩大图。
+
+
+## 视觉规则的输出语义
+
+`ListColumn.visual` 在分页时解析；DOM、Canvas、PDF和XLSX读取同一计划。色阶是解析后的底色，数据条是有序比例与安全颜色，不会把原始数值替换成文字或图片。Excel数据条为静态绘图，原格仍可读写，编辑不会自动更新条形；`renderPlanToXlsx().notes` 返回这一说明，受控服务端以 `xlsx-snapshot` 信息诊断保留，严格输出不会将正常静态快照误当内容缺失。
+
+`maxDataBars` 默认 10000，允许0–100000，`0`表示遇到非零数据条明确失败，绝不静默删除。连续Sheet与逐页Sheet沿用相同预算和媒体复用。`/xlsx/node` 的流式行导出不接收 RenderPlan，不承诺这一页面视觉还原。声明图表展开后的基础图元不生成原生Excel图表对象，无法表达的内容仍返回诊断；可通过既有可信资源适配器提供PNG/JPEG图表图片。
+
+用法见[数据工作流](DATA_WORKFLOW.md)。Office实机显示与编辑结果仍按[外部验收](EXTERNAL_ACCEPTANCE.md)核对，本轮没有可执行的实机环境。

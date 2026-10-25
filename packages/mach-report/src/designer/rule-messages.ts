@@ -51,6 +51,8 @@ export const DEFAULT_RULE_EDITOR_MESSAGES = {
   null: "空值",
   true: "是",
   false: "否",
+  if: "条件取值", round: "四舍五入", abs: "绝对值", concat: "拼接文本", trim: "去除首尾空白", upper: "大写", lower: "小写", dateYear: "日期年份", dateMonth: "日期月份", dateDay: "日期日号",
+  all: "全部满足", any: "任一满足", not: "条件不成立", conditionGroup: "条件组合", addCondition: "添加条件", compareField: "比较字段", compareValue: "固定值", between: "范围内（含边界）", contains: "包含文本", isNull: "为空值", isNotNull: "非空值", valueKind: "值语义", calendarDate: "日历日", upperBound: "上限", lowerBound: "下限", functionHelp: "函数用法", thenValue: "成立时", elseValue: "否则",
   add: "相加",
   subtract: "相减",
   multiply: "相乘",

@@ -44,6 +44,7 @@ function componentReferences(value: unknown, path: string, repeated: boolean, er
   validateComponentBinding(value, path, errors);
   if (value.binding !== undefined && !repeated) errors.push({ path: `${path}.binding`, message: "字段绑定需要模板 repeat 数据集；普通报表请使用列表字段" });
   if (repeated && value.kind === "list") errors.push({ path, message: "逐记录标签使用固定组件；动态列表请使用普通报表模板" });
+  if (value.chartBinding !== undefined && (repeated || path.includes(".children."))) errors.push({ path: `${path}.chartBinding`, message: "数据图表应放在普通报表的页面或流式分区，不放在逐记录标签或嵌套单元格内" });
   const grid = value.grid;
   if (object(grid) && Array.isArray(grid.cells)) grid.cells.forEach((row, ri) => {
     if (!Array.isArray(row)) return;

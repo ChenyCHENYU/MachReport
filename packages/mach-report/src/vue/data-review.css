@@ -1,0 +1,34 @@
+.mrp-data-review { --review-accent: var(--mrp-btn-active-bg, #2964da); color: var(--mrp-toolbar-fg); background: var(--mrp-toolbar-bg); border: 1px solid var(--mrp-toolbar-border); border-radius: 12px; padding: 14px; font-size: 12px; }
+.mrp-review-heading { display: flex; align-items: center; gap: 10px; }
+.mrp-review-heading > div { flex: 1; min-width: 0; }
+.mrp-review-heading strong { font-size: 14px; font-weight: 650; }
+.mrp-review-heading p { margin: 4px 0 0; line-height: 1.6; opacity: .72; }
+.mrp-review-symbol { display: grid; place-items: center; flex-shrink: 0; width: 32px; height: 32px; border-radius: 9px; background: color-mix(in srgb, var(--review-accent) 9%, transparent); color: var(--review-accent); font-size: 22px; }
+.mrp-data-review button, .mrp-review-pagination button { border: 1px solid var(--mrp-btn-border); border-radius: 7px; background: var(--mrp-btn-bg, transparent); color: inherit; padding: 6px 11px; min-height: 30px; cursor: pointer; font: inherit; }
+.mrp-data-review button:focus-visible { outline: 2px solid var(--review-accent); outline-offset: 2px; }
+.mrp-data-review button:disabled { opacity: .5; cursor: not-allowed; }
+.mrp-review-summary { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 12px 0; font-size: 11px; }
+.mrp-review-summary b { margin-left: 5px; font-variant-numeric: tabular-nums; font-size: 13px; }
+.mrp-review-summary [data-tone="changed"], .mrp-review-summary [data-tone="added"] { color: var(--review-accent); }
+.mrp-review-summary [data-tone="conflict"], .mrp-review-status [data-tone="conflict"], .mrp-review-summary [data-tone="removed"] { color: var(--mrp-error-fg, #b42318); }
+.mrp-review-scroll { overflow: auto; max-height: 320px; border: 1px solid var(--mrp-toolbar-border); border-radius: 8px; }
+.mrp-review-results table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 11px; text-align: left; }
+.mrp-review-results thead th { position: sticky; top: 0; z-index: 1; background: var(--mrp-toolbar-bg); color: var(--mrp-toolbar-fg); font-weight: 600; border-bottom: 1px solid var(--mrp-toolbar-border); }
+.mrp-review-results th, .mrp-review-results td { max-width: 220px; padding: 9px 10px; overflow-wrap: anywhere; border-bottom: 1px solid var(--mrp-toolbar-border); }
+.mrp-review-results tbody tr:last-child > * { border-bottom: 0; }
+.mrp-review-results tbody th { font-weight: 500; }
+.mrp-review-value { font-variant-numeric: tabular-nums; white-space: pre-wrap; }
+.mrp-review-status { text-align: right; }
+.mrp-review-status > span { display: inline-block; padding: 3px 6px; border-radius: 5px; white-space: nowrap; background: color-mix(in srgb, var(--mrp-toolbar-fg) 5%, transparent); }
+.mrp-review-status [data-tone="changed"] { color: var(--review-accent); background: color-mix(in srgb, var(--review-accent) 8%, transparent); }
+.mrp-review-status button { min-height: 26px; padding: 3px 8px; color: var(--review-accent); }
+.mrp-review-footer, .mrp-review-pagination { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 10px; }
+.mrp-review-pagination { font-variant-numeric: tabular-nums; }
+.mrp-review-pagination button { min-width: 28px; padding: 2px 7px; }
+.mrp-data-review .mrp-review-primary { background: var(--review-accent); color: var(--mrp-btn-active-fg, #fff); border-color: transparent; }
+.mrp-review-empty { padding: 20px 12px; margin: 10px 0 0; text-align: center; opacity: .65; border: 1px dashed var(--mrp-toolbar-border); border-radius: 8px; }
+.mrp-review-error { color: var(--mrp-error-fg, #b42318); padding: 9px 11px; border-radius: 7px; background: color-mix(in srgb, var(--mrp-error-fg, #b42318) 7%, transparent); overflow-wrap: anywhere; }
+.mrp-review-sr { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+@media (max-width: 600px) { .mrp-review-heading { flex-wrap: wrap; } .mrp-review-heading > div { flex-basis: calc(100% - 50px); } .mrp-review-heading > button { margin-left: auto; } .mrp-review-results th, .mrp-review-results td { min-width: 70px; } }
+
+.mrp-review-blocked { margin: 12px 0 0; padding: 9px 11px; border-radius: 7px; background: color-mix(in srgb, var(--review-accent) 6%, transparent); line-height: 1.6; opacity: .8; }

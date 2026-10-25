@@ -248,6 +248,7 @@ for (const page of paginateTemplatePages(template, datasets, {
   knownTotalPages: total,
   maxPages: 5000,
   maxCells: 2_000_000,
+  maxChartComponents: 50_000,
   signal,
   onWarning: handleWarning
 })) {
@@ -256,6 +257,10 @@ for (const page of paginateTemplatePages(template, datasets, {
 ```
 
 生成器实际只保留当前排版页和过渡队列，不会先生成完整 `RenderPlan` 再 `yield`。输入数据、业务键索引、分组桶及计算结果仍需按数据预算持有；逐页输出不代表数据源也能无界输入。`{totalPages}` 未提供 `knownTotalPages` 时会做不保留页面的计数遍历；已知总数可省去这一遍。同一次生成器的计数和输出遍历会复用计算/矩阵的准备结果，避免重复克隆计算行。服务端在排版前另做预算预检时，计算维度仍可能额外执行一次 O(N) 数据计算并短暂分配行对象；预检不会因追求速度被跳过。`maxCells` 在每页追加前累计实际网格格数，包含重复表头、页眉页脚与嵌套子组件，超限即终止。旧版 `paginateTemplate` 继续返回完整计划，排版规则由同一个内核实现。
+
+绑定图表另有 `maxChartComponents` 图元预算，默认 50,000，可设为 1..1,000,000 的整数；不占用或改变 `maxCells` 网格预算。同一次排版遍历的普通页与流式续页共享额度；计数遍历与输出遍历分别计量。每张图在生成基础图元数组前，按聚合后的分类、非空数据点、线段与采样坐标轴计算保守上界，超限抛出 `PaginateChartComponentLimitError`；堆叠数值标签可能因空间不足省略，因此上界可略高于最终数量。空数据占位也计入一个图元。缩小分类/系列、分批生成或显式调整预算，避免先展开大量图元再由输出端拒绝。
+
+`createReportSource(reports, { maxChartComponents })` 为一次请求中的全部报表共享同一额度，编辑后的完整重算也保留该限制；报表自身 `pagination.maxChartComponents` 可进一步下调。`paginateTemplate` 返回的 `chartComponents` 是实际生成量，不包含计数预遍历，也不把普通静态组件算成图表。该预算保护绑定图表的展开过程，已生成计划的输出仍使用原有渲染树与文件预算。
 
 ## 验证
 

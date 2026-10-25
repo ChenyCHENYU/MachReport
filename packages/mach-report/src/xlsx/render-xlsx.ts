@@ -1,3 +1,4 @@
+import { assertXlsxDataBarBudget, createXlsxDataBarWriter } from "./data-bar-xlsx";
 import { cellRichText, excelRichText } from "./rich-text";
 import { assertOutputActive, outputCheckpoint, createOutputScheduler } from "../output/progress";
 import ExcelJSRuntime from "exceljs";
@@ -30,6 +31,8 @@ export interface XlsxRenderOptions extends AssetRenderOptions, XlsxImageOptions 
   sheetMode?: "auto" | "pages" | "continuous";
   /** 宽表或连续表默认 raw，其余默认 text；显式配置可覆盖默认值。 */
   valueMode?: "text" | "raw";
+  /** Static data-bar drawing budget; fail explicitly rather than omitting bars. Default 10,000. */
+  maxDataBars?: number;
   /** 连续表默认不限制打印纸型；显式 A3/A4/A5 仅设置打印适配，不改变 Excel 列宽。 */
   paperSize?: "auto" | "a3" | "a4" | "a5";
 }
@@ -39,6 +42,8 @@ export interface XlsxRenderResult {
   buffer: ExcelJS.Buffer;
   warnings: string[];
   diagnostics?: OutputDiagnostic[];
+  /** Informational output semantics; these do not indicate missing content. */
+  notes?: string[];
 }
 
 const MM_TO_PT = 72 / 25.4;
@@ -329,6 +334,7 @@ function applyGridCellStyle(cell: ExcelJS.Cell, style: ComponentStyle): void {
 
 interface SheetWriter {
   images: XlsxImageWriter;
+  dataBars: ReturnType<typeof createXlsxDataBarWriter>;
   sheet: ExcelJS.Worksheet;
   warnings: string[];
   limits: DimensionLimits;
@@ -370,6 +376,7 @@ async function writeGrid(writer: SheetWriter, comp: PlanComponent, layout: GridL
     const rich = cellRichText(box.cell, comp.style);
     if (rich) { validateCellText(rich.richText.map(run => run.text).join(""), cell.address); cell.value = rich; }
     const padding = comp.grid?.paddingMm ?? 0.5;
+    writer.dataBars(writer.sheet, box, cursorRow + box.ri, padding);
     for (const child of box.cell.children ?? []) {
       if (isImageBackedComponent(child) && !child.grid) writer.images.write(writer.sheet, child, cursorRow + box.ri, { leftMm: box.xMm + padding + (box.cell.indentMm ?? 0) + child.leftMm, offsetMm: padding + child.topMm });
     }
@@ -436,6 +443,7 @@ async function writeSheet(writer: SheetWriter, contents: SheetContents, continuo
 }
 
 function validateOptions(options: XlsxRenderOptions): void {
+  if (options.maxDataBars !== undefined && (!Number.isSafeInteger(options.maxDataBars) || options.maxDataBars < 0 || options.maxDataBars > 100_000)) throw new Error("xlsx maxDataBars 必须是 0–100000 的整数");
   if (options.valueMode !== undefined && options.valueMode !== "text" && options.valueMode !== "raw") {
     throw new Error("xlsx valueMode 必须是 text 或 raw");
   }
@@ -455,9 +463,12 @@ export async function renderPlanToXlsx(plan: RenderPlan, options: XlsxRenderOpti
     : { plan, diagnostics: [] };
   plan = prepared.plan;
   const diagnostics = [...prepared.diagnostics, ...reportOutputDiagnostics(plan, "xlsx", options)];
+  await assertXlsxDataBarBudget(plan, options.maxDataBars ?? 10_000, options);
   const workbook = new ExcelJSRuntime.Workbook();
   const warnings: string[] = [];
   const images = createXlsxImageWriter(workbook, options, warnings);
+  const notes: string[] = [];
+  const dataBars = createXlsxDataBarWriter(images, options.maxDataBars ?? 10_000, notes);
   const limits = dimensionLimits(warnings);
   const units = sheetUnits(plan, options.sheetMode, warnings);
   const usedNames = new Set<string>();
@@ -471,11 +482,11 @@ export async function renderPlanToXlsx(plan: RenderPlan, options: XlsxRenderOpti
     const sheet = workbook.addWorksheet(name, worksheetOptions(unit, options.paperSize, warnings));
     const valueMode = options.valueMode ?? (isWidePage(page) || unit.continuous || unit.flow ? "raw" : "text");
     assertOutputActive(options.signal);
-    await writeSheet({ sheet, warnings, limits, valueMode, schedule, images }, contents, unit.continuous, images);
+    await writeSheet({ sheet, warnings, limits, valueMode, schedule, images, dataBars }, contents, unit.continuous, images);
     await outputCheckpoint(options, sheetIndex + 1, units.length);
   }
   assertOutputActive(options.signal);
   const buffer = await workbook.xlsx.writeBuffer();
   assertOutputActive(options.signal);
-  return { workbook, buffer, warnings, diagnostics };
+  return { workbook, buffer, warnings, diagnostics, ...(notes.length ? { notes } : {}) };
 }

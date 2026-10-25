@@ -38,6 +38,13 @@ import {
   useThumbs
 } from "./composables/useReportSearch";
 import ReportToolbar from "./ReportToolbar.vue";
+import ReportDataTools from "./ReportDataTools.vue";
+import ReportDataReviewDialog from "./ReportDataReviewDialog.vue";
+import ReportPrefillPanel from "./ReportPrefillPanel.vue";
+import ReportDataComparison from "./ReportDataComparison.vue";
+import ReportValidationPanel from "./ReportValidationPanel.vue";
+import { usePreviewDataReview } from "./composables/usePreviewDataReview";
+import type { ReportPrefillReviewOptions, ReportDataComparisonReviewOptions } from "./data-review";
 import ReportPagination from "./ReportPagination.vue";
 import ReportRecordNavigation from "./ReportRecordNavigation.vue";
 import ReportCalculationPanel from "./ReportCalculationPanel.vue";
@@ -90,6 +97,8 @@ import { usePreviewSession } from "./composables/usePreviewSession";
 import { type MachReportToolbarOptions, type ReportEmptyState, type ReportPreviewPreferences, type ReportPreviewTool, type ReportInteractionOptions, type ReportPreferencesOptions, type ReportSection } from "./tools";
 
 const props = defineProps({
+  prefill: { type: [Boolean, Object] as PropType<ReportPrefillReviewOptions | false>, default: undefined },
+  dataComparison: { type: [Boolean, Object] as PropType<ReportDataComparisonReviewOptions | false>, default: undefined },
   drill: { type: Object as PropType<ReportDrillOptions>, default: undefined },
   loadParamOptions: { type: Function as PropType<ReportParamOptionsLoader>, default: undefined },
   reportId: {
@@ -241,6 +250,8 @@ const {
   effectiveEditable, effectiveExcelImport, persistedEditing, emptyStateContent, sessionInteraction
 } = usePreviewConfiguration(props, wideReport, (message) => emit("warning", message));
 const pdfToolsEnabled = computed(() => toolState.value.pdf || toolState.value.pdfWindow);
+const effectivePrefill = computed(() => props.prefill ?? resolved.value.prefill);
+const effectiveDataComparison = computed(() => props.dataComparison ?? resolved.value.dataComparison);
 const calculationsEnabled = computed(() => effectiveInteraction.value.calculations === true);
 const calculationMessages = computed(() => resolveCalculationMessages(resolvedMessages.value));
 const { pdfFont, getPdfExporter, checkPdfFont, retryPdfFont, cancelFontCheck } = usePreviewFont({
@@ -274,7 +285,7 @@ async function toggleSettings(section: "general" | "tools" | "advanced" = "gener
 }
 const { editing, cells, discard, confirmDiscard } = usePreviewEditing({
   plan, root: containerRef, options: effectiveEditable,
-  selectionEnabled: () => !!effectiveEditable.value || calculationsEnabled.value || !!(props.drill ?? resolved.value.drill),
+  selectionEnabled: () => !!effectiveEditable.value || calculationsEnabled.value || !!effectiveDataComparison.value || !!(props.drill ?? resolved.value.drill),
   busy: () => loading.value || importing.value || exporting.value !== null || printing.value,
   messages: () => resolvedMessages.value, gotoPage, ensureVisible: address => pageRendering.reveal(address),
   guard: {
@@ -298,6 +309,16 @@ const output = usePreviewOutput({
 const { exporting, printing, localPrintCalibration, effectivePrintOptions, canCalibratePrint,
   testPrintCalibration, print, exportAs, openPdfWindow, getOutputDiagnostics } = output;
 
+const dataReview = usePreviewDataReview({
+  plan, prefill: effectivePrefill, comparison: effectiveDataComparison, editingOptions: effectiveEditable,
+  issues: editing.validationIssues, messages: resolvedMessages,
+  busy: () => loading.value || importing.value || editing.saving.value || !!exporting.value || printing.value,
+  replacing: () => loading.value || importing.value,
+  settle: editing.settle, apply: editing.apply, editError: () => editing.lastError.value,
+  locate: address => { void cells.focusCell(address); },
+  missing: () => { exportNotice.value = { kind: "warning", message: resolvedMessages.value.locateFieldMissing ?? "Field not found" }; },
+  error: (message, cause) => reportError(message, "edit", cause)
+});
 const calculation = useSelectionCalculation({ plan, selection: cells.selection, enabled: () => calculationsEnabled.value });
 function openCalculations(): void { void toggleSettings("advanced"); }
 const drill = useReportDrill({
@@ -672,10 +693,16 @@ defineExpose({ ...controller, state });
       @import-excel="importInputRef?.click()"
       @settings-toggle="toggleSettings"
     >
+      <template #data-tools><ReportDataTools :prefill="dataReview.availablePrefill.value" :comparison="dataReview.availableComparison.value" :issue-count="editing.validationIssues.value.length" :messages="dataReview.messages.value" :busy="loading || importing || editing.saving.value || !!exporting || printing" @open="dataReview.open" /></template>
       <template v-if="sections.length <= 1" #navigation>
         <ReportNavigation :plan="plan" compact v-if="pageCount > 0 && effectiveInteraction.navigation !== false" :sections="sections" :current-page="currentPage" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @locate-target="locateTarget" @goto="gotoPage" @locate="locateField" />
       </template>
     </ReportToolbar>
+    <ReportDataReviewDialog v-if="dataReview.opened.value" :title="dataReview.title.value" :close-label="dataReview.messages.value.reviewClose" @close="dataReview.close">
+      <ReportPrefillPanel v-if="dataReview.opened.value === 'prefill'" :state="dataReview.prefill" :messages="dataReview.messages.value" />
+      <ReportDataComparison v-else-if="dataReview.opened.value === 'comparison'" :state="dataReview.comparison" :messages="dataReview.messages.value" />
+      <ReportValidationPanel v-else :issues="editing.validationIssues.value" :messages="dataReview.validationMessages.value" @locate="dataReview.locateIssue" />
+    </ReportDataReviewDialog>
     <ReportDiscardDialog v-if="discard.request.value" :messages="resolvedMessages" @answer="discard.settle" />
     <ReportTaskStatus :task="task.state.value" :messages="resolvedMessages" @cancel="cancelTask" />
     <ReportDiagnostics :entries="outputDiagnostics" :messages="resolvedMessages" @locate="locateDiagnostic" />

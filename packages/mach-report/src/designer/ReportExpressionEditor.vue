@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ReportPredicateEditor from "./ReportPredicateEditor.vue";
 import { computed, ref, watch } from "vue";
 import type { ReportExpression } from "../analytics/computed";
 import { getComputationMetadata } from "../analytics/computed";
@@ -15,6 +16,7 @@ const emit = defineEmits<{
   (event: "update:modelValue", value: ReportExpression): void;
 }>();
 const metadata = getComputationMetadata();
+const definition = computed(() => "op" in props.modelValue ? metadata.functions.find(item => item.name === (props.modelValue as Extract<ReportExpression, { op: string }>).op) : undefined);
 const mode = computed(() =>
   "aggregate" in props.modelValue
     ? "aggregate"
@@ -58,10 +60,10 @@ function setOp(value: string): void {
     "args" in props.modelValue
       ? props.modelValue.args
       : [{ value: 0 }, { value: 0 }];
-  update({
-    op,
-    args: op === "divide" || op === "subtract" ? args.slice(0, 2) : args,
-  });
+  const definition = metadata.functions.find(item => item.name === op)!;
+  const next = [...args.slice(0, definition.maxArgs)];
+  while (next.length < definition.minArgs) next.push({ value: 0 });
+  update({ op, args: next, ...(op === "if" ? { condition: "args" in props.modelValue && props.modelValue.condition ? props.modelValue.condition : { field: props.fields[0]?.field ?? "", op: ">" as const, value: 0 } } : {}) });
 }
 function setArgument(index: number, value: ReportExpression): void {
   if (!("args" in props.modelValue)) return;
@@ -237,6 +239,8 @@ function setAggregate(
       />
     </template>
     <template v-else-if="'args' in modelValue">
+      <ReportPredicateEditor v-if="modelValue.op === 'if' && modelValue.condition" :model-value="modelValue.condition" :fields="fields" :messages="messages" :readonly="readonly" @update:model-value="update({ ...modelValue, condition: $event })" />
+      <small class="mr-expression__help">{{ definition?.example }}</small>
       <div
         v-for="(argument, index) in modelValue.args"
         :key="index"
@@ -251,7 +255,7 @@ function setAggregate(
           @update:model-value="setArgument(index, $event)"
         />
         <button
-          v-if="modelValue.args.length > 2"
+          v-if="modelValue.args.length > (definition?.minArgs ?? 2)"
           type="button"
           :disabled="readonly"
           :aria-label="`${messages.remove} ${messages.argument} ${index + 1}`"
@@ -262,8 +266,7 @@ function setAggregate(
       </div>
       <button
         v-if="
-          !['subtract', 'divide'].includes(modelValue.op) &&
-          modelValue.args.length < 16
+          modelValue.args.length < Math.min(16, definition?.maxArgs ?? 16)
         "
         type="button"
         :disabled="readonly"

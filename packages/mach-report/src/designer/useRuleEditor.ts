@@ -13,7 +13,7 @@ import {
   type ComputedField,
   type ReportExpression,
 } from "../analytics/computed";
-import type { StyleRule } from "../format";
+import type { ReportPredicate, ReportComparison } from "../processing/predicate";
 import { validateReportTemplate } from "../source/template-registry";
 import {
   DEFAULT_RULE_EDITOR_MESSAGES,
@@ -52,7 +52,9 @@ export function useRuleEditor(
   const column = ref(""),
     conditionIndex = ref(-1),
     effect = ref<"style" | "cell" | "rowVisibility">("style");
-  const when = ref<StyleRule["when"]>({ field: "", op: ">", value: 0 });
+  const when = ref<ReportComparison>({ field: "", op: ">", value: 0 });
+  const composedWhen = ref<ReportPredicate | null>(null);
+  const condition = computed(() => composedWhen.value ?? when.value);
   const style = ref({
     color: "#b91c1c",
     backgroundColor: "#fff1f2",
@@ -61,9 +63,9 @@ export function useRuleEditor(
   const preview = ref<Array<{ row: number; value: unknown }>>([]);
   const formulaDraft = useLocalDraft(() => formula.value);
   const groupDraft = useLocalDraft(() => groups.value);
-  const conditionDraft = useLocalDraft(() => ({ when: when.value, style: style.value }));
+  const conditionDraft = useLocalDraft(() => ({ when: when.value, composedWhen: composedWhen.value, style: style.value }));
   const computedDrafts = ref(new Map<string, ComputedField>());
-  const conditionDrafts = ref(new Map<string, { when: StyleRule["when"]; style: typeof style.value }>());
+  const conditionDrafts = ref(new Map<string, { when: ReportComparison; composedWhen: ReportPredicate | null; style: typeof style.value }>());
   let conditionKey = "", resetting = false;
   const pendingLocalChanges = computed(() => formulaDraft.pending.value || groupDraft.pending.value || conditionDraft.pending.value || computedDrafts.value.size > 0 || conditionDrafts.value.size > 0);
   let committed: string | undefined;
@@ -257,8 +259,12 @@ export function useRuleEditor(
     delete next.groupBy;
     if (commit(next)) groupDraft.accept();
   }
+  function loadPredicate(value: ReportPredicate | undefined): void {
+    composedWhen.value = value && !("field" in value) ? clone(value) : null;
+    when.value = clone(value && "field" in value ? value : { field: column.value, op: ">", value: 0 });
+  }
   function loadCondition(index: number): void {
-    if (!resetting && conditionDraft.pending.value) conditionDrafts.value = new Map(conditionDrafts.value).set(conditionKey, { when: clone(when.value), style: { ...style.value } });
+    if (!resetting && conditionDraft.pending.value) conditionDrafts.value = new Map(conditionDrafts.value).set(conditionKey, { when: clone(when.value), composedWhen: clone(composedWhen.value), style: { ...style.value } });
     conditionKey = `${column.value}|${effect.value}|${index}`;
     conditionIndex.value = index;
     const condition =
@@ -267,7 +273,7 @@ export function useRuleEditor(
         : effect.value === "rowVisibility"
           ? props.list.rowVisibleWhen
           : currentColumn.value?.rules?.[index]?.when;
-    when.value = clone(condition ?? { field: column.value, op: ">", value: 0 });
+    loadPredicate(condition);
     const existing = currentColumn.value?.rules?.[index]?.style;
     style.value = {
       color: String(existing?.color ?? "#b91c1c"),
@@ -276,7 +282,7 @@ export function useRuleEditor(
     };
     conditionDraft.accept();
     const cached = conditionDrafts.value.get(conditionKey);
-    if (cached) { when.value = clone(cached.when); style.value = { ...cached.style }; const cache = new Map(conditionDrafts.value); cache.delete(conditionKey); conditionDrafts.value = cache; }
+    if (cached) { when.value = clone(cached.when); composedWhen.value = clone(cached.composedWhen); style.value = { ...cached.style }; const cache = new Map(conditionDrafts.value); cache.delete(conditionKey); conditionDrafts.value = cache; }
   }
   function setThreshold(value: string): void {
     const contract = props.datasetSchema?.fields.find(
@@ -304,10 +310,10 @@ export function useRuleEditor(
     }
     if (effect.value === "rowVisibility") {
       if (remove) delete next.rowVisibleWhen;
-      else next.rowVisibleWhen = clone(when.value);
+      else next.rowVisibleWhen = clone(condition.value);
     } else if (effect.value === "cell") {
       if (remove) delete target.visibleWhen;
-      else target.visibleWhen = clone(when.value);
+      else target.visibleWhen = clone(condition.value);
     } else {
       target.rules ??= [];
       if (remove && conditionIndex.value >= 0)
@@ -315,12 +321,12 @@ export function useRuleEditor(
       else if (remove) return;
       else if (conditionIndex.value < 0)
         target.rules.push({
-          when: clone(when.value),
+          when: clone(condition.value),
           style: { ...style.value },
         });
       else
         target.rules[conditionIndex.value] = {
-          when: clone(when.value),
+          when: clone(condition.value),
           style: { ...style.value },
         };
     }
@@ -329,17 +335,17 @@ export function useRuleEditor(
   const recoverySnapshot = () => JSON.stringify(readRecovery());
   useTemplateToolDraft({ key: () => props.recoveryKey ?? "rules:0:0", baseline: () => JSON.stringify(props.list), pending: () => pendingLocalChanges.value, snapshot: recoverySnapshot, restore(value) {
     const state = JSON.parse(value) as ReturnType<typeof readRecovery>;
-    formula.value = state.formula; groups.value = state.groups; when.value = state.when; style.value = state.style;
+    formula.value = state.formula; groups.value = state.groups; when.value = state.when; composedWhen.value = state.composedWhen; style.value = state.style;
     selectedComputed.value = state.selectedComputed; column.value = state.column; conditionIndex.value = state.conditionIndex;
     conditionKey = state.conditionKey; effect.value = state.effect; tab.value = state.tab;
     computedDrafts.value = new Map(state.computedDrafts); conditionDrafts.value = new Map(state.conditionDrafts);
     formulaDraft.baseline.value = state.formulaBaseline; groupDraft.baseline.value = state.groupBaseline; conditionDraft.baseline.value = state.conditionBaseline;
   } });
-  function readRecovery() { return { formula: formula.value, groups: groups.value, when: when.value, style: style.value, selectedComputed: selectedComputed.value, column: column.value, conditionIndex: conditionIndex.value, conditionKey, effect: effect.value, tab: tab.value, computedDrafts: [...computedDrafts.value], conditionDrafts: [...conditionDrafts.value], formulaBaseline: formulaDraft.baseline.value, groupBaseline: groupDraft.baseline.value, conditionBaseline: conditionDraft.baseline.value }; }
+  function readRecovery() { return { formula: formula.value, groups: groups.value, when: when.value, composedWhen: composedWhen.value, style: style.value, selectedComputed: selectedComputed.value, column: column.value, conditionIndex: conditionIndex.value, conditionKey, effect: effect.value, tab: tab.value, computedDrafts: [...computedDrafts.value], conditionDrafts: [...conditionDrafts.value], formulaBaseline: formulaDraft.baseline.value, groupBaseline: groupDraft.baseline.value, conditionBaseline: conditionDraft.baseline.value }; }
   return {
     m,
     pendingLocalChanges,
-    draftSnapshot: () => JSON.stringify({ formula: formula.value, groups: groups.value, when: when.value, style: style.value, computedDrafts: [...computedDrafts.value], conditionDrafts: [...conditionDrafts.value] }),
+    draftSnapshot: () => JSON.stringify({ formula: formula.value, groups: groups.value, when: when.value, composedWhen: composedWhen.value, style: style.value, computedDrafts: [...computedDrafts.value], conditionDrafts: [...conditionDrafts.value] }),
     tab,
     fields,
     formula,
@@ -351,6 +357,8 @@ export function useRuleEditor(
     conditionIndex,
     effect,
     when,
+    condition,
+    setCondition(value: ReportPredicate) { if ("field" in value) { when.value = value; composedWhen.value = null; } else composedWhen.value = value; },
     style,
     error,
     preview,

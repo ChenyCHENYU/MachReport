@@ -3,6 +3,7 @@ import { MACH_REPORT_CONFIG_KEY } from "./injection-keys";
 import type { XlsxRenderOptions } from "../xlsx/render-xlsx";
 import type { ExcelImportOptions } from "../xlsx/import-types";
 import type { ReportEditingOptions } from "./editing";
+import type { ReportDataReviewMessages, ReportPrefillReviewOptions, ReportDataComparisonReviewOptions } from "./data-review";
 import type { MachReportToolbarOptions, ReportInteractionOptions, ReportPreferencesOptions } from "./tools";
 import type { ReportBeforeDiscard, ReportOutputOptions } from "./guards";
 import type { AssetRenderOptions } from "@agile-team/mach-report";
@@ -17,7 +18,14 @@ import { DEFAULT_PRINT_MESSAGES, type ReportPrintMessages, type ReportPrintOptio
  */
 
 /** 工具栏与状态文案（默认简体中文；出海场景覆写） */
-export interface MachReportMessages extends Partial<ReportCalculationMessages>, ReportPrintMessages, ReportParamOptionsMessages {
+export interface MachReportMessages extends Partial<ReportCalculationMessages>, Partial<ReportDataReviewMessages>, ReportPrintMessages, ReportParamOptionsMessages {
+  reviewTools?: string;
+  validationTitle?: string;
+  validationError?: string;
+  validationWarning?: string;
+  validationDataset?: string;
+  validationRow?: string;
+  validationMore?: string;
   drillActions?: string;
   drillOpening?: string;
   drillMissingValue?: string;
@@ -190,6 +198,20 @@ export interface MachReportMessages extends Partial<ReportCalculationMessages>, 
   diagnosticAssetBudget?: string;
 }
 
+export const DEFAULT_DATA_REVIEW_MESSAGES: ReportDataReviewMessages = {
+  prefillTitle: "安全预填", prefillHint: "按业务主键匹配白名单字段，先核对差异再整批应用；默认只补空白。",
+  prefillCurrent: "当前值", prefillReference: "参考 / 待填值",
+  prefillLoad: "读取参考数据", prefillApply: "应用预填", prefillMatched: "一致", prefillChanged: "可补入", prefillSkipped: "已跳过", prefillConflict: "需处理",
+  prefillUnchanged: "值一致", prefillReadonly: "只读", prefillOccupied: "保留已有值", prefillMissingSource: "来源为空", prefillMissingTarget: "无匹配目标", prefillAmbiguous: "同源值不一致", prefillInvalid: "值格式无效",
+  comparisonTitle: "业务数据对比", comparisonHint: "按稳定业务主键比较参考数据与本次查询，不按显示行号匹配。",
+  comparisonLoad: "读取并对比", comparisonAdded: "新增", comparisonRemoved: "删除", comparisonChanged: "变化", comparisonUnchanged: "一致",
+  reviewCancel: "取消读取", reviewClose: "关闭数据核对", reviewBefore: "参考值", reviewAfter: "当前 / 待填值", reviewField: "字段", reviewKey: "业务主键", reviewDelta: "差额", reviewRatio: "变化比率", reviewLocate: "定位", reviewEmpty: "暂无差异记录", reviewPrevious: "上一页", reviewNext: "下一页", reviewPage: "差异分页"
+};
+/** Optional message additions preserve complete message objects supplied by older consumers. */
+export function resolveDataReviewMessages(messages: Partial<ReportDataReviewMessages>): ReportDataReviewMessages {
+  return { ...DEFAULT_DATA_REVIEW_MESSAGES, ...Object.fromEntries(Object.entries(messages).filter(([, value]) => value !== undefined)) };
+}
+
 export const DEFAULT_CALCULATION_MESSAGES: ReportCalculationMessages = {
   calculationTitle: "选区计算", calculationLocal: "仅本地分析，不写回实绩、不重算原公式。请选取同一单位与量纲的数值。",
   calculationHint: "点击起点，Shift + 点击终点或方向键扩选。",
@@ -217,6 +239,8 @@ export function resolveCalculationMessages(messages: Partial<ReportCalculationMe
 
 export const DEFAULT_MESSAGES: MachReportMessages = {
   ...PARAM_OPTIONS_MESSAGES,
+  ...DEFAULT_DATA_REVIEW_MESSAGES,
+  reviewTools: "数据工具", validationTitle: "数据校验", validationError: "错误", validationWarning: "提示", validationDataset: "全表", validationRow: "行", validationMore: "请缩小范围查看更多问题",
   drillActions: "查看关联", drillOpening: "正在打开…", drillMissingValue: "当前单元格缺少关联参数", drillFailed: "关联内容打开失败，请重试",
   ...DEFAULT_PRINT_MESSAGES,
   ...DEFAULT_CALCULATION_MESSAGES,
@@ -391,6 +415,10 @@ export interface MachReportDefaults {
   xlsx?: XlsxRenderOptions;
   /** 默认关闭；true 为本地草稿，对象可提供权限、校验和保存回调。 */
   editable?: boolean | ReportEditingOptions;
+  /** Optional reference-data loader; review and atomic editing are maintained inside the package. */
+  prefill?: ReportPrefillReviewOptions | false;
+  /** Compare a reference with the same query result rendered in the report. */
+  dataComparison?: ReportDataComparisonReviewOptions | false;
   /** 默认关闭；启用后提供导入按钮。ExcelJS 仅在导入时加载。 */
   excelImport?: boolean | ExcelImportOptions;
 }
@@ -426,6 +454,8 @@ export type ResolvedConfig = Required<
   exportExecution?: ReportExportExecutionOptions;
   drill?: ReportDrillOptions;
   loadParamOptions?: ReportParamOptionsLoader;
+  prefill?: ReportPrefillReviewOptions | false;
+  dataComparison?: ReportDataComparisonReviewOptions | false;
   pdfFontUrl: string;
   theme: MachReportTheme;
   messages: MachReportMessages;
@@ -512,6 +542,8 @@ export function resolveConfig(
   const merged = mergeDefaults(config?.defaults, preset);
   return {
     drill: merged.drill,
+    prefill: merged.prefill,
+    dataComparison: merged.dataComparison,
     exportExecution: merged.exportExecution,
     loadParamOptions: merged.loadParamOptions,
     ...resolveDisplayDefaults(merged),

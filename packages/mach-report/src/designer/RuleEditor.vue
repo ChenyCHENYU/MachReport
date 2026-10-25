@@ -5,6 +5,7 @@ import {
   type ReportExpression,
 } from "../analytics/computed";
 import { useRuleExplanation } from "./useRuleExplanation";
+import ReportPredicateEditor from "./ReportPredicateEditor.vue";
 import RuleDataLayout from "./RuleDataLayout.vue";
 import ReportExpressionEditor from "./ReportExpressionEditor.vue";
 import { useRuleEditor, type RuleEditorOptions } from "./useRuleEditor";
@@ -24,7 +25,7 @@ const {
   currentColumn,
   conditionIndex,
   effect,
-  when,
+  condition,
   style,
   error,
   preview,
@@ -384,35 +385,10 @@ const metadata = getComputationMetadata();
             :key="index"
             :value="index"
           >
-            {{ index + 1 }} · {{ item.when.field }} {{ item.when.op }}
-            {{ item.when.value }}
+            {{ index + 1 }} · {{ 'field' in item.when ? item.when.field : m.conditionGroup }}
           </option>
         </select></label>
-      <label>{{ m.condition
-        }}<select :aria-label="m.condition" v-model="when.field" :disabled="readonly">
-          <option v-for="item in fields" :key="item.field" :value="item.field">
-            {{ item.label }}
-          </option>
-        </select></label>
-      <div class="mr-rule-editor__pair">
-        <label>{{ m.comparison
-          }}<select :aria-label="m.comparison" v-model="when.op" :disabled="readonly">
-            <option
-              v-for="op in ['>', '>=', '<', '<=', '==', '!=']"
-              :key="op"
-              :value="op"
-            >
-              {{ op }}
-            </option>
-          </select></label><label>{{ m.threshold
-          }}<input
-            :value="when.value"
-            :disabled="readonly"
-            @input="
-              editor.setThreshold(($event.target as HTMLInputElement).value)
-            "
-        /></label>
-      </div>
+      <ReportPredicateEditor :model-value="condition" :fields="fields" :messages="m" :readonly="readonly" @update:model-value="editor.setCondition" />
       <template v-if="effect === 'style'">
 <div class="mr-rule-editor__pair">
           <label>{{ m.color

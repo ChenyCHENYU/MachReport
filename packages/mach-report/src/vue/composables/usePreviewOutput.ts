@@ -63,6 +63,7 @@ export function usePreviewOutput(host: {
     beforeOutput: () => editing.settle(),
     onTask: (value) => task.receive(value, () => exportApi.cancel()),
     onDiagnostic: diagnostics.add,
+    onNote: message => diagnostics.add({ code: "xlsx-snapshot", message, severity: "info" }),
     getXlsxOptions: () => host.getXlsxOptions(),
     getPrintOptions: () => effectivePrintOptions.value,
     getPrintMessages: () => host.messages(),

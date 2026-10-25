@@ -351,3 +351,18 @@ pnpm test:e2e
 `renderPlanToPdf(plan, { fidelity: "strict" })` 对运行期缺字、坏图片、组件失败及已发现版式降级抛出 `OutputFidelityError`；`diagnostics` 中提供稳定错误码与页/组件位置。默认 `warn` 保留文件和诊断，适合显式人工检查；自动归档建议 strict 并提供真实字体字面。`unsupported-text` / `invalid-image-data` / `component-render-failed` / `output-degraded` 会通过 `onDiagnostic` 通知；观察器同步/异步异常不影响输出事务。
 
 `ImageMediaOptions` 从 `/pdf` 与 `/xlsx` 导出，两个编码入口都支持 `maxImageBytes`、`maxTotalImageBytes`、`maxImages`、`maxImagePixels`、`maxTotalImagePixels`、`maxImageDimension`。PNG/JPEG签名和尺寸在像素解码前检查；重复媒体按规范化后的身份去重，预算超限始终失败。
+
+## 数据工作流
+
+新增能力继续复用既有模板、来源和预览，不新增业务请求协议：
+
+| 入口 | 用途与完整契约 |
+| --- | --- |
+| 核心 `parse/formatReportParamSelection`、`parse/formatReportCascaderPath`、`parse/formatReportNumberRange`、`reportDateDefault` | 规范复合参数与显式业务日期；见[查询参数](PARAMETERS.md) |
+| 核心 `compileReportPredicate/evaluateReportPredicate`、`validateReportDataset/assertReportValidation` | 共享组合条件与整批候选检查；见[数据工作流](DATA_WORKFLOW.md) |
+| 核心 `createReportPrefill/reportPrefillInputs`、`reportDataSnapshotFromPlan` | 稳定业务身份、只补空白和应用前冲突检查；不自行持久化 |
+| 核心 `compareReportData` | 两份显式来源快照的按键增删变化、精确差额/容差/比率；不写回 |
+| 核心 `createReportChartData`、模板 `chartBinding`、列 `visual` | 同源有界聚合、统一图元及数据条/色阶；见[分析](ANALYTICS.md) |
+| Vue `ReportPreview.prefill/dataComparison`、`editable.validation/validateBatch` | 配置loader/规则后提供包内审阅侧栏、分页、取消与定位；保留原子编辑链路 |
+
+`ReportPrefillReviewOptions/ReportDataComparisonReviewOptions` 可以放入 defaults/preset；组件仍使用 `report-id + fetcher`。参考加载 `signal`、业务保存 `requestId` 和服务端授权/事务的职责见[后端复用](SERVER.md)。

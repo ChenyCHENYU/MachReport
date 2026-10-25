@@ -1,3 +1,4 @@
+import { dataBarBox } from "./data-bar";
 import type {
   ComponentStyle,
   PlanComponent,
@@ -153,6 +154,12 @@ function renderGridCell(
   applyTypography(cellBag, style, dpi);
   cellBag.applyTo(cellEl);
 
+  const bar = dataBarBox(cell.dataBar, box.widthMm, box.heightMm, paddingMm);
+  if (bar) {
+    const element = doc.createElement("div"); element.className = "mr-cell-data-bar"; element.setAttribute("aria-hidden", "true");
+    elementStyle("block").add("position", "absolute").mm("left", bar.x, dpi).mm("top", bar.y, dpi).mm("width", bar.width, dpi).mm("height", bar.height, dpi).add("background-color", bar.color).add("opacity", "0.35").add("pointer-events", "none").applyTo(element);
+    cellEl.appendChild(element);
+  }
   // Content cannot contribute native table min-content sizes and enlarge the planned row.
   const payload = doc.createElement("div");
   payload.className = "mr-cell-content";
@@ -167,7 +174,7 @@ function renderGridCell(
   if (cell.richParagraphs?.length) payload.appendChild(renderTextContent({ ...comp, kind: "text", grid: undefined, richParagraphs: cell.richParagraphs }, dpi, options, doc) as HTMLElement);
   else if (cell.text != null) payload.append(cell.text);
   for (const child of cell.children ?? []) payload.appendChild(renderComponent(child, dpi, options, doc));
-  cellEl.appendChild(payload);
+  cellEl.insertBefore(payload, cellEl.firstChild);
   return cellEl;
 }
 

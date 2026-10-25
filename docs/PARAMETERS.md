@@ -14,9 +14,12 @@
 | `month` | `YYYY-MM` | 月份 `01` 至 `12`；同格式字符串边界 |
 | `year` | `YYYY` | 四位年份 `0001` 至 `9999`；同格式字符串边界 |
 | `dateRange` | `YYYY-MM-DD/YYYY-MM-DD` | 两端完整、真实且有序；`min/max` 为约束整个范围的单个日期 |
-| `select` | 已选选项的 `value` 字符串 | 固定选项，或宿主提供的远程搜索与联动选项；标签和值分开 |
+| `select` | 已选选项的 `value` 字符串 | 固定选项，或宿主提供的远程搜索与联动选项；旧单选契约保持不变 |
+| `multiSelect` | JSON 字符串数组，例如 `["YTS0","YTS1"]` | 去重、`minItems/maxItems`，最多 100 项；`typedValues` 为数组 |
+| `cascader` | JSON 路径，例如 `["YT","EAF"]` | 完整父子叶节点路径，最多 16 层；同值可在不同分支出现 |
+| `numberRange` | JSON 数字范围，例如 `[0,150]` | 两端有限、有序，`min/max` 包含边界；`typedValues` 为数值二元组 |
 
-所有上下界均包含边界。日期范围允许开始和结束为同一天。可选参数可以完全清空；只填写范围的一端仍为无效值。数字以外的 `typedValues` 仍保持字符串，日期范围不会悄悄变成数组或对象。
+所有上下界均包含边界。日期范围允许开始和结束为同一天。可选参数可以完全清空；只填写范围的一端仍为无效值。原有数字参数的 `typedValues` 是数字，新增复合参数是数组；其他参数仍为字符串，日期范围不会悄悄变成数组或对象。
 
 ```ts
 import { createReportSource, type ReportParamDef } from '@agile-team/mach-report';
@@ -138,8 +141,36 @@ const schema = reportParamsJsonSchema(definitions);
 
 `validateReportParams` 返回结构化 `code/path/field/message`。`assertReportParams` 在失败时抛 `ReportParamValidationError`。未知参数继续保留以兼容既有取数契约；这不等于后台权限白名单，业务接口应自行约束允许的查询键。
 
-JSON Schema 描述 `typedValues`，数字类型为 `number`，其余为 `string`。月份、年份和范围提供标准词法 `pattern`；真实日历、范围顺序和字符串边界通过 `x-report-date-range`、`x-report-minimum/maximum` 扩展表达。远程源与依赖通过 `x-report-options-source`、`x-report-depends-on` 保留声明。普通 JSON Schema 校验器不会自动执行这些扩展，应继续调用共享校验器或实现相同规则。模板发布样例检查也会执行这套参数校验。
+JSON Schema 描述 `typedValues`：数字类型为 `number`，新增复合参数为 `array`，其余为 `string`。多选保留 `uniqueItems`、项目数量、静态枚举和非空白词法；数字范围使用固定二元组 `prefixItems`，顺序由 `x-report-number-range` 表达。级联叶路径、UTF-16 单项与 JSON wire 预算由 `x-report-cascader`、`x-report-max-code-units`、`x-report-wire-max-code-units` 保留。月份、年份和范围提供标准词法 `pattern`；真实日历、范围顺序和字符串边界通过 `x-report-date-range`、`x-report-minimum/maximum` 扩展表达。远程源与依赖通过 `x-report-options-source`、`x-report-depends-on` 保留声明。普通 JSON Schema 校验器不会自动执行这些扩展，应继续调用共享校验器或实现相同规则。模板发布样例检查也会执行这套参数校验。
 
 ## 边界
 
-本能力负责声明、表单、默认值、严格值校验及可移植契约。远程搜索与联动的前端生命周期由包处理；动态业务默认日期、字典实际查询、数据库连接、账号权限、调度和机器人推送由平台服务负责。包不执行任意脚本，也不会替宿主放行无权限的字典选项。
+本能力负责声明、表单、默认值、严格值校验及可移植契约。远程搜索与联动的前端生命周期由包处理；业务时钟与默认日期求值时机、字典实际查询、数据库连接、账号权限、调度和机器人推送由平台服务负责。包不执行任意脚本，也不会替宿主放行无权限的字典选项。
+
+
+## 复合值与业务日期默认值
+
+```ts
+import {
+  formatReportParamSelection, parseReportParamSelection,
+  formatReportCascaderPath, parseReportCascaderPath,
+  formatReportNumberRange, parseReportNumberRange, reportDateDefault,
+} from '@agile-team/mach-report';
+const values = {
+  plants: formatReportParamSelection(['YTS0', 'YTS1']),
+  area: formatReportCascaderPath(['YT', 'EAF']),
+  weight: formatReportNumberRange([0, 150]),
+  date: reportDateDefault({ preset: 'yesterday', now: Date.now(), timeZone: 'Asia/Shanghai' }),
+};
+const selected = parseReportParamSelection(values.plants);
+const path = parseReportCascaderPath(values.area);
+const range = parseReportNumberRange(values.weight);
+```
+
+三个 parser 对无效值返回 `undefined`，formatter 对无效值抛错。不要 CSV 拆分、丢弃前导零或将路径拼成斜杠字符串；逗号、斜杠与 Unicode 都按 JSON 保留。`validateReportParams` 也接受当前已声明复合参数的规范原生数组，并输出同样的字符串 wire；不因此接受未知参数的任意数组或对象。空选项可整体清空，范围缺一端、级联未到叶节点不能查询。
+
+多选与路径单项限 1024 UTF-16 单元；规范 JSON 总 wire 限 104857 UTF-16 单元，转义展开也计入预算。超限拒绝，不截断 ID。静态选项最多 1000 个总节点，远程选项请求的 `limit` 为 100，总返回树节点也计入此预算；当前不提供无限级字典下载或逐层远程分页。远程字典成员、父子关系和租户范围仍须由宿主查询接口验证。
+
+`reportDateDefault` 只做纯日历求值：`today / yesterday / month-start / month-end`，必须传入明确的 `now` 与 IANA `timeZone`，可选 `offsetDays` 为 -3660 至 3660。得到 `YYYY-MM-DD` 后作为参数/defaultValue传入；它不向 JSON 模板写入函数，也不偷偷使用浏览器或服务器当前时区。跨月、闰年及夏令时按该业务时区的日历日处理。业务应在每次查询或明确的初始化时刻求值，不把一次求得的“今天”当作永久动态默认值。
+
+可视化配置及完整使用场景见[数据工作流](DATA_WORKFLOW.md)与 `/data-tools.html`。

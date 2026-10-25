@@ -11,8 +11,10 @@ import { RENDER_PLAN_SCHEMA_VERSION } from "../schema/render-plan";
 import { DEFAULT_FONT_FAMILY, DEFAULT_FONT_PT, LINE_HEIGHT } from "../defaults";
 import { heuristicMeasurer, wrapText, type TextMeasureOptions, type TextMeasurer } from "./textwrap";
 import { createTextMeasurementCache } from "./text-measure-cache";
-import { evalStyleRule, formatValue, toExcelNumberFormat } from "../format";
+import { compileReportPredicate, type ReportPredicateReader } from "../processing/predicate";
+import { formatValue, toExcelNumberFormat } from "../format";
 import { computeDataset, type FormulaAdapter } from "../processing/computed";
+import { createChartResolver, validateChartComponentLimit, type ChartComponentResolver } from "./chart-layout";
 import { aggregateRows, type AggregateDefinition } from "../processing/aggregate";
 import { estimateMatrixTable } from "../processing/matrix";
 import { matrixRowRole, prepareMatrixHeader, resolveMatrixLayout, type MatrixLayoutMetadata } from "./matrix-layout";
@@ -28,8 +30,9 @@ import { resolveListAutoAlignment, listCellText as cellText, resolveListHeaderSt
 import type { ReportTemplateRepeat } from "../schema/component-binding";
 import { repeatTemplatePages } from "./record-pages";
 import { PaginateCellLimitError, PaginatePageLimitError } from "./pagination-errors";
-export { PaginateCellLimitError, PaginatePageLimitError } from "./pagination-errors";
+export { PaginateCellLimitError, PaginatePageLimitError, PaginateChartComponentLimitError } from "./pagination-errors";
 
+import { createColumnVisualResolvers, type ColumnVisualResolver } from "./column-visual";
 import type { ListColumn, ListComponent, ListGroupBy } from "./list-model";
 export type { ListAlignment, ListColumn, ListComponent, ListGroupBy, ListGrandTotal, ListDetail } from "./list-model";
 
@@ -50,15 +53,18 @@ export interface TemplatePage {
   meta?: Record<string, unknown>;
 }
 
+/** Cascader values are unique within each sibling list. */
+export interface ReportParamTreeOption { label: string; value: string; children?: ReportParamTreeOption[] }
+
 /** 报表参数定义（声明式，模板自描述参数面：渲染组件据此生成查询面板） */
 export interface ReportParamDef {
   /** 参数名（传入 params，与数据集 SQL #{field} 绑定对应） */
   field: string;
   /** 显示名（缺省用 field） */
   label?: string;
-  type?: "text" | "number" | "date" | "month" | "year" | "dateRange" | "select";
+  type?: "text" | "number" | "date" | "month" | "year" | "dateRange" | "select" | "multiSelect" | "cascader" | "numberRange";
   /** select 选项 */
-  options?: Array<{ label: string; value: string }>;
+  options?: ReportParamTreeOption[];
   /** Opaque host-resolved source key. No URL, credentials or executable code is stored. */
   optionsSource?: string;
   /** Select dependencies must be declared parameters; changing a parent clears descendants. */
@@ -71,6 +77,9 @@ export interface ReportParamDef {
   max?: number | string;
   minLength?: number;
   maxLength?: number;
+  /** multiSelect item count (maximum 100). Cascader paths are bounded to 16 levels. */
+  minItems?: number;
+  maxItems?: number;
 }
 
 export interface ReportTemplate {
@@ -93,6 +102,8 @@ export interface PaginateOptions {
   maxPages?: number;
   /** Actual grid cells, including repeated furniture and nested children; checked before each page is appended. */
   maxCells?: number;
+  /** Shared bound-chart primitive budget, checked before expansion; default 50000, range 1..1000000. */
+  maxChartComponents?: number;
   signal?: AbortSignal;
   /** Streaming total-page anchors can skip the bounded counting pass when known. */
   knownTotalPages?: number;
@@ -104,6 +115,8 @@ export interface PaginateOptions {
 export interface PaginateResult {
   plan: RenderPlan;
   warnings: string[];
+  /** Actual resolved bound-chart primitives, including empty placeholders. */
+  chartComponents: number;
 }
 
 interface WorkingPage {
@@ -140,6 +153,9 @@ function headerBottom(page: TemplatePage): number {
 
 /** 列表级驻留产物：热路径（万行循环）中不再逐行/逐格新建样式对象 */
 interface ListInterning {
+  visuals: Array<ColumnVisualResolver | undefined>;
+  visibility: Array<ReportPredicateReader | undefined>;
+  ruleReaders: Array<ReportPredicateReader[] | undefined>;
   fontSizePt: number;
   paddingMm: number;
   /** 每列常驻单元格样式引用（同列所有行共享同一对象） */
@@ -195,7 +211,7 @@ function rawCellValue(value: unknown): GridCell["value"] {
   return undefined;
 }
 
-function interList(list: ListComponent, measurer: TextMeasurer): ListInterning {
+function interList(list: ListComponent, measurer: TextMeasurer, rows: readonly DataRow[] = [], signal?: AbortSignal): ListInterning {
   const fontSizePt = list.fontSizePt ?? DEFAULT_FONT_PT;
   const paddingMm = list.paddingMm ?? 1;
 
@@ -256,6 +272,9 @@ function interList(list: ListComponent, measurer: TextMeasurer): ListInterning {
   return {
     fontSizePt,
     paddingMm,
+    visuals: createColumnVisualResolvers(list.columns, rows, signal),
+    visibility: list.columns.map(column => column.visibleWhen ? compileReportPredicate(column.visibleWhen) : undefined),
+    ruleReaders: list.columns.map(column => column.rules?.map(rule => compileReportPredicate(rule.when))),
     cellStyles,
     autoStyles,
     ruleStyles,
@@ -302,14 +321,14 @@ function buildRowGridFast(
   const cells: GridCellCompat[] = new Array(columns.length);
   for (let i = 0; i < columns.length; i++) {
     const col = columns[i]!;
-    const rawValue = col.visibleWhen && !evalStyleRule(row, col.visibleWhen) ? null : row[col.field];
+    const visible = inter.visibility[i]?.(row) !== false;
+    const rawValue = visible ? row[col.field] : null;
     const alignment = inter.autoStyles[i] ? resolveListAutoAlignment(rawValue, col.format, col.semanticRole) : "left";
     let style = inter.autoStyles[i]?.[alignment] ?? inter.cellStyles[i]!;
     // 条件格式首个命中生效；所有变体在列表级驻留，热路径不构造样式对象。
     if (col.rules) {
       for (let ruleIndex = 0; ruleIndex < col.rules.length; ruleIndex++) {
-        const rule = col.rules[ruleIndex]!;
-        if (evalStyleRule(row, rule.when)) {
+        if (inter.ruleReaders[i]![ruleIndex]!(row)) {
           style = inter.ruleStyles[i]![ruleIndex]![alignment];
           break;
         }
@@ -324,11 +343,12 @@ function buildRowGridFast(
     height = Math.max(height, wrapped.length * metrics.lineMm + inter.paddingMm * 2);
     const value = rawCellValue(rawValue);
     const cell: GridCell = { text, style };
+    if (rawValue !== null && rawValue !== undefined) inter.visuals[i]?.apply(cell, row);
     if (value !== undefined) cell.value = value;
     applyCellEditMetadata(cell, col, inter.numberFormats[i]);
     applyTreeCellMetadata(cell, col, inter, treeRow, indentMm);
     if (inter.derivedFields.has(col.field)) { cell.derived = true; cell.editable = false; }
-    if (col.visibleWhen && rawValue === null && !evalStyleRule(row, col.visibleWhen)) cell.editable = false;
+    if (!visible) cell.editable = false;
     cells[i] = cell;
   }
   return {
@@ -451,6 +471,7 @@ interface ListPageContext {
   pushCurrent(isFinal?: boolean): void;
   takePages(): PlanPage[];
   datasets: DatasetRows;
+  resolveChart: ChartComponentResolver;
   signal?: AbortSignal;
   formula?: FormulaAdapter;
   prepared: WeakMap<ListComponent, PreparedListData>;
@@ -615,7 +636,7 @@ function detailContext(list: ListComponent, rows: DataRow[], context: ListPageCo
     matched.push(row);
   }
   const childList = scaleList({ ...list, id: `${list.id ?? list.dataset}:detail`, dataset: detail.dataset, rowKey: detail.rowKey, revisionField: detail.revisionField, sourceTokenField: detail.sourceTokenField, computed: undefined, columns: detail.columns, headerGrid: undefined, rowHeightMm: detail.rowHeightMm ?? list.rowHeightMm, detail: undefined });
-  return { list: childList, inter: { ...interList(childList, context.measurer), rowHeightFloorMm: childList.rowHeightMm ?? 0 }, rows: buckets, sources: checkedRowSources(childList, matched) };
+  return { list: childList, inter: { ...interList(childList, context.measurer, matched, context.signal), rowHeightFloorMm: childList.rowHeightMm ?? 0 }, rows: buckets, sources: checkedRowSources(childList, matched) };
 }
 function validRelationKey(value: unknown): boolean {
   return typeof value === "string" && !!value.trim() || typeof value === "number" && Number.isFinite(value);
@@ -667,7 +688,7 @@ function prepareListData(list: ListComponent, input: DataRow[], context: ListPag
   if (list.tree) { const result = prepareTreeData(list, input, context); context.prepared.set(list, result); return result; }
   let rows = list.computed?.length ? computeDataset(input, { fields: list.computed, signal: context.signal, formula: context.formula }).rows : input;
   const originals = rows === input ? undefined : new Map(rows.map((row, index) => [row, input[index]!]));
-  if (list.rowVisibleWhen) rows = rows.filter((row) => evalStyleRule(row, list.rowVisibleWhen!));
+  if (list.rowVisibleWhen) rows = rows.filter(compileReportPredicate(list.rowVisibleWhen));
   const result: PreparedListData = resolveMatrixLayout(list, rows);
   if (!list.matrix) {
     const sourceRows = checkedRowSources(list, originals ? rows.map((row) => originals.get(row)!) : rows);
@@ -693,7 +714,7 @@ function* paginateList(list: ListComponent, input: DataRow[], context: ListPageC
   list = prepared.list;
   if (list.layout === "wide") context.current.widthMm = Math.max(context.current.widthMm, list.leftMm + list.widthMm + context.current.marginRightMm);
   const sources = prepared.sources ?? checkedRowSources(list, rows), scaled = scaleList(list), groups = groupsFor(scaled);
-  const inter = { ...interList(scaled, context.measurer), rowHeightFloorMm: scaled.rowHeightMm ?? 0, matrix: prepared.matrix, ...(prepared.treeRows ? { tree: { list: scaled, rows: prepared.treeRows } } : {}) };
+  const inter = { ...interList(scaled, context.measurer, rows, context.signal), rowHeightFloorMm: scaled.rowHeightMm ?? 0, matrix: prepared.matrix, ...(prepared.treeRows ? { tree: { list: scaled, rows: prepared.treeRows } } : {}) };
   ensureFlowListStart(scaled, inter, rows, context);
   const writer = createListPageWriter(scaled, inter, context), detail = detailContext(scaled, rows, context);
   let nextRow: GridRow | undefined;
@@ -768,11 +789,12 @@ function gridCells(grid: PlanGrid): number {
 function componentCells(component: PlanComponent): number { return component.grid ? gridCells(component.grid) : 0; }
 function validatePaginateOptions(options: PaginateOptions): void {
   for (const key of ["maxPages", "maxCells", "knownTotalPages"] as const) if (options[key] !== undefined && (!Number.isSafeInteger(options[key]) || options[key]! < 1)) throw new RangeError(`${key} 应为正安全整数`);
+  validateChartComponentLimit(options.maxChartComponents);
 }
 function flowListHeight(list: ListComponent, context: ListPageContext): number {
   const prepared = prepareListData(list, context.datasets[list.dataset] ?? [], context);
   const scaled = scaleList(prepared.list);
-  const inter = { ...interList(scaled, context.measurer), rowHeightFloorMm: scaled.rowHeightMm ?? 0 };
+  const inter = { ...interList(scaled, context.measurer, prepared.rows, context.signal), rowHeightFloorMm: scaled.rowHeightMm ?? 0 };
   return (scaled.header === false ? 0 : inter.headerHeightMm) + prepared.rows.reduce((height, row) => height + buildRowGridFast(inter, row, context.measurer).heightMm, 0);
 }
 function* paginatePageContent(context: ListPageContext): Generator<PlanPage> {
@@ -787,7 +809,7 @@ function* paginatePageContent(context: ListPageContext): Generator<PlanPage> {
     yield* paginateFlowPage({ page: templatePage, active: () => checkPaginationAbort(context.signal),
       top: () => Math.max(current.marginTopMm, headerBottom(templatePage)),
       bottom: () => toContentBottom(templatePage, current),
-      append: component => { current.components.push(component); },
+      append: component => { current.components.push(...context.resolveChart(component)); },
       nextPage: () => {
         context.pushCurrent(); current.components = []; current.heightMm = templatePage.heightMm;
         if (templatePage.layout === "wide") { current.marginTopMm = 0; current.marginBottomMm = 0; }
@@ -799,13 +821,14 @@ function* paginatePageContent(context: ListPageContext): Generator<PlanPage> {
   for (const component of templatePage.components) {
     if (isPageAnchor(component)) continue;
     if (component.kind === "list") yield* place(component);
-    else current.components.push(component);
+    else current.components.push(...context.resolveChart(component));
   }
 }
 /** Internal generator retains the active page plus at most the row transition queue. */
-function* iteratePages(template: ReportTemplate, datasets: DatasetRows, options: PaginateOptions, warnings: string[], totalPages?: number, prepared = new WeakMap<ListComponent, PreparedListData>()): Generator<PlanPage> {
+function* iteratePages(template: ReportTemplate, datasets: DatasetRows, options: PaginateOptions, warnings: string[], totalPages?: number, prepared = new WeakMap<ListComponent, PreparedListData>(), statistics?: Pick<PaginateResult, "chartComponents">): Generator<PlanPage> {
   let sequence = 0, pageNumber = 0, actualCells = 0;
   const measurer = createTextMeasurementCache(options.measurer ?? heuristicMeasurer);
+  const resolveChart = createChartResolver(datasets, options.signal, options.maxChartComponents);
   const nextId = (prefix: string) => `${prefix}_${(++sequence).toString(36)}`;
   for (const { pageIndex, page: templatePage } of repeatTemplatePages(template, datasets, options)) {
     checkPaginationAbort(options.signal);
@@ -821,10 +844,11 @@ function* iteratePages(template: ReportTemplate, datasets: DatasetRows, options:
       ready.push(outputPage(templatePage, current, anchors, ++pageNumber, isFinal, totalPages));
     };
     const takePages = () => { const pages = ready; ready = []; return pages; };
-    yield* paginatePageContent({ templatePage, current, warnings, nextId, pushCurrent, takePages, datasets, signal: options.signal, formula: options.formula, prepared,
+    yield* paginatePageContent({ templatePage, current, warnings, nextId, pushCurrent, takePages, datasets, resolveChart, signal: options.signal, formula: options.formula, prepared,
       measurer, mmPerRow: options.mmPerRow ?? 0, tableId: `table:${pageIndex}` });
     pushCurrent(true); yield* takePages();
   }
+  if (statistics) statistics.chartComponents = resolveChart.used();
 }
 /** Counting pass does not keep page grids, components or a RenderPlan alive. */
 export function countTemplatePages(template: ReportTemplate, datasets: DatasetRows, options: PaginateOptions = {}): number {
@@ -835,6 +859,10 @@ export function countTemplatePages(template: ReportTemplate, datasets: DatasetRo
 }
 /** Genuine page-level layout. With total-page anchors, use knownTotalPages or a bounded counting pass. */
 export function* paginateTemplatePages(template: ReportTemplate, datasets: DatasetRows, options: PaginateOptions = {}): Generator<PlanPage> {
+  yield* paginateTemplatePagesWithStats(template, datasets, options);
+}
+/** Internal stats collector used by asynchronous edit reflow; counting-pass usage is excluded. */
+export function* paginateTemplatePagesWithStats(template: ReportTemplate, datasets: DatasetRows, options: PaginateOptions, statistics?: Pick<PaginateResult, "chartComponents">): Generator<PlanPage> {
   validatePaginateOptions(options);
   const needsTotal = hasTotalAnchor(template);
   const prepared = new WeakMap<ListComponent, PreparedListData>();
@@ -842,7 +870,7 @@ export function* paginateTemplatePages(template: ReportTemplate, datasets: Datas
   if (needsTotal && total === undefined) { total = 0; for (const _page of iteratePages(template, datasets, options, [], undefined, prepared)) total++; }
   const warnings: string[] = [];
   let delivered = 0;
-  for (const page of iteratePages(template, datasets, options, warnings, total, prepared)) {
+  for (const page of iteratePages(template, datasets, options, warnings, total, prepared, statistics)) {
     for (; delivered < warnings.length; delivered++) options.onWarning?.(warnings[delivered]!);
     yield page;
   }
@@ -852,10 +880,11 @@ export function paginateTemplate(template: ReportTemplate, datasets: DatasetRows
   const options = typeof optionsOrMmPerRow === "number" ? { mmPerRow: optionsOrMmPerRow } : optionsOrMmPerRow;
   validatePaginateOptions(options);
   const warnings: string[] = [];
-  const pages = [...iteratePages(template, datasets, options, warnings, options.knownTotalPages)];
+  const statistics = { chartComponents: 0 };
+  const pages = [...iteratePages(template, datasets, options, warnings, options.knownTotalPages, undefined, statistics)];
   for (const page of pages) page.components = page.components.map((component) => isPageAnchor(component) ? mapAnchorText(component, (text) => text.replace(/\{totalPages\}/g, String(pages.length))) : component);
   warnings.forEach((warning) => options.onWarning?.(warning));
-  return { plan: { schemaVersion: RENDER_PLAN_SCHEMA_VERSION, ...(templateRequiresRecalculation(template) ? { requiresRecalculation: true } : {}), pages }, warnings };
+  return { plan: { schemaVersion: RENDER_PLAN_SCHEMA_VERSION, ...(templateRequiresRecalculation(template) ? { requiresRecalculation: true } : {}), pages }, warnings, ...statistics };
 }
 
 function estimatedSummaryExtras(list: ListComponent): { groups: number; total: number } {
@@ -879,7 +908,7 @@ export function estimateListLayoutCells(list: ListComponent, datasets: DatasetRo
   if (list.matrix) {
     let rows = datasets[list.dataset] ?? [];
     if (list.computed?.length) rows = computeDataset(rows, { fields: list.computed, ...options }).rows;
-    if (list.rowVisibleWhen) rows = rows.filter((row) => evalStyleRule(row, list.rowVisibleWhen!));
+    if (list.rowVisibleWhen) rows = rows.filter(compileReportPredicate(list.rowVisibleWhen));
     const shape = estimateMatrixTable(rows, list.matrix);
     return shape.cells + (list.header === false ? 0 : shape.columnCount * (list.matrix.hierarchy ? list.matrix.columnFields.length + 1 : 1));
   }

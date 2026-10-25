@@ -273,3 +273,14 @@ if (!getReportEditSession(plan)) {
 ```
 
 `executor.prepare` 代表宿主已有的执行器适配函数，并非新增通用方法。必须使用回调收到的 `next` 模板/数据及 `signal`，不能闭包回旧来源；返回计划应保留同一业务身份、预算和 `requiresRecalculation` 要求。非 Worker 的 `createReportRuntime.prepare` 已自动登记，不需要重复接线。
+
+
+## 候选规则、安全预填与数据核对
+
+`editable.validation = { rules, warningPolicy? }` 对完整来源候选执行声明式整行/整批校验；包括隐藏行、派生值、嵌套树子节点，失败不会调用保存。`warning` 默认可保存，显式 `warningPolicy: 'block'` 才阻止。错误列表保留稳定业务键，菜单只在存在问题时出现；无可靠身份的项目不会按显示行号误定位。`validateBatch(batch, candidatePlan, operation)` 可补宿主特有校验，返回结构化问题；它看到的是已重算候选。
+
+规则需要来源会话，原始 RenderPlan 不能声称验证了完整来源数据。核心 `prepared.validationIssues` 为只读结果；Node/其他框架须先 `assertReportValidation`，再调用原子保存，最后 commit，不能先写库再依赖 commit 抛错回滚外部操作。撤销、重做和恢复同样校验，不另开绕过规则的路径。
+
+`ReportPreview` 的 `prefill` 仅需参考 loader 与显式字段白名单；默认只补空白，保留 `0/false`，先审阅再交现有编辑事务。`dataComparison` 是按业务键的只读期间核对，复用当前查询数据与原报表定位。两项配置可由 defaults/preset统一提供，未配置不显示入口；不需要使用侧拼装额外表格、分页或保存历史。
+
+完整类型、示例、身份与预算见[数据工作流](DATA_WORKFLOW.md)，可运行 `/data-tools.html`。业务服务器继续检查权限、字段白名单、并发令牌和整批数据库事务；浏览器校验不能替代这些职责。

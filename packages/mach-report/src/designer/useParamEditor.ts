@@ -1,3 +1,4 @@
+import type { ReportParamOptionsLoader } from "../vue/param-options";
 import { computed, ref, watch } from "vue";
 import { validateReportParamDefinitions, type ReportParamDef, type ReportTemplateDocument } from "@agile-team/mach-report";
 import { useTemplateToolDraft } from "./useTemplateToolDrafts";
@@ -7,6 +8,8 @@ export interface ParamEditorOptions {
   document: ReportTemplateDocument;
   readonly?: boolean;
   messages?: Partial<ParamEditorMessages>;
+  /** Reuses the same trusted option resolver used by ReportPreview. */
+  loadOptions?: ReportParamOptionsLoader;
   /** Return false when the enclosing template transaction rejects the change. */
   accept(definitions: ReportParamDef[]): boolean;
 }
@@ -22,14 +25,16 @@ export interface ParamDraft {
   max: string;
   minLength: string;
   maxLength: string;
+  minItems: string;
+  maxItems: string;
   options: NonNullable<ReportParamDef["options"]>;
   optionsMode: "static" | "remote";
   optionsSource: string;
   dependsOn: string[];
 }
-export const PARAM_TYPES = ["text", "number", "date", "month", "year", "dateRange", "select"] as const;
-export const PARAM_WIRE_FORMAT = { text: "string", number: "string → number", date: "YYYY-MM-DD", month: "YYYY-MM", year: "YYYY", dateRange: "YYYY-MM-DD/YYYY-MM-DD", select: "option.value" };
-export type ParamControl = "field" | "type" | "defaultValue" | "min" | "max" | "minLength" | "maxLength" | "options" | "optionsSource" | "dependsOn";
+export const PARAM_TYPES = ["text", "number", "date", "month", "year", "dateRange", "select", "multiSelect", "cascader", "numberRange"] as const;
+export const PARAM_WIRE_FORMAT = { text: "string", number: "string → number", date: "YYYY-MM-DD", month: "YYYY-MM", year: "YYYY", dateRange: "YYYY-MM-DD/YYYY-MM-DD", select: "option.value", multiSelect: 'JSON ["value",…]', cascader: 'JSON ["parent","leaf"]', numberRange: "JSON [minimum,maximum]" };
+export type ParamControl = "field" | "type" | "defaultValue" | "min" | "max" | "minLength" | "maxLength" | "options" | "optionsSource" | "dependsOn" | "minItems" | "maxItems";
 
 /** Shared validator messages stay intact; the form adds precise, local control locations. */
 function issueControls(message: string): ParamControl[] {
@@ -40,7 +45,7 @@ function issueControls(message: string): ParamControl[] {
   if (message.includes("选项")) return ["options"];
   if (message.startsWith("最小边界")) return ["min", "max"];
   if (message.startsWith("最小长度")) return ["minLength", "maxLength"];
-  const bound = /^(minLength|maxLength|min|max) /.exec(message)?.[1] as ParamControl | undefined;
+  const bound = /^(minLength|maxLength|minItems|maxItems|min|max) /.exec(message)?.[1] as ParamControl | undefined;
   return bound ? [bound] : ["type"];
 }
 
@@ -51,7 +56,8 @@ function toDraft(def: ReportParamDef): ParamDraft {
     placeholder: def.placeholder ?? "", defaultEnabled: def.defaultValue !== undefined, defaultValue: def.defaultValue ?? "",
     min: def.min === undefined ? "" : String(def.min), max: def.max === undefined ? "" : String(def.max),
     minLength: def.minLength === undefined ? "" : String(def.minLength), maxLength: def.maxLength === undefined ? "" : String(def.maxLength),
-    options: def.options ? def.options.map(option => ({ ...option })) : [],
+    minItems: def.minItems === undefined ? "" : String(def.minItems), maxItems: def.maxItems === undefined ? "" : String(def.maxItems),
+    options: def.options ? JSON.parse(JSON.stringify(def.options)) as NonNullable<ReportParamDef["options"]> : [],
     optionsMode: def.optionsSource === undefined ? "static" : "remote", optionsSource: def.optionsSource ?? "", dependsOn: [...def.dependsOn ?? []],
   };
 }
@@ -62,13 +68,13 @@ function toDefinition(draft: ParamDraft): ReportParamDef {
   if (draft.required) def.required = true;
   if (draft.defaultEnabled) def.defaultValue = draft.defaultValue;
   for (const key of ["min", "max"] as const) {
-    if (draft[key] !== "") def[key] = draft.type === "number" ? Number(draft[key]) : draft[key];
+    if (draft[key] !== "") def[key] = ["number", "numberRange"].includes(draft.type) ? Number(draft[key]) : draft[key];
   }
-  for (const key of ["minLength", "maxLength"] as const) if (draft[key] !== "") def[key] = Number(draft[key]);
-  if (draft.type === "select" && draft.optionsMode === "remote") {
+  for (const key of ["minLength", "maxLength", "minItems", "maxItems"] as const) if (draft[key] !== "") def[key] = Number(draft[key]);
+  if (["select", "multiSelect", "cascader"].includes(draft.type) && draft.optionsMode === "remote") {
     def.optionsSource = draft.optionsSource.trim();
     if (draft.dependsOn.length) def.dependsOn = [...draft.dependsOn];
-  } else if (draft.type === "select") def.options = draft.options.map(option => ({ ...option }));
+  } else if (["select", "multiSelect", "cascader"].includes(draft.type)) def.options = JSON.parse(JSON.stringify(draft.options)) as NonNullable<ReportParamDef["options"]>;
   return def;
 }
 
@@ -129,8 +135,9 @@ export function useParamEditor(props: ParamEditorOptions) {
   }
   function setType(type: ParamDraft["type"]): void {
     if (props.readonly || !current.value) return;
+    if (current.value.type === "cascader" && type !== "cascader") current.value.options = current.value.options.map(option => ({ label: option.label, value: option.value }));
     current.value.type = type; current.value.min = ""; current.value.max = "";
-    current.value.minLength = ""; current.value.maxLength = "";
+    current.value.minLength = ""; current.value.maxLength = ""; current.value.minItems = ""; current.value.maxItems = "";
   }
   function apply(): boolean {
     if (props.readonly || conflicted.value || issues.value.length) return false;
@@ -143,7 +150,7 @@ export function useParamEditor(props: ParamEditorOptions) {
   useTemplateToolDraft({ key: () => "params", baseline: () => baseline.value, pending: () => pending.value, snapshot: () => JSON.stringify({ rows: rows.value, selected: selected.value, initial: initialDraft.value }), restore(value, source) {
     const state = JSON.parse(value) as { rows: ParamDraft[]; selected: number; initial: string };
     if (!Array.isArray(state.rows) || state.rows.length > 1000 || typeof state.initial !== "string") throw new Error("Invalid parameter draft");
-    rows.value = state.rows.map(row => ({ ...row, optionsMode: row.optionsMode ?? "static", optionsSource: row.optionsSource ?? "", dependsOn: row.dependsOn ?? [] })); selected.value = Math.max(0, Math.min(state.selected, state.rows.length - 1)); initialDraft.value = state.initial; baseline.value = source;
+    rows.value = state.rows.map(row => ({ ...row, minItems: row.minItems ?? "", maxItems: row.maxItems ?? "", optionsMode: row.optionsMode ?? "static", optionsSource: row.optionsSource ?? "", dependsOn: row.dependsOn ?? [] })); selected.value = Math.max(0, Math.min(state.selected, state.rows.length - 1)); initialDraft.value = state.initial; baseline.value = source;
   } });
   return { m, rows, selected, current, definitions, issues, issuesByRow, firstIssueIndex, controlIssues, currentIssues, changes, pending, conflicted, error, reset, add, remove, move, setType, apply };
 }

@@ -1,3 +1,4 @@
+import { reportPredicateFields } from "../processing/predicate";
 import { computed, ref, type Ref } from "vue";
 import type { ComputedField, ReportExpression } from "../processing/computed";
 import type { RuleEditorOptions } from "./useRuleEditor";
@@ -6,6 +7,7 @@ function references(expression: ReportExpression | string, result = new Set<stri
   if (typeof expression === "string") return result;
   if ("field" in expression && expression.field) result.add(expression.field);
   if ("weightField" in expression && expression.weightField) result.add(expression.weightField);
+  if ("args" in expression && expression.condition) reportPredicateFields(expression.condition).forEach(field => result.add(field));
   if ("args" in expression) expression.args.forEach((item) => references(item, result));
   return result;
 }

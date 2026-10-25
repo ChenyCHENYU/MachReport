@@ -57,7 +57,7 @@ export function usePreviewEncoding(host: {
       onDiagnostic: entry => { observeOutput(() => configured.onDiagnostic?.(entry)); task.onDiagnostic?.(entry); } });
     assertOutputActive(input.signal);
     return { ...input.prepared, bytes: new Uint8Array(result.buffer), format: "xlsx", contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      diagnostics: [...(result.diagnostics ?? []), ...result.warnings.map(message => ({ code: "xlsx-fidelity", severity: "warning" as const, message }))] };
+      diagnostics: [...(result.diagnostics ?? []), ...result.warnings.map(message => ({ code: "xlsx-fidelity", severity: "warning" as const, message })), ...(result.notes ?? []).map(message => ({ code: "xlsx-snapshot", severity: "info" as const, message }))] };
   }
   async function xlsx(plan: RenderPlan, options: XlsxRenderOptions, task: PreviewEncodingTask): Promise<{ buffer: Uint8Array; warnings: string[] }> {
     const { signal: _signal, fidelity, ...configured } = options;

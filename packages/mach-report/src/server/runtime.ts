@@ -8,7 +8,7 @@ import type { PlanComponent } from "../schema/render-plan";
 import { validateRenderPlan } from "../schema/validate";
 import type { TextMeasurer } from "../layout/textwrap";
 import type { DatasetRows, ReportTemplate } from "../layout/paginate";
-import { estimateListLayoutCells, PaginateCellLimitError, PaginatePageLimitError } from "../layout/paginate";
+import { estimateListLayoutCells, PaginateCellLimitError, PaginatePageLimitError, PaginateChartComponentLimitError } from "../layout/paginate";
 import { createReportTaskReporter, notifyReportTaskEvent, reportTaskId, type ReportTaskEvent } from "../source/task-events";
 import { templateDatasetRowCount, templateDatasetJsonSchema } from "../source/template-tree-data";
 import { TreeRowLimitError } from "../processing/tree";
@@ -88,7 +88,7 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
         maxCells: Math.min(budget.maxCells ?? 2_000_000, definition.dataValidation?.maxCells ?? Infinity)
       }
     }]));
-    const source = createReportSource(reports, { maxPages: budget.maxPages, maxCells: budget.maxCells, onDatasets: (id, data, template) => {
+    const source = createReportSource(reports, { maxPages: budget.maxPages, maxCells: budget.maxCells, maxChartComponents: budget.maxChartComponents, onDatasets: (id, data, template) => {
       try { rows += templateDatasetRowCount(template, data, { maxRows: budget.maxRows, signal: input.signal }); }
       catch (error) { if (error instanceof TreeRowLimitError) throw new ReportRuntimeError("budget", error.message, "$.budget.maxRows"); throw error; }
       assertBudget(budget, "maxRows", rows);
@@ -104,6 +104,7 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
     } }).catch((error: unknown) => {
       if (error instanceof ReportSourceError && error.cause instanceof PaginatePageLimitError) throw new ReportRuntimeError("budget", error.cause.message, "$.budget.maxPages");
       if (error instanceof ReportSourceError && error.cause instanceof PaginateCellLimitError) throw new ReportRuntimeError("budget", error.cause.message, "$.budget.maxCells");
+      if (error instanceof ReportSourceError && error.cause instanceof PaginateChartComponentLimitError) throw new ReportRuntimeError("budget", error.cause.message, "$.budget.maxChartComponents");
       throw error;
     });
     throwIfAborted(input.signal);

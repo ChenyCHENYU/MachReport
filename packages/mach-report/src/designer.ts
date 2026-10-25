@@ -16,6 +16,10 @@ export const RuleEditor = defineAsyncComponent(() => import("./designer/RuleEdit
 export { DEFAULT_RULE_EDITOR_MESSAGES as RULE_EDITOR_MESSAGES } from "./designer/rule-messages";
 export type { RuleEditorMessages } from "./designer/rule-messages";
 export type { RuleEditorOptions } from "./designer/useRuleEditor";
+export { COLUMN_VISUAL_MESSAGES } from "./designer/column-visual-messages";
+export type { ColumnVisualMessages } from "./designer/column-visual-messages";
+export { default as ColumnVisualEditor } from "./designer/ColumnVisualEditor.vue";
+export { default as ChartBindingInspector } from "./designer/ChartBindingInspector.vue";
 
 export const ParamEditor = defineAsyncComponent(() => import("./designer/ParamEditor.vue"));
 export { PARAM_EDITOR_MESSAGES } from "./designer/param-messages";

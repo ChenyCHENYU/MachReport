@@ -5,12 +5,18 @@ import type { ReportParamOption, ReportParamOptionsLoader } from "../param-optio
 
 const LIMIT = 100, CACHE_SIZE = 32, CACHE_TTL = 60_000, REQUEST_TIMEOUT = 15_000;
 function snapshotOptions(value: readonly ReportParamOption[]): readonly ReportParamOption[] {
-  if (!Array.isArray(value) || value.length > LIMIT) throw new Error("Invalid option response");
-  const seen = new Set<string>();
-  return Object.freeze(value.map(option => {
-    if (!option || typeof option.value !== "string" || !option.value || option.value.length > 1024 || typeof option.label !== "string" || option.label.length > 1024 || seen.has(option.value)) throw new Error("Invalid option response");
-    seen.add(option.value); return Object.freeze({ label: option.label, value: option.value });
-  }));
+  let count = 0;
+  const visited = new Set<unknown>();
+  function copy(items: readonly ReportParamOption[], depth: number): readonly ReportParamOption[] {
+    if (!Array.isArray(items) || depth > 16 || items.length > LIMIT) throw new Error("Invalid option response");
+    const siblings = new Set<string>();
+    return Object.freeze(items.map(option => {
+      if (++count > LIMIT || !option || visited.has(option) || typeof option.value !== "string" || !option.value || option.value.length > 1024 || typeof option.label !== "string" || option.label.length > 1024 || siblings.has(option.value)) throw new Error("Invalid option response");
+      visited.add(option); siblings.add(option.value);
+      return Object.freeze({ label: option.label, value: option.value, ...(option.children === undefined ? {} : { children: copy(option.children, depth + 1) }) });
+    }));
+  }
+  return copy(value, 1);
 }
 
 /** One request per field; stale callbacks never replace a later dependency/query snapshot. */
@@ -49,13 +55,13 @@ export function useParamOptions(host: {
   }
   function schedule(): void { cancel(); options.value = []; failed.value = false; timer = setTimeout(() => { void request(); }, 180); }
   watch(query, schedule, { flush: "sync" });
-  watch([() => host.def().field, () => host.def().optionsSource, () => JSON.stringify(params.value), host.loader], () => {
+  watch([() => host.def().field, () => host.def().type, () => host.def().optionsSource, () => JSON.stringify(params.value), host.loader], () => {
     cache.clear(); query.value = ""; cancel(); options.value = []; failed.value = false;
     if (host.opened()) void request();
   }, { flush: "sync" });
   watch([host.opened, host.disabled], () => {
     if (!host.opened() || host.disabled()) cancel(); else void request();
-  });
+  }, { immediate: true });
   onBeforeUnmount(() => { cancel(); cache.clear(); });
   return { query, options, loading, failed, waiting, missingLoader, request, cancel };
 }

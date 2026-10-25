@@ -1,3 +1,4 @@
+import { compileReportPredicate, type ReportPredicate } from "../processing/predicate";
 import {
   validateMatrixOptions,
   type MatrixTableOptions,
@@ -18,28 +19,9 @@ export function validateRowCondition(
   errors: ValidationError[],
 ): void {
   if (value === undefined) return;
-  if (!object(value)) {
-    errors.push({ path, message: "条件应为对象" });
-    return;
-  }
-  if (typeof value.field !== "string" || !value.field.trim())
-    errors.push({ path: `${path}.field`, message: "条件需要字段" });
-  if (
-    value.numeric !== undefined &&
-    value.numeric !== "number" &&
-    value.numeric !== "decimal"
-  )
-    errors.push({ path: `${path}.numeric`, message: "未知条件数值模式" });
-  if (![">", ">=", "<", "<=", "==", "!="].includes(value.op as string))
-    errors.push({ path: `${path}.op`, message: "未知条件运算符" });
-  if (
-    typeof value.value !== "string" &&
-    !(typeof value.value === "number" && Number.isFinite(value.value))
-  )
-    errors.push({
-      path: `${path}.value`,
-      message: "条件值应为字符串或有限数字",
-    });
+  try { compileReportPredicate(value as ReportPredicate); }
+  catch (cause) { errors.push({ path, message: cause instanceof Error ? cause.message : String(cause) }); }
+
 }
 export function validateAggregates(
   value: unknown,

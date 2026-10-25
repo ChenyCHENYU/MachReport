@@ -1,3 +1,4 @@
+import { validDataBar } from "../schema/data-bar";
 import { resolveGridLayout } from "../render/grid-geometry";
 import { assertBoundedRenderTree } from "../schema/component-tree";
 import { assertOutputActive, type OutputTaskOptions } from "./progress";
@@ -125,6 +126,7 @@ function nestedExcelInspector(comp: PlanComponent): (child: PlanComponent, row: 
 function collectGridDiagnostics(comp: PlanComponent, format: OutputFormat, pageIndex: number, componentIndex: number, componentPath: readonly number[], diagnostics: OutputDiagnostic[], visited: ReadonlySet<PlanComponent>): void {
     const inspectNestedExcel = nestedExcelInspector(comp);
     for (const [rowIndex, row] of (comp.grid?.cells ?? []).entries()) for (const [columnIndex, cell] of row.entries()) {
+      if (cell?.dataBar !== undefined && !validDataBar(cell.dataBar)) diagnostics.push({ ...diagnostic(comp, format, pageIndex, componentIndex, { code: "unsupported-style", message: "Invalid resolved data-bar geometry or color; visual data bars require ordered 0–1 ratios and #RRGGBB colors." }), componentPath: [...componentPath, rowIndex, columnIndex] });
       const cellStyleMessage = unsupportedStyle(cell?.style, format);
       if (cellStyleMessage) diagnostics.push({ ...diagnostic(comp, format, pageIndex, componentIndex, { code: "unsupported-style", message: cellStyleMessage }), componentPath: [...componentPath, rowIndex, columnIndex] });
       if (cell?.richParagraphs?.length) collectRichStyleDiagnostics({ ...comp, richParagraphs: cell.richParagraphs }, format, pageIndex, componentIndex, diagnostics, [...componentPath, rowIndex, columnIndex]);

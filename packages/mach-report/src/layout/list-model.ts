@@ -1,3 +1,4 @@
+import type { ColumnVisual } from "./column-visual";
 import type { AggregateDefinition } from "../processing/aggregate";
 import type { ComponentStyle, GridCell, PlanGrid } from "../schema/render-plan";
 import type { ColumnFormat, StyleRule } from "../format";
@@ -23,6 +24,8 @@ export interface ListColumn {
   format?: ColumnFormat;
   /** 条件格式规则（声明式，命中合并进单元格样式；如负数红字） */
   rules?: StyleRule[];
+  /** Optional resolved color scale or value-preserving data bar. */
+  visual?: ColumnVisual;
   /** 内容列编辑控制；仍需由预览显式开启 editing，不影响表头/小计只读规则。 */
   editable?: boolean;
   /** 空值列或特殊数据类型可显式声明编辑输入类型。 */

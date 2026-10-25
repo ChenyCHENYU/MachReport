@@ -81,6 +81,12 @@ export function collectTemplateDatasetBindings(template: ReportTemplate): Templa
     if (Array.isArray(value)) { value.forEach((item, index) => visit(item, `${path}[${index}]`)); return; }
     if (!object(value)) return;
     if (records && object(value.binding)) fields(value.binding.field, `${path}.binding.field`, records.fields);
+    if (object(value.chartBinding) && typeof value.chartBinding.dataset === "string") {
+      const chartPath = `${path}.chartBinding`, chart = value.chartBinding;
+      const binding: TemplateDatasetBinding = { dataset: chart.dataset as string, path: chartPath, fields: [], generated: new Set(), summaries: new Set() };
+      fields(chart.categoryField, `${chartPath}.categoryField`, binding.fields);
+      expression(chart.measures, `${chartPath}.measures`, binding.fields); result.push(binding);
+    }
     if (typeof value.dataset === "string" && Array.isArray(value.columns)) {
       const binding: TemplateDatasetBinding = { dataset: value.dataset, path, fields: [], generated: new Set(), summaries: new Set() };
       listReferences(value, path, binding);

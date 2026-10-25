@@ -1,3 +1,4 @@
+import { dataBarBox } from "../render/data-bar";
 import { outputCheckpoint, createOutputScheduler, type OutputTaskOptions } from "../output/progress";
 import { PDFDocument, StandardFonts, rgb, pushGraphicsState, popGraphicsState, rectangle, clip, endPath, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
 import { drawPdfRichText } from "./rich-text";
@@ -294,6 +295,7 @@ async function drawGridCell(
 
   checkTextStyle(renderer, style, location);
   const paddingMm = comp.grid?.paddingMm ?? 0.5;
+  const bar = dataBarBox(cell.cell.dataBar, cell.widthMm, cell.heightMm, paddingMm);
   const padding = mmToPt(paddingMm);
   const indentMm = cell.cell.indentMm ?? 0, indent = mmToPt(indentMm);
   const content = {
@@ -308,6 +310,7 @@ async function drawGridCell(
       await drawComponent(renderer, page, positioned, 0, location);
     }
   } finally { page.pushOperators(popGraphicsState()); }
+  if (bar) page.drawRectangle({ x: box.x + mmToPt(bar.x), y: box.yTop - mmToPt(bar.y + bar.height), width: mmToPt(bar.width), height: mmToPt(bar.height), color: colorOf(bar.color), opacity: .35 });
 }
 
 function drawCellText(renderer: PdfRenderer, page: PDFPage, cell: import("../schema/render-plan").GridCell, style: ComponentStyle, content: TextBox, location: string): void {

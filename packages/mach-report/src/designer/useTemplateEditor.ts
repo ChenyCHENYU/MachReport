@@ -1,5 +1,6 @@
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { provideTemplateToolDrafts } from "./useTemplateToolDrafts";
+import type { ColumnVisualMessages } from "./column-visual-messages";
 import { useTemplateDraftRecovery } from "./useTemplateDraftRecovery";
 import { useTemplateConflict, type TemplateEditorConflictOptions } from "./useTemplateConflict";
 import type { ReportTemplateFragment, ReportDocumentStyle } from "../source/template-fragments";
@@ -71,6 +72,7 @@ export interface TemplateEditorOptions extends TemplateEditorConflictOptions {
   bindingSession?: AnyExcelBindingSession;
   readonly?: boolean;
   messages?: Partial<TemplateEditorMessages>;
+  visualMessages?: Partial<ColumnVisualMessages>;
   preview?: Pick<
     MachReportDefaults,
     | "showExport"
@@ -80,6 +82,7 @@ export interface TemplateEditorOptions extends TemplateEditorConflictOptions {
     | "assets"
     | "pdfFontUrl"
     | "toolbar"
+    | "loadParamOptions"
   >;
   beforeDiscard?: TemplateEditorBeforeDiscard;
   save?: (

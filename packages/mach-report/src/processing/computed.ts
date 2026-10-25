@@ -1,3 +1,4 @@
+import { REPORT_EXPRESSION_FUNCTIONS } from "./expression-functions";
 import {
   compileReportExpression,
   computationFieldName,
@@ -168,44 +169,8 @@ export function getComputationMetadata(
 ) {
   return {
     fields: fields.map((field) => ({ ...field })),
-    functions: [
-      {
-        name: "add",
-        minArgs: 2,
-        maxArgs: 256,
-        input: "numeric",
-        output: "numeric",
-      },
-      {
-        name: "subtract",
-        minArgs: 2,
-        maxArgs: 2,
-        input: "numeric",
-        output: "numeric",
-      },
-      {
-        name: "multiply",
-        minArgs: 2,
-        maxArgs: 256,
-        input: "numeric",
-        output: "numeric",
-      },
-      {
-        name: "divide",
-        minArgs: 2,
-        maxArgs: 2,
-        input: "numeric",
-        output: "numeric",
-      },
-      {
-        name: "coalesce",
-        minArgs: 2,
-        maxArgs: 256,
-        input: "scalar",
-        output: "scalar",
-      },
-    ] as const,
-    operations: ["add", "subtract", "multiply", "divide", "coalesce"] as const,
+    functions: REPORT_EXPRESSION_FUNCTIONS,
+    operations: REPORT_EXPRESSION_FUNCTIONS.map(item => item.name),
     aggregates: ["sum", "count", "avg", "min", "max", "weightedAvg"] as const,
     scopes: ["row", "group", "dataset"] as const,
     numericModes: ["number", "decimal"] as const,

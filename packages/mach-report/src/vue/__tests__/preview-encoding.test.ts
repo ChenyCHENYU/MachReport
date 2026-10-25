@@ -58,4 +58,16 @@ describe("preview prepared encoding boundary", () => {
     expect(output.buffer).toEqual(new Uint8Array([8])); expect(mock.renderXlsx.mock.calls[0]![1].sheetName).toBe(sheetName);
     expect(onProgress).toHaveBeenCalledWith(1, 1); expect(taskProgress).toHaveBeenCalledWith(1, 1); expect(onDiagnostic).toHaveBeenCalledOnce();
   });
+  it("surfaces static Excel notes as information in both isolated and custom local output", async () => {
+    const note = "Static data bars retain the original cell values";
+    const remote = harness();
+    mock.execute.mockImplementation(async (input: ReportRuntimePreparedExportInput) => ({ ...result(input), diagnostics: [{ code: "xlsx-snapshot", message: note, severity: "info" }] }));
+    expect((await remote.encoding.xlsx(plan, { maxDataBars: 30 }, {})).warnings).toEqual([]);
+    expect(remote.diagnostic).toHaveBeenCalledWith({ code: "xlsx-snapshot", message: note, severity: "info" });
+    expect(mock.execute.mock.calls[0]![0].xlsx.maxDataBars).toBe(30);
+    mock.execute.mockImplementation((input: ReportRuntimePreparedExportInput, local: ReportLocalExport) => local(input));
+    mock.renderXlsx.mockResolvedValue({ buffer: new Uint8Array([8]), warnings: [], notes: [note] });
+    const local = harness(); expect((await local.encoding.xlsx(plan, { sheetName: () => "Demo" }, {})).warnings).toEqual([]);
+    expect(local.diagnostic).toHaveBeenCalledWith({ code: "xlsx-snapshot", message: note, severity: "info" });
+  });
 });

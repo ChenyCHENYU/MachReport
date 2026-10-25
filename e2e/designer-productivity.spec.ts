@@ -11,7 +11,7 @@ test("列搜索与批量对齐可一次撤销，默认恢复确认保留未应�
   await expect(page.locator(".mr-designer-preview")).toContainText("000418");
   await page.locator(".mr-designer-field-trigger").click();
   await page.getByLabel("搜索列名或字段").fill("weight");
-  await expect(page.locator("fieldset")).toHaveCount(1);
+  await expect(page.locator(".mr-designer-properties")).toHaveCount(1);
   await expect(page.getByLabel("表头", { exact: true })).toHaveValue("炉号");
   await expect(page.locator(".mr-designer-column-row")).toHaveCount(1);
   await page.getByRole("button", { name: "选择当前结果", exact: true }).click();

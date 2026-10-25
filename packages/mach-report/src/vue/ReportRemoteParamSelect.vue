@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import type { ReportParamDef } from "@agile-team/mach-report";
+import { parseReportParamSelection, formatReportParamSelection, type ReportParamDef } from "@agile-team/mach-report";
 import type { MachReportMessages } from "./config";
 import { PARAM_OPTIONS_MESSAGES, type ReportParamOption, type ReportParamOptionsLoader, type ReportParamOptionsMessages } from "./param-options";
 import { usePopover } from "./composables/usePopover";
@@ -12,32 +12,44 @@ const popup = usePopover({ focusOnOpen: false }), { root, panel, opened } = popu
 const state = useParamOptions({ def: () => props.def, values: () => props.values, loader: () => props.loadOptions, opened: () => opened.value, disabled: () => props.disabled === true });
 const { query, options, loading, failed, waiting, missingLoader } = state;
 const m = computed(() => ({ ...PARAM_OPTIONS_MESSAGES, ...props.messages }));
+const multiple = computed(() => props.def.type === "multiSelect");
+const selected = computed(() => multiple.value ? parseReportParamSelection(props.value) ?? [] : [props.value]);
+const shownOptions = computed(() => props.def.optionsSource ? options.value : (props.def.options ?? []).filter(option => `${option.label} ${option.value}`.toLocaleLowerCase().includes(query.value.toLocaleLowerCase())).slice(0, 100));
+const selectedLabels = new Map<string, string>();
+const display = computed(() => multiple.value ? selected.value.map(value => selectedLabels.get(value) ?? props.def.options?.find(option => option.value === value)?.label ?? value).join("、") : selectionLabel.value || props.value);
 const active = ref(0), selectionLabel = ref("");
 const input = ref<HTMLInputElement>();
 const listId = computed(() => `${props.id}-options`);
-const status = computed(() => waiting.value ? m.value.paramOptionsDependencies : missingLoader.value ? m.value.paramOptionsMissingLoader : failed.value ? m.value.paramOptionsFailed : loading.value ? m.value.paramOptionsLoading : options.value.length ? "" : m.value.paramOptionsEmpty);
+const status = computed(() => waiting.value ? m.value.paramOptionsDependencies : props.def.optionsSource && missingLoader.value ? m.value.paramOptionsMissingLoader : failed.value ? m.value.paramOptionsFailed : loading.value ? m.value.paramOptionsLoading : shownOptions.value.length ? "" : m.value.paramOptionsEmpty);
 watch(() => props.value, () => { selectionLabel.value = ""; });
-watch(options, () => { active.value = 0; });
+watch(shownOptions, () => { active.value = 0; });
+watch(() => [props.def.field, props.def.optionsSource, JSON.stringify(props.def.options)], () => { selectedLabels.clear(); selectionLabel.value = ""; });
 watch(opened, value => { if (value) void nextTick(() => input.value?.focus()); });
 function choose(option: ReportParamOption): void {
   if (props.disabled || waiting.value || loading.value || failed.value) return;
-  emit("change", option.value); popup.close();
+  selectedLabels.set(option.value, option.label);
+  for (const key of selectedLabels.keys()) if (key !== option.value && !selected.value.includes(key)) selectedLabels.delete(key);
+  if (multiple.value) {
+    const next = selected.value.includes(option.value) ? selected.value.filter(value => value !== option.value) : [...selected.value, option.value];
+    if (next.length > Math.min(props.def.maxItems ?? 100, 100)) return;
+    emit("change", next.length ? formatReportParamSelection(next) : "");
+  } else { emit("change", option.value); popup.close(); }
   void nextTick(() => { selectionLabel.value = option.label; input.value?.focus(); });
 }
 function search(event: Event): void {
   if ((event as InputEvent).isComposing) return;
   opened.value = true; query.value = (event.target as HTMLInputElement).value;
 }
-function open(): void { if (!props.disabled && !waiting.value && !missingLoader.value) { query.value = ""; opened.value = true; } }
+function open(): void { if (!props.disabled && !waiting.value && (!props.def.optionsSource || !missingLoader.value)) { query.value = ""; opened.value = true; } }
 function keyboard(event: KeyboardEvent): void {
   if (event.isComposing || event.keyCode === 229) return;
   if (event.key === "Escape") { if (opened.value) { event.preventDefault(); event.stopPropagation(); popup.close(); } return; }
   if (!["ArrowUp", "ArrowDown", "Enter"].includes(event.key)) return;
   event.preventDefault(); event.stopPropagation();
   if (!opened.value) { open(); return; }
-  if (event.key === "Enter") { const option = options.value[active.value]; if (option) choose(option); return; }
-  if (!options.value.length) return;
-  active.value = (active.value + (event.key === "ArrowDown" ? 1 : -1) + options.value.length) % options.value.length;
+  if (event.key === "Enter") { const option = shownOptions.value[active.value]; if (option) choose(option); return; }
+  if (!shownOptions.value.length) return;
+  active.value = (active.value + (event.key === "ArrowDown" ? 1 : -1) + shownOptions.value.length) % shownOptions.value.length;
   void nextTick(() => panel.value?.querySelector<HTMLElement>(`[id="${listId.value}-${active.value}"]`)?.scrollIntoView?.({ block: "nearest" }));
 }
 function clear(): void { if (!props.disabled) { emit("change", ""); selectionLabel.value = ""; popup.close(); } }
@@ -46,20 +58,22 @@ function clear(): void { if (!props.disabled) { emit("change", ""); selectionLab
   <div ref="root" class="mrp-remote-param">
     <div class="mrp-remote-control" :class="{ 'is-invalid': invalid }">
       <ReportIcon name="search" :size="14" />
-      <input :id="id" ref="input" type="text" role="combobox" autocomplete="off" :value="opened ? query : selectionLabel || value" :maxlength="256" :aria-labelledby="`${id}-label`" :aria-invalid="invalid || undefined" :aria-required="def.required || undefined" :aria-describedby="invalid ? `${id}-error` : waiting || missingLoader ? `${id}-remote-status` : undefined" aria-autocomplete="list" :aria-expanded="opened" :aria-controls="opened ? listId : undefined" :aria-activedescendant="opened && options.length ? `${listId}-${active}` : undefined" :disabled="disabled || waiting || missingLoader" :placeholder="def.placeholder ?? (messages.paramSelectPlaceholder ?? '请选择{label}').replace('{label}', def.label ?? def.field)" @click="open" @input="search" @compositionend="search" @keydown="keyboard" />
+      <input :id="id" ref="input" type="text" role="combobox" autocomplete="off" :value="opened ? query : display" :maxlength="256" :aria-labelledby="`${id}-label`" :aria-invalid="invalid || undefined" :aria-required="def.required || undefined" :aria-describedby="invalid ? `${id}-error` : waiting || def.optionsSource && missingLoader ? `${id}-remote-status` : undefined" aria-autocomplete="list" :aria-expanded="opened" :aria-controls="opened ? listId : undefined" :aria-activedescendant="opened && shownOptions.length ? `${listId}-${active}` : undefined" :disabled="disabled || waiting || !!def.optionsSource && missingLoader" :placeholder="def.placeholder ?? (messages.paramSelectPlaceholder ?? '请选择{label}').replace('{label}', def.label ?? def.field)" @click="open" @input="search" @compositionend="search" @keydown="keyboard" />
       <button v-if="value" type="button" :aria-label="m.paramOptionsClear" :disabled="disabled" @click="clear"><ReportIcon name="close" :size="12" /></button>
-      <button v-else type="button" :aria-label="def.label ?? def.field" :disabled="disabled || waiting || missingLoader" @click="opened ? popup.close() : open()"><ReportIcon name="chevron-down" :size="12" /></button>
+      <button v-else type="button" :aria-label="def.label ?? def.field" :disabled="disabled || waiting || !!def.optionsSource && missingLoader" @click="opened ? popup.close() : open()"><ReportIcon name="chevron-down" :size="12" /></button>
     </div>
-    <small v-if="waiting || missingLoader" :id="`${id}-remote-status`" role="status">{{ status }}</small>
+    <small v-if="waiting || def.optionsSource && missingLoader" :id="`${id}-remote-status`" role="status">{{ status }}</small>
     <div v-if="opened" ref="panel" class="mrp-remote-options">
-      <div :id="listId" role="listbox" :aria-label="def.label ?? def.field" :aria-busy="loading">
-        <button v-for="(option, index) in options" :id="`${listId}-${index}`" :key="option.value" type="button" role="option" tabindex="-1" :aria-selected="value === option.value" :class="{ active: index === active }" :disabled="loading" @pointermove="active = index" @mousedown.prevent @click="choose(option)"><span>{{ option.label }}</span><small v-if="option.label !== option.value">{{ option.value }}</small></button>
+      <div :id="listId" role="listbox" :aria-label="def.label ?? def.field" :aria-busy="loading" :aria-multiselectable="multiple || undefined">
+        <button v-for="(option, index) in shownOptions" :id="`${listId}-${index}`" :key="option.value" type="button" role="option" tabindex="-1" :aria-selected="selected.includes(option.value)" :class="{ active: index === active }" :disabled="loading" @pointermove="active = index" @mousedown.prevent @click="choose(option)"><span><span v-if="multiple" aria-hidden="true" class="mrp-option-check">{{ selected.includes(option.value) ? "✓" : "" }}</span>{{ option.label }}</span><small v-if="option.label !== option.value">{{ option.value }}</small></button>
       </div>
       <p v-if="status" role="status">{{ status }}<button v-if="failed" type="button" @click="state.request">{{ messages.retry }}</button></p>
     </div>
   </div>
 </template>
 <style scoped>
+.mrp-option-check{display:inline-block;width:16px;color:var(--mrp-btn-active-bg,#2563eb)}
+[role=option][aria-selected=true]{background:var(--mrp-btn-hover-bg,#eff6ff)}
 .mrp-remote-param{position:relative;min-width:180px;max-width:300px;color:var(--mrp-toolbar-fg,#334155);font-size:12px}
 .mrp-remote-control{display:flex;align-items:center;gap:6px;border:1px solid var(--mrp-btn-border,#cbd5e1);border-radius:6px;padding:2px 7px;background:var(--mrp-toolbar-bg,#fff)}
 .mrp-remote-control:focus-within{outline:2px solid color-mix(in srgb,var(--mrp-btn-active-bg,#2563eb) 30%,transparent);border-color:var(--mrp-btn-active-bg,#2563eb)}

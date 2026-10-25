@@ -22,6 +22,7 @@ import HeaderStructureEditor from "./HeaderStructureEditor.vue";
 import { useDesignerNavigation } from "./useDesignerNavigation";
 import { useTemplateWorkspace } from "./useTemplateWorkspace";
 import AlignmentControl from "./AlignmentControl.vue";
+import ColumnVisualEditor from "./ColumnVisualEditor.vue";
 import { useTemplateDirectory } from "./useTemplateDirectory";
 import {
   useTemplateEditor,
@@ -370,6 +371,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
             :document="draft"
             :readonly="editDisabled"
             :accept="acceptParams"
+            :load-options="preview?.loadParamOptions"
             @dirty="editor.setToolPending('params', $event)"
           />
           <ExcelBindingWizard
@@ -612,6 +614,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
                       )
                     "
                 /></label>
+                <ColumnVisualEditor :key="`${selected}:${activeColumn.index}`" :model-value="activeColumn.column.visual" :fields="activeList?.columns.map(column => ({ field: column.field, label: column.header }))" :readonly="editDisabled" :messages="visualMessages" @update:model-value="editor.setColumn(activeColumn.index, 'visual', $event)" />
                 <div class="mr-designer-column-structure">
                   <span>{{ m.columnOrder }}</span><button
                     type="button"
@@ -801,6 +804,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
                 <option value="list" :disabled="!!draft.template.repeat">{{ m.insertList }}</option>
                 <option value="image">{{ m.insertImage }}</option>
                 <option value="rect">{{ m.insertRect }}</option>
+                <option v-if="!draft.template.repeat" value="chart">{{ m.chartComponent }}</option>
                 <option value="qrcode">{{ m.insertQrcode }}</option>
                 <option value="barcode">{{ m.insertBarcode }}</option>
 </select><button
@@ -886,6 +890,8 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
                 :messages="m"
                 :repeat="draft.template.repeat"
                 :schema="repeatSchema"
+                :schemas="dataSchemas"
+                :datasets="datasets"
                 @geometry="canvas.geometry"
                 @patch="patchCanvas"
               /><HeaderStructureEditor

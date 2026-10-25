@@ -1,16 +1,20 @@
+import { compoundParamValue, isCompoundParam, validReportParamOptions } from "./param-compound";
+import { compoundValueIssues, compoundDefinitionIssues, compoundParamSchema } from "./param-compound-validation";
+import type { ReportNumberRange } from "./param-compound";
 import type { ReportParamDef } from "../layout/paginate";
 import { paramDependencyIssues, remoteParamMetadataIssues } from "./param-dependencies";
 import { isReportTemporalBound, parseReportDateRange, reportTemporalIssue } from "./param-temporal";
 export { isReportDate, isReportMonth, isReportYear, parseReportDateRange, formatReportDateRange, type ReportDateRange } from "./param-temporal";
 
-export type ReportParamIssueCode = "definition" | "required" | "type" | "option" | "dependency" | "minimum" | "maximum" | "minLength" | "maxLength";
+export type ReportParamIssueCode = "definition" | "required" | "type" | "option" | "dependency" | "minimum" | "maximum" | "minLength" | "maxLength" | "minItems" | "maxItems";
 export interface ReportParamIssue { code: ReportParamIssueCode; path: string; field: string; message: string }
+export type ReportParamTypedValue = string | number | string[] | ReportNumberRange;
 export interface ReportParamValidation {
   ok: boolean;
   /** 保留历史取数契约的字符串形式；未知参数保留，不能代替接口权限白名单。 */
   values: Record<string, string>;
   /** JSON Schema 对应的规范值：number 参数转换为有限数字。 */
-  typedValues: Record<string, string | number>;
+  typedValues: Record<string, ReportParamTypedValue>;
   issues: ReportParamIssue[];
 }
 export class ReportParamValidationError extends Error {
@@ -26,6 +30,7 @@ function validNumber(value: string): boolean {
 }
 
 function valueIssues(def: ReportParamDef, value: string): Array<[ReportParamIssueCode, string]> {
+  if (isCompoundParam(def)) return compoundValueIssues(def, value);
   if (def.type === "number" && !validNumber(value)) return [["type", "应为有限数字"]];
   const temporalIssue = reportTemporalIssue(def.type, value);
   if (temporalIssue) return [["type", temporalIssue]];
@@ -53,17 +58,18 @@ function boundsIssues(def: ReportParamDef): string[] {
   for (const key of ["min", "max"] as const) {
     const bound = def[key];
     if (bound === undefined) continue;
-    const valid = isReportTemporalBound(def.type, bound) || def.type === "number" && typeof bound === "number" && Number.isFinite(bound);
+    const valid = isReportTemporalBound(def.type, bound) || ["number", "numberRange"].includes(def.type ?? "") && typeof bound === "number" && Number.isFinite(bound);
     if (!valid) messages.push(`${key} 应为数字的有限边界或日期/月/年的规范字符串边界`);
   }
   const reversedNumber = typeof def.min === "number" && typeof def.max === "number" && def.min > def.max;
   const reversedDate = typeof def.min === "string" && typeof def.max === "string" && def.min > def.max;
   if (reversedNumber || reversedDate) messages.push("最小边界不能大于最大边界");
-  return [...messages, ...lengthIssues(def)];
+  return [...messages, ...lengthIssues(def), ...compoundDefinitionIssues(def)];
 }
 
 function lengthIssues(def: ReportParamDef): string[] {
   const messages: string[] = [];
+  if (isCompoundParam(def) && (def.minLength !== undefined || def.maxLength !== undefined)) messages.push("复合参数使用项目数或数值边界，而不是文本长度约束");
   if (def.type === "number" && (def.minLength !== undefined || def.maxLength !== undefined)) messages.push("number 参数使用 min/max 而不是文本长度约束");
   for (const key of ["minLength", "maxLength"] as const) {
     const bound = def[key];
@@ -86,19 +92,14 @@ export function validateReportParamDefinitions(defs: readonly ReportParamDef[]):
   return paramDependencyIssues(defs).map(({ index, message }) => ({ code: "definition", field: defs[index]!.field, path: `$.paramDefs.${index}`, message }));
 }
 
-function validOptions(options: unknown): options is NonNullable<ReportParamDef["options"]> {
-  return Array.isArray(options) && options.every((option: unknown) => !!option && typeof option === "object"
-    && typeof (option as { value?: unknown }).value === "string" && typeof (option as { label?: unknown }).label === "string");
-}
-
 function metadataIssues(def: ReportParamDef): string[] {
   const issues: string[] = [];
-  if (def.type !== undefined && !["text", "number", "date", "month", "year", "dateRange", "select"].includes(def.type)) issues.push("未知参数类型");
+  if (def.type !== undefined && !["text", "number", "date", "month", "year", "dateRange", "select", "multiSelect", "cascader", "numberRange"].includes(def.type)) issues.push("未知参数类型");
   if (def.label !== undefined && typeof def.label !== "string") issues.push("参数标签应为字符串");
   if (def.placeholder !== undefined && typeof def.placeholder !== "string") issues.push("提示文字应为字符串");
   if (def.required !== undefined && typeof def.required !== "boolean") issues.push("required 应为布尔值");
   if (def.defaultValue !== undefined && typeof def.defaultValue !== "string") issues.push("默认值应为字符串");
-  if (def.options !== undefined && !validOptions(def.options)) issues.push("选项应为包含字符串 label/value 的数组");
+  if (def.options !== undefined && !validReportParamOptions(def.options, def.type === "cascader", !isCompoundParam(def))) issues.push("选项应为包含字符串 label/value 的数组");
   return [...issues, ...remoteParamMetadataIssues(def)];
 }
 
@@ -111,9 +112,9 @@ function definitionIssues(def: ReportParamDef, fields: Set<string>): string[] {
   if (messages.length) return messages;
   messages.push(...boundsIssues(def));
   if (messages.length) return messages;
-  if (def.options && new Set(def.options.map((option) => option.value)).size !== def.options.length) messages.push("选项值不能重复");
+
   if (def.defaultValue !== undefined) {
-    if (def.required && !def.defaultValue.trim()) messages.push("必填参数的默认值不能为空");
+    if (def.required && (!def.defaultValue.trim() || isCompoundParam(def) && compoundParamValue(def, def.defaultValue)?.length === 0)) messages.push("必填参数的默认值不能为空");
     else if (def.defaultValue.trim()) messages.push(...valueIssues(def, def.defaultValue).map(([, message]) => `默认值${message}`));
   }
   return messages;
@@ -135,30 +136,37 @@ function emptyValue(value: unknown): boolean {
 /** 在浏览器或服务端执行相同默认值、必填、类型、枚举及范围规则。 */
 export function validateReportParams(defs: readonly ReportParamDef[], input: Record<string, unknown> = {}): ReportParamValidation {
   const values: Record<string, string> = Object.create(null) as Record<string, string>;
-  const typedValues: Record<string, string | number> = Object.create(null) as Record<string, string | number>;
+  const typedValues: Record<string, ReportParamTypedValue> = Object.create(null) as Record<string, ReportParamTypedValue>;
   const issues = validateReportParamDefinitions(defs);
   if (!input || typeof input !== "object" || Array.isArray(input)) issues.push({ code: "type", field: "", path: "$.params", message: "参数应为对象" });
   if (issues.length) return { ok: false, values, typedValues, issues };
   copyInputValues(input, values, typedValues);
   for (const def of defs) {
     const raw = Object.prototype.hasOwnProperty.call(input, def.field) && input[def.field] !== undefined ? input[def.field] : def.defaultValue;
-    const add = (code: ReportParamIssueCode, message: string) => issues.push({ code, path: `$.params.${def.field}`, field: def.field, message });
-    if (emptyValue(raw)) {
-      if (def.required) add("required", "此参数为必填项");
-      if (typeof raw === "string") values[def.field] = raw;
-      delete typedValues[def.field];
-      continue;
-    }
-    if (typeof raw !== "string" && !(typeof raw === "number" && Number.isFinite(raw))) { add("type", "参数应为字符串或有限数字"); continue; }
-    const value = String(raw);
-    values[def.field] = value;
-    const problems = valueIssues(def, value);
-    problems.forEach(([code, message]) => add(code, message));
-    typedValues[def.field] = def.type === "number" && validNumber(value) ? Number(value) : value;
+    applyParamValue(def, raw, { values, typedValues, issues });
   }
   issues.push(...dependencyValueIssues(defs, values));
   return { ok: issues.length === 0, values, typedValues, issues };
 }
+function applyParamValue(def: ReportParamDef, raw: unknown, result: Pick<ReportParamValidation, "values" | "typedValues" | "issues">): void {
+  const { values, typedValues, issues } = result;
+  const add = (code: ReportParamIssueCode, message: string) => issues.push({ code, path: `$.params.${def.field}`, field: def.field, message });
+  const compound = isCompoundParam(def) && !emptyValue(raw) ? compoundParamValue(def, raw) : undefined;
+  if (emptyValue(raw) || compound?.length === 0) {
+    if (def.required) add("required", "此参数为必填项");
+    if (typeof raw === "string" || compound) values[def.field] = compound ? "" : String(raw);
+    delete typedValues[def.field];
+    return;
+  }
+  if (!compound && typeof raw !== "string" && !(typeof raw === "number" && Number.isFinite(raw))) { add("type", "参数应为字符串、有限数字或当前控件的规范数组"); return; }
+  const value = compound ? JSON.stringify(compound) : String(raw);
+  values[def.field] = value;
+  const problems = valueIssues(def, value);
+  problems.forEach(([code, message]) => add(code, message));
+  if (problems.length && isCompoundParam(def)) delete typedValues[def.field];
+  else typedValues[def.field] = compound ?? (def.type === "number" && validNumber(value) ? Number(value) : value);
+}
+
 function dependencyValueIssues(defs: readonly ReportParamDef[], values: Record<string, string>): ReportParamIssue[] {
   return defs.flatMap(def => !emptyValue(values[def.field]) && def.dependsOn?.some(field => emptyValue(values[field]))
     ? [{ code: "dependency" as const, path: `$.params.${def.field}`, field: def.field, message: "请先填写联动依赖的上级参数" }] : []);
@@ -184,14 +192,20 @@ function temporalSchema(def: ReportParamDef): Record<string, unknown> {
 
 function paramSchema(def: ReportParamDef): Record<string, unknown> {
   const schema: Record<string, unknown> = { type: def.type === "number" ? "number" : "string", title: def.label ?? def.field, ...temporalSchema(def) };
-  if (def.required && def.type !== "number" && !schema.pattern) schema.pattern = "\\S";
+  if (isCompoundParam(def)) Object.assign(schema, compoundParamSchema(def));
+  if (def.required && !isCompoundParam(def) && def.type !== "number" && !schema.pattern) schema.pattern = "\\S";
   if (def.type === "select" && def.options) schema.enum = def.options.map((option) => option.value);
   Object.assign(schema, remoteParamSchema(def));
-  if (def.defaultValue !== undefined && (def.type !== "number" || def.defaultValue.trim())) schema.default = def.type === "number" ? Number(def.defaultValue) : def.defaultValue;
+  Object.assign(schema, schemaValueConstraints(def));
+  return schema;
+}
+function schemaValueConstraints(def: ReportParamDef): Record<string, unknown> {
+  const schema: Record<string, unknown> = {};
+  if (def.defaultValue !== undefined && (!(def.type === "number" || isCompoundParam(def)) || def.defaultValue.trim())) schema.default = isCompoundParam(def) ? compoundParamValue(def, def.defaultValue) : def.type === "number" ? Number(def.defaultValue) : def.defaultValue;
   if (def.minLength !== undefined) schema.minLength = def.minLength;
   if (def.maxLength !== undefined) schema.maxLength = def.maxLength;
-  if (typeof def.min === "number") schema.minimum = def.min;
-  if (typeof def.max === "number") schema.maximum = def.max;
+  if (!isCompoundParam(def) && typeof def.min === "number") schema.minimum = def.min;
+  if (!isCompoundParam(def) && typeof def.max === "number") schema.maximum = def.max;
   if (typeof def.min === "string") schema["x-report-minimum"] = def.min;
   if (typeof def.max === "string") schema["x-report-maximum"] = def.max;
   return schema;

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { resolveFontSize } from "../render/style";
 import { computed, ref } from "vue";
-import type { DatasetContract, ReportTemplate, TemplateComponent } from "@agile-team/mach-report";
+import type { DatasetContract, DatasetRows, ReportTemplate, TemplateComponent } from "@agile-team/mach-report";
+import ChartBindingInspector from "./ChartBindingInspector.vue";
 import ComponentDataBinding from "./ComponentDataBinding.vue";
 import CodeComponentInspector from "./CodeComponentInspector.vue";
 import AlignmentControl from "./AlignmentControl.vue";
@@ -17,6 +18,8 @@ const props = defineProps<{
   geometryDisabled?: boolean;
   repeat?: ReportTemplate["repeat"];
   schema?: DatasetContract;
+  schemas?: Record<string, DatasetContract>;
+  datasets?: DatasetRows;
   messages?: Partial<TemplateEditorMessages>;
 }>();
 const emit = defineEmits<{
@@ -88,6 +91,7 @@ async function upload(event: Event): Promise<void> {
 <template>
   <fieldset class="mr-component-properties" :disabled="disabled">
     <div class="mr-component-content">
+      <ChartBindingInspector v-if="component.kind === 'chart' && !component.imageData" :component="component" :schemas="schemas" :datasets="datasets" :disabled="disabled" :messages="m" @change="emit('patch', { chartBinding: $event })" />
       <ComponentDataBinding v-if="['text', 'image', 'barcode', 'qrcode'].includes(component.kind) && component.kind !== 'list' && !component.grid" :component="component" :repeat="repeat" :schema="schema" :disabled="disabled" :messages="m" @change="emit('patch', { binding: $event, ...(['barcode', 'qrcode'].includes(component.kind) ? { imageData: undefined } : {}) })" />
       <label v-if="component.kind === 'text' && !component.binding">{{ m.componentText
         }}<textarea

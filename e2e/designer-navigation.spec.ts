@@ -113,9 +113,9 @@ for (const width of [1024, 1440]) {
       rows = root.locator(".mr-designer-column-row"),
       trigger = root.locator(".mr-designer-field-trigger");
     await expect(rows).toHaveCount(0);
-    await expect(root.locator("fieldset")).toHaveCount(1);
+    await expect(root.locator(".mr-designer-properties")).toHaveCount(1);
     await expect(
-      root.locator("fieldset input,fieldset select,fieldset [role=radiogroup]"),
+      root.locator(".mr-designer-properties :is(input,select,[role=radiogroup]):not(.mr-column-visual *)"),
     ).toHaveCount(8);
     await expect(root.getByLabel("模板名称", { exact: true })).toHaveCount(0);
     await expect(root.getByLabel("完整模板 JSON", { exact: true })).toHaveCount(
@@ -133,7 +133,7 @@ for (const width of [1024, 1440]) {
         const panel = root.querySelector(".mr-designer-panel")!;
         const controls = [
           ...root.querySelectorAll(
-            "fieldset input,fieldset select,fieldset [role=radiogroup]",
+            ".mr-designer-properties :is(input,select,[role=radiogroup]):not(.mr-column-visual *)",
           ),
         ];
         const propertyControls = controls.map((control) => {
@@ -307,10 +307,10 @@ for (const width of [1024, 1440]) {
     await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
       "c54",
     );
-    await expect(root.locator("fieldset")).toHaveCount(1);
+    await expect(root.locator(".mr-designer-properties")).toHaveCount(1);
     await root.getByRole("button", { name: "清除搜索", exact: true }).click();
     await expect(rows).toHaveCount(55);
-    await expect(root.locator("fieldset")).toHaveCount(1);
+    await expect(root.locator(".mr-designer-properties")).toHaveCount(1);
     await search.fill("业务指标55");
     await rows.first().getByRole("button").press("Enter");
     const header = root.getByLabel("表头", { exact: true });

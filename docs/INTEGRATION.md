@@ -247,3 +247,9 @@ document.querySelector("#report")!.replaceChildren(renderPlan(plan, document));
 PDF、XLSX、SQL 实现继续在独立子入口；`/vue` 重导出核心能力不会加载这些重依赖。异步插件的 `reports` 注册阶段不取数，首次查询才加载数据源实现。中文 PDF 字体需要由项目部署完整字库，示例子集仅供示例使用。
 
 `report.checkPdfFont()` 可主动检查或重试，结果也反映在 `state.pdfFont`；取消时拒绝 `AbortError`。HEAD 结果 `available` 只表示资源可达，实际导出仍验证文件与字符覆盖；不支持 HEAD 的服务返回 `unverified`，可以继续尝试导出。完整部署说明见 [PDF 字体指南](./PDF.md)。
+
+## 按需开启填报核对
+
+常规页面仍使用同一 `ReportPreview report-id + fetcher`。`prefill` 只增加参考loader与字段白名单，`dataComparison` 只增加参考loader与显式对比字段；工具栏、差异侧栏、分页和原报表定位都由包维护。`editable.validation` 使用共享整批规则，在候选重算后、原子保存前检查；`saveBatch` 沿用项目已有接口。
+
+独立来源继续隔离。通过 `createReportSource` 注册时可显式声明稳定 `sourceScope`，Vue预填与对比使用相同共享名称，由包映射内部来源令牌；未指定时仅在当前dataset有唯一真实来源域时推断，多域或无匹配来源明确失败，避免跨报表同名dataset误匹配。完整可运行示例、只读/原子保存限制及Node共用契约见[数据工作流](DATA_WORKFLOW.md)，体验入口为 `/data-tools.html`。

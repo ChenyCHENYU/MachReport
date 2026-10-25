@@ -66,6 +66,7 @@ function clearSearch(): void { emit("search-input", ""); searchControls.focus();
     </div>
     <button v-else-if="showThumbnails !== false" class="mrp-nav" :class="{ 'mrp-active': thumbsVisible }" type="button" :aria-pressed="thumbsVisible" @click="emit('thumbs-toggle')"><ReportIcon name="grid" />{{ messages.thumbnails }}</button>
     <slot name="navigation" />
+    <slot name="data-tools" />
     <div v-if="showZoom !== false" class="mrp-zoom-tools" role="group" :aria-label="messages.zoom ?? '缩放工具'">
       <button class="mrp-nav" :class="{ 'mrp-active': zoomMode === 'fit' }" :aria-pressed="zoomMode === 'fit'" type="button" @click="emit('zoom', 'fit')"><ReportIcon name="fit" />{{ messages.fitWidth }}</button>
       <button v-for="value in [100, 150]" :key="value" class="mrp-nav" :class="{ 'mrp-active': zoomMode === 'raw' && Math.round(zoom * 100) === value }" :aria-pressed="zoomMode === 'raw' && Math.round(zoom * 100) === value" type="button" @click="emit('zoom', value)">{{ value }}%</button>

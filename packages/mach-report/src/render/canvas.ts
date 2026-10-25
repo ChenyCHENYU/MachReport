@@ -1,3 +1,4 @@
+import { dataBarBox } from "./data-bar";
 import { drawTextBlock } from "./canvas-text";
 import { drawCanvasRichText } from "./canvas-rich-text";
 import { outputCheckpoint } from "../output/progress";
@@ -143,9 +144,11 @@ function drawGrid(
   const layout = resolveGridLayout(grid, w / pxPerMm, h / pxPerMm);
   for (const box of layout.cells) {
     const bg = box.cell.style?.backgroundColor ?? comp.style?.backgroundColor;
-    if (!bg) continue;
-    ctx.fillStyle = bg;
-    ctx.fillRect(x + box.xMm * pxPerMm, y + box.yMm * pxPerMm, box.widthMm * pxPerMm, box.heightMm * pxPerMm);
+    if (bg) {
+      ctx.fillStyle = bg;
+      ctx.fillRect(x + box.xMm * pxPerMm, y + box.yMm * pxPerMm, box.widthMm * pxPerMm, box.heightMm * pxPerMm);
+    }
+
   }
   drawGridBorders(ctx, layout, comp, x, y, pxPerMm, dpi);
   for (const box of layout.cells) drawCanvasGridCell(ctx, box, comp, x, y, pxPerMm, dpi, fontFamily, measurer, images);
@@ -172,6 +175,8 @@ function drawCanvasGridCell(ctx: CanvasRenderingContext2D, box: GridLayout["cell
     style.fontFamily ?? fontFamily, style.verticalAlign ?? "middle");
     for (const child of box.cell.children ?? []) drawComponent(ctx, { ...child, leftMm: child.leftMm + childBox.x / pxPerMm, topMm: child.topMm + childBox.y / pxPerMm }, pxPerMm, dpi, fontFamily, measurer, images);
     ctx.restore();
+    const bar = dataBarBox(box.cell.dataBar, box.widthMm, box.heightMm, paddingMm);
+    if (bar) { ctx.save(); ctx.globalAlpha *= .35; ctx.fillStyle = bar.color; ctx.fillRect(x + (box.xMm + bar.x) * pxPerMm, y + (box.yMm + bar.y) * pxPerMm, bar.width * pxPerMm, bar.height * pxPerMm); ctx.restore(); }
 }
 
 function drawTextComponent(

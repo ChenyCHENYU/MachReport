@@ -151,7 +151,7 @@ const file = await runtime.export({
 
 默认运行时预算为 100000 行、10000 页、2000000 个渲染单元格、100000000 输出字节、120000 毫秒，可通过 `budget` 显式调整。数量和字节预算须为正安全整数。分页前检查行数，并按明细行×列、表头和静态网格预检逻辑规模，避免明显的高列数内存放大；页预算在追加超限页前中止，多报表请求共用同一额度，之后再核对实际页面/单元格数。文件字节数在生成后检查；这些限制不是流式处理承诺。`dataValidation` 可收紧字段校验预算，不能绕过运行时的硬预算。
 
-直接调用 `paginateTemplate` 可选传 `{ maxPages, maxCells }`，分别抛 `PaginatePageLimitError / PaginateCellLimitError`；`createReportSource(reports, { maxPages, maxCells })` 对合并结果共用预算。未配置时保留原有行为。Runtime统一将超限归为 `ReportRuntimeError`，`code="budget"`，路径为 `$.budget.maxPages / maxCells`。逐页预算包含重复表头、锚点和嵌套网格，大数据可使用[逐页生成](./COMPLEX_REPORTS.md)。
+直接调用 `paginateTemplate` 可选传 `{ maxPages, maxCells, maxChartComponents }`，分别抛 `PaginatePageLimitError / PaginateCellLimitError / PaginateChartComponentLimitError`；`createReportSource` 对一次请求合并的全部报表及编辑重算共用预算。页数和网格预算未配置时保留原有行为；图表图元默认 50,000，可设 1..1,000,000，绑定图表在分配图元前预检，不改变 `maxCells` 语义。Runtime 的 `budget.maxChartComponents` 透传该总额度，统一将超限归为 `ReportRuntimeError`，`code="budget"`，路径为 `$.budget.maxPages / maxCells / maxChartComponents`。图表预算仅保护绑定图表展开，已生成计划不按该预算重新识别静态矩形。逐页网格预算包含重复表头、锚点和嵌套网格，大数据可使用[逐页生成](./COMPLEX_REPORTS.md)。
 
 跨重启任务见[持久任务](./DURABLE_JOBS.md)，模板上线前的真实PDF/XLSX校验见[发布验收](./PUBLICATION_REVIEW.md)。两者均通过注入适配器接入，不要求常规预览页面增加配置。
 
@@ -310,3 +310,21 @@ CI 追加 Node 18/20/22/24 × Vue 3.2.47/3.5 的独立消费矩阵，复用主�
 性能回归继续使用原有首屏、DOM窗口与翻页门禁；服务端重复查询/导出报告堆样本，并以队列活动数、排队数和已终止 Worker 等确定性资源释放为门禁。堆曲线需要在固定环境长期采样，单次 GC 波动不能用于承诺无泄漏或修改阈值。
 
 模板库、发布和批量生成的通用连接可以直接使用可选 `createReportWorkflow()`；见[模板到实例接入](./WORKFLOW.md)。跨项目携带模板、字段契约、字体与 Logo 摘要、明确脱敏样例时使用[可搬运模板包](./TEMPLATE_PACKAGE.md)。这些 API 不接管企业账号、数据库连接或调度平台。
+
+
+## 前后端共享填报规则与数据核对
+
+核心 `validateReportDataset` 与浏览器候选验证共用 `ReportValidationRule/ReportPredicate`，支持跨字段、完整行和显式数据集汇总；`assertReportValidation` 在错误或阻断警告时失败。树来源可显式提供同一tree配置，覆盖所有子节点，汇总按叶节点口径。不要只验证请求中改动的几格而遗漏隐藏行、派生值和总量约束。
+
+```ts
+import { validateReportDataset, assertReportValidation } from '@agile-team/mach-report';
+// candidateRows/rules 来自宿主已授权的数据及可信规则定义。
+const issues = validateReportDataset(candidateRows, { rowKey: 'id', rules, signal });
+assertReportValidation(issues); // 通过以后才能进入原子持久化。
+```
+
+校验器不连接数据库。宿主仍负责认证、租户和字段白名单、读取完整候选、并发/CAS、幂等、数据库事务及审计。需要会话重算时使用 `prepare(..., { validation })`，在调用业务保存**之前**断言 `prepared.validationIssues`，成功后才 `commit`；commit拒绝不能撤回已发生的外部数据库写入。
+
+`createReportPrefill/reportPrefillInputs` 提供按稳定业务身份的预填审阅与补丁入口；`compareReportData` 提供显式十进制/容差/缺失策略的只读对比。两者不内置业务历史接口、不按行号对应记录，也不授予访问其他来源的权限。复合参数、JSONSchema扩展与显式业务时区的 `reportDateDefault` 同样可以在Node使用。
+
+静态数据条的XLSX输出说明通过 `xlsx-snapshot` 信息诊断保留，`xlsx.maxDataBars` 限制绘图量；静态语义不是缺失内容的warning。详细契约见[数据工作流](DATA_WORKFLOW.md)，企业平台的数据库连接、IAM、调度和渠道仍按[产品路线](PRODUCT_PLATFORM.md)另行实施。

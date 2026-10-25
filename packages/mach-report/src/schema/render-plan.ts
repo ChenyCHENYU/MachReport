@@ -1,6 +1,7 @@
 import { SCHEMA_VERSION_MACH } from "../defaults";
 import type { ComponentBinding } from "./component-binding";
 import type { CodeOptions } from "./code-options";
+import type { ReportChartBinding } from "../processing/chart-data";
 export type { CodeOptions } from "./code-options";
 
 export type ComponentKind =
@@ -65,6 +66,8 @@ export interface ReportCellSource {
 }
 
 export interface GridCell {
+  /** Resolved visual only. Original value, text, editability and source are unchanged. */
+  dataBar?: { start: number; end: number; color: string };
   /** Styled cell content; text remains a plain-text fallback. Imported rich cells are read-only. */
   richParagraphs?: RichParagraph[];
   text?: string;
@@ -116,6 +119,8 @@ export interface PlanTableFragment {
 }
 
 export interface PlanComponent {
+  /** Template-only aggregate binding, expanded into shared primitives during layout. */
+  chartBinding?: ReportChartBinding;
   /** Optional QR/barcode encoding configuration; no encoder is loaded by the core. */
   code?: CodeOptions;
   /** Template-only binding; resolved and removed before constructing the output plan. */

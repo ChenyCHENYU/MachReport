@@ -22,6 +22,8 @@ export interface ReportRuntimeBudget {
   maxRows?: number;
   maxPages?: number;
   maxCells?: number;
+  /** Aggregate bound-chart primitives per prepare, before expansion; default 50000, hard maximum 1000000. */
+  maxChartComponents?: number;
   maxOutputBytes?: number;
   /** Bound the plain JSON snapshot accepted by exportPrepared (default 64 MB). */
   maxPreparedBytes?: number;
@@ -50,7 +52,7 @@ export interface ReportRuntimeExportInput extends ReportRuntimeInput {
   format: "pdf" | "xlsx";
   /** strict 在编码前拒绝已识别的输出降级；默认保留诊断并继续。 */
   fidelity?: "warn" | "strict";
-  xlsx?: ImageMediaOptions & { sheetMode?: "auto" | "pages" | "continuous"; valueMode?: "text" | "raw"; paperSize?: "auto" | "a3" | "a4" | "a5"; sheetName?: (sheetIndex: number) => string };
+  xlsx?: ImageMediaOptions & { sheetMode?: "auto" | "pages" | "continuous"; valueMode?: "text" | "raw"; paperSize?: "auto" | "a3" | "a4" | "a5"; maxDataBars?: number; sheetName?: (sheetIndex: number) => string };
 }
 /** Encode an existing plan without querying providers or repaginating. */
 export interface ReportRuntimePreparedExportInput extends ReportTaskMonitoring {
