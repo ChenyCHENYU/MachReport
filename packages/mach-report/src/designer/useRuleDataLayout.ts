@@ -139,10 +139,27 @@ export function useRuleDataLayout(
     field: string,
     checked: boolean,
   ): void {
+    if (props.readonly) return;
     const current = matrix.value[axis];
-    matrix.value[axis] = checked
+    updateMatrixDimensions(axis, checked
       ? [...new Set([...current, field])]
-      : current.filter((item) => item !== field);
+      : current.filter((item) => item !== field));
+  }
+  function updateMatrixDimensions(axis: "rowFields" | "columnFields", fields: string[]): void {
+    const current = matrix.value[axis];
+    matrix.value[axis] = fields;
+    const config = matrix.value.hierarchy?.[axis === "rowFields" ? "row" : "column"];
+    if (config) {
+      if (config.sort) config.sort = fields.map(value => config.sort?.[current.indexOf(value)] ?? "source");
+      if (config.labels) config.labels = fields.map(value => config.labels?.[current.indexOf(value)] ?? value);
+      if (config.subtotals) config.subtotals = config.subtotals.map(depth => fields.indexOf(current[depth - 1]!) + 1).filter(depth => depth > 0 && depth < fields.length);
+    }
+  }
+  function moveDimension(axis: "rowFields" | "columnFields", index: number, direction: -1 | 1): void {
+    const fields = [...matrix.value[axis]], target = index + direction;
+    if (props.readonly || index < 0 || index >= fields.length || target < 0 || target >= fields.length) return;
+    [fields[index], fields[target]] = [fields[target]!, fields[index]!];
+    updateMatrixDimensions(axis, fields);
   }
   function addMeasure(): void {
     matrix.value.measures = [
@@ -154,6 +171,23 @@ export function useRuleDataLayout(
     matrix.value.measures = matrix.value.measures.filter(
       (_, position) => position !== index,
     );
+  }
+  function toggleHierarchy(checked: boolean): void {
+    if (props.readonly) return;
+    if (!checked) delete matrix.value.hierarchy;
+    else matrix.value.hierarchy ??= {};
+  }
+  function setDimensionSort(axis: "row" | "column", index: number, order: "source" | "asc" | "desc"): void {
+    if (props.readonly || !matrix.value.hierarchy) return;
+    const config = matrix.value.hierarchy[axis] ??= {};
+    const fields = axis === "row" ? matrix.value.rowFields : matrix.value.columnFields;
+    const sort = fields.map((_, depth) => config.sort?.[depth] ?? "source");
+    sort[index] = order; config.sort = sort;
+  }
+  function toggleMatrixSubtotal(axis: "row" | "column", depth: number, checked: boolean): void {
+    if (props.readonly || !matrix.value.hierarchy) return;
+    const config = matrix.value.hierarchy[axis] ??= {};
+    config.subtotals = [...new Set(checked ? [...config.subtotals ?? [], depth] : (config.subtotals ?? []).filter(value => value !== depth))];
   }
   function addTreeAggregate(): void { tree.value.aggregates = [...(tree.value.aggregates ?? []), { field: sourceFields.value.find(field => field.field !== tree.value.labelField && field.field !== tree.value.idField)?.field ?? "", op: "sum", numeric: "number" }]; }
   function removeTreeAggregate(index: number): void { tree.value.aggregates = tree.value.aggregates?.filter((_, position) => position !== index); }
@@ -242,9 +276,13 @@ export function useRuleDataLayout(
     chooseDataset,
     toggleChildColumn,
     toggleDimension,
+    moveDimension,
     addMeasure,
     removeMeasure,
     checkMatrix,
+    toggleHierarchy,
+    setDimensionSort,
+    toggleMatrixSubtotal,
     addTreeAggregate,
     removeTreeAggregate,
     checkTree,

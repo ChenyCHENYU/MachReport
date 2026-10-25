@@ -42,6 +42,8 @@ export interface TemplateEditorSaveContext {
   signal: AbortSignal;
 }
 export interface TemplateEditorController {
+  /** Insert a native/registered component through validation, geometry constraints and undo history. */
+  insertComponent(component: import("@agile-team/mach-report").TemplateComponent): boolean;
   readonly pendingLocalChanges: boolean;
   readonly saving?: boolean;
   readonly blocked?: boolean;

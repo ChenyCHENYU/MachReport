@@ -33,18 +33,20 @@ export interface ReportPublicationOptions extends ReportTemplateReviewOptions {
 
 function publicationAssets(options: ReportPublicationOptions, format: "pdf" | "xlsx"): PublicationAssets | undefined {
   const common = options.assets, local = options[format];
-  if (!common && !local?.assetRenderers) return;
+  if (!common && !local?.assetRenderers && !local?.assetRegistry) return;
   return {
     ...common,
     ...(local?.assetFailure === undefined ? {} : { assetFailure: local.assetFailure }),
     ...(local?.onDiagnostic === undefined ? {} : { onDiagnostic: local.onDiagnostic }),
+    assetRegistry: local?.assetRegistry ?? common?.assetRegistry,
     assetRenderers: { ...common?.assetRenderers, ...local?.assetRenderers },
     assetBudget: { ...common?.assetBudget, ...local?.assetBudget }
   };
 }
 function deferredAsset(diagnostic: OutputDiagnostic | undefined, options: ReportPublicationOptions): boolean {
   if (!diagnostic || diagnostic.code !== "missing-image" || diagnostic.format !== "pdf" && diagnostic.format !== "xlsx") return false;
-  return typeof publicationAssets(options, diagnostic.format)?.assetRenderers?.[diagnostic.kind as ImageComponentKind] === "function";
+  const assets = publicationAssets(options, diagnostic.format);
+  return typeof assets?.assetRenderers?.[diagnostic.kind as ImageComponentKind] === "function" || !!(diagnostic.extension && assets?.assetRegistry?.hasExtension(diagnostic.extension.id, diagnostic.extension.version, diagnostic.kind));
 }
 function publicationPreflight(input: unknown, options: ReportPublicationOptions): ReportPublicationReview {
   const checked = reviewReportTemplate(input, options);

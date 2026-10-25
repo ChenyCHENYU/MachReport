@@ -4,10 +4,10 @@ import {
   computationScalar,
   expressionFields,
   type ExpressionOptions,
-  type ExpressionReader,
   type ReportExpression,
 } from "./expressions";
 import { decimalDigits } from "./decimal";
+import { cachedRowValue, computedProgram, rememberRowValue, type CompiledComputationField, type ComputationRun } from "./computation-workspace";
 export type { ReportExpression } from "./expressions";
 export interface ComputedField extends ExpressionOptions {
   field: string;
@@ -41,10 +41,6 @@ export interface ComputationIssue {
   rowIndex: number;
   field: string;
   message: string;
-}
-interface CompiledField {
-  definition: ComputedField;
-  read: ExpressionReader;
 }
 export interface ComputedFieldDiagnostic {
   field: string;
@@ -224,11 +220,13 @@ export function getComputationMetadata(
     } as const,
   };
 }
-function compileFields(options: ComputedDatasetOptions): CompiledField[] {
+function compileFields(options: ComputedDatasetOptions): CompiledComputationField[] {
   return orderedFields(options.fields).map((definition) => {
+    const fieldDependencies = dependencies(definition);
     if (typeof definition.expression !== "string")
       return {
         definition,
+        dependencies: fieldDependencies,
         read: compileReportExpression(definition.expression, definition),
       };
     if (!options.formula)
@@ -236,6 +234,7 @@ function compileFields(options: ComputedDatasetOptions): CompiledField[] {
     const expression = definition.expression;
     return {
       definition,
+      dependencies: fieldDependencies,
       read: (context) => options.formula!.evaluate(expression, context),
     };
   });
@@ -312,7 +311,7 @@ function checkAbort(signal?: AbortSignal): void {
   }
 }
 function evaluateField(
-  item: CompiledField,
+  item: CompiledComputationField,
   row: Record<string, unknown>,
   rowIndex: number,
   rows: readonly Record<string, unknown>[],
@@ -335,6 +334,17 @@ function evaluateField(
     issues.push({ rowIndex, field: item.definition.field, message });
   }
 }
+function evaluateCachedField(run: ComputationRun, source: object, item: CompiledComputationField, row: Record<string, unknown>, rowIndex: number, rows: readonly Record<string, unknown>[], options: ComputedDatasetOptions, issues: ComputationIssue[]): void {
+  const cached = cachedRowValue(run, source, item, row);
+  if (cached && (!cached.issue || options.onError === "null")) {
+    row[item.definition.field] = cached.value;
+    if (cached.issue) issues.push({ ...cached.issue, rowIndex });
+    return;
+  }
+  const issueCount = issues.length;
+  evaluateField(item, row, rowIndex, rows, options, issues);
+  rememberRowValue(run, source, item, row, issues.length > issueCount ? issues[issues.length - 1] : undefined);
+}
 /** Topologically ordered column passes keep aggregate dependencies correct and avoid quadratic group scans. */
 export function computeDataset(
   input: readonly Record<string, unknown>[],
@@ -342,7 +352,9 @@ export function computeDataset(
 ): { rows: Record<string, unknown>[]; issues: ComputationIssue[] } {
   checkInput(input, options);
   checkAbort(options.signal);
-  const compiled = compileFields(options),
+  const program = computedProgram(input, options.fields, () => compileFields(options));
+  const run: ComputationRun = { program, writes: new WeakMap() };
+  const compiled = program?.fields ?? compileFields(options),
     issues: ComputationIssue[] = [];
   const rows = input.map((source, index) => {
     if (!source || typeof source !== "object" || Array.isArray(source))
@@ -353,7 +365,7 @@ export function computeDataset(
     const scope = scopeRows(rows, item.definition);
     rows.forEach((row, index) => {
       checkAbort(options.signal);
-      evaluateField(item, row, index, scope(row), options, issues);
+      evaluateCachedField(run, input[index]!, item, row, index, scope(row), options, issues);
     });
   }
   return { rows, issues };

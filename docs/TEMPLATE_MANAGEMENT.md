@@ -168,3 +168,18 @@ Manager可配置 `beforePublish({ document, previous, signal })` 门禁，发布
 `createLocalTemplateCatalog([{document,draftRevision,published,publishedRevision}])` 的 `document` 是可编辑文档，优先最新草稿；`published` 可保存独立的旧发布快照。只有发布版时可只传 `document` 和同一 `publishedRevision`。不同发布修订必须传对应文档，不能把草稿标成已发布。目录修订与文档需要来自一致状态；远程 Provider 的 `get` 应再次校验可见性，不把列表缓存当权限依据。
 
 模板历史不是报表实例。实例使用 `/server` 的 `ReportInstanceStore`、`createReportInstanceManager` 和 `createReportGenerationService`：明确保存渲染快照、参数、模板/数据修订，追加版本和当前指针必须处于同一 CAS 事务。预览保持只读，业务单元格落库仍经 Provider.save。存储责任、参考预算和未来平台能力见[产品能力](PRODUCT_PLATFORM.md)。
+
+## 显式模板版本迁移
+
+`createTemplateMigrator([{ from, to, migrate }])` 提供最多 32 步的单路径迁移，返回 `{ document, steps }`。只在显式注册路径时升级旧 `schemaVersion`；未知或未来版本拒绝执行，不静默降级。每一步快照隔离，校验输出版本及模板 ID，最终走现有完整文档校验；迁移不会自动改写持久化记录。
+
+```ts
+const manager = createTemplateManager(store, {
+  migrations: [{
+    from: "legacy-1", to: "1.0",
+    migrate: old => ({ ...old, schemaVersion: "1.0" })
+  }]
+});
+```
+
+上例仅演示宿主自己定义的历史版本；包没有虚构可自动升级的旧格式。迁移链应用于读取、保存、发布和回滚，历史记录仍保留原始快照。既有 `migrate(input)` 回调继续只在 `saveDraft` 执行，其结果再进入显式链，避免改变旧集成的副作用次数。数据库原子 CAS 和发布验收门禁不因迁移而绕过。

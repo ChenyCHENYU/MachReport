@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { createTableTemplate } from "@agile-team/mach-report";
-import { createReportRuntime, createReportTaskQueue } from "@agile-team/mach-report/server";
+import { createReportRuntime, createReportTaskQueue, createReportOpenApi, reportHttpError } from "@agile-team/mach-report/server";
 
 /** 标准库参考适配器；生产宿主在路由前接入自己的认证、授权和数据提供器。 */
 export function createExampleServer() {
@@ -36,15 +36,15 @@ export function createExampleServer() {
     void handle(request, response, controller.signal, correlationId).catch((error) => {
       if (controller.signal.aborted) { counts.cancelled++; return; }
       counts.failed++;
-      const code = typeof error.code === "string" ? error.code : error.name === "AbortError" ? "cancelled" : "internal";
-      const status = { params: 422, validate: 422, fetch: 502, config: 400, budget: 413, timeout: 504, "queue-full": 429, closed: 503, cancelled: 499, "output-fidelity": 422 }[code] ?? 500;
-      json(response, status, { error: { code, message: code === "internal" ? "Report execution failed" : error.message, correlationId, ...(Array.isArray(error.issues) ? { issues: error.issues } : {}), ...(error.path ? { path: error.path } : {}) } });
+      const { status, body } = reportHttpError(error, correlationId);
+      json(response, status, body);
     });
   });
   async function handle(request, response, signal, correlationId) {
     const path = new URL(request.url, "http://localhost").pathname;
     if (request.method === "GET" && path === "/health") return json(response, 200, { status: "ok", active: queue.active, pending: queue.pending, heapUsedBytes: process.memoryUsage().heapUsed, ...counts });
     if (request.method === "GET" && path === "/reports") return json(response, 200, runtime.describe());
+    if (request.method === "GET" && path === "/openapi.json") return json(response, 200, createReportOpenApi(runtime.describe()));
     const route = /^\/reports\/sample\/(prepare|export\/(pdf|xlsx))$/.exec(path);
     if (request.method !== "POST" || !route) return json(response, 404, { error: { code: "not-found", message: "Unknown report route", correlationId } });
     const body = await readJson(request);

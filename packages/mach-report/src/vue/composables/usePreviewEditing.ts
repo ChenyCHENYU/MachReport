@@ -1,5 +1,5 @@
 import { onMounted, onUnmounted, type Ref } from "vue";
-import { ReportCellEditError, type RenderPlan, type ReportCellEdit } from "@agile-team/mach-report";
+import { ReportCellEditError, type RenderPlan, type ReportCellEdit, type ReportCellAddress } from "@agile-team/mach-report";
 import type { ReportEditingOptions } from "../editing";
 import type { MachReportMessages } from "../config";
 import type { ReportBeforeDiscard, ReportDiscardReason } from "../guards";
@@ -17,6 +17,7 @@ export function usePreviewEditing(host: {
   messages(): MachReportMessages;
   guard: { enabled(): boolean; reportIds(): readonly string[]; hook(): ReportBeforeDiscard | undefined; error(cause: unknown): void };
   gotoPage(page: number): void;
+  ensureVisible?(address: ReportCellAddress): void;
   changed(edit: ReportCellEdit): void;
   failed(message: string, cause: unknown): void;
 }): { editing: ReturnType<typeof useCellEditing>; cells: ReturnType<typeof useCellSelection>; discard: ReturnType<typeof useDiscardGuard>; confirmDiscard(reason?: ReportDiscardReason): Promise<boolean> } {
@@ -43,7 +44,7 @@ export function usePreviewEditing(host: {
     plan: host.plan, root: host.root, enabled: host.selectionEnabled, editable: () => !!host.options.value,
     busy: () => host.busy() || editing.saving.value || discard.pending.value,
     differences: () => editing.differences.value,
-    gotoPage: host.gotoPage, edit: editing.editCell, apply: editing.apply, undo: editing.undo, redo: editing.redo,
+    gotoPage: host.gotoPage, ensureVisible: host.ensureVisible, edit: editing.editCell, apply: editing.apply, undo: editing.undo, redo: editing.redo,
     error: cause => host.failed(errorMessage(cause), cause)
   });
   const discard = useDiscardGuard({

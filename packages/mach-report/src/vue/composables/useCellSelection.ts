@@ -30,6 +30,7 @@ interface SelectionHost {
   busy(): boolean;
   differences(): readonly ReportCellEdit[];
   gotoPage(page: number): void;
+  ensureVisible?(address: ReportCellAddress): void;
   edit(cell: HTMLElement): Promise<void>;
   apply(inputs: readonly ReportCellInput[]): Promise<boolean>;
   undo(): Promise<boolean>;
@@ -160,6 +161,7 @@ export function useCellSelection(host: SelectionHost) {
     selection.value = { anchor: canExtend ? old.anchor : { ...address }, focus: { ...address } };
     if (!host.root.value?.querySelector(selector(address))) host.gotoPage(address.pageIndex + 1);
     await nextTick();
+    host.ensureVisible?.(address);
     refresh();
     const cell = host.root.value?.querySelector<HTMLElement>(selector(address));
     cell?.focus({ preventScroll: true }); cell?.scrollIntoView?.({ block: "nearest", inline: "nearest" });

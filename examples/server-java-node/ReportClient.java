@@ -15,16 +15,22 @@ public final class ReportClient {
     private final String base;
     private final Path fixtures;
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
-    private ReportClient(String base, Path fixtures) { this.base = base; this.fixtures = fixtures; }
+    private final MachReportClient reports;
+    private ReportClient(String base, Path fixtures) { this.base = base; this.fixtures = fixtures; this.reports = new MachReportClient(URI.create(base), client); }
     private HttpResponse<byte[]> post(String path, String fixture, Duration timeout) throws IOException, InterruptedException {
-        return client.send(HttpRequest.newBuilder(URI.create(base + path)).timeout(timeout)
-            .header("Content-Type", "application/json").header("X-Request-Id", "java-contract-1")
-            .POST(HttpRequest.BodyPublishers.ofString(Files.readString(fixtures.resolve(fixture))))
-            .build(), HttpResponse.BodyHandlers.ofByteArray());
+        return reports.send("sample", path.substring("/reports/sample/".length()), Files.readString(fixtures.resolve(fixture)), timeout, "java-contract-1");
     }
     private static void require(boolean value, String message) { if (!value) throw new IllegalStateException(message); }
     private static String text(HttpResponse<byte[]> response) { return new String(response.body(), StandardCharsets.UTF_8); }
     private void verify(Path output) throws Exception {
+        String params = "{\"plant\":\"YTS0\",\"reportDate\":\"2026-10-15\"}";
+        require(reports.prepare("sample", params, Duration.ofSeconds(10), "facade-prepare").statusCode() == 200, "facade prepare failed");
+        require(reports.export("sample", "xlsx", params, Duration.ofSeconds(10), "facade-export").statusCode() == 200, "facade export failed");
+        try { reports.export("sample", "exe", params, Duration.ofSeconds(10), "invalid"); throw new IllegalStateException("invalid export accepted"); }
+        catch (IllegalArgumentException expected) { /* Reject unsupported operations locally. */ }
+        HttpResponse<String> contract = client.send(HttpRequest.newBuilder(URI.create(base + "/openapi.json")).GET().build(), HttpResponse.BodyHandlers.ofString());
+        require(contract.statusCode() == 200 && contract.body().contains("\"openapi\":\"3.1.0\"") && contract.body().contains("/reports/sample/export/xlsx") && contract.body().contains("x-report-typedSchema"), "HTTP contract missing");
+        Files.writeString(output.resolve("openapi.json"), contract.body());
         HttpResponse<byte[]> prepared = post("/reports/sample/prepare", "request.json", Duration.ofSeconds(10));
         require(prepared.statusCode() == 200, "prepare: " + text(prepared));
         require(prepared.headers().firstValue("x-request-id").orElse("").equals("java-contract-1"), "correlation ID lost");

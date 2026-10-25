@@ -276,7 +276,7 @@ const { editing, cells, discard, confirmDiscard } = usePreviewEditing({
   plan, root: containerRef, options: effectiveEditable,
   selectionEnabled: () => !!effectiveEditable.value || calculationsEnabled.value || !!(props.drill ?? resolved.value.drill),
   busy: () => loading.value || importing.value || exporting.value !== null || printing.value,
-  messages: () => resolvedMessages.value, gotoPage,
+  messages: () => resolvedMessages.value, gotoPage, ensureVisible: address => pageRendering.reveal(address),
   guard: {
     reportIds: () => loadedContext.value?.reportIds ?? reportIds.value,
     hook: () => props.beforeDiscard ?? resolved.value.beforeDiscard,
@@ -511,9 +511,10 @@ function revealSearchMatch(force = false): void {
   }
 }
 const pageRendering = usePageRendering({
-  plan, root: containerRef, pages: () => visiblePages.value,
+  plan, root: containerRef, viewport: viewportRef, pages: () => visiblePages.value,
+  windowing: () => !effectiveInteraction.value.freezeHeaders && !(effectiveInteraction.value.frozenColumns ?? 0),
   priority: () => search.activeMatch.value?.pageIndex ?? currentPage.value - 1,
-  focusToken: () => search.activeMatch.value,
+  focusToken: () => search.activeMatch.value, editorToken: () => editing.active.value,
   query: () => search.query.value, zoom: () => zoom.value, loading: () => resolvedMessages.value.loading,
   clear: search.clear, highlight: search.apply,
   mounted: (holder) => { cells.refresh(holder); frozenPanes.schedule(); },
@@ -567,6 +568,7 @@ const { debugStats } = useDebugPanel(debugRef, {
 
 function onResize(): void {
   refreshViewport(viewportRef.value);
+  pageRendering.refreshViewport();
   thumbs.schedule();
   if (zoomMode.value === "fit") applyFitZoom();
   revealSearchMatch(true);
@@ -707,7 +709,7 @@ defineExpose({ ...controller, state });
         @click="cells.onClick"
         @copy="cells.onCopy"
         @paste="cells.onPaste"
-        @scroll.passive="onViewportScroll($event.target as HTMLElement); frozenPanes.schedule()"
+        @scroll.passive="onViewportScroll($event.target as HTMLElement); pageRendering.refreshViewport(); frozenPanes.schedule()"
       >
         <div v-if="loading" class="mrp-state">{{ resolvedMessages.loading }}</div>
         <div v-else-if="errorMessage" class="mrp-state mrp-error">

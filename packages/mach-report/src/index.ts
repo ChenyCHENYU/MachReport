@@ -25,12 +25,14 @@ export * from "./source/template-registry";
 export * from "./source/param-validation";
 export * from "./source/provider";
 export * from "./source/template-store";
+export * from "./source/template-migrations";
 export * from "./source/template-diff";
 export * from "./source/template-review";
 export * from "./source/template-catalog";
 export { projectListColumns } from "./layout/list-projection";
 export * from "./output/capabilities";
 export * from "./output/assets";
+export * from "./output/component-registry";
 export * from "./editing";
 
 export type { OutputTaskOptions } from "./output/progress";

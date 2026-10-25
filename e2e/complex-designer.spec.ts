@@ -387,6 +387,37 @@ test("矩阵通过真实配置应用，动态列与零值导出正确且派生�
   expect(failures).toEqual([]);
 });
 
+test("层级矩阵从设计器配置排序与小计，真实预览合并表头并导出", async ({ page }, info) => {
+  const { root, failures } = await mountComplex(page), editor = await rules(root);
+  await editor.getByRole("tab", { name: "矩阵", exact: true }).click();
+  const matrix = editor.locator(".mr-data-layout");
+  await matrix.getByLabel("启用矩阵", { exact: true }).check();
+  const dimensions = (name: string) => matrix.locator("fieldset").filter({ has: page.locator("legend", { hasText: name }) }).first();
+  for (const field of ["厂区", "订单"]) await dimensions("行维度").getByLabel(field, { exact: true }).check();
+  for (const field of ["班组", "数量"]) await dimensions("列维度").getByLabel(field, { exact: true }).check();
+  await matrix.getByRole("button", { name: "+ 添加聚合", exact: true }).click();
+  await matrix.getByLabel("度量字段", { exact: true }).selectOption("value");
+  await matrix.locator("summary").filter({ hasText: "层级维度与小计" }).click();
+  await matrix.getByLabel("启用", { exact: true }).check();
+  await matrix.getByLabel("plant · 同级排序", { exact: true }).selectOption("desc");
+  await matrix.getByLabel("此级小计", { exact: true }).first().check();
+  await matrix.getByLabel("此级小计", { exact: true }).last().check();
+  await matrix.getByRole("button", { name: "应用规则", exact: true }).click();
+  await expect.poll(async () => (await currentList(page)).matrix?.hierarchy).toMatchObject({ row: { sort: ["desc", "source"], subtotals: [1] }, column: { subtotals: [1] } });
+  const actual = await preview(root);
+  await expect(actual).toContainText("小计");
+  await expect(actual).toContainText("厂区");
+  await expect(actual).toContainText("订单");
+  await expect(actual).toContainText("指标（求和）");
+  await expect(actual.locator('td[rowspan="3"]').first()).toBeVisible();
+  const columns = await page.evaluate(() => window.__complexFixture.plan.pages.flatMap(page => page.components).find(component => component.table?.role === "header")!.meta!.matrix);
+  expect(columns).toMatchObject({ columnFields: ["shift", "quantity"], rowFields: ["plant", "id"] });
+  const values = await workbookValues(page, root);
+  expect(values).toContain(0); expect(values).toContain(30); expect(values).toContain("小计");
+  await page.screenshot({ path: info.outputPath("hierarchical-matrix-preview.png"), fullPage: true });
+  expect(failures).toEqual([]);
+});
+
 test("主从配置按业务键关联，明细零值在预览/Excel保留并可完整撤销", async ({
   page,
 }, info) => {

@@ -1,4 +1,7 @@
-import type { CrossTableResult } from "./cross-table";
+import type { MatrixHierarchyOptions, MatrixTableResult } from "./matrix-model";
+import { validateMatrixHierarchy } from "./matrix-axis";
+import { createHierarchicalMatrix, estimateHierarchicalMatrix } from "./matrix-hierarchy";
+export type { MatrixAxisOptions, MatrixDimensionOrder, MatrixDimensionValue, MatrixHierarchyOptions, MatrixDimensionMember, MatrixColumnMember, MatrixTableMetadata, MatrixTableResult } from "./matrix-model";
 import { accumulatePivotRows } from "./pivot-accumulator";
 import {
   createAggregateAccumulator,
@@ -16,6 +19,10 @@ export interface MatrixTableOptions {
   maxColumns?: number;
   maxInputRows?: number;
   maxCells?: number;
+  /** Opt-in hierarchical dimensions, physical merged headers and prefix subtotals. */
+  hierarchy?: MatrixHierarchyOptions;
+  /** Hierarchical aggregate work, checked before measure reads; default 10 million updates. */
+  maxAggregateUpdates?: number;
 }
 function dimension(
   row: Record<string, unknown>,
@@ -47,6 +54,7 @@ function validateMatrixBounds(options: MatrixTableOptions): void {
     "maxColumns",
     "maxInputRows",
     "maxCells",
+    "maxAggregateUpdates",
   ] as const)
     if (
       options[key] !== undefined &&
@@ -96,6 +104,7 @@ export function validateMatrixOptions(options: MatrixTableOptions): void {
   });
   if (names.some((name) => typeof name !== "string" || !name.trim()))
     throw new Error("矩阵度量字段应非空");
+  if (options.hierarchy !== undefined) validateMatrixHierarchy(options.hierarchy, options.rowFields, options.columnFields);
 }
 export interface MatrixTableShape {
   rowCount: number;
@@ -108,6 +117,7 @@ export function estimateMatrixTable(
   options: MatrixTableOptions,
 ): MatrixTableShape {
   validateMatrixOptions(options);
+  if (options.hierarchy) return estimateHierarchicalMatrix(input, options);
   if (!Array.isArray(input) || input.length > (options.maxInputRows ?? 100_000))
     throw new Error("矩阵输入超出预算");
   const rows = new Set<string>(),
@@ -134,7 +144,8 @@ export function estimateMatrixTable(
   return { rowCount, columnCount, cells: rowCount * columnCount };
 }
 /** Multi-measure pivot shares dimensions and original rows; weighted totals never average averages. */
-export function createMatrixTable(input: readonly Record<string, unknown>[], options: MatrixTableOptions): CrossTableResult {
+export function createMatrixTable(input: readonly Record<string, unknown>[], options: MatrixTableOptions): MatrixTableResult {
+  if (options?.hierarchy) { validateMatrixOptions(options); return createHierarchicalMatrix(input, options); }
   estimateMatrixTable(input, options);
   const pivot = accumulatePivotRows(input, {
     row: row => dimension(row, options.rowFields), column: row => dimension(row, options.columnFields),
@@ -142,7 +153,7 @@ export function createMatrixTable(input: readonly Record<string, unknown>[], opt
     totals: options.totals, check: () => {}, // Cardinality/budgets were checked before allocating accumulators.
   });
   const rows: Record<string, unknown>[] = [...pivot.groups.values()].map(group => ({ rowLabel: group.label }));
-  const columns: CrossTableResult["columns"] = [{ field: "rowLabel", header: options.rowHeader ?? options.rowFields.join(" / "), semanticRole: "dimension" }];
+  const columns: MatrixTableResult["columns"] = [{ field: "rowLabel", header: options.rowHeader ?? options.rowFields.join(" / "), semanticRole: "dimension" }];
   const totalRow: Record<string, unknown> = { rowLabel: "合计" };
   options.measures.forEach((measure, metric) => {
     const dimensions = [...pivot.columns.entries()].map(([key, label], index) => ({ key, label, field: `c${index}_${metric}` }));

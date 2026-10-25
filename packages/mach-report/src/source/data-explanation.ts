@@ -1,3 +1,5 @@
+import { validateDatasetRows, type DatasetContract } from "../schema/dataset";
+import type { ReportDiagnostic } from "./provider";
 /** Optional business explanations never replace raw data or schema validation. */
 export type ReportValueState = "missing-source" | "not-applicable" | "not-calculable";
 export interface ReportDataTarget {
@@ -26,4 +28,16 @@ export function isReportValueState(value: unknown): value is ReportValueState {
 export function hasValidDataExplanation(value: { target?: unknown; valueState?: unknown }): boolean {
   if (value.target !== undefined && !isReportDataTarget(value.target)) return false;
   return value.valueState === undefined || (isReportValueState(value.valueState) && value.target !== undefined);
+}
+
+/** Derives locatable explanations only from explicit business declarations; never evaluates formulas. */
+export function explainDatasetField(contract: DatasetContract, target: ReportDataTarget): ReportDiagnostic[] {
+  validateDatasetRows([], contract);
+  if (!isReportDataTarget(target)) throw new Error("数据说明目标无效");
+  const field = contract.fields.find(entry => entry.field === target.field);
+  if (!field) throw new Error("数据说明字段未在契约中声明");
+  const entries: ReportDiagnostic[] = [];
+  if (field.description) entries.push({ code: "field-definition", severity: "info", message: field.description, target: { ...target } });
+  if (field.calculation) entries.push({ code: "field-calculation", severity: "info", message: field.calculation.description, target: { ...target } });
+  return entries;
 }

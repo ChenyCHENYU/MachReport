@@ -233,6 +233,22 @@ const metadata = getComputationMetadata();
           :disabled="readonly"
         />{{ messages.totals }}</label>
       <details>
+        <summary>{{ messages.matrixHierarchy }}</summary>
+        <label class="mr-data-layout__check"><input type="checkbox" :checked="!!matrix.hierarchy" :disabled="readonly" @change="editor.toggleHierarchy(($event.target as HTMLInputElement).checked)" />{{ messages.enabled }}</label>
+        <template v-if="matrix.hierarchy">
+          <p class="mr-data-layout__hint">{{ messages.matrixHierarchyHint }}</p>
+          <label>{{ messages.matrixEmptyLabel }}<input v-model="matrix.hierarchy.emptyLabel" :aria-label="messages.matrixEmptyLabel" :disabled="readonly" placeholder="（空）" /></label>
+          <fieldset v-for="axis in ['row', 'column'] as const" :key="axis" class="mr-data-layout__choices">
+            <legend>{{ axis === 'row' ? messages.rowFields : messages.columnFields }}</legend>
+            <div v-for="(field, index) in matrix[axis === 'row' ? 'rowFields' : 'columnFields']" :key="field" class="mr-data-layout__pair">
+              <label>{{ field }}<select :aria-label="`${field} · ${messages.matrixSort}`" :value="matrix.hierarchy[axis]?.sort?.[index] ?? 'source'" :disabled="readonly" @change="editor.setDimensionSort(axis, index, ($event.target as HTMLSelectElement).value as 'source' | 'asc' | 'desc')"><option value="source">{{ messages.matrixSourceOrder }}</option><option value="asc">{{ messages.matrixAscending }}</option><option value="desc">{{ messages.matrixDescending }}</option></select></label>
+              <div><button type="button" :aria-label="`${field} · ${messages.moveUp}`" :disabled="readonly || index === 0" @click="editor.moveDimension(axis === 'row' ? 'rowFields' : 'columnFields', index, -1)">↑</button><button type="button" :aria-label="`${field} · ${messages.moveDown}`" :disabled="readonly || index === matrix[axis === 'row' ? 'rowFields' : 'columnFields'].length - 1" @click="editor.moveDimension(axis === 'row' ? 'rowFields' : 'columnFields', index, 1)">↓</button></div>
+              <label v-if="index < matrix[axis === 'row' ? 'rowFields' : 'columnFields'].length - 1" class="mr-data-layout__check"><input type="checkbox" :checked="matrix.hierarchy[axis]?.subtotals?.includes(index + 1) ?? false" :disabled="readonly" @change="editor.toggleMatrixSubtotal(axis, index + 1, ($event.target as HTMLInputElement).checked)" />{{ messages.matrixPrefixSubtotal }}</label>
+            </div>
+          </fieldset>
+        </template>
+      </details>
+      <details>
         <summary>{{ messages.widthSettings }}</summary>
         <div class="mr-data-layout__pair">
           <label>{{ messages.dimensionWidth

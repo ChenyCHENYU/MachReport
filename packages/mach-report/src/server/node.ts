@@ -41,6 +41,8 @@ export function serveNodeReportWorker(runtime: ReportRuntime): () => void {
 export { ReportWorkerError } from "../worker/protocol";
 export { openFileReportJobStore } from "./node-job-store";
 export type { FileReportJobStore, FileReportJobStoreOptions } from "./node-job-store";
+export { openFileReportDocumentStore } from "./node-document-store";
+export type { FileReportDocumentStore, FileReportDocumentStoreOptions } from "./node-document-store";
 /** Optional publication digest for Node hosts; use as reviewReportPublication({ digest }). */
 export function reportArtifactSha256(bytes: Uint8Array): string { return createHash("sha256").update(bytes).digest("hex"); }
 

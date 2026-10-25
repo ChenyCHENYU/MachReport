@@ -41,6 +41,7 @@ java ReportClient http://127.0.0.1:8620 ./fixtures ./downloads
 | 请求 | 用途 |
 | --- | --- |
 | `GET /reports` | 参数 JSON Schema、数据契约及能力描述 |
+| `GET /openapi.json` | 同源 OpenAPI 3.1，字符串入参及业务类型扩展 |
 | `POST /reports/sample/prepare` | JSON RenderPlan、诊断、统计、修订 |
 | `POST /reports/sample/export/pdf` | PDF 二进制下载 |
 | `POST /reports/sample/export/xlsx` | Excel 二进制下载 |
@@ -49,3 +50,5 @@ java ReportClient http://127.0.0.1:8620 ./fixtures ./downloads
 `X-Request-Id` 限制为 1–80 位字母、数字、点、横线和下划线，不合法时由服务生成 ID。错误体保留 `code/message/correlationId`，校验错误附 `issues`，预算错误附 `path`。请求体限制 16 KiB，参数通过白名单。
 
 此例固定数据是可重复运行的契约 fixture。实际项目替换 `provider.query`，将请求取消信号传入数据库驱动或上游 HTTP 请求，并在路由前接自己的认证、授权；不要直接公开示例的健康诊断端点。PDF 中文字体通过 Runtime 配置显式提供。同步 CPU 任务需要硬取消时按 [服务端文档](../../docs/SERVER.md) 接入 Node Worker。
+
+实际 Java 接入可仅复制 `MachReportClient.java`，宿主用已有 JSON DTO 库序列化 params，再调用 `prepare` 或 `export`。`ReportClient.java` 是使用该门面的自动验收程序。自行运行时编译两者：`javac --release 17 MachReportClient.java ReportClient.java`。错误映射和 OpenAPI 直接使用包提供的 `reportHttpError` / `createReportOpenApi`，避免项目复制后各自维护不同的状态码。示例中 JSON 的数字参数仍为字符串；金额和编号数据保持字符串，不经过 double。

@@ -17,6 +17,8 @@ export interface OutputDiagnostic {
   componentPath?: readonly number[];
   kind: string;
   nid?: string;
+  /** Declarative extension identity only; no property values or business binding data enter diagnostics. */
+  extension?: { id: string; version: string };
   message: string;
 }
 
@@ -53,7 +55,11 @@ function componentIssue(comp: PlanComponent, format: OutputFormat): Pick<OutputD
 }
 
 function diagnostic(comp: PlanComponent, format: OutputFormat, pageIndex: number, componentIndex: number, issue: Pick<OutputDiagnostic, "code" | "message">): OutputDiagnostic {
-  return { ...issue, severity: "warning", format, pageIndex, componentIndex, kind: comp.kind, nid: comp.nid };
+  const meta = Object.getOwnPropertyDescriptor(comp, "meta")?.value as object | undefined;
+  const binding = meta && Object.getOwnPropertyDescriptor(meta, "componentExtension")?.value as object | undefined;
+  const id: unknown = binding && Object.getOwnPropertyDescriptor(binding, "id")?.value, version: unknown = binding && Object.getOwnPropertyDescriptor(binding, "version")?.value;
+  const extension = typeof id === "string" && id.length <= 128 && typeof version === "string" && version.length <= 64 ? { id, version } : undefined;
+  return { ...issue, severity: "warning", format, pageIndex, componentIndex, kind: comp.kind, nid: comp.nid, ...(extension ? { extension } : {}) };
 }
 function unsupportedStyle(style: ComponentStyle | undefined, format: OutputFormat): string | undefined {
   if (!style || format === "dom") return;

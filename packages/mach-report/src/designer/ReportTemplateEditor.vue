@@ -171,6 +171,7 @@ defineExpose({
   guardChanges: editor.guardChanges,
   reset: editor.reset,
   save: editor.save,
+  insertComponent: canvas.insertComponent,
 });
 async function acceptExcel(result: ExcelBindingWizardApply): Promise<boolean> {
   // Binding inside an editor replaces content, never the persistent template identity or CAS revision.

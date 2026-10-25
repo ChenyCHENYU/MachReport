@@ -14,3 +14,6 @@ export * from "./server/label-stream";
 export * from "./server/workflow";
 
 export * from "./server/template-package";
+export { createMemoryReportDocumentStore, readReportDocumentPages, writeReportDocument, ReportDocumentError } from "./server/document-store";
+export type { ReportDocumentManifest, ReportDocumentBudget, ReportDocumentStore } from "./server/document-store";
+export * from "./server/http-contract";

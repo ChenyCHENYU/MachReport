@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { columnsFromContract, createReportSource, createTableTemplate, datasetJsonSchema, validateDatasetRows, type DatasetContract } from "../index";
+import { columnsFromContract, createReportSource, createTableTemplate, datasetJsonSchema, explainDatasetField, validateDatasetRows, type DatasetContract } from "../index";
 
 const contract: DatasetContract = { rowKey: "id", fields: [
   { field: "id", type: "text", label: "炉号", semanticRole: "identifier" },
@@ -56,5 +56,38 @@ describe("前后端共用数据契约", () => {
     const emoji: DatasetContract = { fields: [{ field: "name", type: "text", minLength: 1, maxLength: 1 }] };
     expect(validateDatasetRows([{ name: "😀" }], emoji).ok).toBe(true);
     expect(validateDatasetRows([{ name: "😀甲" }], emoji).issues[0]?.code).toBe("range");
+  });
+  it("shares explicit business semantics, formatting and locatable calculation explanations without changing values", async () => {
+    const metric: DatasetContract = { fields: [
+      { field: "energy", type: "decimal", unit: "kWh", aggregation: "sum", format: { kind: "number", digits: 3 } },
+      { field: "weight", type: "decimal", aggregation: "sum" },
+      { field: "consumption", type: "decimal", aggregation: "none", description: "按业务口径核算", missingMeaning: "缺少重量或用电量来源", calculation: { description: "用电量除以钢水重，重量为0时由业务决定结果", dependsOn: ["energy", "weight"] }, format: { kind: "number", digits: 2 } }
+    ] };
+    const columns = columnsFromContract(metric);
+    expect(columns[0]).toMatchObject({ header: "energy (kWh)", format: { kind: "number", digits: 3 } });
+    const schema = datasetJsonSchema(metric) as { items: { properties: Record<string, Record<string, unknown>> } };
+    expect(schema.items.properties.consumption).toMatchObject({ "x-report-aggregation": "none", "x-report-calculation": { dependsOn: ["energy", "weight"] }, "x-report-missingMeaning": "缺少重量或用电量来源" });
+    const diagnostics = explainDatasetField(metric, { datasetId: "detail", field: "consumption", rowKey: "0001" });
+    expect(diagnostics.map(entry => entry.code)).toEqual(["field-definition", "field-calculation"]);
+    expect(diagnostics[1]?.target).toMatchObject({ rowKey: "0001", field: "consumption" });
+    const query = createReportSource({ report: { template: createTableTemplate({ columns }), dataSchema: { detail: metric }, provider: { query: () => ({ datasets: { detail: [{ energy: "12345678901234567890.1", weight: "0", consumption: null }] }, diagnostics }) } } });
+    let received: unknown;
+    await query({ reportIds: ["report"], params: {}, onQueryResult: (_id, result) => { received = result; } });
+    expect(received).toMatchObject({ diagnostics, datasets: { detail: [{ weight: "0", consumption: null }] } });
+    expect(() => explainDatasetField(metric, { datasetId: "detail", field: "unknown" })).toThrow(/声明/);
+    expect(() => explainDatasetField(metric, { datasetId: "", field: "energy" })).toThrow(/目标/);
+  });
+  it("rejects ambiguous metric configuration, missing/cyclic dependencies and incompatible display types", () => {
+    const bad = (field: Record<string, unknown>) => ({ fields: [{ field: "a", type: "decimal", ...field }] }) as DatasetContract;
+    for (const field of [{ aggregation: "guess" }, { format: { kind: "number", digits: -1 } }, { format: { kind: "number", thousands: "yes" } }, { format: { kind: "date" } }, { description: "" }, { calculation: { description: "bad", dependsOn: [] } }, { calculation: { description: "bad", dependsOn: ["a", "a"] } }]) expect(() => datasetJsonSchema(bad(field))).toThrow(/契约/);
+    expect(() => datasetJsonSchema({ fields: [{ field: "a", type: "text", aggregation: "sum" }] })).toThrow(/数值聚合/);
+    expect(() => datasetJsonSchema({ fields: [{ field: "a", type: "text", format: { kind: "percent" } }] })).toThrow(/数值显示/);
+    expect(() => datasetJsonSchema({ fields: [{ field: "a", type: "date", format: { kind: "date", pattern: "" } }] })).toThrow(/日期格式/);
+    expect(() => datasetJsonSchema(bad({ calculation: { description: "test", dependsOn: ["missing"] } }))).toThrow(/未声明/);
+    expect(() => datasetJsonSchema(bad({ calculation: { description: "test", dependsOn: ["a"] } }))).toThrow(/循环/);
+    expect(() => datasetJsonSchema({ fields: [{ field: "a", type: "decimal", calculation: { description: "a", dependsOn: ["b"] } }, { field: "b", type: "decimal", calculation: { description: "b", dependsOn: ["a"] } }] })).toThrow(/循环/);
+    const shared: DatasetContract = { fields: [{ field: "a", type: "number" }, { field: "b", type: "number", calculation: { description: "b", dependsOn: ["a"] } }, { field: "c", type: "number", calculation: { description: "c", dependsOn: ["a", "b"] } }] };
+    expect(() => datasetJsonSchema(shared)).not.toThrow();
+    expect(validateDatasetRows([{ a: 1, b: 2, c: 3 }], shared).ok).toBe(true);
   });
 });

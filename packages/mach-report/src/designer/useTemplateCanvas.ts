@@ -1,8 +1,9 @@
 import { computed, ref, watch, type Ref } from "vue";
 import { useCanvasSelection } from "./useCanvasSelection";
-import type {
-  ReportTemplateDocument,
-  TemplateComponent,
+import {
+  parseReportTemplate,
+  type ReportTemplateDocument,
+  type TemplateComponent,
 } from "@agile-team/mach-report";
 import {
   componentGeometry,
@@ -67,20 +68,24 @@ export function useTemplateCanvas(
     });
   }
   function insert(kind: CanvasInsertKind): void {
-    if (draft.value.template.pages[pageIndex.value]?.flow || kind === "list" && draft.value.template.repeat) return;
+    insertComponent(createCanvasComponent(kind));
+  }
+  function insertComponent(component: TemplateComponent): boolean {
+    if (draft.value.template.pages[pageIndex.value]?.flow || component.kind === "list" && draft.value.template.repeat) return false;
     let index = -1;
     const page = pageIndex.value;
-    if (
-      transaction((document) => {
+    const inserted = transaction((document) => {
         const components = document.template.pages[page]!.components;
-        const component = createCanvasComponent(kind);
-        setCanvasGeometry(component, constrainGeometry(componentGeometry(component), document.template.pages[page]!, component.kind === "list"));
-        if (component.kind === "qrcode") component.widthMm = component.heightMm = Math.min(component.widthMm, component.heightMm);
         components.push(component);
         index = components.length - 1;
-      })
-    )
-      select({ pageIndex: page, componentIndex: index });
+        // The public insertion entry accepts host values; validate and detach before geometry mutates them.
+        const owned = parseReportTemplate(document).template.pages[page]!.components[index]!;
+        setCanvasGeometry(owned, constrainGeometry(componentGeometry(owned), document.template.pages[page]!, owned.kind === "list"));
+        if (owned.kind === "qrcode") owned.widthMm = owned.heightMm = Math.min(owned.widthMm, owned.heightMm);
+        components[index] = owned;
+      });
+    if (inserted) select({ pageIndex: page, componentIndex: index });
+    return inserted;
   }
   function remove(): void {
     if (geometryDisabled.value) return;
@@ -153,6 +158,7 @@ export function useTemplateCanvas(
     mutate,
     geometry,
     insert,
+    insertComponent,
     remove,
     duplicate,
     reorder,

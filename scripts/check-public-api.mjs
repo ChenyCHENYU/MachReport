@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { comparePublicApi } from "./public-api-diff.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), ".."), pkg = join(root, "packages/mach-report");
 const manifest = JSON.parse(readFileSync(join(pkg, "package.json"), "utf8"));
@@ -31,6 +32,10 @@ const assets = Object.fromEntries(Object.entries(manifest.publishConfig.exports)
 }));
 const result = `${JSON.stringify({ format: 2, assets, exports, declarations: Object.fromEntries([...declarations].sort(([a], [b]) => a.localeCompare(b))) }, null, 2)}\n`;
 const baseline = join(root, "scripts/public-api.json");
+if (existsSync(baseline) && readFileSync(baseline, "utf8") !== result) {
+  const changes = comparePublicApi(JSON.parse(readFileSync(baseline, "utf8")), JSON.parse(result));
+  console.log(JSON.stringify({ publicApiReview: changes, policy: "Removed exports/assets are breaking; every changed signature requires explicit review. No signature change is automatically accepted." }, null, 2));
+}
 if (process.argv.includes("--update")) { writeFileSync(baseline, result); console.log("Public API baseline updated; review the diff before committing"); }
 else if (!existsSync(baseline) || readFileSync(baseline, "utf8") !== result) throw new Error("Public API changed. Review signatures and migration compatibility, then run pnpm check:api --update");
 else console.log(`Public API checked: ${entries.length} code APIs + ${Object.keys(assets).length} assets, ${declarations.size} unique declarations`);

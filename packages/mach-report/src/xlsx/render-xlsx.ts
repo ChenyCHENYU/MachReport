@@ -9,7 +9,8 @@ import { createXlsxImageWriter, type XlsxImageOptions, type XlsxImageWriter } fr
 import { resolveGridLayout, type GridLayout } from "../render/grid-geometry";
 import { mergeComponentStyles, resolveFontSize } from "../render/style";
 import { mmToExcelColumnWidth } from "./column-width";
-import { reportOutputDiagnostics, type OutputDiagnostic, type OutputDiagnosticOptions } from "../output/capabilities";
+import { reportOutputDiagnostics, type OutputDiagnostic } from "../output/capabilities";
+import { resolvePlanAssets, type AssetRenderOptions } from "../output/assets";
 import { importedImageOverlay } from "./import-images";
 import { composeExcelFlowPages, excelFlowPageInfo } from "./region-output";
 
@@ -22,7 +23,7 @@ import { composeExcelFlowPages, excelFlowPageInfo } from "./region-output";
  * - 原生 richText 保留基础字形；未支持组件、段落专有排版与单元格嵌套组件计入 diagnostics / warnings
  */
 
-export interface XlsxRenderOptions extends OutputDiagnosticOptions, XlsxImageOptions {
+export interface XlsxRenderOptions extends AssetRenderOptions, XlsxImageOptions {
   /** 工作表命名（连续表默认使用标题，其余默认 "Sheet1" 起序）。 */
   sheetName?: (sheetIndex: number) => string;
   /** auto 默认将 wide 逻辑表合并为连续 Sheet；pages 保留逐页；continuous 要求明确的表来源。 */
@@ -449,7 +450,11 @@ function validateOptions(options: XlsxRenderOptions): void {
 export async function renderPlanToXlsx(plan: RenderPlan, options: XlsxRenderOptions = {}): Promise<XlsxRenderResult> {
   validateOptions(options);
   assertOutputActive(options.signal);
-  const diagnostics = reportOutputDiagnostics(plan, "xlsx", options);
+  const prepared = options.assetRegistry || options.assetRenderers
+    ? await resolvePlanAssets(plan, { ...options, format: "xlsx" })
+    : { plan, diagnostics: [] };
+  plan = prepared.plan;
+  const diagnostics = [...prepared.diagnostics, ...reportOutputDiagnostics(plan, "xlsx", options)];
   const workbook = new ExcelJSRuntime.Workbook();
   const warnings: string[] = [];
   const images = createXlsxImageWriter(workbook, options, warnings);

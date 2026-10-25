@@ -59,6 +59,39 @@ function setup(mode: "detail" | "matrix") {
   return { props, change, editor, wrapper };
 }
 describe("visual keyed detail and matrix configuration", () => {
+  it("edits hierarchical ordering/subtotals and keeps per-field options aligned when dimensions change", async () => {
+    const { editor, props, wrapper } = setup("matrix");
+    editor.enabled.value = true;
+    for (const field of ["plant", "id", "shift"]) editor.toggleDimension("rowFields", field, true);
+    editor.toggleDimension("columnFields", "shift", true); editor.addMeasure(); editor.matrix.value.measures[0]!.field = "value";
+    editor.toggleHierarchy(true); editor.setDimensionSort("row", 0, "asc"); editor.setDimensionSort("row", 1, "desc");
+    editor.matrix.value.hierarchy!.row!.labels = ["Plant", "ID", "Shift"];
+    editor.toggleMatrixSubtotal("row", 1, true); editor.toggleMatrixSubtotal("row", 2, true);
+    editor.moveDimension("rowFields", 1, -1);
+    expect(editor.matrix.value.rowFields).toEqual(["id", "plant", "shift"]);
+    expect(editor.matrix.value.hierarchy!.row).toEqual({ sort: ["desc", "asc", "source"], labels: ["ID", "Plant", "Shift"], subtotals: [2, 1] });
+    editor.toggleDimension("rowFields", "plant", false);
+    expect(editor.matrix.value.hierarchy!.row).toEqual({ sort: ["desc", "source"], labels: ["ID", "Shift"], subtotals: [1] });
+    editor.toggleMatrixSubtotal("row", 1, false); editor.checkMatrix(); expect(editor.error.value).toBe("");
+    expect(props.list.matrix).toBeUndefined(); editor.apply(); await nextTick();
+    expect(props.list.matrix!.hierarchy!.row).toMatchObject({ sort: ["desc", "source"], subtotals: [] });
+    props.readonly = true; const before = JSON.stringify(editor.matrix.value);
+    editor.toggleHierarchy(false); editor.setDimensionSort("row", 0, "source"); editor.toggleMatrixSubtotal("row", 1, true); editor.moveDimension("rowFields", 0, 1); editor.toggleDimension("rowFields", "plant", true);
+    expect(JSON.stringify(editor.matrix.value)).toBe(before); wrapper.unmount();
+  });
+  it("exposes named hierarchical controls without applying a draft until explicit apply", async () => {
+    const value = list(); value.matrix = { rowFields: ["plant", "id"], columnFields: ["id", "plant"], measures: [{ field: "value", op: "sum" }], hierarchy: {} };
+    const wrapper = mount(RuleDataLayout, { props: { mode: "matrix", list: value, messages: DEFAULT_RULE_EDITOR_MESSAGES } });
+    expect(wrapper.text()).toContain("层级维度与小计");
+    await wrapper.find('select[aria-label="plant · 同级排序"]').setValue("desc");
+    await wrapper.find('button[aria-label="id · 向外移动"]').trigger("click");
+    await wrapper.find('input[aria-label="空维度显示"]').setValue("Missing");
+    expect(value.matrix.hierarchy).toEqual({}); expect(wrapper.emitted("change")).toBeUndefined();
+    await wrapper.findAll("button").find(button => button.text() === "应用规则")!.trigger("click");
+    const changed = wrapper.emitted("change")![0]![0] as ListComponent;
+    expect(changed.matrix!.rowFields).toEqual(["id", "plant"]); expect(changed.matrix!.hierarchy).toMatchObject({ row: { sort: ["source", "desc"] }, emptyLabel: "Missing" });
+    wrapper.unmount();
+  });
   it("builds a keyed detail using schema identities and selected fields", async () => {
     const { editor, props, wrapper } = setup("detail");
     editor.enabled.value = true;

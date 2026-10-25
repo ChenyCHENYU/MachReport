@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.16.0-2563eb" alt="Source version 2.16.0" />
+  <img src="https://img.shields.io/badge/source-2.17.0-2563eb" alt="Source version 2.17.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -41,17 +41,17 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 维度 | 已具备的能力 |
 | --- | --- |
 | 页面模型 | 毫米单位、纸张预设与自定义尺寸、页边距、横纵向、文本与表格几何 |
-| 完整宽表 | 自然列宽、横向滚动、默认 100% 预览；纵向分段窗口化，Excel 自动合并连续 Sheet |
-| 明细与汇总 | 自动分页、多级分组与加权小计、业务键主从明细、动态矩阵、重复页眉页脚 |
+| 完整宽表 | 自然列宽、横向滚动、默认 100% 预览；页级与宽表行列视口裁剪，Excel 自动合并连续 Sheet |
+| 明细与汇总 | 自动分页、多级分组与加权小计、业务键主从明细、层级动态矩阵、独立区域流式组合、重复页眉页脚 |
 | 数据呈现 | 表头与内容独立对齐、类型自动对齐、数值 / 百分比 / 日期格式化、条件格式、富文本与格内子组件 |
 | 预览交互 | 远程级联参数、受控关联详情、右下分页、分组导出菜单、内容搜索与字段目录、跨页选区、冻结窗格、Sheet 导航 |
-| 内容编辑 | 默认只读；双击与批量粘贴、原子保存、编辑后重算、撤销 / 重做、恢复与变更清单 |
+| 内容编辑 | 默认只读；双击与批量粘贴、原子保存、按行依赖增量计算、编辑后重排、撤销 / 重做、恢复与变更清单 |
 | Excel 导入 | 混合字体与只读富文本、PNG/JPEG Logo、完整索引色、多 Sheet 会话复用、可取消预检、合并样式与缓存公式值转换为模板 |
 | 模板配置 | 可视化画布、Excel 业务绑定向导、计算与规则、变更对比与发布验收、CAS 历史 / 回滚 |
 | 工业标签 | 模板 + 行数组直接接入、逐记录字段绑定、多版相邻与份数、真实 QR / 条码、可视化设计 |
 | 输出 | 浏览器打印、HTML、PDF、真正的 `.xlsx`、逐页 PNG、Word 兼容 HTML `.doc` |
 | 工程接入 | 局部组件、全局插件、异步入口、分层配置、结构化错误与导出告警 |
-| 引擎复用 | 共用契约与计算、逐页排版、Node Runtime / 自动隔离编码、流式 Excel、可恢复持久任务 |
+| 引擎复用 | 共用业务语义与计算、逐页排版、按页文档存储、OpenAPI / Java客户端、自动隔离编码、流式 Excel、可恢复持久任务 |
 | 分析扩展 | 可选只读选区计算、交叉汇总、声明式计算、柱图 / 折线图基础图元与资源适配 |
 
 数据接口、鉴权与业务规则由宿主应用决定。包内统一校验、分页、编辑事务、设计器和版本流程；宿主提供请求与存储适配器。审批和业务数据库部署按项目现有治理执行。
@@ -76,12 +76,16 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 跨项目搬运模板、资源、字段契约与脱敏样例 | [可搬运模板包](./docs/TEMPLATE_PACKAGE.md) |
 | 字典搜索、厂别/产线级联、查看关联详情 | [参数](./docs/PARAMETERS.md) · [关联动作与隔离](./docs/RELIABILITY.md) · `/parameters.html`、`/product.html` |
 | 大批量标签、标准纸张拼版、持久任务 | [交付](./docs/DELIVERY.md) · [持久任务](./docs/DURABLE_JOBS.md) · [打印校准](./docs/PRINT_AND_DATA.md) |
+| 层级交叉表、复杂区域、指标语义与组件扩展 | [复杂报表](./docs/COMPLEX_REPORTS.md) · [组件扩展](./docs/COMPONENT_EXTENSIONS.md) · [稳定接入](./docs/API_STABILITY.md) |
+| 服务端按页读取、HTTP契约、Java客户端 | [后端复用](./docs/SERVER.md) · [Java参考](./examples/server-java-node/README.md) |
 | 大文件编码、压缩期硬取消 | [自动执行策略](./docs/guides/automatic-export.md)：浏览器一个Worker工厂，Node自动定位线程入口 |
 | 持续回归与设备交接 | [深层测试](./docs/DEEP_VALIDATION.md) · [Office与设备验收](./docs/EXTERNAL_ACCEPTANCE.md) · [迭代安排](./docs/NEXT_ITERATION.md) |
 
 稳定业务键的数据源自动维护编辑重算会话，独立报表默认隔离；镜像来源显式声明共享。保存前准备重算，成功后更新派生结果与修订，导出等待在途编辑。工作簿公式继续只显示缓存结果。严格输出拒绝已知缺字或损坏图片，宽松策略返回明确诊断。
 
 设计工具按需加载；画布拖动只在松手时提交事务，修改模板名称不重复排版。大列目录窗口化，连续 Excel 按工作量让出执行并响应取消。可选自动执行按任务规模隔离编码，覆盖最终压缩期硬取消；已准备结果原样交付，无需再次取数。
+
+大宽表默认按视口挂载单元格并保留完整计划，使用侧无需维护窗口状态；搜索与冻结模式保留完整页以确保命中和冻结语义。编辑计算缓存只属于当前私有会话，简单行计算跳过未变化的依赖；分组、整表、受信任公式适配器和分页按安全路径重算，不宣称所有操作都是局部排版。
 
 产品分层和暂缓的数据库连接、企业权限、调度与渠道见[产品能力](./docs/PRODUCT_PLATFORM.md)；还原边界、验证方式和上游依赖证据见[质量说明](./docs/QUALITY.md)、[可靠性与升级](./docs/RELIABILITY.md)、[依赖清单](./docs/DEPENDENCIES.md)。
 
@@ -670,7 +674,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.16.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.17.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

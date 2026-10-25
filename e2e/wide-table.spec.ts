@@ -33,6 +33,7 @@ test("82列×2000行：实际字号、左右端可达、连续分段、远右搜
       createApp({ render: () => h(ReportPreview, {
         reportId: "wide-table", fetcher: async () => plan, height: "100vh",
         showExport: false, showPrint: false, showPdfWindow: false,
+        interaction: { calculations: true },
         onLoaded: async () => {
           await nextTick();
           requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
@@ -63,16 +64,28 @@ test("82列×2000行：实际字号、左右端可达、连续分段、远右搜
   expect(metrics.warnings).toBe(0);
   expect(metrics.widthMm).toBe(2480);
   expect(await root.locator(".mrp-page-holder").count()).toBeLessThanOrEqual(4);
+  const mountedCells = await root.locator(".mrp-page-holder td").count();
+  expect(mountedCells).toBeLessThan(1500);
   const first = root.locator('[data-page="1"] td').first();
-  const last = root.locator('[data-page="1"] tr').first().locator("td").last();
+  const last = root.locator('[data-page="1"] td[data-mr-row-index="0"][data-mr-column-index="81"]').first();
   const viewBox = (await viewport.boundingBox())!;
   expect((await first.boundingBox())!.x).toBeGreaterThanOrEqual(viewBox.x);
   await viewport.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
+  await expect(last).toBeVisible();
   await expect.poll(async () => {
-    const box = (await last.boundingBox())!;
-    return box.x + box.width;
+    const box = await last.boundingBox();
+    return box ? box.x + box.width : Infinity;
   }).toBeLessThanOrEqual(viewBox.x + viewBox.width);
   expect((await last.boundingBox())!.x).toBeGreaterThanOrEqual(viewBox.x);
+
+  // Keyboard navigation can cross the clipped columns; focus and selection stay on the logical cell.
+  await viewport.evaluate(element => { element.scrollLeft = 0; });
+  await expect.poll(() => root.locator('[data-page="1"] td').first().getAttribute("data-mr-column-index")).toBe("0");
+  await root.locator('[data-page="1"] td').first().click();
+  for (let step = 0; step < 20; step++) await page.keyboard.press("ArrowRight");
+  await expect(root.locator("td.mrp-cell-focus")).toHaveAttribute("data-mr-column-index", "20");
+  await expect.poll(() => viewport.evaluate(element => element.scrollLeft)).toBeGreaterThan(1000);
+  expect(await root.locator(".mrp-page-holder td").count()).toBeLessThan(1500);
 
   // 主动适宽允许小于30%，并且实际可滚动几何随缩放收紧。
   await root.getByRole("button", { name: "适宽", exact: true }).click();
@@ -124,7 +137,7 @@ test("82列×2000行：实际字号、左右端可达、连续分段、远右搜
   expect(canvases.length).toBeLessThanOrEqual(26);
   expect(canvases.every((canvas) => canvas.width <= 116 && canvas.height <= 116)).toBe(true);
   const result = { ...metrics, ...initial, fit, peakBodyPages, thumbSlots, thumbCount: canvases.length, maxThumbWidth: Math.max(...canvases.map((canvas) => canvas.width)),
-    searchLastMs };
+    searchLastMs, mountedCells };
   console.log(`[perf] wide-table: ${JSON.stringify(result)}`);
   await testInfo.attach("wide-table-metrics.json", { body: JSON.stringify(result, null, 2), contentType: "application/json" });
   await testInfo.attach("wide-table-preview.png", { body: await page.screenshot(), contentType: "image/png" });

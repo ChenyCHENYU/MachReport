@@ -29,7 +29,7 @@ try {
     server.on("exit", (code) => { clearTimeout(timer); if (!output) no(new Error(`Reference server exited ${code}: ${error}`)); });
     server.on("error", (cause) => { clearTimeout(timer); no(cause); });
   });
-  run("javac", ["--release", "17", "-d", scratch, resolve(scratch, "example/ReportClient.java")]);
+  run("javac", ["--release", "17", "-d", scratch, resolve(scratch, "example/MachReportClient.java"), resolve(scratch, "example/ReportClient.java")]);
   console.log(run("java", ["-cp", scratch, "ReportClient", `http://127.0.0.1:${port}`, resolve(scratch, "example/fixtures"), resolve(scratch, "downloads")]));
   // 重复并发请求后资源门禁检查确定性的槽位归零；堆大小只报告，不依赖GC时机判定泄漏。
   const base = `http://127.0.0.1:${port}`;

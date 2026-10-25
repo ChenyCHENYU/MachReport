@@ -1,6 +1,6 @@
 import { assertBoundedRenderTree } from "../schema/component-tree";
 import type { GridCell, PlanComponent, RenderPlan } from "../schema/render-plan";
-import type { OutputDiagnostic, OutputDiagnosticOptions, OutputFormat } from "./capabilities";
+import { OutputFidelityError, type OutputDiagnostic, type OutputDiagnosticOptions, type OutputFormat } from "./capabilities";
 import { notifyOutputDiagnostic } from "./diagnostic-notification";
 import { waitForOutput, assertOutputActive } from "./progress";
 import { createImageMediaInspector, ImageMediaError, type ImageMediaOptions } from "./media";
@@ -16,6 +16,10 @@ export interface ComponentImageContext {
 }
 
 export type ComponentImageRenderer = (context: ComponentImageContext) => string | Promise<string>;
+export interface ComponentAssetRegistry {
+  rendererFor(component: Readonly<PlanComponent>): ComponentImageRenderer | undefined;
+  hasExtension(id: string, version: string, kind: string): boolean;
+}
 
 export interface AssetRenderBudget {
   /** Maximum newly rendered assets, default 1000. Existing imageData is kept unchanged. */
@@ -30,6 +34,8 @@ export interface AssetRenderBudget {
 
 export interface AssetRenderOptions extends OutputDiagnosticOptions, ImageMediaOptions {
   assetRenderers?: Partial<Record<ImageComponentKind, ComponentImageRenderer>>;
+  /** Explicit id/version registry; unbound components continue using assetRenderers by kind. */
+  assetRegistry?: ComponentAssetRegistry;
   assetBudget?: AssetRenderBudget;
   /** Default throw prevents an incomplete export; placeholder retains the component and emits diagnostics. */
   assetFailure?: "throw" | "placeholder";
@@ -94,7 +100,7 @@ function issue(state: AssetState, context: Omit<ComponentImageContext, "signal">
 }
 
 async function renderImage(state: AssetState, component: PlanComponent, context: Omit<ComponentImageContext, "signal">): Promise<string | undefined> {
-  const renderer = state.options.assetRenderers?.[component.kind as ImageComponentKind];
+  const renderer = state.options.assetRegistry?.rendererFor(component) ?? state.options.assetRenderers?.[component.kind as ImageComponentKind];
   if (component.imageData || !renderer) return component.imageData;
   if (++state.rendered > state.budget.maxAssets) return issue(state, context, "asset-budget-exceeded", "Output exceeded the asset count budget.");
   let image: string;
@@ -168,6 +174,9 @@ function inspectExistingMedia(plan: RenderPlan, inspect: ReturnType<typeof creat
   };
   for (const page of plan.pages) for (const component of page.components) inspectComponent(component);
 }
+function assertAssetFidelity(state: AssetState): void {
+  if (state.options.fidelity === "strict" && state.diagnostics.length) throw new OutputFidelityError(state.diagnostics);
+}
 
 /** Resolve optional third-party chart/barcode/QR adapters once, before any output backend. Input stays immutable. */
 export async function resolvePlanAssets(plan: RenderPlan, options: ResolvePlanAssetsOptions = {}): Promise<{ plan: RenderPlan; diagnostics: OutputDiagnostic[] }> {
@@ -180,7 +189,7 @@ export async function resolvePlanAssets(plan: RenderPlan, options: ResolvePlanAs
   const controller = new AbortController();
   const abort = () => controller.abort(options.signal?.reason);
   options.signal?.addEventListener("abort", abort, { once: true });
-  if (!options.assetRenderers || !Object.keys(options.assetRenderers).length) { options.signal?.removeEventListener("abort", abort); return { plan, diagnostics: [] }; }
+  if (!options.assetRegistry && (!options.assetRenderers || !Object.keys(options.assetRenderers).length)) { options.signal?.removeEventListener("abort", abort); return { plan, diagnostics: [] }; }
   const state: AssetState = { options, signal: controller.signal, diagnostics: [], rendered: 0, bytes: 0, budget, cache: new WeakMap(), inspectImage };
   const timer = setTimeout(() => timeoutAssets(state, controller), budget.maxDurationMs);
   try {
@@ -192,6 +201,7 @@ export async function resolvePlanAssets(plan: RenderPlan, options: ResolvePlanAs
       pages.push(components.some((component, index) => component !== page.components[index]) ? { ...page, components } : page);
     }
     throwIfAborted(state.signal);
+    assertAssetFidelity(state);
     return { plan: pages.some((page, index) => page !== plan.pages[index]) ? { ...plan, pages } : plan, diagnostics: state.diagnostics };
   } finally { clearTimeout(timer); options.signal?.removeEventListener("abort", abort); }
 }

@@ -1,6 +1,7 @@
 import type { DatasetRows, ListComponent, ListDetail, ReportTemplate } from "../layout/paginate";
 import { ReportCellEditError } from "./value";
 import type { ReportCellSource } from "../schema/render-plan";
+import { forkComputedDataset } from "../processing/computation-workspace";
 
 export interface ReportEditSessionPart { template: ReportTemplate; datasets: DatasetRows; sourceScope?: string }
 export interface SessionRow { partIndex: number; dataset: string; rowIndex: number; row: Record<string, unknown>; binding: Pick<ListComponent, "rowKey" | "revisionField" | "sourceTokenField"> }
@@ -50,9 +51,13 @@ export function updateSessionRows(parts: readonly ReportEditSessionPart[], chang
   const next = parts.map((part) => ({ ...part, datasets: { ...part.datasets } }));
   const copied = new Set<string>();
   for (const { row, field, value } of changes) {
-    const part = next[row.partIndex]!, key = `${row.partIndex}:${row.dataset}`;
+    const part = next[row.partIndex]!, key = JSON.stringify([row.partIndex, row.dataset]);
     if (!copied.has(key)) { part.datasets[row.dataset] = [...part.datasets[row.dataset]!]; copied.add(key); }
     part.datasets[row.dataset]![row.rowIndex] = { ...part.datasets[row.dataset]![row.rowIndex], [field]: value };
+  }
+  for (const key of copied) {
+    const [partIndex, dataset] = JSON.parse(key) as [number, string];
+    forkComputedDataset(parts[partIndex]!.datasets[dataset]!, next[partIndex]!.datasets[dataset]!);
   }
   return next;
 }

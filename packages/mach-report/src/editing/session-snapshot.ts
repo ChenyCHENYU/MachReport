@@ -1,5 +1,6 @@
 import type { ReportEditSessionPart } from "./session-data";
 import { ReportCellEditError } from "./value";
+import { registerComputedDataset } from "../processing/computation-workspace";
 
 interface Budget { nodes: number }
 interface ObjectStamp { object: object; prototype: object | null; keys: string[]; values: unknown[]; date?: number; length?: number }
@@ -14,6 +15,7 @@ function ownValue(value: object, key: string): unknown {
 function checkObject(value: object): void {
   if (Object.getOwnPropertyDescriptor(value, "toJSON")) throw new ReportCellEditError("conflict");
   const prototype = Object.getPrototypeOf(value);
+  if (Array.isArray(value) && (prototype !== Array.prototype || Object.keys(value).length !== value.length)) throw new ReportCellEditError("conflict");
   if (!(value instanceof Date) && !Array.isArray(value) && prototype !== Object.prototype && prototype !== null) throw new ReportCellEditError("conflict");
   for (const key of Reflect.ownKeys(value)) {
     if (Array.isArray(value) && key === "length") continue;
@@ -55,10 +57,16 @@ function clone(value: unknown, budget: Budget, depth: number): unknown {
   // Strings are immutable: retain their value without copying or scanning their characters.
   if (value === null || typeof value !== "object") return value;
   if (value instanceof Date) return new Date(Date.prototype.getTime.call(value));
-  if (Array.isArray(value)) return value.map((item) => clone(item, budget, depth + 1));
+  if (Array.isArray(value)) {
+    const result: unknown[] = [];
+    for (let index = 0; index < value.length; index++) result[index] = clone(ownValue(value, String(index)), budget, depth + 1);
+    return result;
+  }
   return Object.fromEntries(Object.keys(value).map((key) => [key, clone(ownValue(value, key), budget, depth + 1)]));
 }
 /** Called only after the guard succeeds; depth/node bounds apply again to the owned snapshot. */
 export function snapshotSessionParts(parts: readonly ReportEditSessionPart[]): ReportEditSessionPart[] {
-  return clone(parts, { nodes: 0 }, 0) as ReportEditSessionPart[];
+  const snapshot = clone(parts, { nodes: 0 }, 0) as ReportEditSessionPart[];
+  for (const part of snapshot) for (const rows of Object.values(part.datasets)) registerComputedDataset(rows);
+  return snapshot;
 }

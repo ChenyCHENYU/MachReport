@@ -1,12 +1,15 @@
 import { onScopeDispose, ref, watch, type Ref } from "vue";
-import { renderPage, type PlanPage, type RenderPlan } from "@agile-team/mach-report";
+import { createPageViewportRenderer, renderPage, resolveGridLayout, type PlanPage, type RenderPlan, type ReportCellAddress } from "@agile-team/mach-report";
 
 interface PageRenderingHost {
   plan: Ref<RenderPlan | null>;
   root: Ref<HTMLElement | null>;
+  viewport?: Ref<HTMLElement | null>;
+  windowing?(): boolean;
   pages(): readonly { index: number }[];
   priority(): number;
   focusToken(): unknown;
+  editorToken?(): unknown;
   query(): string;
   zoom(): number;
   loading(): string;
@@ -17,7 +20,7 @@ interface PageRenderingHost {
   error(cause: unknown): void;
 }
 interface PageEntry { holder: HTMLElement; page: PlanPage; index: number }
-interface MountedPage { page: PlanPage; element: HTMLElement; query: string }
+interface MountedPage { page: PlanPage; element: HTMLElement; query: string; viewport?: ReturnType<typeof createPageViewportRenderer>; windowed: boolean }
 const PX_PER_MM = 96 / 25.4;
 
 /** Priority is synchronous for nextTick focus; all other new pages consume one animation frame. */
@@ -28,6 +31,7 @@ export function usePageRendering(host: PageRenderingHost) {
   let generation = 0;
   let frame = 0;
   let disposed = false;
+  let viewportFrame = 0;
 
   function cancel(): void {
     generation++;
@@ -53,7 +57,10 @@ export function usePageRendering(host: PageRenderingHost) {
   function cached(entry: PageEntry): boolean {
     const previous = mounted.get(entry.holder);
     if (!previous || previous.page !== entry.page || previous.element.parentElement !== entry.holder) return false;
-    if (previous.query !== host.query()) {
+    const editing = !!previous.element.querySelector(".mrp-cell-editor-host");
+    if (previous.windowed !== shouldWindow(entry.page) && !editing) return false;
+    updateViewport(entry.holder, previous);
+    if (previous.query !== host.query() && !editing) {
       host.clear(previous.element); host.highlight(previous.element); previous.query = host.query();
     }
     return true;
@@ -61,12 +68,16 @@ export function usePageRendering(host: PageRenderingHost) {
   function paint(entry: PageEntry, version: number, plan: RenderPlan, root: HTMLElement): void {
     if (!active(entry, version, plan, root)) return;
     try {
-      const element = renderPage(entry.page, 96, {}, entry.holder.ownerDocument);
+      const windowed = shouldWindow(entry.page);
+      const viewport = windowed ? createPageViewportRenderer(entry.page, 96, {}, entry.holder.ownerDocument) : undefined;
+      const element = viewport?.element ?? renderPage(entry.page, 96, {}, entry.holder.ownerDocument);
       host.highlight(element);
       if (!active(entry, version, plan, root)) return;
       entry.holder.replaceChildren(element);
       entry.holder.removeAttribute("aria-busy");
-      mounted.set(entry.holder, { page: entry.page, element, query: host.query() });
+      const state = { page: entry.page, element, query: host.query(), viewport, windowed };
+      mounted.set(entry.holder, state);
+      updateViewport(entry.holder, state);
       host.mounted(entry.holder);
       host.ready();
     } catch (cause) {
@@ -115,7 +126,50 @@ export function usePageRendering(host: PageRenderingHost) {
     if (disposed || !host.plan.value) return;
     preferred = { plan: host.plan.value, index }; request.value++;
   }
-  watch([host.plan, host.root, host.pages, host.priority, host.focusToken, host.query, host.zoom, host.loading, request], refresh, { flush: "post", immediate: true });
-  onScopeDispose(() => { disposed = true; preferred = undefined; cancel(); });
-  return { prioritize, cancel };
+  watch([host.plan, host.root, host.pages, host.priority, host.focusToken, () => host.editorToken?.(), host.query, host.zoom, host.loading, () => host.windowing?.(), request], refresh, { flush: "post", immediate: true });
+  function shouldWindow(page: PlanPage): boolean {
+    if (!host.viewport?.value?.clientWidth || host.windowing?.() === false || host.query().trim() || page.layout !== "wide") return false;
+    return page.components.reduce((total, component) => total + (component.grid?.cells.reduce((count, row) => count + row.length, 0) ?? 0), 0) > 1000;
+  }
+  function updateViewport(holder: HTMLElement, state: MountedPage): void {
+    const viewport = host.viewport?.value;
+    if (!viewport || !state.viewport) return;
+    const bounds = viewport.getBoundingClientRect(), pageBounds = holder.getBoundingClientRect(), scale = PX_PER_MM * host.zoom();
+    const focused = holder.querySelector(".mrp-cell-editor-host")?.closest<HTMLElement>("td[data-mr-row-index]") ?? holder.ownerDocument.activeElement?.closest<HTMLElement>("td[data-mr-row-index]");
+    const owner = focused?.closest<HTMLElement>("[data-mr-component-index]");
+    const retained = focused && owner && holder.contains(focused) ? { componentIndex: Number(owner.dataset.mrComponentIndex), rowIndex: Number(focused.dataset.mrRowIndex), columnIndex: Number(focused.dataset.mrColumnIndex) } : undefined;
+    if (state.viewport.update({ leftMm: (bounds.left - pageBounds.left) / scale, topMm: (bounds.top - pageBounds.top) / scale,
+      widthMm: viewport.clientWidth / scale, heightMm: viewport.clientHeight / scale }, retained)) host.mounted(holder);
+  }
+  function refreshViewport(): void {
+    if (disposed || viewportFrame) return;
+    viewportFrame = requestAnimationFrame(() => {
+      viewportFrame = 0;
+      if (disposed) return;
+      host.root.value?.querySelectorAll<HTMLElement>(".mrp-page-holder").forEach(holder => {
+        const state = mounted.get(holder); if (state) updateViewport(holder, state);
+      });
+    });
+  }
+  function reveal(address: ReportCellAddress): void {
+    const viewport = host.viewport?.value, page = host.plan.value?.pages[address.pageIndex];
+    const holder = host.root.value?.querySelector<HTMLElement>(`[data-page="${address.pageIndex + 1}"]`);
+    const component = page?.components[address.componentIndex];
+    if (!viewport || !holder || !component?.grid) return;
+    const state = mounted.get(holder);
+    if (!state?.viewport) return;
+    const box = resolveGridLayout(component.grid, component.widthMm, component.heightMm).cells.find(cell => cell.ri === address.rowIndex && cell.ci === address.columnIndex);
+    if (!box) return;
+    const bounds = viewport.getBoundingClientRect(), origin = holder.getBoundingClientRect(), scale = PX_PER_MM * host.zoom();
+    const left = origin.left + (component.leftMm + box.xMm) * scale, top = origin.top + (component.topMm + box.yMm) * scale;
+    viewport.scrollLeft += scrollDelta(left, left + box.widthMm * scale, bounds.left, bounds.left + viewport.clientWidth);
+    viewport.scrollTop += scrollDelta(top, top + box.heightMm * scale, bounds.top, bounds.top + viewport.clientHeight);
+    updateViewport(holder, state);
+  }
+  function scrollDelta(start: number, end: number, low: number, high: number): number {
+    if (start < low + 8) return start - low - 8;
+    return end > high - 8 ? Math.min(start - low - 8, end - high + 8) : 0;
+  }
+  onScopeDispose(() => { disposed = true; preferred = undefined; cancel(); if (viewportFrame) cancelAnimationFrame(viewportFrame); });
+  return { prioritize, cancel, refreshViewport, reveal };
 }

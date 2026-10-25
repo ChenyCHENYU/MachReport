@@ -115,6 +115,63 @@ list.matrix = {
 
 维度数量与稠密输出单元格在分配结果前检查。`estimateMatrixTable` 和 `estimateListLayoutCells` 可供服务端预算预检；后者在计算维度存在时使用相同计算流程估算，避免按原始字段错误低估。跨表身份关联与权限仍由宿主提供数据集和保存接口保证。
 
+### 层级交叉表与每级小计
+
+在已有 `matrix` 中增加一个 `hierarchy` 即可启用。未配置时保留原有单列行标签、平面标题、字段名称和度量优先顺序；启用后按维度展开度量列，行维度分列，列维度使用真实 `rowSpan/colSpan` 表头，预览、PDF 和 Excel 共用相同几何。
+
+```ts
+list.matrix = {
+  rowFields: ['plant', 'grade', 'shift'],
+  columnFields: ['year', 'month'],
+  measures: [
+    { field: 'weight', label: '重量', op: 'sum', numeric: 'decimal', digits: 3 },
+    { field: 'rate', label: '加权单耗', op: 'weightedAvg', weightField: 'weight' }
+  ],
+  hierarchy: {
+    row: { labels: ['厂别', '钢种', '班组'], sort: ['asc', 'asc', 'source'], subtotals: [1, 2] },
+    column: { labels: ['年度', '月份'], sort: ['asc', 'asc'], subtotals: [1] },
+    emptyLabel: '未提供',
+    subtotalLabel: '小计',
+    totalLabel: '合计'
+  },
+  totals: true
+};
+```
+
+- `subtotals` 为从 1 开始的维度前缀深度。例如 `[1, 2]` 输出厂别小计、厂别/钢种小计，末级班组不能再次声明小计；重复或越界配置会直接拒绝。
+- `sort` 按每级同父节点排序。默认 `source` 保留首次出现顺序；`asc/desc` 对数字使用数值顺序，对其余值使用确定的类型与文本顺序，不依赖机器语言环境。
+- 缺失字段、`undefined` 和 `null` 作为同一空成员；只改变其显示名称，不把空字符串、数字 `0`、文本 `'0'` 或 `false` 合并。度量中的真实零始终保留。
+- 小计与总计直接消费原始样本；平均值、加权平均和精确小数不会对已经显示的汇总结果再次聚合。
+- 层级模式的 `maxRows/maxColumns` 包含展开的小计与总计。`maxCells` 在密集结果分配前检查；`maxAggregateUpdates` 默认一千万，先检查输入行数 × 行前缀数 × 列前缀数 × 度量数，避免多级小计造成隐藏的计算放大。超预算时应缩小维度或由服务端预聚合。
+
+设计器在“计算与规则 → 矩阵 → 层级维度与小计”提供启用、空维度文案、每级排序、上下调整维度和小计开关。草稿验算和应用沿用原有流程，不要求使用侧转换数据。
+
+列表集成时，层级维度名称默认复用原 `list.columns` 中同字段的 `header`；度量也优先复用输出字段或 `valueField` 的已有标题，并附上“求和 / 平均 / 加权平均”等聚合语义。显式 `hierarchy.row/column.labels` 与 `measure.label` 始终优先，找不到已有标题时保留原字段回退。不会推测或新增业务单位，也不改写原列或矩阵配置；仅增加 `hierarchy: {}` 即可使用已有中文标题。
+
+### 汇总身份与下钻适配
+
+`createMatrixTable()` 的层级结果提供 `metadata.rows/columns`。成员 `key` 使用字段名及带类型的原始维度值，不依赖标签、排序和显示行号；小计保留前缀 `fields/values`，总计使用空前缀。列元数据同时提供度量的输出字段、来源字段与操作，便于宿主构造明确的明细查询条件。
+
+分页计划把列描述放在表头组件 `meta.matrix.columns`，行描述放在各行组件 `meta.matrix.row`；同一逻辑表由 `table.id` 关联。行的 `table.role` 分别为 `body/subtotal/grand-total`。这些是只读分析身份，不会伪造 `source.rowKey`，不能作为业务保存键或权限凭据。下钻查询仍由宿主接口执行权限校验。
+
+### 复杂区域组合
+
+同一数据区域中的矩阵、普通分组、树形、主从保持明确互斥；不能通过删掉校验把它们强行叠加。需要“上方交叉汇总、下方分组明细或主从、固定页脚”时，使用现有 `page.flow.bands`，把各列表作为独立区域：
+
+```ts
+page.flow = {
+  bands: [
+    { componentIds: ['summary-matrix'], topMm: 10, heightMm: 8 },
+    { componentIds: ['grouped-details'], topMm: 28, heightMm: 8 },
+    { componentIds: ['closing-note'], topMm: 42, heightMm: 5 }
+  ]
+};
+// 对应列表使用稳定 id；静态说明使用 nid。
+// 页脚使用 pageAnchor: 'footer'，不加入 flow 分段。
+```
+
+引擎保留区域间原始间距，在前一区域结束后继续排版，跨页重复各自表头和已声明的组头，并为页脚留出空间。每个重复区域独占一个分段，不与静态组件并排猜测重排。多表组合的 Excel 使用逐页输出；单张矩阵可使用连续工作表，保留多层合并表头并去除重复表头。
+
 ## 树形成本与层级报表
 
 树形属于引擎布局，不要求宿主拍平数据。列表通过 `tree` 声明层级；设计器的“计算与规则 → 树形”提供输入结构、业务键、标签列、父级取值、缩进和预算表单。支持两种明确的数据契约：

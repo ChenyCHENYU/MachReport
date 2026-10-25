@@ -3,7 +3,7 @@ import { MachReportError } from "./errors";
 
 /** Prepare adapters once so preview and every export consume the same image-backed plan. */
 export async function prepareReportAssets(plan: RenderPlan, options: AssetRenderOptions | undefined, signal: AbortSignal, warning: (message: string) => void): Promise<RenderPlan> {
-  if (!options?.assetRenderers || !Object.keys(options.assetRenderers).length) return plan;
+  if (!options?.assetRegistry && (!options?.assetRenderers || !Object.keys(options.assetRenderers).length)) return plan;
   try {
     const result = await resolvePlanAssets(plan, { ...options, signal, format: "dom", onDiagnostic: (diagnostic) => {
       if (signal.aborted) return;

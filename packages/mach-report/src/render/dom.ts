@@ -9,7 +9,12 @@ import type {
 import { isImageBackedComponent, isRichText } from "../schema/render-plan";
 import { mmToPx, round } from "../units";
 import { resolveGridLayout, type GridCellBox, type GridLayout } from "./grid-geometry";
-import { resolveGridStrokes } from "./grid-strokes";
+import { resolveGridStrokes, type GridStroke } from "./grid-strokes";
+import { createDomViewportContext } from "./dom-viewport";
+import type { ReportViewport } from "./viewport-index";
+export type { ReportViewport } from "./viewport-index";
+
+const viewportContexts = new WeakMap<RenderOptions, ReturnType<typeof createDomViewportContext>>();
 import { DEFAULT_FONT_FAMILY, DEFAULT_TEXT_COLOR } from "../defaults";
 import { reportOutputDiagnostics, type OutputDiagnosticOptions } from "../output/capabilities";
 import {
@@ -167,7 +172,10 @@ function renderGridCell(
 }
 
 function renderGridEdges(layout: GridLayout, comp: PlanComponent, dpi: number, doc: Document): HTMLElement[] {
-  return resolveGridStrokes(layout, comp).map((edge) => {
+  return renderGridStrokeElements(resolveGridStrokes(layout, comp), dpi, doc);
+}
+function renderGridStrokeElements(strokes: GridStroke[], dpi: number, doc: Document): HTMLElement[] {
+  return strokes.map((edge) => {
     const border = `${round((edge.widthPt * dpi) / 72, 2)}px solid ${edge.color}`;
     const line = doc.createElement("div");
     line.className = "mr-grid-edge";
@@ -197,10 +205,22 @@ function renderGrid(
   elementStyle("block").add("position", "relative")
     .add("width", "100%").add("height", "100%")
     .applyTo(table);
-  const layout = resolveGridLayout(grid, comp.widthMm, comp.heightMm);
   const body = doc.createElement("tbody");
   elementStyle("contents").applyTo(body);
   table.appendChild(body);
+  const viewport = comp.style?.rotateDeg ? undefined : viewportContexts.get(options);
+  if (viewport) {
+    const content = doc.createElement("div");
+    elementStyle("block").add("position", "relative").add("width", "100%").add("height", "100%").applyTo(content);
+    const edgeHost = doc.createElement("div");
+    elementStyle("contents").applyTo(edgeHost); edgeHost.setAttribute("aria-hidden", "true");
+    viewport.mount({ grid, component: comp, table, rowClass: classOf("row", options), body, edgeHost,
+      drawCell: box => renderGridCell(box, comp, grid.paddingMm ?? 0.5, dpi, { ...options }, doc),
+      drawEdges: strokes => renderGridStrokeElements(strokes, dpi, doc) });
+    content.append(table, edgeHost);
+    return content;
+  }
+  const layout = resolveGridLayout(grid, comp.widthMm, comp.heightMm);
   const rows = grid.cells.map(() => {
     const row = doc.createElement("tr");
     row.className = classOf("row", options);
@@ -464,4 +484,14 @@ export function renderPlan(
     root.appendChild(renderPage(page, dpi, options, doc));
   });
   return root;
+}
+
+/** Owned preview controller; only mounted grids are windowed. Static renderPage and exports stay complete. */
+export function createPageViewportRenderer(page: PlanPage, dpi: number, options: RenderOptions, doc: Document) {
+  const settings = { ...options }, context = createDomViewportContext();
+  viewportContexts.set(settings, context);
+  const element = renderPage(page, dpi, settings, doc);
+  return { element, update(viewport: ReportViewport, retained?: { componentIndex: number; rowIndex: number; columnIndex: number }): boolean {
+    return context.update(viewport, retained && page.components[retained.componentIndex], retained);
+  } };
 }

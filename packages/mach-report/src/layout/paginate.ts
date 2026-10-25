@@ -10,10 +10,12 @@ import type {
 import { RENDER_PLAN_SCHEMA_VERSION } from "../schema/render-plan";
 import { DEFAULT_FONT_FAMILY, DEFAULT_FONT_PT, LINE_HEIGHT } from "../defaults";
 import { heuristicMeasurer, wrapText, type TextMeasureOptions, type TextMeasurer } from "./textwrap";
+import { createTextMeasurementCache } from "./text-measure-cache";
 import { evalStyleRule, formatValue, toExcelNumberFormat } from "../format";
 import { computeDataset, type FormulaAdapter } from "../processing/computed";
 import { aggregateRows, type AggregateDefinition } from "../processing/aggregate";
-import { createMatrixTable, estimateMatrixTable } from "../processing/matrix";
+import { estimateMatrixTable } from "../processing/matrix";
+import { matrixRowRole, prepareMatrixHeader, resolveMatrixLayout, type MatrixLayoutMetadata } from "./matrix-layout";
 import { createTreeTable, flattenTreeInput, validateTreeComputed, type TreeRow } from "../processing/tree";
 export { createTreeTable, validateTreeOptions, TreeRowLimitError, type TreeTableOptions, type TreeRow, type TreeTable } from "../processing/tree";
 import { projectListColumns } from "./list-projection";
@@ -150,6 +152,7 @@ interface ListInterning {
   numberFormats: Array<string | undefined>;
   derivedFields: Set<string>;
   tree?: { list: ListComponent; rows: WeakMap<DataRow, TreeRow> };
+  matrix?: MatrixLayoutMetadata;
   /** 列表整体边框样式（所有行/表头共享） */
   borderStyle: ComponentStyle;
   headerHeightMm: number;
@@ -246,7 +249,7 @@ function interList(list: ListComponent, measurer: TextMeasurer): ListInterning {
       ? { borderTop: false, borderRight: false, borderBottom: false, borderLeft: false }
       : { borderBottom: true, borderLeft: true, borderRight: true, borderTop: true };
   const colWidthsMm = list.columns.map((col) => col.widthMm);
-  const headerGrid = resolveListHeader(list.headerGrid, colWidthsMm, {
+  const headerGrid = resolveListHeader(prepareMatrixHeader(list, measurer), colWidthsMm, {
     cells: [headerCells], colWidthsMm, rowHeightsMm: [headerHeight], paddingMm
   });
 
@@ -292,7 +295,7 @@ function buildRowGridFast(
   inter: ListInterningWithFloor,
   row: Record<string, unknown>,
   measurer: TextMeasurer
-): { grid: PlanGrid; heightMm: number } {
+): GridRow {
   const columns = inter.columns;
   const treeRow = inter.tree?.rows.get(row);
   let height = inter.rowHeightFloorMm;
@@ -330,7 +333,8 @@ function buildRowGridFast(
   }
   return {
     grid: { cells: [cells], colWidthsMm: inter.colWidthsMm, rowHeightsMm: [height], paddingMm: inter.paddingMm },
-    heightMm: height
+    heightMm: height,
+    ...(inter.matrix ? { meta: { matrix: { row: inter.matrix.rows.get(row) } } } : {})
   };
 }
 
@@ -352,6 +356,7 @@ interface GridRow {
   grid: PlanGrid;
   heightMm: number;
   table?: Pick<PlanTableFragment, "id" | "columnKeys" | "title">;
+  meta?: Record<string, unknown>;
 }
 
 type DataRow = Record<string, unknown>;
@@ -478,7 +483,7 @@ function createListPageWriter(list: ListComponent, inter: ListInterningWithFloor
   const header: PlanComponent = {
     kind: "rect", leftMm: list.leftMm, topMm: 0, widthMm: list.widthMm,
     heightMm: inter.headerHeightMm, grid: inter.headerGrid, nid: nextId("listh"),
-    table: { ...tableBase, role: "header", rowIndex: -1 }, style: inter.borderStyle, ...(list.meta ? { meta: list.meta } : {})
+    table: { ...tableBase, role: "header", rowIndex: -1 }, style: inter.borderStyle, ...(list.meta || inter.matrix ? { meta: { ...list.meta, ...(inter.matrix ? { matrix: inter.matrix.header } : {}) } } : {})
   };
   const placeHeader = (topMm: number) => current.components.push({ ...header, topMm });
   if (context.flow && list.header !== false && inter.headerHeightMm > contentBottom() - contentTop + 0.001) throw new Error(`流式列表 ${list.id ?? list.dataset} 的表头高度超出单页可用范围`);
@@ -527,7 +532,7 @@ function createListPageWriter(list: ListComponent, inter: ListInterningWithFloor
     current.components.push({
       kind: "rect", leftMm: list.leftMm, topMm: y, widthMm: list.widthMm,
       heightMm: row.heightMm, grid: row.grid, nid: nextId(prefix),
-      table: { ...tableBase, ...row.table, role, rowIndex, ...(source ? { source } : {}) }, style: inter.borderStyle, ...(list.meta ? { meta: list.meta } : {})
+      table: { ...tableBase, ...row.table, role, rowIndex, ...(source ? { source } : {}) }, style: inter.borderStyle, ...(list.meta || row.meta ? { meta: { ...list.meta, ...row.meta } } : {})
     });
     y += row.heightMm;
   }
@@ -633,16 +638,7 @@ function* placeDetails(master: ListComponent, row: DataRow, detail: DetailContex
     yield* context.takePages();
   }
 }
-function resolveMatrix(list: ListComponent, rows: DataRow[]): { list: ListComponent; rows: DataRow[] } {
-  if (!list.matrix) return { list, rows };
-  if (list.detail || list.groupBy || list.groups?.length || list.grandTotal) throw new Error("矩阵不能同时配置普通分组、总计或主从明细");
-  const result = createMatrixTable(rows, list.matrix);
-  const columns: ListColumn[] = result.columns.map((column, index) => ({ ...column, widthMm: index === 0 ? list.matrix!.rowWidthMm ?? 40 : list.matrix!.columnWidthMm ?? 28, editable: false, align: index === 0 ? "center" : "right" }));
-  const derived: ListComponent = { ...list, columns, headerGrid: undefined, rowKey: undefined, revisionField: undefined, sourceTokenField: undefined };
-  if (list.layout === "wide") derived.widthMm = columns.reduce((sum, column) => sum + column.widthMm, 0);
-  return { list: derived, rows: result.rows };
-}
-interface PreparedListData { list: ListComponent; rows: DataRow[]; sources?: Map<DataRow, PlanTableFragment["source"]>; treeRows?: WeakMap<DataRow, TreeRow>; totalRows?: DataRow[] }
+interface PreparedListData { list: ListComponent; rows: DataRow[]; sources?: Map<DataRow, PlanTableFragment["source"]>; treeRows?: WeakMap<DataRow, TreeRow>; totalRows?: DataRow[]; matrix?: MatrixLayoutMetadata }
 function checkTreeList(list: ListComponent): void {
   if (list.matrix || list.detail || list.groups?.length || list.groupBy || list.rowVisibleWhen) throw new Error("树形布局不能同时配置普通分组、矩阵、主从或行可见条件");
   if (list.rowKey && list.rowKey !== list.tree!.idField) throw new Error("树形布局的 rowKey 应与 idField 一致");
@@ -672,7 +668,7 @@ function prepareListData(list: ListComponent, input: DataRow[], context: ListPag
   let rows = list.computed?.length ? computeDataset(input, { fields: list.computed, signal: context.signal, formula: context.formula }).rows : input;
   const originals = rows === input ? undefined : new Map(rows.map((row, index) => [row, input[index]!]));
   if (list.rowVisibleWhen) rows = rows.filter((row) => evalStyleRule(row, list.rowVisibleWhen!));
-  const result: PreparedListData = resolveMatrix(list, rows);
+  const result: PreparedListData = resolveMatrixLayout(list, rows);
   if (!list.matrix) {
     const sourceRows = checkedRowSources(list, originals ? rows.map((row) => originals.get(row)!) : rows);
     result.sources = originals ? new Map(rows.map((row) => [row, sourceRows.get(originals.get(row)!)])) : sourceRows;
@@ -697,14 +693,14 @@ function* paginateList(list: ListComponent, input: DataRow[], context: ListPageC
   list = prepared.list;
   if (list.layout === "wide") context.current.widthMm = Math.max(context.current.widthMm, list.leftMm + list.widthMm + context.current.marginRightMm);
   const sources = prepared.sources ?? checkedRowSources(list, rows), scaled = scaleList(list), groups = groupsFor(scaled);
-  const inter = { ...interList(scaled, context.measurer), rowHeightFloorMm: scaled.rowHeightMm ?? 0, ...(prepared.treeRows ? { tree: { list: scaled, rows: prepared.treeRows } } : {}) };
+  const inter = { ...interList(scaled, context.measurer), rowHeightFloorMm: scaled.rowHeightMm ?? 0, matrix: prepared.matrix, ...(prepared.treeRows ? { tree: { list: scaled, rows: prepared.treeRows } } : {}) };
   ensureFlowListStart(scaled, inter, rows, context);
   const writer = createListPageWriter(scaled, inter, context), detail = detailContext(scaled, rows, context);
   let nextRow: GridRow | undefined;
   for (const unit of listRowUnits(rows, groups)) {
     checkPaginationAbort(context.signal);
     if (unit.kind === "row") {
-      writer.placeGridRow(nextRow ?? buildRowGridFast(inter, unit.row, context.measurer), "listr", "body", sources.get(unit.row));
+      writer.placeGridRow(nextRow ?? buildRowGridFast(inter, unit.row, context.measurer), "listr", matrixRowRole(prepared.matrix, unit.row), sources.get(unit.row));
       nextRow = undefined;
       yield* context.takePages();
       yield* placeDetails(scaled, unit.row, detail, context, writer);
@@ -809,6 +805,7 @@ function* paginatePageContent(context: ListPageContext): Generator<PlanPage> {
 /** Internal generator retains the active page plus at most the row transition queue. */
 function* iteratePages(template: ReportTemplate, datasets: DatasetRows, options: PaginateOptions, warnings: string[], totalPages?: number, prepared = new WeakMap<ListComponent, PreparedListData>()): Generator<PlanPage> {
   let sequence = 0, pageNumber = 0, actualCells = 0;
+  const measurer = createTextMeasurementCache(options.measurer ?? heuristicMeasurer);
   const nextId = (prefix: string) => `${prefix}_${(++sequence).toString(36)}`;
   for (const { pageIndex, page: templatePage } of repeatTemplatePages(template, datasets, options)) {
     checkPaginationAbort(options.signal);
@@ -825,7 +822,7 @@ function* iteratePages(template: ReportTemplate, datasets: DatasetRows, options:
     };
     const takePages = () => { const pages = ready; ready = []; return pages; };
     yield* paginatePageContent({ templatePage, current, warnings, nextId, pushCurrent, takePages, datasets, signal: options.signal, formula: options.formula, prepared,
-      measurer: options.measurer ?? heuristicMeasurer, mmPerRow: options.mmPerRow ?? 0, tableId: `table:${pageIndex}` });
+      measurer, mmPerRow: options.mmPerRow ?? 0, tableId: `table:${pageIndex}` });
     pushCurrent(true); yield* takePages();
   }
 }
@@ -884,7 +881,7 @@ export function estimateListLayoutCells(list: ListComponent, datasets: DatasetRo
     if (list.computed?.length) rows = computeDataset(rows, { fields: list.computed, ...options }).rows;
     if (list.rowVisibleWhen) rows = rows.filter((row) => evalStyleRule(row, list.rowVisibleWhen!));
     const shape = estimateMatrixTable(rows, list.matrix);
-    return shape.cells + shape.columnCount;
+    return shape.cells + (list.header === false ? 0 : shape.columnCount * (list.matrix.hierarchy ? list.matrix.columnFields.length + 1 : 1));
   }
   const rows = datasets[list.dataset]?.length ?? 0, columns = list.columns.filter((column) => !column.hidden).length;
   const groups = groupsFor(list).length;

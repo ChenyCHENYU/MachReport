@@ -18,6 +18,7 @@ export function columnsFromContract(contract: DatasetContract, overrides: Record
     field: field.field,
     header: `${field.label ?? field.field}${field.unit ? ` (${field.unit})` : ""}`,
     semanticRole: field.semanticRole ?? (field.type === "number" || field.type === "decimal" ? "measure" : field.type === "date" ? "date" : field.enum ? "dimension" : "text"),
+    ...(field.format ? { format: { ...field.format } } : {}),
     ...overrides[field.field]
   }));
 }

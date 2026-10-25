@@ -1,4 +1,6 @@
-export interface ReportFieldContract {
+import { validateFieldDependencies, validateFieldSemantics, type ReportFieldSemantics } from "./dataset-semantics";
+export type { ReportFieldAggregation, ReportFieldCalculation, ReportFieldSemantics } from "./dataset-semantics";
+export interface ReportFieldContract extends ReportFieldSemantics {
   field: string;
   label?: string;
   type: "text" | "number" | "boolean" | "date" | "decimal";
@@ -26,9 +28,11 @@ function checkContract(contract: DatasetContract): void {
     if (!TYPES.includes(field.type)) schemaError(`未知字段类型 ${field.type}`);
     checkBounds(field);
     checkMetadata(field);
+    validateFieldSemantics(field);
     checkEnum(field);
   }
   checkRowKey(contract, fields);
+  validateFieldDependencies(contract.fields);
 }
 function checkEnum(field: ReportFieldContract): void {
   if (field.enum !== undefined && (!Array.isArray(field.enum) || !field.enum.length || field.enum.some((value: unknown) => !matchesType(value, field.type)))) schemaError("enum 应为匹配字段类型的非空标量数组");
@@ -135,13 +139,18 @@ function fieldSchema(field: ReportFieldContract, rowKey: boolean): Record<string
   return {
     type: nullable ? [jsonType(field.type), "null"] : jsonType(field.type),
     ...(field.label ? { title: field.label } : {}),
+    ...(field.description ? { description: field.description } : {}),
     ...(field.type === "date" ? { format: "date" } : {}),
     ...(field.type === "decimal" ? { pattern: "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$" } : {}),
     ...(field.enum ? { enum: nullable ? [...field.enum, null] : [...field.enum] } : {}),
     ...(field.min === undefined ? {} : { minimum: field.min }), ...(field.max === undefined ? {} : { maximum: field.max }),
     ...lengthSchema(field, rowKey),
     ...(rowKey && field.type === "text" ? { pattern: "\\S" } : {}),
-    ...(field.unit ? { "x-report-unit": field.unit } : {}), ...(field.semanticRole ? { "x-report-semanticRole": field.semanticRole } : {})
+    ...(field.unit ? { "x-report-unit": field.unit } : {}), ...(field.semanticRole ? { "x-report-semanticRole": field.semanticRole } : {}),
+    ...(field.aggregation ? { "x-report-aggregation": field.aggregation } : {}),
+    ...(field.format ? { "x-report-format": { ...field.format } } : {}),
+    ...(field.missingMeaning ? { "x-report-missingMeaning": field.missingMeaning } : {}),
+    ...(field.calculation ? { "x-report-calculation": { description: field.calculation.description, dependsOn: [...field.calculation.dependsOn] } } : {})
   };
 }
 function lengthSchema(field: ReportFieldContract, rowKey: boolean): Record<string, unknown> {
