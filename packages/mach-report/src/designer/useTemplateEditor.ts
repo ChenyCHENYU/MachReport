@@ -42,9 +42,14 @@ export interface TemplateEditorSaveContext {
   expectedRevision?: string;
   signal: AbortSignal;
 }
+export type TemplateEditorPanel = "fields" | "components" | "layout" | "excel" | "rules" | "params" | "review";
 export interface TemplateEditorController {
+  /** Open a task through the package navigation, without reaching into child DOM. */
+  openPanel?(target: TemplateEditorPanel): void;
   /** Insert a native/registered component through validation, geometry constraints and undo history. */
   insertComponent(component: import("@agile-team/mach-report").TemplateComponent): boolean;
+  readonly canApply?: boolean;
+  readonly saveReason?: string;
   readonly pendingLocalChanges: boolean;
   readonly saving?: boolean;
   readonly blocked?: boolean;
@@ -56,6 +61,9 @@ export interface TemplateEditorController {
   save(): Promise<void>;
 }
 export interface TemplateEditorOptions extends TemplateEditorConflictOptions {
+  /** Hide the duplicate save action when the host already provides an apply/save footer. */
+  showSave?: boolean;
+  guideMessages?: Partial<import("./guide-messages").DesignerGuideMessages>;
   /** Opt-in declaration-only recovery. Scope should include project and account identity. */
   draftStorage?: TemplateDraftStorage;
   recoveryMessages?: Partial<TemplateRecoveryMessages>;

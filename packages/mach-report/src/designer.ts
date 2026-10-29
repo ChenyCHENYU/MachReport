@@ -1,7 +1,7 @@
 /** 可选 Vue 模板属性编辑器；不会进入主引擎或常规 Vue 预览入口。 */
 import { defineAsyncComponent } from "vue";
 export { default as ReportTemplateEditor } from "./designer/ReportTemplateEditor.vue";
-export type { TemplateEditorOptions, TemplateEditorSaveContext, TemplateEditorController } from "./designer/useTemplateEditor";
+export type { TemplateEditorOptions, TemplateEditorSaveContext, TemplateEditorController, TemplateEditorPanel } from "./designer/useTemplateEditor";
 export type { TemplateEditorBeforeDiscard, TemplateEditorBeforeDiscardContext } from "./designer/useTemplateDiscard";
 export { TEMPLATE_EDITOR_MESSAGES } from "./designer/messages";
 export type { TemplateEditorMessages } from "./designer/messages";
@@ -44,3 +44,12 @@ export type { TemplateDraftStorage, TemplateDraftStorageAdapter, TemplateDraftRe
 export type { TemplateEditorConflictOptions, TemplateConflictContext, TemplateCopyContext } from "./designer/useTemplateConflict";
 export { TEMPLATE_RECOVERY_MESSAGES } from "./designer/recovery-messages";
 export type { TemplateRecoveryMessages } from "./designer/recovery-messages";
+
+/** Label workspace: a flat rows/schema contract with the existing designer and output pipeline. */
+export const ReportLabelStudio = defineAsyncComponent(() => import("./designer/ReportLabelStudio.vue"));
+export type { LabelStudioOptions, LabelStudioController } from "./designer/useLabelStudio";
+export { LABEL_STUDIO_MESSAGES } from "./designer/label-studio-messages";
+export type { LabelStudioMessages } from "./designer/label-studio-messages";
+
+export { DESIGNER_GUIDE_MESSAGES } from "./designer/guide-messages";
+export type { DesignerGuideMessages } from "./designer/guide-messages";

@@ -4,6 +4,33 @@ MachReport 的固定标签与宽表共用模板、渲染计划、数据来源和
 
 需要整纸标签时使用核心 `imposeLabelSheets()`；大量异步物料使用 `/server` 的 `runLabelStream()`，等待归档回执后消费下一块，不缓存全部文件。示例设置内可开启 A4 拼版。详见[拼版与分批交付](DELIVERY.md)；打印字体准备及毫米校准见[打印指南](PRINT_AND_DATA.md)。
 
+## 直接使用标签工作台
+
+图示“材料标识工作台”现在是包内组件，不再需要复制示例页的状态和排版逻辑。组件按需加载，普通报表不加载标签编码器。
+
+```vue
+<script setup lang="ts">
+import { ReportLabelStudio } from '@agile-team/mach-report/designer';
+const rows = [{ id: 'H1', heat: '26W007', grade: 'S304LE', weight: 0 }];
+const schema = {
+  rowKey: 'id',
+  fields: [
+    { field: 'id', type: 'text' as const },
+    { field: 'heat', label: '炉号', type: 'text' as const, semanticRole: 'identifier' as const },
+    { field: 'grade', label: '钢种', type: 'text' as const },
+    { field: 'weight', label: '重量（kg）', type: 'number' as const, format: { kind: 'number' as const, digits: 3 } },
+  ],
+};
+</script>
+<template><ReportLabelStudio :rows="rows" :schema="schema" title="材料标识" /></template>
+```
+
+内置 80×55 mm 双版起步模板；字段、纸张、份数、二维码和条码均可继续设计。默认只展示少量起步字段，完整字段目录来自 `schema`；没有来源的值不补零。身份字段可用 `identity-field` 显式指定，默认优先采用契约中的编号语义，二维码编码的是该字段原值，不冒充追溯网址。中文等超出条码制式的载荷须明确选择合适编码，不生成假码。
+
+先选择全部或单条记录，再进入“设计标签”；通过“操作指引”直达字段绑定或纸张设置。切到“打印预览”会先保存有效本地草稿；未应用配置或保存失败时保留在编辑器中。记录序号能访问完整数组，选择控件不会为大数组生成海量 option。可在设置中启用 A4 2×4 拼版。
+
+`v-model` 接收/提供模板文档，`save` 可选回调沿用设计器的修订与取消契约；默认仅为当前组件会话保存。宿主关闭或替换工作区时调用组件 `guardChanges()`；下载当前模板前可调用 `prepare()`，它验证并保存有效草稿后返回独立文档。组件复用已有预览、设计器、原尺寸输出和真实编码器；它不新增接口、持久化服务或业务写权限。打印字体继续通过 `provideMachReportConfig` 配置。实体设备仍需试打和扫码验收。
+
 ## 最少接入
 
 ```ts

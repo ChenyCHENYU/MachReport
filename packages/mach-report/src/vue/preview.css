@@ -57,7 +57,9 @@
 .mrp-body :deep(.mrp-cell-selected) { background-image: linear-gradient(#2563eb12, #2563eb12); }
 .mrp-body :deep(.mrp-cell-focus) { outline: 2px solid #2563eb; outline-offset: -2px; z-index: 8 !important; }
 .mrp-body :deep(.mrp-cell-modified)::after { content: ""; position: absolute; right: 0; top: 0; border-top: 6px solid #d58916; border-left: 6px solid transparent; }
-.mrp-body :deep(.mrp-cell-frozen) { background-color: #fff; box-shadow: 1px 0 0 #aeb8c6, 0 1px 0 #aeb8c6; }
+/* Cells carry inline all:unset. A separate opaque backing preserves their tint, selection,
+   and content while preventing scrolling text from shining through transparent cells. */
+.mrp-body :deep(.mrp-cell-frozen)::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: linear-gradient(var(--mrp-frozen-fill,transparent),var(--mrp-frozen-fill,transparent)),#fff; box-shadow: inset -1px 0 0 #d4dfed, inset 0 -1px 0 #d4dfed; }
 .mrp-export-notice { padding: 7px 12px; font-size: 12px; background: #fff0c2; color: #613c00; }
 .mrp-export-error { background: #ffe0df; color: #8e1f1f; }
 .mrp-export-progress { background: #e7f0ff; color: #1a4d86; }

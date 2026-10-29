@@ -24,6 +24,12 @@ const save: TemplateEditorOptions["save"] = (draft, { expectedRevision, signal }
 </template>
 ```
 
+## 从要做的事开始
+
+顶部“操作指引”可直接进入字段与对齐、图表与码图、纸张与份数、Excel绑定、规则或检查。每个入口说明下一步，并复用同一文档事务、未应用配置提示与撤销历史；不用先理解全部工具分区。
+
+宿主已有底部“保存 / 应用”动作时可设置 `show-save="false"`，仅隐藏包内重复按钮，保留控制器的 `save()`。`canApply` 表示当前文档与工具配置是否可保存/应用，`saveReason` 给出阻止原因；宿主应同步禁用其主动作并显示原因。`openPanel('fields' | 'components' | 'layout' | 'excel' | 'rules' | 'params' | 'review')` 提供明确导航，不要求宿主读取子组件 DOM。旧接入默认仍显示保存按钮。
+
 ## 集成契约
 
 | 属性 / 事件 | 作用 |

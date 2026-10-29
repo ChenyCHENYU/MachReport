@@ -11,6 +11,8 @@ import {
 } from "vue";
 import type { ExcelBindingWizardApply } from "./useExcelBindingWizard";
 import ReportIcon from "../vue/ReportIcon.vue";
+import DesignerTaskGuide from "./DesignerTaskGuide.vue";
+import type { TemplateEditorPanel } from "./useTemplateEditor";
 import TemplateDesignCanvas from "./TemplateDesignCanvas.vue";
 import CanvasComponentInspector from "./CanvasComponentInspector.vue";
 import TemplatePageInspector from "./TemplatePageInspector.vue";
@@ -42,7 +44,7 @@ const TemplateReusePanel = defineAsyncComponent(() => import("./TemplateReusePan
 const TemplateReviewPanel = defineAsyncComponent(
   () => import("./TemplateReviewPanel.vue"),
 );
-const props = defineProps<TemplateEditorOptions>();
+const props = withDefaults(defineProps<TemplateEditorOptions>(), { showSave: true });
 const emit = defineEmits<{
   (event: "update:modelValue", document: ReportTemplateDocument): void;
   (event: "saved", document: ReportTemplateDocument): void;
@@ -159,7 +161,20 @@ watch(confirmation, async (value) => {
     previousFocus = null;
   }
 });
+function openPanel(target: TemplateEditorPanel): void {
+  if (blocked.value) return;
+  if (["excel", "rules", "params", "review"].includes(target)) {
+    section.value = "tools"; tool.value = target as "excel" | "rules" | "params" | "review";
+    return;
+  }
+  section.value = target === "layout" ? "template" : target === "fields" && lists.value.length ? "fields" : "component";
+  setMode(section.value === "fields" ? "preview" : "design");
+}
+const canApply = computed(() => !props.readonly && !blocked.value && !jsonPending.value && !editor.toolPending.value && !editor.fieldChange.value && validation.value.ok);
 defineExpose({
+  openPanel,
+  get canApply() { return canApply.value; },
+  get saveReason() { return saveReason.value; },
   get pendingLocalChanges() {
     return pendingLocalChanges.value;
   },
@@ -247,6 +262,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
         </button>
       </div>
       <div class="mr-designer-actions">
+        <DesignerTaskGuide :fields="!!lists.length" :disabled="blocked" :messages="guideMessages" @choose="openPanel" />
         <div class="mr-designer-history">
           <button
             type="button"
@@ -282,25 +298,17 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
           {{ m.reset }}
         </button>
         <button
-          v-if="save"
+          v-if="save && showSave !== false"
           type="button"
           class="mr-designer-save"
           :title="saveReason || m.save"
           :aria-describedby="pendingConfigurations.length ? `${id}-pending` : saveReason ? `${id}-save-reason` : undefined"
-          :disabled="
-            readonly ||
-            blocked ||
-            jsonPending ||
-            editor.toolPending.value ||
-            !!editor.fieldChange.value ||
-            !validation.ok ||
-            !pendingLocalChanges
-          "
+          :disabled="!canApply || !pendingLocalChanges"
           @click="editor.save"
         >
           <ReportIcon name="file" :size="13" />{{ saving ? m.saving : m.save }}
         </button>
-        <span v-if="save && saveReason && !pendingConfigurations.length" :id="`${id}-save-reason`" class="mr-designer-save-reason">{{ saveReason }}</span>
+        <span v-if="save && showSave !== false && saveReason && !pendingConfigurations.length" :id="`${id}-save-reason`" class="mr-designer-save-reason">{{ saveReason }}</span>
       </div>
     </header>
     <TemplateRecoveryPanel :recovery="editor.recovery" :conflict="editor.conflict" :readonly="readonly" :can-load="!!loadLatest" :can-copy="!!keepCopy" :messages="recoveryMessages" />

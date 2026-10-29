@@ -736,7 +736,7 @@ defineExpose({ ...controller, state });
         @click="cells.onClick"
         @copy="cells.onCopy"
         @paste="cells.onPaste"
-        @scroll.passive="onViewportScroll($event.target as HTMLElement); pageRendering.refreshViewport(); frozenPanes.schedule()"
+        @scroll.passive="onViewportScroll($event.target as HTMLElement); pageRendering.refreshViewport(); frozenPanes.refresh()"
       >
         <div v-if="loading" class="mrp-state">{{ resolvedMessages.loading }}</div>
         <div v-else-if="errorMessage" class="mrp-state mrp-error">

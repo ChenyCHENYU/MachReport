@@ -1,5 +1,15 @@
 # @agile-team/mach-report
 
+## 2.19.0
+
+### Minor Changes
+
+- 修复透明固定列滚动穿透及逐格重置导致的抖动，以页面级偏移更新保留真实单元格编辑与输出几何。
+
+  新增可选 ReportLabelStudio，以 rows/schema 直接接入标识设计、真实码图、逐记录预览与原尺寸输出；记录选择保持常量 DOM，设计到预览自动保存有效草稿。
+
+  模板设计器增加可直接跳转的操作指引，提供 canApply/openPanel/showSave 接口以避免宿主重复主操作。材料标签示例改用同一组件。
+
 ## 2.18.0
 
 ### Minor Changes

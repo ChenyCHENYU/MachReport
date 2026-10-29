@@ -170,7 +170,7 @@ test("宽表冻结表头和身份列仅作用屏幕，关闭后恢复原几何",
   const viewport = root.locator(".mrp-body");
   const before = await page.evaluate(() => JSON.stringify((window as FixtureWindow).__mrWorkflow.report.getPlan()));
   await viewport.evaluate((element) => { element.scrollLeft = 400; element.scrollTop = 160; });
-  await expect.poll(async () => root.locator('[data-mr-component-index="0"]').evaluate((element) => (element as HTMLElement).style.transform)).toContain("translateY");
+  await expect.poll(async () => { const cell = await root.locator('[data-mr-component-index="0"] td[data-mr-column-index="0"]').boundingBox(); const view = await viewport.boundingBox(); return Math.abs(cell!.y - view!.y) < 2; }).toBe(true);
   const header = await root.locator('[data-mr-component-index="0"] td[data-mr-column-index="0"]').boundingBox();
   const bounds = await viewport.boundingBox();
   expect(header!.x).toBeGreaterThanOrEqual(bounds!.x - 2);
@@ -187,4 +187,29 @@ test("宽表冻结表头和身份列仅作用屏幕，关闭后恢复原几何",
   await page.keyboard.press("Escape");
   await expect.poll(async () => root.locator('[data-mr-component-index="0"]').evaluate((element) => getComputedStyle(element).transform)).toBe("none");
   await expect(root.locator(".mrp-cell-frozen")).toHaveCount(0);
+});
+
+
+test("冻结列滚动不逐格重置，透明格有不透底背景并保留真实单元格编辑", async ({ page }) => {
+  await mountWorkflow(page);
+  const root = page.locator("#workflow-fixture"), viewport = root.locator(".mrp-body");
+  await viewport.evaluate(element => { element.scrollLeft = 600; element.scrollTop = 120; });
+  const frozen = root.locator('[data-mr-component-index="8"] td[data-mr-column-index="0"]');
+  await expect(frozen).toHaveClass(/mrp-cell-frozen/);
+  const original = await frozen.evaluate(element => element.textContent);
+  expect(await frozen.evaluate(element => getComputedStyle(element, "::before").backgroundColor)).toBe("rgb(255, 255, 255)");
+  const result = await page.evaluate(async () => {
+    const viewport = document.querySelector<HTMLElement>("#workflow-fixture .mrp-body")!;
+    const root = document.querySelector<HTMLElement>("#workflow-fixture")!;
+    const observer = new MutationObserver(() => {}); observer.observe(root, { attributes: true, subtree: true });
+    for (const x of [640, 700, 820, 950, 720, 640, 500, 400]) {
+      viewport.scrollLeft = x;
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    }
+    const records = observer.takeRecords(); observer.disconnect();
+    return records.filter(record => record.target instanceof HTMLTableCellElement && ["style", "class"].includes(record.attributeName!)).length;
+  });
+  expect(result).toBe(0);
+  expect(await frozen.textContent()).toBe(original);
+  await frozen.dblclick(); await expect(root.getByRole("textbox", { name: "编辑单元格", exact: true })).toBeVisible();
 });

@@ -22,7 +22,8 @@ test("industrial labels render real symbols, switch records and export physical-
   await page.getByRole("button", { name: "上一条记录", exact: true }).click();
   await page.getByRole("button", { name: "150%", exact: true }).click();
   await page.screenshot({ path: testInfo.outputPath("industrial-label-preview.png"), fullPage: true });
-  await page.getByRole("combobox", { name: "预览数据", exact: true }).selectOption("1");
+  await page.getByRole("combobox", { name: "预览记录", exact: true }).selectOption("single");
+  await page.getByRole("spinbutton", { name: "记录序号", exact: true }).fill("2");
   await expect(page.locator(".mrp-page-holder").first()).toContainText("S316LS");
   await expect(page.locator(".mrp-page-holder").first()).toContainText("0 kg");
   const download = page.waitForEvent("download");
@@ -46,7 +47,8 @@ test("label designer edits actual paper, binding and symbols through undo and sa
   await page.getByRole("button", { name: "设计标签", exact: true }).click();
   await expect(page.getByRole("tab", { name: "组件", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("tab", { name: "字段", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "设计", exact: true }).click();
+  await page.getByRole("button", { name: "操作指引", exact: true }).click();
+  await page.getByRole("button", { name: /加图表、二维码或条码/ }).click();
   await expect(page.locator(".mr-canvas-sheet-info")).toContainText("80 × 55 mm");
   await expect(page.locator(".mr-canvas-ruler.is-horizontal")).toBeVisible();
   await page.getByRole("tab", { name: "模板", exact: true }).click();
@@ -67,7 +69,7 @@ test("label designer edits actual paper, binding and symbols through undo and sa
   await page.getByRole("button", { name: "撤销", exact: true }).click();
   await expect(page.locator(".mr-canvas-code")).toHaveCount(1);
   await page.getByRole("button", { name: "保存草稿", exact: true }).click();
-  await expect(page.getByRole("status").first()).toContainText("模板已保存");
+  await expect(page.getByRole("button", { name: "保存草稿", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "预览", exact: true }).click();
   await expect(page.locator('.mr-designer-preview img[src^="data:image/png;base64,"]').first()).toBeVisible();
   await expect(page.locator(".mr-designer [role=alert]")).toHaveCount(0);
@@ -80,8 +82,9 @@ test("label workspace and design fit narrow screens", async ({ page }, testInfo)
   await page.setViewportSize({ width: 680, height: 900 });
   await page.goto("http://localhost:8610/labels.html");
   await expect(page.locator(".mrp-page-holder").first()).toContainText("S304H3");
-  await expect(page.getByRole("combobox", { name: "预览数据", exact: true })).toBeVisible();
-  await page.getByRole("combobox", { name: "预览数据", exact: true }).selectOption("1");
+  await expect(page.getByRole("combobox", { name: "预览记录", exact: true })).toBeVisible();
+  await page.getByRole("combobox", { name: "预览记录", exact: true }).selectOption("single");
+  await page.getByRole("spinbutton", { name: "记录序号", exact: true }).fill("2");
   await expect(page.locator(".mrp-page-holder").first()).toContainText("S316LS");
   expect(await page.evaluate(() => document.body.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole("button", { name: "设计标签", exact: true }).click();
@@ -91,21 +94,21 @@ test("label workspace and design fit narrow screens", async ({ page }, testInfo)
   await page.screenshot({ path: testInfo.outputPath("industrial-label-narrow.png"), fullPage: true });
 });
 
-test("label copies and renamed datasets stay consistent and discarded drafts are really restored", async ({ page }) => {
+test("label preview saves valid edits without an implicit discard and preserves renamed datasets", async ({ page }) => {
   await page.goto("http://localhost:8610/labels.html");
   await page.getByRole("button", { name: "设计标签", exact: true }).click();
   await page.getByRole("tab", { name: "模板", exact: true }).click();
   const copies = page.getByLabel("每条记录份数", { exact: true });
   await copies.fill("2"); await copies.press("Tab");
-  await expect(page.locator(".label-output-count")).toHaveText("2 条物料 → 8 张标签");
+  await expect(page.locator(".mr-label-count")).toHaveText("2 条记录 → 8 张标签");
   const dataset = page.getByRole("combobox", { name: "记录数据集", exact: true });
   await dataset.fill("renamed"); await dataset.press("Tab");
   await expect(page.locator(".mr-designer-preview .mrp-pageinfo")).toContainText("1 / 8");
   await expect(page.locator('.mr-designer-preview img[src^="data:image/png;base64,"]').first()).toBeVisible();
   await expect(page.locator(".mr-designer [role=alert]")).toHaveCount(0);
   await page.getByRole("button", { name: "打印预览", exact: true }).click();
-  await page.getByRole("button", { name: "丢弃修改并继续", exact: true }).click();
-  await expect(page.locator(".label-output-count")).toHaveText("2 条物料 → 4 张标签");
-  await expect(page.locator(".mrp-pageinfo")).toContainText("1 / 4");
+  await expect(page.getByRole("button", { name: "丢弃修改并继续", exact: true })).toHaveCount(0);
+  await expect(page.locator(".mr-label-count")).toHaveText("2 条记录 → 8 张标签");
+  await expect(page.locator(".mrp-pageinfo")).toContainText("1 / 8");
   await expect(page.locator(".mrp-page-holder").first()).toContainText("S304H3");
 });
