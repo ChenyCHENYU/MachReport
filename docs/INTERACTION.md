@@ -14,7 +14,7 @@
 />
 ```
 
-`freezeHeaders` 和 `frozenColumns` 默认关闭，可通过设置切换；前列数量为 0～20。屏幕滚动时只对当前挂载的预览节点应用位移，保持完整列宽；不会改变 `RenderPlan`、PDF、Excel 或打印几何。列表识别其表头片段，静态网格冻结第一行。不同布局应根据业务选择，静态网格的第一行不会被自动推断为复杂多行表头。
+`freezeHeaders` 和 `frozenColumns` 默认关闭，可通过设置切换；前列数量为 0～20。横向冻结使用浏览器原生 `position: sticky` 与既有网格几何，滚动不通过 JavaScript 反向位移补偿；冻结时使用原生缩放坐标系，在 100% 和放大预览下保持前列位置及完整列宽。仅装饰当前挂载的预览节点；不会改变 `RenderPlan`、PDF、Excel 或打印几何。列表识别其表头片段，静态网格冻结第一行。不同布局应根据业务选择，静态网格的第一行不会被自动推断为复杂多行表头。
 
 导入多个 Sheet 后出现工作表导航；多表计划有 `table.title` 时显示章节。`interaction.navigation: false` 可隐藏导航与字段定位。分页与跳页位于预览右下方，格式出口集中在导出菜单；缩放、内容搜索和缩略图保持独立分组。普通接入无需手动组装控件；需要自定义容器时可从 `/vue` 单独导入 `ReportPagination`，通过 `pageCount`、`currentPage`、`messages` 和 `@goto` 接入现有状态。
 

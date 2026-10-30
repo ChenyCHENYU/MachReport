@@ -5,10 +5,10 @@ import type { RenderPlan, ReportEditBatch } from "../packages/mach-report/src/in
 interface Fixture { report: MachReportHandle; original: RenderPlan; saves: Array<{ batch: ReportEditBatch; action: string | undefined }>; conflict: boolean; delayMs?: number }
 type FixtureWindow = Window & { __mrWorkflow: Fixture };
 
-async function mountWorkflow(page: Page, readonly = false, multiHeader = false): Promise<void> {
+async function mountWorkflow(page: Page, readonly = false, multiHeader = false, frozenColumns = 1): Promise<void> {
   await page.goto("http://localhost:8610");
   await expect(page.getByText("产品出库单")).toBeVisible();
-  await page.evaluate(async ({ readonly, multiHeader }) => {
+  await page.evaluate(async ({ readonly, multiHeader, frozenColumns }) => {
     const source = await fetch("/src/main.ts").then((response) => response.text());
     const vueUrl = source.match(/from ["']([^"']*\/vue\.js[^"']*)["']/)?.[1];
     const reportUrl = source.match(/from ["']([^"']*mach-report\/src\/vue\/index\.ts[^"']*)["']/)?.[1];
@@ -39,9 +39,9 @@ async function mountWorkflow(page: Page, readonly = false, multiHeader = false):
         if (fixture.delayMs) await new Promise((resolve) => setTimeout(resolve, fixture.delayMs));
         return fixture.conflict ? { conflicts: [{ message: "模拟版本冲突，请刷新后重试" }] } : { revision: fixture.saves.length + 1 };
       } };
-      return () => h(ReportPreview, { ref: report.ref, reportId: "fixture", fetcher: async () => plan, editable: readonly ? false : editing, interaction: { freezeHeaders: true, frozenColumns: 1 }, height: "100vh", showExport: false, showPdfWindow: false, showPrint: false, messages: { title: "隔离模拟验收 · 单元格交互" } });
+      return () => h(ReportPreview, { ref: report.ref, reportId: "fixture", fetcher: async () => plan, editable: readonly ? false : editing, interaction: { freezeHeaders: true, frozenColumns }, height: "100vh", showExport: false, showPdfWindow: false, showPrint: false, messages: { title: "隔离模拟验收 · 单元格交互" } });
     } }).mount(target);
-  }, { readonly, multiHeader });
+  }, { readonly, multiHeader, frozenColumns });
   await expect(page.locator('#workflow-fixture .mrp-page-holder[data-page="1"]').getByText("业务编号", { exact: true })).toBeVisible();
 }
 
@@ -212,4 +212,27 @@ test("冻结列滚动不逐格重置，透明格有不透底背景并保留真�
   expect(result).toBe(0);
   expect(await frozen.textContent()).toBe(original);
   await frozen.dblclick(); await expect(root.getByRole("textbox", { name: "编辑单元格", exact: true })).toBeVisible();
+});
+
+
+test("冻结两列在scroll事件处理前已经原生固定，100%与150%连续横滑不漂移", async ({ page }) => {
+  await mountWorkflow(page, false, false, 2);
+  const root = page.locator("#workflow-fixture");
+  for (const zoom of ["100%", "150%"]) {
+    await root.getByRole("button", { name: zoom, exact: true }).click();
+    await expect(root.locator(".mrp-cell-frozen").first()).toHaveCSS("position", "sticky");
+    // Force the layout read in the same task as each scroll. Waiting for a scroll listener
+    // would hide the one-frame drift caused by JS reverse translation.
+    const positions = await page.evaluate(() => {
+      const viewport = document.querySelector<HTMLElement>("#workflow-fixture .mrp-body")!;
+      const cell = viewport.querySelector<HTMLElement>('[data-mr-component-index="8"] td[data-mr-column-index="0"]')!;
+      return [400, 600, 950, 720, 1280, 400].map(left => {
+        viewport.scrollLeft = left;
+        const second = viewport.querySelector<HTMLElement>('[data-mr-component-index="8"] td[data-mr-column-index="1"]')!;
+        return { left: cell.getBoundingClientRect().left - viewport.getBoundingClientRect().left, text: cell.textContent,
+          secondGap: second.getBoundingClientRect().left - cell.getBoundingClientRect().right };
+      });
+    });
+    for (const position of positions) { expect(Math.abs(position.left), JSON.stringify({ zoom, positions })).toBeLessThan(2); expect(position.text).toBe("9"); expect(Math.abs(position.secondGap)).toBeLessThan(2); }
+  }
 });

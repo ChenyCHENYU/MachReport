@@ -35,7 +35,7 @@
   padding: 24px;
   outline: none; /* 键盘交互容器聚焦不带轮廓 */
 }
-/* 缩放容器：外层按缩放后尺寸占位，内层 transform 缩放（零重排） */
+/* 外层按缩放尺寸占位；冻结列用原生zoom共享滚动坐标系，其余预览继续transform缩放。 */
 .mrp-scale { position: relative; margin: 0 auto; }
 .mrp-scale-inner { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; }
 .mrp-page-holder {

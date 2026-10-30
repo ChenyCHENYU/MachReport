@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.19.0-2563eb" alt="Source version 2.19.0" />
+  <img src="https://img.shields.io/badge/source-2.19.1-2563eb" alt="Source version 2.19.1" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -45,7 +45,7 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 完整宽表 | 自然列宽、横向滚动、默认 100% 预览；页级与宽表行列视口裁剪，Excel 自动合并连续 Sheet |
 | 明细与汇总 | 自动分页、多级分组与加权小计、业务键主从明细、层级动态矩阵、独立区域流式组合、重复页眉页脚 |
 | 数据呈现 | 独立对齐与字段格式、组合条件、数据条 / 色阶、声明式聚合图表、富文本与格内子组件 |
-| 预览交互 | 多选 / 级联 / 数值范围、远程字典、紧凑数据工具、搜索与字段目录、右下分页、跨页选区、冻结与 Sheet 导航 |
+| 预览交互 | 多选 / 级联 / 数值范围、远程字典、紧凑数据工具、搜索与字段目录、右下分页、跨页选区、原生固定列与 Sheet 导航 |
 | 标识工作台 | `ReportLabelStudio` 直接传 rows/schema；包内完成标签设计、真实码图、逐记录预览与原尺寸输出 |
 | 内容编辑 | 默认只读；双击 / 粘贴、整批候选校验、安全预填、原子保存、按行依赖增量计算、撤销 / 重做与差异审阅 |
 | Excel 导入 | 混合字体与只读富文本、PNG/JPEG Logo、完整索引色、多 Sheet 会话复用、可取消预检、合并样式与缓存公式值转换为模板 |
@@ -684,7 +684,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.19.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.19.1`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

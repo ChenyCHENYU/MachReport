@@ -30,7 +30,10 @@ it("keeps original cells/identities and updates one page offset without per-row 
   f.pageBox.mockReturnValue(box(-400, -160)); f.frozen.refresh(); f.frozen.refresh();
   expect(reads.every(read => read.mock.calls.length === 0)).toBe(true);
   expect(observer.takeRecords().filter(record => record.target instanceof HTMLTableCellElement)).toEqual([]);
-  expect(f.holder.style.getPropertyValue("--mrp-freeze-page-x")).toBe("400px");
+  expect(first.style.position).toBe("sticky");
+  expect(first.style.left).toBe("0px");
+  expect(first.style.transform).not.toContain("freeze-page-x");
+  expect(f.holder.firstElementChild?.getAttribute("style")).toContain("overflow: clip");
   expect(f.root.querySelector(".mrp-cell-frozen")).toBe(first);
   expect(JSON.stringify(f.planRef.value)).toBe(f.original);
   observer.disconnect(); f.scope.stop();

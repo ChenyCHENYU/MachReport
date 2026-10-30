@@ -398,7 +398,8 @@ const pageWindow = usePageWindow(plan, zoom, {
 const { contentSize, windowRange, visiblePages, makeScrollHandler, refreshViewport } = pageWindow;
 const onViewportScroll = makeScrollHandler(currentPage, pageCount);
 const frozenPanes = useFrozenPanes({ root: containerRef, viewport: viewportRef, plan, zoom, options: () => effectiveInteraction.value });
-watch([effectiveInteraction, zoom], () => frozenPanes.schedule(), { flush: "post" });
+// Apply new zoom insets in the same DOM flush; a deferred frame leaves a visible offset.
+watch([effectiveInteraction, zoom], () => frozenPanes.refresh(), { flush: "post" });
 
 /** 缩放原始值（Ctrl+滚轮/键盘 ± 用）：clamp 30%~300% */
 function setZoomRaw(next: number): void {
@@ -752,7 +753,7 @@ defineExpose({ ...controller, state });
           <div
             ref="containerRef"
             class="mrp-scale-inner"
-            :style="{ transform: `scale(${zoom})`, transformOrigin: 'top left', width: `${contentSize.w}px` }"
+            :style="{ transform: effectiveInteraction.frozenColumns ? undefined : `scale(${zoom})`, zoom: effectiveInteraction.frozenColumns ? zoom : undefined, transformOrigin: 'top left', width: `${contentSize.w}px` }"
           >
             <div
               v-if="windowRange.padTopPx > 0"
