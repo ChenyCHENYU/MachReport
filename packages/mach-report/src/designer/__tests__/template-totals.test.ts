@@ -233,4 +233,53 @@ describe("simple totals through the shared list summary engine", () => {
     wrapper.unmount();
   });
 
+  it.each(["avg", "count"] as const)("loads an existing %s operation and enables update only after a change", async (operation) => {
+    const original = list();
+    original.grandTotal = { aggregates: [{ field: "amount", op: operation, numeric: "decimal", digits: 6 }] };
+    const wrapper = mount(TemplateTotalsEditor, { props: { list: original } });
+    const select = wrapper.get('select[aria-label="计算方式"]');
+    expect((select.element as HTMLSelectElement).value).toBe(operation);
+    expect(wrapper.get(".mr-totals-add").text()).toBe("更新汇总");
+    expect(wrapper.get(".mr-totals-add").attributes("disabled")).toBeDefined();
+    await select.setValue("sum");
+    expect(wrapper.get(".mr-totals-add").attributes("disabled")).toBeUndefined();
+    await select.setValue(operation);
+    expect(wrapper.get(".mr-totals-add").attributes("disabled")).toBeDefined();
+    expect(wrapper.emitted("change")).toBeUndefined();
+    wrapper.unmount();
+  });
+
+  it("restores the configured operation when choosing another field, group or document", async () => {
+    const original = list();
+    original.columns.push({ field: "energy", header: "电量", widthMm: 40, valueType: "number" });
+    original.grandTotal = { aggregates: [{ field: "amount", op: "avg" }, { field: "energy", op: "count" }] };
+    original.groups = [{ field: "name", aggregates: [{ field: "energy", op: "avg" }] }];
+    const wrapper = mount(TemplateTotalsEditor, { props: { list: original } });
+    const operation = wrapper.get('select[aria-label="计算方式"]');
+    const selectedOperation = () => (operation.element as HTMLSelectElement).value;
+    await wrapper.get('select[aria-label="汇总字段"]').setValue("energy");
+    expect(selectedOperation()).toBe("count");
+    await wrapper.get('select[aria-label="显示位置"]').setValue("group-0");
+    expect(selectedOperation()).toBe("avg");
+    await wrapper.get('select[aria-label="汇总字段"]').setValue("amount");
+    expect(selectedOperation()).toBe("sum");
+    expect(wrapper.get(".mr-totals-add").text()).toBe("添加汇总");
+    const replacement = structuredClone(original);
+    replacement.groups![0]!.aggregates = [{ field: "amount", op: "count" }];
+    await wrapper.setProps({ list: replacement });
+    expect(selectedOperation()).toBe("count");
+    expect(wrapper.get(".mr-totals-add").attributes("disabled")).toBeDefined();
+    wrapper.unmount();
+  });
+
+  it("recognizes legacy subtotal fields as unchanged sums", () => {
+    const original = list();
+    original.groupBy = { field: "name", subtotal: ["amount"] };
+    original.grandTotal = true;
+    const wrapper = mount(TemplateTotalsEditor, { props: { list: original } });
+    expect((wrapper.get('select[aria-label="计算方式"]').element as HTMLSelectElement).value).toBe("sum");
+    expect(wrapper.get(".mr-totals-add").attributes("disabled")).toBeDefined();
+    wrapper.unmount();
+  });
+
 });

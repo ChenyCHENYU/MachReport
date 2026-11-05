@@ -59,3 +59,48 @@ it("honors explicit copy counts and controlled documents; aborted saves cannot e
   await expect(f.studio.save(f.studio.document.value, { signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
   expect(f.updates).toHaveLength(0);
 });
+
+it("warehouse labels produce valid A4 sheets with actual capacity and mixed pages disable imposition", async () => {
+  const f = fixture({ preset: "warehouse" });
+  expect(f.studio.sheetHint.value).toContain("1 列 × 4 行 · 每页 4 张");
+  f.studio.sheet.value = true;
+  const plan = await f.studio.fetcher.value({ reportIds: ["labels"], params: {} });
+  expect(plan.pages).toHaveLength(1);
+  expect(plan.pages[0]).toMatchObject({ pageWidthMm: 210, pageHeightMm: 297, meta: { labelSheet: { columns: 1, rows: 4 } } });
+  const mixed = structuredClone(f.studio.document.value);
+  mixed.template.pages.push({ widthMm: 80, heightMm: 55, components: [] });
+  f.studio.update(mixed); await nextTick();
+  expect(f.studio.sheetLayout.value).toBeUndefined();
+  expect(f.studio.sheet.value).toBe(false);
+  expect(f.studio.sheetHint.value).toContain("不适合 A4 拼版");
+});
+
+it("prepare rejects unapplied layout changes and a failed pre-designer save keeps the complete draft", async () => {
+  const persist = vi.fn(async () => { throw new Error("暂时无法保存"); });
+  const f = fixture({ save: persist });
+  f.studio.preset.value = "material";
+  expect(await f.studio.prepare()).toBeUndefined();
+  expect(f.studio.notice.value).toContain("确认重建");
+  expect(persist).not.toHaveBeenCalled();
+  f.studio.restoreConfiguration();
+  f.studio.brandName.value = "待保存标题";
+  expect(await f.studio.prepare()).toBeUndefined();
+  expect(f.studio.notice.value).toBe("暂时无法保存");
+  expect(f.studio.pendingLocalChanges.value).toBe(true);
+  expect(f.studio.document.value.template.pages[0]!.components.some(component => component.kind === "text" && component.text === "待保存标题")).toBe(true);
+  f.props.save = async document => ({ ...document, revision: "r2" });
+  expect(await f.studio.prepare()).toMatchObject({ revision: "r2" });
+  expect(f.studio.pendingLocalChanges.value).toBe(false);
+});
+
+it("wrong-identity save replies and already aborted saves cannot replace the current label", async () => {
+  const persist = vi.fn(async document => ({ ...document, id: "other-label" }));
+  const f = fixture({ save: persist });
+  const before = serializeReportTemplate(f.studio.document.value);
+  await expect(f.studio.save(f.studio.document.value, { signal: new AbortController().signal })).rejects.toThrow("模板标识不一致");
+  expect(serializeReportTemplate(f.studio.document.value)).toBe(before);
+  persist.mockClear();
+  const controller = new AbortController(); controller.abort();
+  await expect(f.studio.save(f.studio.document.value, { signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
+  expect(persist).not.toHaveBeenCalled();
+});

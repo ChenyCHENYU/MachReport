@@ -108,7 +108,10 @@ it("custom documents remain authoritative until an explicit layout command and k
   f.studio.editor.value = { pendingLocalChanges: false, canApply: true, applyTemplate: apply, insertComponent: () => false, save: async () => {}, reset: async () => {}, guardChanges: async () => true };
   f.studio.preset.value = "warehouse";
   f.studio.fields.value = ["weight", "standard"];
-  f.studio.applyConfiguration();
+  expect(f.studio.applyConfiguration()).toBe(false);
+  expect(f.studio.rebuilding.value).toBe(true);
+  expect(apply).not.toHaveBeenCalled();
+  f.studio.applyConfiguration(true);
   expect(apply).toHaveBeenCalledOnce();
   expect(f.studio.document.value).toMatchObject({ id: "host-label", revision: "v7", template: { repeat: { copies: 3 } } });
   expect(f.studio.document.value.template.pages).toHaveLength(1);
@@ -150,6 +153,7 @@ it("portable brand images are accepted and unsupported images fail before replac
   const f = fixture({ brand: { name: "公司" } });
   const before = JSON.stringify(f.studio.document.value);
   f.props.brand = { logoData: "data:image/svg+xml;base64,PHN2Zz4=" };
+  expect(f.studio.custom.value).toBe(true);
   f.studio.applyConfiguration();
   expect(f.studio.notice.value).toContain("PNG或JPEG");
   expect(JSON.stringify(f.studio.document.value)).toBe(before);

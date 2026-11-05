@@ -25,7 +25,7 @@ const {
 } = useTemplateTotals(props, (list) => emit("change", list));
 </script>
 <template>
-  <details class="mr-totals-editor" :aria-label="m.title">
+  <details class="mr-totals-editor mr-designer-controls" :aria-label="m.title">
     <summary>
       <span class="mr-totals-symbol" aria-hidden="true">∑</span><strong>{{ m.title }}</strong><small>{{
         configuredCount
@@ -107,6 +107,7 @@ const {
     </div>
   </details>
 </template>
+<style src="./designer-controls.css"></style>
 <style scoped>
 .mr-totals-editor {
   border: 1px solid var(--mrp-toolbar-border, #e2e8f0);

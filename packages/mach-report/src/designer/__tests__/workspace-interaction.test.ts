@@ -12,7 +12,7 @@ import {
 } from "../../index";
 import ReportTemplateEditor from "../ReportTemplateEditor.vue";
 import type { TemplateEditorController } from "../useTemplateEditor";
-import { placeCanvasComponent } from "../canvas-placement";
+import { canvasComponentPlacement, placeCanvasComponent } from "../canvas-placement";
 import { insertionChart, insertionColumn } from "../insertion-binding";
 import {
   appendCanvasColumn,
@@ -63,6 +63,10 @@ function latest(wrapper: ReturnType<typeof editor>): ReportTemplateDocument {
     .emitted("update:modelValue")!
     .at(-1)![0] as ReportTemplateDocument;
 }
+async function acceptNewPage(wrapper: ReturnType<typeof editor>): Promise<void> {
+  const confirm = wrapper.find(".mr-insert-confirm-action");
+  if (confirm.exists()) await confirm.trigger("click");
+}
 describe("连续设计操作", () => {
   it("动态明细避让完整数据和未来新增行，追加文字在独立版面保持原始数据", () => {
     const value = document();
@@ -110,6 +114,7 @@ describe("连续设计操作", () => {
     await wrapper.get(".mr-insert-trigger").trigger("click");
     await wrapper.findAll(".mr-insert-grid button")
       .find(button => button.text().startsWith("图片或 Logo"))!.trigger("click");
+    await acceptNewPage(wrapper);
     const controller = wrapper.vm as unknown as TemplateEditorController;
     expect(controller.canApply).toBe(false);
     await controller.save();
@@ -157,6 +162,7 @@ describe("连续设计操作", () => {
         .findAll(".mr-insert-grid button")
         .find((button) => button.text().startsWith("说明文字"))!
         .trigger("click");
+      await acceptNewPage(wrapper);
     }
     const page = () => latest(wrapper).template.pages.at(-1)!;
     const added = page().components.slice(-2);
@@ -226,5 +232,102 @@ describe("连续设计操作", () => {
       list.columns.map((column) => column.widthMm),
     );
     expect(validateReportTemplateDocument(value).ok).toBe(true);
+  });
+
+  it("preflights overflow without mutating the document and asks before adding a report page", async () => {
+    const original = document();
+    const snapshot = JSON.stringify(original);
+    expect(canvasComponentPlacement(original.template.pages[0]!, {
+      kind: "text", text: "说明", leftMm: 0, topMm: 0, widthMm: 60, heightMm: 10,
+    }).newPage).toBe(true);
+    expect(JSON.stringify(original)).toBe(snapshot);
+    const wrapper = editor();
+    const save = vi.fn(async (value: ReportTemplateDocument) => value);
+    await wrapper.setProps({ save });
+    await wrapper.get(".mr-insert-trigger").trigger("click");
+    await wrapper.findAll(".mr-insert-grid button").find(button => button.text().startsWith("说明文字"))!.trigger("click");
+    const confirmation = wrapper.get('.mr-insert-confirm [role="alertdialog"]');
+    expect(confirmation.text()).toContain("模板版面 1 → 2");
+    expect(confirmation.text()).toContain("最终输出页数由明细分页决定");
+    expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+    expect((wrapper.vm as unknown as TemplateEditorController).canApply).toBe(false);
+    expect((wrapper.vm as unknown as TemplateEditorController).blocked).toBe(true);
+    await (wrapper.vm as unknown as TemplateEditorController).save();
+    expect(save).not.toHaveBeenCalled();
+    await confirmation.findAll("button").find(button => button.text() === "取消添加")!.trigger("click");
+    expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+    expect((wrapper.vm as unknown as TemplateEditorController).canUndo).toBe(false);
+    expect((wrapper.vm as unknown as TemplateEditorController).blocked).toBe(false);
+    expect(window.document.activeElement).toBe(wrapper.get(".mr-insert-trigger").element);
+    await wrapper.get(".mr-insert-trigger").trigger("click");
+    await wrapper.findAll(".mr-insert-grid button").find(button => button.text().startsWith("说明文字"))!.trigger("click");
+    await acceptNewPage(wrapper);
+    expect(latest(wrapper).template.pages).toHaveLength(2);
+    await wrapper.get('button[aria-label="撤销"]').trigger("click");
+    expect(latest(wrapper).template.pages).toHaveLength(1);
+    await wrapper.get('button[aria-label="重做"]').trigger("click");
+    expect(latest(wrapper).template.pages).toHaveLength(2);
+    wrapper.unmount();
+  });
+
+  it("cancels an uncommitted insertion when the host closes or resets the editor", async () => {
+    const wrapper = editor();
+    const controller = wrapper.vm as unknown as TemplateEditorController;
+    async function requestText(): Promise<void> {
+      await wrapper.get(".mr-insert-trigger").trigger("click");
+      await wrapper.findAll(".mr-insert-grid button").find(button => button.text().startsWith("说明文字"))!.trigger("click");
+      expect(wrapper.find(".mr-insert-confirm").exists()).toBe(true);
+    }
+    await requestText();
+    expect(await controller.guardChanges()).toBe(true);
+    await flushPromises();
+    expect(wrapper.find(".mr-insert-confirm").exists()).toBe(false);
+    await requestText();
+    await controller.reset();
+    await flushPromises();
+    expect(wrapper.find(".mr-insert-confirm").exists()).toBe(false);
+    expect(latest(wrapper)).toEqual(document());
+    wrapper.unmount();
+  });
+
+  it("shows label face and total-output impacts, preserves physical size and cancels through Escape", async () => {
+    const wrapper = editor();
+    const labels = defineReportTemplate({ id: "labels", name: "标签", template: {
+      repeat: { dataset: "records", copies: 2 },
+      pages: [{ widthMm: 30, heightMm: 20, components: [{ kind: "rect", leftMm: 0, topMm: 0, widthMm: 30, heightMm: 20 }] }],
+    } });
+    await wrapper.setProps({ modelValue: labels, datasets: { records: [{ code: "A" }, { code: "B" }, { code: "C" }] } });
+    const before = wrapper.emitted("update:modelValue")?.length ?? 0;
+    await wrapper.get(".mr-insert-trigger").trigger("click");
+    await wrapper.findAll(".mr-insert-grid button").find(button => button.text().startsWith("说明文字"))!.trigger("click");
+    const confirmation = wrapper.get('.mr-insert-confirm [role="alertdialog"]');
+    expect(confirmation.text()).toContain("30 × 20 mm");
+    expect(confirmation.text()).toContain("每份标签 1 → 2 个版面");
+    expect(confirmation.text()).toContain("按当前设计样本，标签数 6 → 12 张");
+    expect(window.document.activeElement?.textContent).toBe("取消添加");
+    await confirmation.trigger("keydown", { key: "Tab" });
+    expect(window.document.activeElement?.textContent).toBe("新增版面并添加");
+    await confirmation.trigger("keydown", { key: "Escape" });
+    expect(wrapper.find(".mr-insert-confirm").exists()).toBe(false);
+    expect(wrapper.emitted("update:modelValue")?.length ?? 0).toBe(before);
+    await wrapper.get(".mr-insert-trigger").trigger("click");
+    await wrapper.findAll(".mr-insert-grid button").find(button => button.text().startsWith("说明文字"))!.trigger("click");
+    await acceptNewPage(wrapper);
+    expect(latest(wrapper).template.pages.map(page => [page.widthMm, page.heightMm])).toEqual([[30, 20], [30, 20]]);
+    wrapper.unmount();
+  });
+
+  it("keeps an oversized code unmodified and does not insert or shrink it", async () => {
+    const wrapper = editor();
+    await wrapper.setProps({ modelValue: defineReportTemplate({ id: "small", name: "小标签", template: {
+      pages: [{ widthMm: 15, heightMm: 15, components: [] }],
+    } }) });
+    const before = wrapper.emitted("update:modelValue")?.length ?? 0;
+    await wrapper.get(".mr-insert-trigger").trigger("click");
+    await wrapper.findAll(".mr-insert-grid button").find(button => button.text().startsWith("二维码"))!.trigger("click");
+    expect(wrapper.get(".mr-designer-insert-notice").text()).toContain("内容尺寸大于当前纸张");
+    expect(wrapper.find(".mr-insert-confirm").exists()).toBe(false);
+    expect(wrapper.emitted("update:modelValue")?.length ?? 0).toBe(before);
+    wrapper.unmount();
   });
 });

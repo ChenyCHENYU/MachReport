@@ -90,6 +90,9 @@ test("模板原生插入图表、配置同源聚合，并修改列色阶后实�
   await page.getByRole("button", { name: "添加内容", exact: true }).click();
   await page.getByRole("dialog", { name: "添加到当前版面", exact: true })
     .getByRole("button", { name: /^图表/ }).click();
+  const additionalPage = page.getByRole("alertdialog", { name: "需要新增一个版面", exact: true });
+  if (await additionalPage.isVisible())
+    await additionalPage.getByRole("button", { name: "新增版面并添加", exact: true }).click();
   const inspector = page.locator(".mr-chart-binding"); await expect(inspector).toBeVisible();
   await inspector.getByRole("combobox", { name: "分类字段", exact: true }).selectOption("shift");
   await inspector.getByRole("combobox", { name: "度量与聚合", exact: true }).first().selectOption("output");

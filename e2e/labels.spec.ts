@@ -1,9 +1,15 @@
 import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 
 const packageRequire = createRequire(new URL("../packages/mach-report/package.json", import.meta.url));
 const { PDFDocument } = packageRequire("pdf-lib");
+
+async function acceptAdditionalPage(root: Locator): Promise<void> {
+  const confirmation = root.getByRole("alertdialog", { name: "需要新增一个版面", exact: true });
+  if (await confirmation.isVisible())
+    await confirmation.getByRole("button", { name: "新增版面并添加", exact: true }).click();
+}
 
 test("industrial labels render real symbols, switch records and export physical-size PDF", async ({ page }, testInfo) => {
   const errors: string[] = [];
@@ -69,6 +75,7 @@ test("label designer edits actual paper, binding and symbols through undo and sa
   await page.getByRole("button", { name: "添加内容", exact: true }).click();
   await page.getByRole("dialog", { name: "添加到当前版面", exact: true })
     .getByRole("button", { name: /^二维码/ }).click();
+  await acceptAdditionalPage(page.locator(".mr-label-editor"));
   await expect(page.getByLabel("绑定字段", { exact: true })).toHaveValue("heat");
   await expect(page.locator(".mr-canvas-component.is-selected .mr-canvas-code")).toContainText("DEMO2601");
   const insertedPage = Number(await page.locator(".mr-label-editor")
@@ -143,11 +150,13 @@ test("label preview preserves insertion history across save and return without a
   await expect(fieldSearch).toBeVisible();
   await fieldSearch.fill("产品编号");
   await menu.getByRole("button", { name: /产品编号.*coil/ }).click();
+  await acceptAdditionalPage(editor);
   await expect(editor.getByLabel("绑定字段", { exact: true })).toHaveValue("coil");
   await expect(editor.locator(".mr-canvas-component.is-selected")).toContainText("A001");
   await editor.getByRole("button", { name: "添加内容", exact: true }).click();
   await editor.getByRole("dialog", { name: "添加到当前版面", exact: true })
     .getByRole("button", { name: /^说明文字/ }).click();
+  await acceptAdditionalPage(editor);
   const text = editor.getByLabel("文本内容", { exact: true });
   await text.fill("复核后可追溯");
   await text.press("Tab");
@@ -168,4 +177,69 @@ test("label preview preserves insertion history across save and return without a
   await expect(editor.getByRole("button", { name: "保存草稿", exact: true })).toBeDisabled();
   expect(errors).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath("label-continuous-editing.png"), fullPage: true });
+});
+
+test("保存手工说明后修改品牌保留内容与版面，设计控件保持统一视觉", async ({ page }) => {
+  await page.goto("http://localhost:8610/labels.html");
+  await page.getByRole("button", { name: "设计标签", exact: true }).click();
+  const editor = page.locator(".mr-label-editor");
+  await expect(editor.locator(".mr-canvas-paper")).toBeVisible();
+  for (const selector of [".mr-insert-trigger", ".mr-designer-guide > button"]) {
+    const control = editor.locator(selector);
+    await expect(control).toHaveCSS("border-top-style", "solid");
+    await expect(control).toHaveCSS("border-radius", "6px");
+    await expect(control).toHaveCSS("font-size", "12px");
+  }
+  await editor.getByRole("button", { name: "添加内容", exact: true }).click();
+  await editor.getByRole("dialog", { name: "添加到当前版面", exact: true })
+    .getByRole("button", { name: /^说明文字/ }).click();
+  await acceptAdditionalPage(editor);
+  const text = editor.getByLabel("文本内容", { exact: true });
+  await text.fill("客户要求的复核说明");
+  await text.press("Tab");
+  const selectedPage = await editor.getByRole("combobox", { name: "页", exact: true }).inputValue();
+  await page.getByRole("button", { name: "打印预览", exact: true }).click();
+  const before = await page.locator(".mr-label-spec").innerText();
+  await page.locator(".mr-label-brand summary").click();
+  await page.getByRole("textbox", { name: "主标题", exact: true }).fill("客户追溯中心");
+  await page.getByRole("button", { name: "更新内容", exact: true }).click();
+  await expect(page.locator(".mr-label-rebuild")).toHaveCount(0);
+  await expect(page.locator(".mr-label-spec")).toHaveText(before, { useInnerText: true });
+  await page.getByRole("button", { name: "设计标签", exact: true }).click();
+  await editor.getByRole("combobox", { name: "页", exact: true }).selectOption(selectedPage);
+  await expect(editor.locator(".mr-canvas-paper")).toContainText("客户要求的复核说明");
+  await editor.getByRole("combobox", { name: "页", exact: true }).selectOption("0");
+  await expect(editor.locator(".mr-canvas-paper")).toContainText("客户追溯中心");
+});
+
+test("仓储标签明确确认重建后可按原尺寸拼到A4并导出", async ({ page }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.goto("http://localhost:8610/labels.html");
+  await page.locator(".mr-label-presets").getByRole("button", { name: /仓储标签/ }).click();
+  await page.getByRole("button", { name: "应用新样式", exact: true }).click();
+  await expect(page.locator(".mr-label-rebuild")).toContainText("将替换当前全部版面和手工调整");
+  await page.getByRole("button", { name: "继续调整", exact: true }).click();
+  await expect(page.locator(".mr-label-spec")).toContainText("80 × 55");
+  await page.getByRole("button", { name: "应用新样式", exact: true }).click();
+  await page.getByRole("button", { name: "确认重建", exact: true }).click();
+  await expect(page.locator(".mr-label-spec")).toContainText("100 × 60");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "设置", exact: true });
+  await expect(settings.locator(".mr-label-imposition")).toContainText("1 列 × 4 行");
+  await settings.getByRole("checkbox", { name: /A4 标签拼版/ }).check();
+  await settings.getByRole("button", { name: "关闭设置", exact: true }).click();
+  await expect(page.locator(".mr-label-main > .mach-report-preview .mrp-pageinfo")).toContainText("1 / 1");
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出", exact: true }).click();
+  await page.getByRole("menuitem", { name: "导出 PDF", exact: true }).click();
+  const artifact = await download;
+  const target = testInfo.outputPath("warehouse-labels-a4.pdf");
+  await artifact.saveAs(target);
+  const pdf = await PDFDocument.load(await readFile(target));
+  expect(pdf.getPageCount()).toBe(1);
+  expect(pdf.getPage(0).getWidth()).toBeCloseTo(210 * 72 / 25.4, 5);
+  expect(pdf.getPage(0).getHeight()).toBeCloseTo(297 * 72 / 25.4, 5);
+  await expect(page.locator(".mr-label-main > .mach-report-preview [role=alert]")).toHaveCount(0);
+  expect(errors).toEqual([]);
 });

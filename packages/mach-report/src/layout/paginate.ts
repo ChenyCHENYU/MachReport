@@ -882,6 +882,31 @@ export function paginateTemplate(template: ReportTemplate, datasets: DatasetRows
   const warnings: string[] = [];
   const statistics = { chartComponents: 0 };
   const pages = [...iteratePages(template, datasets, options, warnings, options.knownTotalPages, undefined, statistics)];
+  return collectedResult(template, options, pages, warnings, statistics);
+}
+
+/** Async callers own their template/datasets across yields. The one-pass layout
+ * shares synchronous output semantics and yields between bounded page slices. */
+export async function paginateTemplateAsync(template: ReportTemplate, datasets: DatasetRows, options: PaginateOptions = {}): Promise<PaginateResult> {
+  validatePaginateOptions(options);
+  checkPaginationAbort(options.signal);
+  const warnings: string[] = [], pages: PlanPage[] = [];
+  const statistics = { chartComponents: 0 };
+  let sliceStart = performance.now(), slicePages = 0;
+  for (const page of iteratePages(template, datasets, options, warnings, options.knownTotalPages, undefined, statistics)) {
+    pages.push(page);
+    // Timer tasks can deliver a cancel click or superseding query before the next page.
+    if (++slicePages >= 8 || performance.now() - sliceStart >= 8) {
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      checkPaginationAbort(options.signal);
+      sliceStart = performance.now(); slicePages = 0;
+    }
+  }
+  checkPaginationAbort(options.signal);
+  return collectedResult(template, options, pages, warnings, statistics);
+}
+
+function collectedResult(template: ReportTemplate, options: PaginateOptions, pages: PlanPage[], warnings: string[], statistics: Pick<PaginateResult, "chartComponents">): PaginateResult {
   for (const page of pages) page.components = page.components.map((component) => isPageAnchor(component) ? mapAnchorText(component, (text) => text.replace(/\{totalPages\}/g, String(pages.length))) : component);
   warnings.forEach((warning) => options.onWarning?.(warning));
   return { plan: { schemaVersion: RENDER_PLAN_SCHEMA_VERSION, ...(templateRequiresRecalculation(template) ? { requiresRecalculation: true } : {}), pages }, warnings, ...statistics };

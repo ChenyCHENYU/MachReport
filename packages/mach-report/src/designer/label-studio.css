@@ -92,3 +92,9 @@
 .mr-label-confirm strong { font-size: 12px; }
 .mr-label-confirm p { margin: 4px 0 0; font-size: 11px; }
 .mr-label-confirm button { border: 1px solid #d6c7a5; border-radius: 5px; background: #fff; color: #6b5426; padding: 5px 9px; font: inherit; cursor: pointer; }
+
+.mr-label-rebuild { margin-top: 9px; padding: 10px; border: 1px solid #e6d6ad; border-radius: 6px; background: #fffaf0; color: #725a2e; font-size: 11px; }
+.mr-label-rebuild p { margin: 5px 0 9px; line-height: 1.7; }
+.mr-label-rebuild > div { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 5px; }
+.mr-label-rebuild button { border: 1px solid #d7c69e; border-radius: 4px; background: #fff; color: #725a2e; padding: 4px 7px; font: inherit; cursor: pointer; }
+.mr-label-editor-loading { margin: auto; padding: 24px; color: #647e98; }

@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.20.0-2563eb" alt="Source version 2.20.0" />
+  <img src="https://img.shields.io/badge/source-2.21.0-2563eb" alt="Source version 2.21.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -448,6 +448,10 @@ const { bytes, contentType, diagnostics, stats } = await runtime.export({
 
 正文和缩略图均按可见窗口渲染，离屏画布及时释放；页尺寸索引按计划建立一次，滚动和跳页通过二分定位。搜索按文本块分片，输入新查询、换单据或卸载会取消旧任务，命中计数按页保存，避免为每次重复文字创建一个记录。
 
+`createReportSource()` 首次排版与编辑重排共用异步分页，在页面之间按时间或页数让出执行，取消和后续查询可以及时生效。设计器共享每次有效修改的校验与序列化快照，静态网格缓存毫米几何，选择和缩放复用已计算结果。标签编码器在首次实际编码时加载，编辑器在首次进入设计时加载并保留撤销历史。
+
+普通模板与数据在异步排版前建立有界快照，宿主后续修改不会混入本次计划。含函数、访问器或特殊原型且无法安全快照的只读输入继续沿用同步排版，其取消粒度保持同步调用边界。单页内部的计算仍需受控数据范围。
+
 默认已启用，无需额外接入代码。需要调节时，统一放入配置中心：
 
 ```ts
@@ -699,7 +703,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.20.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.21.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

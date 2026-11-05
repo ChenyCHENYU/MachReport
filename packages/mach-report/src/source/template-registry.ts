@@ -10,6 +10,7 @@ import type { TemplateComponent } from "../layout/paginate";
 import { validateListTree } from "./template-tree-validation";
 import { validateTemplateRepeat } from "./template-repeat-validation";
 import { validColumnVisual } from "../layout/column-visual";
+import { MAX_TEMPLATE_JSON_CHARACTERS, stringifyValidatedTemplate } from "./template-serialization";
 
 /** 模板存储文档版本；与渲染计划版本独立演进。 */
 export const REPORT_TEMPLATE_DOCUMENT_VERSION = "1.0";
@@ -49,7 +50,6 @@ const DOCUMENT_KEYS = new Set(["schemaVersion", "id", "name", "revision", "descr
 const ALIGNMENTS = new Set(["left", "center", "right", "justify"]);
 const MAX_JSON_NODES = 200_000;
 const MAX_JSON_DEPTH = 64;
-const MAX_JSON_CHARACTERS = 10_000_000;
 
 function isObject(value: unknown): value is JsonObject {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -110,7 +110,7 @@ function validateJson(input: unknown, errors: ValidationError[]): void {
     }
     if (typeof value === "string") {
       characters += value.length;
-      if (characters > MAX_JSON_CHARACTERS) {
+      if (characters > MAX_TEMPLATE_JSON_CHARACTERS) {
         characterLimitReached = true;
         errors.push({ path, message: "模板文本超过 1000 万字符的安全上限" });
       }
@@ -529,7 +529,7 @@ export function defineReportTemplate(document: Omit<ReportTemplateDocument, "sch
 export function parseReportTemplate(input: unknown): ReportTemplateDocument {
   let document: unknown = input;
   if (typeof input === "string") {
-    if (input.length > MAX_JSON_CHARACTERS) {
+    if (input.length > MAX_TEMPLATE_JSON_CHARACTERS) {
       throw new ReportTemplateError([{ path: "$", message: "模板 JSON 超过 1000 万字符的导出/导入上限" }]);
     }
     try { document = JSON.parse(input); }
@@ -542,9 +542,11 @@ export function parseReportTemplate(input: unknown): ReportTemplateDocument {
 /** 格式化输出已校验的纯模板 JSON，不静默丢弃函数或非法数字。 */
 export function serializeReportTemplate(document: ReportTemplateDocument): string {
   assertDocument(document);
-  const json = JSON.stringify(document, null, 2);
-  if (json.length > MAX_JSON_CHARACTERS) throw new ReportTemplateError([{ path: "$", message: "模板 JSON 超过 1000 万字符的导出/导入上限" }]);
-  return json;
+  try { return stringifyValidatedTemplate(document); }
+  catch (cause) {
+    if (cause instanceof RangeError) throw new ReportTemplateError([{ path: "$", message: cause.message }]);
+    throw cause;
+  }
 }
 
 function clone(document: ReportTemplateDocument): ReportTemplateDocument {

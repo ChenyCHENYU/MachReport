@@ -10,6 +10,7 @@ import type { TemplateReviewMessages } from "./review-messages";
 import type { TemplateRecoveryMessages } from "./recovery-messages";
 import {
   parseReportTemplate,
+  ReportTemplateError,
   serializeReportTemplate,
   validateReportTemplateDocument,
   type DatasetRows,
@@ -23,6 +24,8 @@ import {
   type MachReportDefaults,
 } from "@agile-team/mach-report/vue";
 import { useTemplateColumns } from "./useTemplateColumns";
+import { copyTemplateDocumentSnapshot, useTemplateDocumentSnapshot } from "./template-document-snapshot";
+import { stringifyValidatedTemplate } from "../source/template-serialization";
 import { useTemplateHistory, type TemplateHistoryContext } from "./useTemplateHistory";
 import { restoreTemplateHistoryDocument, serializeTemplateHistory, type TemplateHistoryState } from "./template-history-state";
 import {
@@ -119,8 +122,12 @@ export function useTemplateEditor(
   ) => void,
 ) {
   const draft = ref(parseReportTemplate(props.modelValue));
-  const original = ref(serializeReportTemplate(draft.value));
-  const json = ref(serializeReportTemplate(draft.value));
+  const documentSnapshot = useTemplateDocumentSnapshot(draft);
+  const copyDraft = () => copyTemplateDocumentSnapshot(documentSnapshot.value);
+  const initialJson = documentSnapshot.value.json;
+  if (initialJson === undefined) throw new ReportTemplateError(documentSnapshot.value.validation.errors);
+  const original = ref(initialJson);
+  const json = ref(original.value);
   const error = ref("");
   const saving = ref(false);
   const messages = computed(() => ({
@@ -153,16 +160,8 @@ export function useTemplateEditor(
   });
   let controller: AbortController | undefined;
   let generation = 0;
-  const validation = computed(() =>
-    validateReportTemplateDocument(draft.value),
-  );
-  const dirty = computed(() => {
-    try {
-      return serializeReportTemplate(draft.value) !== original.value;
-    } catch {
-      return true;
-    }
-  });
+  const validation = computed(() => documentSnapshot.value.validation);
+  const dirty = computed(() => documentSnapshot.value.json !== original.value);
   const appliedJson = ref(json.value);
   const jsonPending = computed(() => json.value !== appliedJson.value);
   const localDrafts = ref<Record<string, boolean>>({});
@@ -184,8 +183,12 @@ export function useTemplateEditor(
   const pendingLocalChanges = computed(
     () => dirty.value || json.value !== appliedJson.value || toolPending.value || !!columns.fieldChange.value,
   );
-  const snapshot = () => serializeTemplateHistory(draft.value, toolDrafts.records.value,
-    jsonPending.value ? { text: json.value, revision: jsonHistoryRevision ? jsonHistoryRevision.revision : draft.value.revision } : undefined);
+  // A validated plain copy avoids walking Vue proxies again for history. Invalid
+  // local input still uses the raw draft so undo can restore the unfinished edit.
+  const historyDocument = computed(() => documentSnapshot.value.json === undefined ? draft.value : copyDraft());
+  const historySnapshot = computed(() => serializeTemplateHistory(historyDocument.value, toolDrafts.records.value,
+    jsonPending.value ? { text: json.value, revision: jsonHistoryRevision ? jsonHistoryRevision.revision : draft.value.revision } : undefined));
+  const snapshot = () => historySnapshot.value;
   const history = useTemplateHistory(snapshot());
   const historyViewRevision = ref(0);
   let historyView: { read: () => TemplateHistoryContext; restore: (context: TemplateHistoryContext) => void } | undefined;
@@ -220,13 +223,16 @@ export function useTemplateEditor(
       get datasets() { return props.datasets ?? {}; }, params: [],
     } });
   }
-  watch([() => draft.value.template, () => props.datasets], (next, previous) => {
+  watch(() => draft.value.template, () => {
     clearTimeout(previewTimer);
-    const sameTextEdit = changeGroup && previewGroup === changeGroup && next[1] === previous?.[1];
+    const sameTextEdit = changeGroup && previewGroup === changeGroup;
     if (sameTextEdit) previewTimer = setTimeout(refreshPreview, 150);
     else refreshPreview();
     previewGroup = changeGroup;
   }, { deep: true, immediate: true });
+  // Dataset changes retain deep/in-place support, without rescanning all source
+  // rows for every template keystroke.
+  watch(() => props.datasets, () => { previewGroup = undefined; refreshPreview(); }, { deep: true });
   const fetcher = computed(() => validation.value.ok ? previewFetcher.value : undefined);
 
   function cancelSave(): void {
@@ -258,10 +264,11 @@ export function useTemplateEditor(
     }
   }
   function load(document: ReportTemplateDocument): void {
+    const nextJson = serializeReportTemplate(document);
     cancelSave();
     conflict.clear(); toolDrafts.clear();
     draft.value = document;
-    original.value = serializeReportTemplate(document);
+    original.value = nextJson;
     json.value = original.value;
     appliedJson.value = json.value;
     jsonHistoryRevision = undefined;
@@ -275,27 +282,21 @@ export function useTemplateEditor(
     () => props.modelValue,
     async (value) => {
       let document: ReportTemplateDocument;
+      let incomingJson: string;
       try {
         document = parseReportTemplate(value);
+        incomingJson = stringifyValidatedTemplate(document);
       } catch (cause) {
         error.value = cause instanceof Error ? cause.message : String(cause);
         return;
       }
       // v-model echoes retain the baseline and cannot clear an unapplied JSON draft.
-      try {
-        if (
-          serializeReportTemplate(document) ===
-          serializeReportTemplate(draft.value)
-        )
-          return;
-      } catch {
-        /* Invalid local fields remain guarded. */
-      }
+      if (incomingJson === documentSnapshot.value.json) return;
       const job = ++replacementGeneration;
       cancelSave();
       if (!(await guardChanges("replace", document))) {
         if (job === replacementGeneration && validation.value.ok)
-          emit("update:modelValue", parseReportTemplate(draft.value));
+          emit("update:modelValue", copyDraft());
         return;
       }
       if (job === replacementGeneration) load(document);
@@ -313,11 +314,12 @@ export function useTemplateEditor(
     queueMicrotask(() => { documentFramePending = false; });
     discard.cancel();
     error.value = "";
-    if (validation.value.ok) {
-      json.value = serializeReportTemplate(draft.value);
+    const current = documentSnapshot.value;
+    if (current.json !== undefined) {
+      json.value = current.json;
       appliedJson.value = json.value;
       jsonHistoryRevision = undefined;
-      emit("update:modelValue", parseReportTemplate(draft.value));
+      emit("update:modelValue", copyTemplateDocumentSnapshot(current));
     }
     // Navigation itself is not an edit; each frame retains this operation's
     // before/after coordinates independently from adjacent edits on other pages.
@@ -328,7 +330,7 @@ export function useTemplateEditor(
   ): boolean {
     if (!canEdit()) return false;
     try {
-      const candidate = parseReportTemplate(draft.value);
+      const candidate = copyDraft();
       change(candidate);
       const result = validateReportTemplateDocument(candidate);
       if (!result.ok)
@@ -337,6 +339,7 @@ export function useTemplateEditor(
             .map((issue) => `${issue.path}: ${issue.message}`)
             .join("\n"),
         );
+      stringifyValidatedTemplate(candidate);
       draft.value = candidate;
       changed();
       return true;
@@ -358,6 +361,7 @@ export function useTemplateEditor(
     if (!canEdit()) return false;
     try {
       const candidate = parseReportTemplate(value);
+      stringifyValidatedTemplate(candidate);
       if (!(await guardChanges("replace", candidate))) return false;
       if (!canEdit()) return false;
       draft.value = candidate;
@@ -391,6 +395,7 @@ export function useTemplateEditor(
           throw new Error("修订号由保存服务管理，不能在 JSON 中修改");
       if (draft.value.revision === undefined) delete document.revision;
       else document.revision = draft.value.revision;
+      stringifyValidatedTemplate(document);
       draft.value = document;
       selected.value = 0;
       columns.clearSelection();
@@ -403,7 +408,7 @@ export function useTemplateEditor(
     if (blocked.value || props.readonly || !(await guardChanges("reset")))
       return;
     load(parseReportTemplate(original.value));
-    emit("update:modelValue", parseReportTemplate(draft.value));
+    emit("update:modelValue", copyDraft());
   }
   function moveHistory(delta: -1 | 1): void {
     if (blocked.value || props.readonly) return;
@@ -415,7 +420,9 @@ export function useTemplateEditor(
     const restored = JSON.parse(frame) as TemplateHistoryState;
     restoringHistory = true;
     draft.value = restoreTemplateHistoryDocument(restored, parseReportTemplate(original.value));
-    appliedJson.value = serializeReportTemplate(draft.value);
+    // Invalid form input is a reversible local draft too. It may be displayed in
+    // the JSON inspector, while validation continues to block preview and save.
+    appliedJson.value = documentSnapshot.value.json ?? JSON.stringify(draft.value, null, 2);
     json.value = restored.json?.text ?? appliedJson.value;
     jsonHistoryRevision = restored.json ? { revision: restored.json.revision } : undefined;
     toolDrafts.restore(restored.tools);
@@ -426,7 +433,7 @@ export function useTemplateEditor(
     columns.clearSelection();
     if (history.context.value) historyView?.restore(history.context.value);
     if (validation.value.ok)
-      emit("update:modelValue", parseReportTemplate(draft.value));
+      emit("update:modelValue", copyDraft());
   }
   async function save(): Promise<void> {
     if (!props.save || !canEdit() || !validation.value.ok) return;
@@ -435,7 +442,7 @@ export function useTemplateEditor(
     controller = new AbortController();
     saving.value = true;
     error.value = "";
-    const document = parseReportTemplate(draft.value);
+    const document = copyDraft();
     try {
       const saved = parseReportTemplate(
         await props.save(document, {
@@ -446,8 +453,9 @@ export function useTemplateEditor(
       if (job !== generation) return;
       if (saved.id !== document.id)
         throw new Error("保存服务返回了其他模板的文档");
+      const savedJson = stringifyValidatedTemplate(saved);
       draft.value = saved;
-      original.value = serializeReportTemplate(saved);
+      original.value = savedJson;
       json.value = original.value;
       appliedJson.value = json.value;
       history.endGroup();
@@ -470,13 +478,13 @@ export function useTemplateEditor(
   const conflict = useTemplateConflict({
     configuration: () => props,
     baseline: () => parseReportTemplate(original.value),
-    local: () => parseReportTemplate(draft.value),
+    local: copyDraft,
     async applyLatest(document) {
       if (!await guardChanges("replace", document)) return false;
       load(document); emit("update:modelValue", parseReportTemplate(document)); return true;
     },
     rebase(latest) {
-      const candidate = parseReportTemplate(draft.value);
+      const candidate = copyDraft();
       if (latest.revision === undefined) delete candidate.revision;
       else candidate.revision = latest.revision;
       const nextJson = serializeReportTemplate(candidate);
@@ -489,7 +497,7 @@ export function useTemplateEditor(
       if (!pendingJson) json.value = nextJson;
       appliedJson.value = nextJson;
       history.reset(snapshot(), historyView?.read());
-      emit("update:modelValue", parseReportTemplate(draft.value));
+      emit("update:modelValue", copyDraft());
     },
   });
   const recovery = useTemplateDraftRecovery({
@@ -497,7 +505,7 @@ export function useTemplateEditor(
     id: () => draft.value.id,
     baseline: () => original.value,
     pending: () => pendingLocalChanges.value,
-    changedSource: () => [draft.value, original.value, json.value, appliedJson.value, toolDrafts.records.value],
+    changedSource: () => [snapshot(), original.value, json.value, appliedJson.value],
     snapshot: () => ({ version: 1, templateId: draft.value.id, savedAt: new Date().toISOString(), baseline: parseReportTemplate(original.value), document: JSON.parse(JSON.stringify(draft.value)) as ReportTemplateDocument, json: json.value, appliedJson: appliedJson.value, tools: toolDrafts.records.value }),
     restore(record) {
       if (props.readonly || saving.value) return;
@@ -510,7 +518,7 @@ export function useTemplateEditor(
       if (ruleKey) { const [, pageIndex, componentIndex] = ruleKey.split(":"); const index = lists.value.findIndex(item => item.pageIndex === Number(pageIndex) && item.componentIndex === Number(componentIndex)); if (index >= 0) selected.value = index; }
       history.reset(snapshot(), historyView?.read());
       if (serializeReportTemplate(latest) !== original.value) conflict.begin(latest);
-      emit("update:modelValue", parseReportTemplate(draft.value));
+      emit("update:modelValue", copyDraft());
     },
   });
   const canUndo = computed(

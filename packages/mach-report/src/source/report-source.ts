@@ -1,4 +1,4 @@
-import { paginateTemplate, type DatasetRows, type PaginateOptions, type ReportParamDef, type ReportTemplate } from "../layout/paginate";
+import { paginateTemplate, paginateTemplateAsync, type DatasetRows, type PaginateOptions, type PaginateResult, type ReportParamDef, type ReportTemplate } from "../layout/paginate";
 import { RENDER_PLAN_SCHEMA_VERSION, type RenderPlan } from "../schema/render-plan";
 import { validateRenderPlan } from "../schema/validate";
 import { getReportParamDefs } from "./report-params";
@@ -8,6 +8,7 @@ import { assertReportParams } from "./param-validation";
 import { registerReportEditSession } from "../editing/session";
 import { reflowReportTemplateResult } from "../editing/session-pagination";
 import type { ReportEditSessionPart } from "../editing/session-data";
+import { snapshotLayoutPart } from "../editing/session-snapshot";
 import { createReportTaskReporter, type ReportTaskMonitoring } from "./task-events";
 import type { ReportProvider, ReportQueryResult } from "./provider";
 import { hasValidDataExplanation } from "./data-explanation";
@@ -201,13 +202,21 @@ function validateDataContract(definition: ReportDefinition, data: DatasetRows, r
   }
 }
 
-function paginateReport(template: ReportTemplate, data: DatasetRows, definition: ReportDefinition, reportId: string, budget: SourcePaginationBudget, signal?: AbortSignal): ReturnType<typeof paginateTemplate> {
+async function paginateReport(part: ReportEditSessionPart, definition: ReportDefinition, reportId: string, budget: SourcePaginationBudget, signal?: AbortSignal): Promise<{ result: PaginateResult; part: ReportEditSessionPart }> {
   try {
-    const pagination = sourcePagination(definition.pagination, budget, template, data, signal);
-    const result = paginateTemplate(template, data, pagination);
+    let owned: ReportEditSessionPart | undefined;
+    try { owned = snapshotLayoutPart(part); } catch { /* Preserve synchronous readonly support for exotic host objects. */ }
+    const input = owned ?? part;
+    const pagination = sourcePagination(definition.pagination, budget, input.template, input.datasets, signal);
+    // Arbitrary accessors/functions cannot be snapshotted without changing their
+    // semantics. Keep their previous synchronous boundary, rather than mixing
+    // host changes into a partly completed async plan.
+    const result = owned ? await paginateTemplateAsync(input.template, input.datasets, pagination)
+      : paginateTemplate(input.template, input.datasets, pagination);
     accountSourcePagination(budget, result);
-    return result;
+    return { result, part: input };
   } catch (error) {
+    checkAbort(signal);
     const cause = sourcePaginationError(error, budget);
     throw new ReportSourceError("validate", `报表 ${reportId} 排版失败：${cause instanceof Error ? cause.message : String(cause)}`, cause);
   }
@@ -296,9 +305,9 @@ export function createReportSource(
         validateDataContract(definition, data, reportId, template, signal);
       }, reportId);
       checkAbort(signal);
-      const result = reporter.runSync("layout", () => paginateReport(template, data, definition, reportId, paginationBudget, signal), reportId);
       const sourceScope = reportSourceScope(index, reportId, definition.sourceScope);
-      editParts.push({ template, datasets: data, sourceScope });
+      const { result, part } = await reporter.run("layout", () => paginateReport({ template, datasets: data, sourceScope }, definition, reportId, paginationBudget, signal), reportId);
+      editParts.push(part);
       appendTablePages(pages, result.plan, index, reportId, sourceScope);
       warnings.push(...result.warnings.map((message) => `${reportId}: ${message}`));
     }

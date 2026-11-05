@@ -27,13 +27,22 @@ function bounds(page: TemplatePage) {
     bottom: page.heightMm - (page.marginBottomMm ?? 2),
   };
 }
-/** 有界候选落点避让现有对象，空间不足时新增同尺寸版面，整个插入仍是一笔事务。 */
-export function placeCanvasComponent(
-  document: ReportTemplateDocument,
-  pageIndex: number,
+interface CanvasPlacement {
+  geometry: CanvasGeometry;
+  newPage: boolean;
+  pageHeightMm?: number;
+}
+
+export function canvasComponentFitsPage(page: TemplatePage, component: TemplateComponent): boolean {
+  const limit = bounds(page), geometry = componentGeometry(component);
+  return geometry.widthMm <= limit.right - limit.left && geometry.heightMm <= limit.bottom - limit.top;
+}
+
+/** 预检和提交共用落点计算，确认新增版面前不修改草稿。 */
+export function canvasComponentPlacement(
+  page: TemplatePage,
   component: TemplateComponent,
-): { pageIndex: number; newPage: boolean } {
-  const page = document.template.pages[pageIndex]!;
+): CanvasPlacement {
   const limit = bounds(page),
     geometry = componentGeometry(component);
   geometry.widthMm = Math.min(
@@ -78,20 +87,33 @@ export function placeCanvasComponent(
     );
   });
   if (free) {
-    setCanvasGeometry(component, { ...geometry, ...free });
-    page.components.push(component);
-    return { pageIndex, newPage: false };
+    return { geometry: { ...geometry, ...free }, newPage: false };
   }
   if (page.layout === "wide" && !dynamic) {
     const topMm = Math.max(
       limit.top,
       ...occupied.map((box) => box.topMm + box.heightMm + GAP),
     );
-    page.heightMm = Math.max(
+    const pageHeightMm = Math.max(
       page.heightMm,
       topMm + geometry.heightMm + (page.marginBottomMm ?? 2),
     );
-    setCanvasGeometry(component, { ...geometry, leftMm: limit.left, topMm });
+    return { geometry: { ...geometry, leftMm: limit.left, topMm }, newPage: false, pageHeightMm };
+  }
+  return { geometry: { ...geometry, leftMm: limit.left, topMm: limit.top }, newPage: true };
+}
+
+/** 有界候选落点避让现有对象，已确认的新增版面和内容保持为一笔事务。 */
+export function placeCanvasComponent(
+  document: ReportTemplateDocument,
+  pageIndex: number,
+  component: TemplateComponent,
+): { pageIndex: number; newPage: boolean } {
+  const page = document.template.pages[pageIndex]!;
+  const placement = canvasComponentPlacement(page, component);
+  if (!placement.newPage) {
+    if (placement.pageHeightMm !== undefined) page.heightMm = placement.pageHeightMm;
+    setCanvasGeometry(component, placement.geometry);
     page.components.push(component);
     return { pageIndex, newPage: false };
   }
@@ -103,7 +125,7 @@ export function placeCanvasComponent(
   setCanvasGeometry(
     component,
     constrainGeometry(
-      { ...geometry, leftMm: limit.left, topMm: limit.top },
+      placement.geometry,
       next,
       component.kind === "list",
     ),

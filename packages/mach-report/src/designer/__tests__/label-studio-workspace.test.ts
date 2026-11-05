@@ -19,6 +19,9 @@ function latest(wrapper: ReturnType<typeof studio>) { return wrapper.emitted("up
 
 it("one design action opens the real canvas and one editor survives preview navigation with undo history", async () => {
   const wrapper = studio(); await flushPromises();
+  expect(wrapper.findComponent(ReportTemplateEditor).exists()).toBe(false);
+  await wrapper.findAll(".mr-label-bar button").find(button => button.text() === "设计标签")!.trigger("click");
+  await flushPromises();
   const editor = wrapper.getComponent(ReportTemplateEditor);
   const instance = editor.vm.$.uid;
   expect(editor.find(".mr-designer-mode").exists()).toBe(false);
@@ -48,6 +51,8 @@ it("finished preset changes are a single reversible transaction and selected fie
   const wrapper = studio(); await flushPromises();
   await wrapper.findAll(".mr-label-presets button").find(button => button.get("strong").text() === "物料卡")!.trigger("click");
   await wrapper.get(".mr-label-apply").trigger("click"); await flushPromises();
+  expect(latest(wrapper).template.pages).toHaveLength(2);
+  await wrapper.get(".mr-label-rebuild").findAll("button").find(button => button.text() === "确认重建")!.trigger("click"); await flushPromises();
   expect(latest(wrapper).template.pages).toHaveLength(1);
   await wrapper.findAll(".mr-label-bar button").find(button => button.text() === "设计标签")!.trigger("click"); await flushPromises();
   await wrapper.getComponent(ReportTemplateEditor).get('button[aria-label="撤销"]').trigger("click");
@@ -112,6 +117,8 @@ it("closing an unsaved quick layout reveals the persistent editor confirmation a
   const wrapper = studio(); await flushPromises();
   await wrapper.findAll(".mr-label-presets button").find(button => button.get("strong").text() === "物料卡")!.trigger("click");
   await wrapper.get(".mr-label-apply").trigger("click"); await flushPromises();
+  expect(latest(wrapper).template.pages).toHaveLength(2);
+  await wrapper.get(".mr-label-rebuild").findAll("button").find(button => button.text() === "确认重建")!.trigger("click"); await flushPromises();
   const controller = wrapper.vm as unknown as { guardChanges(): Promise<boolean> };
   const closing = controller.guardChanges(); await flushPromises();
   const confirmation = wrapper.get(".mr-label-confirm");
@@ -144,6 +151,8 @@ it("mixed applied layout and unapplied branding are discarded together with one 
   const wrapper = studio(); await flushPromises();
   await wrapper.findAll(".mr-label-presets button").find(button => button.get("strong").text() === "物料卡")!.trigger("click");
   await wrapper.get(".mr-label-apply").trigger("click"); await flushPromises();
+  expect(latest(wrapper).template.pages).toHaveLength(2);
+  await wrapper.get(".mr-label-rebuild").findAll("button").find(button => button.text() === "确认重建")!.trigger("click"); await flushPromises();
   await wrapper.get<HTMLInputElement>(".mr-label-brand input").setValue("未应用品牌");
   const controller = wrapper.vm as unknown as { pendingLocalChanges: boolean; guardChanges(): Promise<boolean> };
   const closing = controller.guardChanges(); await flushPromises();
@@ -152,7 +161,40 @@ it("mixed applied layout and unapplied branding are discarded together with one 
   expect(await closing).toBe(true); await flushPromises();
   expect(wrapper.find(".mr-label-confirm").exists()).toBe(false);
   expect(controller.pendingLocalChanges).toBe(false);
-  expect(wrapper.getComponent(ReportTemplateEditor).vm.pendingLocalChanges).toBe(false);
+  expect(wrapper.findComponent(ReportTemplateEditor).exists()).toBe(false);
   expect(wrapper.get<HTMLInputElement>(".mr-label-brand input").element.value).toBe("");
+  expect(latest(wrapper).template.pages).toHaveLength(2);
+});
+
+it("quick branding and preview navigation preserve manually added components and remain one undoable change", async () => {
+  const wrapper = studio(); await flushPromises();
+  const navigate = async (label: string) => { await wrapper.findAll(".mr-label-bar button").find(button => button.text() === label)!.trigger("click"); await flushPromises(); };
+  await navigate("设计标签");
+  const editor = wrapper.getComponent(ReportTemplateEditor);
+  await editor.get(".mr-insert-trigger").trigger("click");
+  await editor.findAll(".mr-insert-grid button").find(button => button.get("strong").text() === "说明文字")!.trigger("click");
+  await navigate("打印预览");
+  const before = latest(wrapper);
+  const components = before.template.pages.flatMap(page => page.components);
+  await wrapper.get(".mr-label-brand input").setValue("业务新标题");
+  await navigate("设计标签");
+  const changed = latest(wrapper).template.pages.flatMap(page => page.components);
+  expect(changed).toHaveLength(components.length);
+  expect(changed.filter(component => component.meta?.labelStudioRole !== "brand-name")).toEqual(components.filter(component => component.meta?.labelStudioRole !== "brand-name"));
+  expect(changed.filter(component => component.meta?.labelStudioRole === "brand-name").every(component => component.kind === "text" && component.text === "业务新标题")).toBe(true);
+  await editor.get('button[aria-label="撤销"]').trigger("click");
+  expect(latest(wrapper).template).toEqual(before.template);
+});
+
+it("changing a preset cannot rebuild through navigation and requires the visible confirmation", async () => {
+  const wrapper = studio(); await flushPromises();
+  await wrapper.findAll(".mr-label-presets button").find(button => button.get("strong").text() === "仓储标签")!.trigger("click");
+  await wrapper.findAll(".mr-label-bar button").find(button => button.text() === "设计标签")!.trigger("click"); await flushPromises();
+  expect(wrapper.findComponent(ReportTemplateEditor).exists()).toBe(false);
+  expect(latest(wrapper).template.pages).toHaveLength(2);
+  expect(wrapper.get(".mr-label-notice").text()).toContain("确认重建");
+  await wrapper.get(".mr-label-apply").trigger("click");
+  expect(wrapper.get(".mr-label-rebuild").text()).toContain("手工调整");
+  await wrapper.get(".mr-label-rebuild").findAll("button").find(button => button.text() === "继续调整")!.trigger("click");
   expect(latest(wrapper).template.pages).toHaveLength(2);
 });

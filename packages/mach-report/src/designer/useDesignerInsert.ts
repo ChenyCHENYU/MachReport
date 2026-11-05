@@ -1,7 +1,16 @@
-import { computed, ref } from "vue";
-import type { DatasetContract, DatasetRows } from "@agile-team/mach-report";
+import { computed, ref, shallowRef, watch } from "vue";
+import type {
+  DatasetContract,
+  DatasetRows,
+  ReportTemplateDocument,
+  TemplateComponent,
+} from "@agile-team/mach-report";
 import { insertionChart, insertionColumn } from "./insertion-binding";
 import { inspectTemplateFieldUsage } from "../source/template-outline";
+import {
+  canvasComponentFitsPage,
+  canvasComponentPlacement,
+} from "./canvas-placement";
 import {
   createCanvasComponent,
   appendCanvasColumn,
@@ -16,6 +25,27 @@ import {
   type DesignerInsertMessages,
 } from "./insertion-messages";
 
+function labelCopies(
+  document: ReportTemplateDocument,
+  datasets: DatasetRows | undefined,
+): number | undefined {
+  const repeat = document.template.repeat;
+  const rows = repeat && datasets?.[repeat.dataset];
+  if (!repeat || !rows) return;
+  const copies = repeat.copies ?? 1;
+  if (typeof copies === "number")
+    return Number.isSafeInteger(copies) && copies > 0 && copies <= 1000
+      ? rows.length * copies
+      : undefined;
+  let total = 0;
+  for (const row of rows) {
+    const value = Object.getOwnPropertyDescriptor(row, copies.field)?.value;
+    if (!Number.isSafeInteger(value) || value < 1 || value > 1000) return;
+    total += value;
+  }
+  return total;
+}
+
 /** 追加入口按当前表格或逐记录模板绑定字段，宿主无需拼组件或维护列结构。 */
 export function useDesignerInsert(
   editor: ReturnType<typeof useTemplateEditor>,
@@ -27,6 +57,77 @@ export function useDesignerInsert(
 ) {
   const m = computed(() => ({ ...DESIGNER_INSERT_MESSAGES, ...messages() }));
   const notice = ref("");
+  const pendingInsertion = shallowRef<{
+    component: TemplateComponent;
+    widthMm: number;
+    heightMm: number;
+    pageCount: number;
+    copies?: number;
+    repeat: boolean;
+  }>();
+  const confirmation = computed(() => {
+    const pending = pendingInsertion.value;
+    if (!pending) return;
+    const pageImpact = pending.repeat
+      ? m.value.labelPageImpact
+      : m.value.reportPageImpact;
+    const impacts = [pageImpact
+      .replace("{before}", String(pending.pageCount))
+      .replace("{after}", String(pending.pageCount + 1))];
+    if (pending.copies !== undefined) {
+      impacts.push(m.value.labelCountImpact
+        .replace("{before}", String(pending.copies * pending.pageCount))
+        .replace("{after}", String(pending.copies * (pending.pageCount + 1))));
+    }
+    return {
+      title: m.value.newPageTitle,
+      description: m.value.newPageDescription
+        .replace("{width}", String(pending.widthMm))
+        .replace("{height}", String(pending.heightMm)),
+      impacts,
+      confirm: m.value.newPageConfirm,
+      cancel: m.value.newPageCancel,
+    };
+  });
+  watch(
+    [editor.draft, workspace.canvasPage, datasets, schemas],
+    () => { pendingInsertion.value = undefined; },
+    { flush: "sync" },
+  );
+  function commitInsertion(component: TemplateComponent): void {
+    if (!workspace.canvas.insertPlaced(component)) return;
+    notice.value = workspace.canvas.insertedOnNewPage.value ? m.value.newPage : "";
+    workspace.setMode("design");
+    inspector.section.value = "component";
+  }
+  function requestInsertion(component: TemplateComponent): void {
+    const document = editor.draft.value;
+    const page = document.template.pages[workspace.canvasPage.value]!;
+    if (!canvasComponentFitsPage(page, component)) {
+      notice.value = m.value.contentTooLarge;
+      return;
+    }
+    if (canvasComponentPlacement(page, component).newPage) {
+      notice.value = "";
+      pendingInsertion.value = {
+        component,
+        widthMm: page.widthMm,
+        heightMm: page.heightMm,
+        pageCount: document.template.pages.length,
+        copies: labelCopies(document, datasets()),
+        repeat: !!document.template.repeat,
+      };
+      return;
+    }
+    commitInsertion(component);
+  }
+  function cancelInsertion(): void { pendingInsertion.value = undefined; }
+  function confirmInsertion(): void {
+    const pending = pendingInsertion.value;
+    if (!pending || workspace.editDisabled.value) return;
+    pendingInsertion.value = undefined;
+    commitInsertion(pending.component);
+  }
   const dataset = computed(
     () =>
       editor.draft.value.template.repeat?.dataset ??
@@ -58,7 +159,7 @@ export function useDesignerInsert(
     schema.value.fields.filter((field) => field.field !== schema.value.rowKey),
   );
   function insert(kind: CanvasInsertKind): void {
-    if (workspace.editDisabled.value) return;
+    if (workspace.editDisabled.value || pendingInsertion.value) return;
     const component = createCanvasComponent(kind, dataset.value);
     if (component.kind === "chart") {
       const binding = insertionChart(schema.value, dataset.value, m.value.recordCount);
@@ -96,15 +197,10 @@ export function useDesignerInsert(
       (component.kind === "qrcode" || component.kind === "barcode")
     )
       component.binding = { field: identity };
-    if (!workspace.canvas.insertPlaced(component)) return;
-    notice.value = workspace.canvas.insertedOnNewPage.value
-      ? m.value.newPage
-      : "";
-    workspace.setMode("design");
-    inspector.section.value = "component";
+    requestInsertion(component);
   }
   function addField(name: string): void {
-    if (workspace.editDisabled.value) return;
+    if (workspace.editDisabled.value || pendingInsertion.value) return;
     const field = fields.value.find((item) => item.field === name);
     if (!field) return;
     if (editor.draft.value.template.repeat) {
@@ -119,12 +215,7 @@ export function useDesignerInsert(
         prefix: `${field.label || name}  `,
         ...(field.format ? { format: field.format } : {}),
       };
-      workspace.canvas.insertPlaced(component);
-      workspace.setMode("design");
-      inspector.section.value = "component";
-      notice.value = workspace.canvas.insertedOnNewPage.value
-        ? m.value.newPage
-        : "";
+      requestInsertion(component);
       return;
     }
     const location = editor.lists.value[editor.selected.value];
@@ -199,6 +290,9 @@ export function useDesignerInsert(
     addField,
     removeColumn,
     notice,
+    confirmation,
+    confirmInsertion,
+    cancelInsertion,
     messages: m,
   };
 }

@@ -90,7 +90,7 @@ function focusOut(event: FocusEvent): void {
 onBeforeUnmount(() => { if (focusFrame !== undefined) cancelAnimationFrame(focusFrame); });
 </script>
 <template>
-  <div class="mr-insert" @keydown.esc.prevent.stop="close" @focusout="focusOut">
+  <div class="mr-insert mr-designer-controls" @keydown.esc.prevent.stop="close" @focusout="focusOut">
     <button
       ref="trigger"
       class="mr-insert-trigger"
@@ -158,6 +158,7 @@ onBeforeUnmount(() => { if (focusFrame !== undefined) cancelAnimationFrame(focus
     </div>
   </div>
 </template>
+<style src="./designer-controls.css"></style>
 <style scoped>
 .mr-insert {
   position: relative;
@@ -228,6 +229,11 @@ onBeforeUnmount(() => { if (focusFrame !== undefined) cancelAnimationFrame(focus
 .mr-insert-fields button:hover {
   background: #f1f7ff;
   border-color: #a9c5e8;
+}
+.mr-insert-fields button:disabled {
+  cursor: default;
+  background: #f8fafc;
+  border-color: #e2e8f0;
 }
 .mr-insert-grid small,
 .mr-insert-fields small {

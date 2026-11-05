@@ -1,6 +1,8 @@
 import { computed, ref, shallowRef, watch, onMounted, onScopeDispose } from "vue";
 import { createReportSource, defineLabelReport, imposeLabelSheets, parseReportTemplate, serializeReportTemplate, type DatasetContract, type LabelReportRows, type ReportTemplateDocument } from "@agile-team/mach-report";
-import { createCodeAssetRenderers } from "@agile-team/mach-report/codes";
+import { createLazyLabelCodeAssets } from "./label-studio-assets";
+import { labelStudioSheetLayout } from "./label-studio-sheets";
+import { isCustomLabelStudioLayout, patchLabelStudioContent, rebuildLabelStudioDocument } from "./label-studio-content";
 import { provideMachReportConfig } from "@agile-team/mach-report/vue";
 import type { TemplateEditorController, TemplateEditorOptions } from "./useTemplateEditor";
 import { useTemplateDiscard, type TemplateEditorBeforeDiscardContext } from "./useTemplateDiscard";
@@ -50,12 +52,15 @@ export function useLabelStudio(props: LabelStudioOptions, emit: (document: Repor
   const title = computed(() => props.title ?? m.value.title);
   const initialLayout = { preset: props.preset, brand: props.brand, fields: props.fields };
   const document = shallowRef(props.modelValue ? parseReportTemplate(props.modelValue) : createLabelStudioDocument(props.schema, title.value, props.identityField, initialLayout));
-  let savedDocument = parseReportTemplate(document.value);
+  const savedDocument = shallowRef(parseReportTemplate(document.value));
+  const editorVisited = ref(false), editorInitialDocument = shallowRef<ReportTemplateDocument>();
+  let beforeEditorChange: ReportTemplateDocument | undefined;
+  let saveController: AbortController | undefined;
   onMounted(() => { if (!props.modelValue) emit(parseReportTemplate(document.value)); });
   const mode = ref<"preview" | "design">("preview"), record = ref("all"), recordIndex = ref(1), sheet = ref(false), operating = ref(false);
   const editor = ref<TemplateEditorController>();
   const discard = useTemplateDiscard(() => props.beforeDiscard);
-  const busy = computed(() => operating.value || discard.pending.value || editor.value?.saving === true || editor.value?.blocked === true);
+  const busy = computed(() => operating.value || discard.pending.value || editorVisited.value && !editor.value || editor.value?.saving === true || editor.value?.blocked === true);
   const notice = ref("");
   const identity = computed(() => labelIdentityField(props.schema, props.identityField));
   const preset = ref<LabelStudioPreset | undefined>(storedLayout(document.value)?.preset ?? (props.modelValue ? undefined : props.preset ?? "paired"));
@@ -79,12 +84,25 @@ export function useLabelStudio(props: LabelStudioOptions, emit: (document: Repor
     brand: { ...props.brand, ...(brandLogo.value ? { logoData: brandLogo.value } : {}), name: brandName.value, tagline: brandTagline.value },
   }));
   let metadata = JSON.stringify(storedLayout(document.value));
-  const custom = computed(() => !storedLayout(document.value));
+  const custom = computed(() => {
+    const layout = storedLayout(document.value);
+    if (!layout) return true;
+    try {
+      const canonical = createLabelStudioDocument(props.schema, title.value, props.identityField, { ...layout, brand: { ...layout.brand, ...(brandLogo.value ? { logoData: brandLogo.value } : {}) } });
+      return isCustomLabelStudioLayout(document.value, canonical);
+    } catch { return true; }
+  });
+  const rebuilding = ref(false);
+  const layoutChanged = computed(() => preset.value !== storedLayout(document.value)?.preset);
   const formSnapshot = () => JSON.stringify({ preset: preset.value, fields: fields.value, name: brandName.value, tagline: brandTagline.value });
   const configurationBaseline = ref(formSnapshot());
   const configurationDirty = computed(() => formSnapshot() !== configurationBaseline.value);
-  const pendingLocalChanges = computed(() => configurationDirty.value || editor.value?.pendingLocalChanges === true);
+  const documentJson = computed(() => serializeReportTemplate(document.value));
+  const savedJson = computed(() => serializeReportTemplate(savedDocument.value));
+  const documentDirty = computed(() => documentJson.value !== savedJson.value);
+  const pendingLocalChanges = computed(() => configurationDirty.value || documentDirty.value || editor.value?.pendingLocalChanges === true);
   function restoreConfiguration(): void {
+    rebuilding.value = false;
     const layout = storedLayout(document.value);
     preset.value = layout?.preset;
     fields.value = availableSelection(props.schema, identity.value, layout?.fields ?? props.fields);
@@ -101,13 +119,23 @@ export function useLabelStudio(props: LabelStudioOptions, emit: (document: Repor
     restoreConfiguration();
   }
   let disposed = false;
-  onScopeDispose(() => { disposed = true; });
-  const assets = { assetRenderers: createCodeAssetRenderers() };
-  provideMachReportConfig({ get defaults() { return { assets, ...props.preview }; } });
+  onScopeDispose(() => { disposed = true; saveController?.abort(); });
+  const assets = createLazyLabelCodeAssets();
+  provideMachReportConfig({ get defaults() { return { ...props.preview, assets: { ...assets, ...props.preview?.assets, assetRenderers: { ...assets.assetRenderers, ...props.preview?.assets?.assetRenderers } } }; } });
+  watch(editor, control => {
+    const initial = editorInitialDocument.value;
+    if (!control || !initial) return;
+    const current = document.value;
+    if (serializeReportTemplate(initial) !== documentJson.value) control.applyTemplate?.(current.template);
+    editorInitialDocument.value = undefined;
+    beforeEditorChange = undefined;
+  }, { flush: "post" });
+  watch([preset, fields, brandName, brandTagline], () => { rebuilding.value = false; });
   watch(() => props.modelValue, value => {
-    if (value && serializeReportTemplate(value) !== serializeReportTemplate(document.value)) {
+    if (value && serializeReportTemplate(value) !== documentJson.value) {
       document.value = parseReportTemplate(value);
-      savedDocument = parseReportTemplate(value);
+      savedDocument.value = parseReportTemplate(value);
+      beforeEditorChange = undefined;
       syncConfiguration(value);
     }
   });
@@ -122,19 +150,27 @@ export function useLabelStudio(props: LabelStudioOptions, emit: (document: Repor
     if (selected && fields.value.length < 5 && !fields.value.includes(field)) fields.value = [...fields.value, field];
     else if (!selected) fields.value = fields.value.filter(value => value !== field);
   }
-  function applyConfiguration(): boolean {
+  function applyConfiguration(rebuild = false): boolean {
     if (busy.value || disposed) return false;
     if (!preset.value) { notice.value = m.value.choosePreset; return false; }
     if (editor.value?.canApply === false) { notice.value = editor.value.saveReason || m.value.applyFirst; return false; }
+    if (layoutChanged.value && !rebuild) { rebuilding.value = true; return false; }
     try {
-      const next = createLabelStudioDocument(props.schema, title.value, props.identityField, configuration.value);
-      const repeat = document.value.template.repeat;
-      if (repeat?.copies !== undefined && next.template.repeat) next.template.repeat.copies = repeat.copies;
+      const previous = storedLayout(document.value);
+      let next: ReportTemplateDocument | undefined;
+      if (rebuild) {
+        next = rebuildLabelStudioDocument(document.value, props.schema, title.value, props.identityField, configuration.value);
+      } else if (previous) {
+        next = patchLabelStudioContent(document.value, props.schema, title.value, props.identityField, previous, configuration.value);
+      }
+      if (!next) { notice.value = m.value.contentNeedsDesign; return false; }
       if (editor.value?.applyTemplate) {
         if (!editor.value.applyTemplate(next.template)) { notice.value = m.value.saveFailed; return false; }
       } else {
-        update({ ...document.value, template: next.template });
+        beforeEditorChange = parseReportTemplate(document.value);
+        update(next);
       }
+      rebuilding.value = false;
       configurationBaseline.value = formSnapshot();
       return true;
     } catch (cause) {
@@ -175,21 +211,31 @@ export function useLabelStudio(props: LabelStudioOptions, emit: (document: Repor
       return Number.isSafeInteger(copies) && copies >= 1 && copies <= 1000 ? rows.value.length * copies * pageCount.value : undefined;
     return dynamicCopies.value === undefined ? undefined : dynamicCopies.value * pageCount.value;
   });
+  const sheetLayout = computed(() => labelStudioSheetLayout(document.value.template));
+  const sheetHint = computed(() => {
+    const value = sheetLayout.value;
+    return value ? m.value.sheetHint.replace("{columns}", String(value.columns)).replace("{rows}", String(value.rows)).replace("{capacity}", String(value.capacity)) : m.value.sheetUnavailable;
+  });
+  watch(sheetLayout, value => { if (!value) sheet.value = false; });
   const fetcher = computed(() => {
     const source = createReportSource({ labels: defineLabelReport({ template: document.value.template, rows: rows.value, dataSchema: props.schema }) });
-    const imposed = sheet.value;
+    const imposed = sheet.value ? sheetLayout.value : undefined;
     return async (input: Parameters<typeof source>[0]) => {
       const plan = await source(input);
-      return imposed ? imposeLabelSheets(plan, { paper: "a4", columns: 2, rows: 4, marginMm: 12, gapMm: 4, signal: input.signal }) : plan;
+      return imposed ? imposeLabelSheets(plan, { ...imposed, signal: input.signal }) : plan;
     };
   });
   const save: NonNullable<TemplateEditorOptions["save"]> = async (draft, context) => {
-    const saved = props.save ? await props.save(draft, context) : parseReportTemplate(draft);
     if (disposed || context.signal.aborted) throw new DOMException("标签模板保存已取消", "AbortError");
-    savedDocument = parseReportTemplate(saved); update(saved); return saved;
+    const snapshot = parseReportTemplate(draft);
+    const saved = parseReportTemplate(props.save ? await props.save(snapshot, context) : snapshot);
+    if (saved.id !== draft.id) throw new Error(m.value.invalidSavedTemplate);
+    if (disposed || context.signal.aborted) throw new DOMException("标签模板保存已取消", "AbortError");
+    savedDocument.value = parseReportTemplate(saved); update(saved); return saved;
   };
   async function prepare(): Promise<ReportTemplateDocument | undefined> {
     if (busy.value || disposed) return;
+    if (configurationDirty.value && layoutChanged.value) { notice.value = m.value.applyLayoutFirst; return; }
     if (configurationDirty.value && !applyConfiguration()) return;
     operating.value = true;
     try {
@@ -197,19 +243,36 @@ export function useLabelStudio(props: LabelStudioOptions, emit: (document: Repor
         if (editor.value.canApply === false) { notice.value = editor.value.saveReason || m.value.applyFirst; return; }
         if (editor.value.pendingLocalChanges) await editor.value.save();
         if (editor.value.pendingLocalChanges) { notice.value = m.value.saveFailed; return; }
+      } else if (documentDirty.value) {
+        saveController = new AbortController();
+        await save(document.value, { expectedRevision: document.value.revision, signal: saveController.signal });
+        beforeEditorChange = undefined;
       }
       if (!disposed) { notice.value = ""; return parseReportTemplate(document.value); }
-    } finally { operating.value = false; }
+    } catch (cause) {
+      if (!disposed) notice.value = cause instanceof Error ? cause.message : m.value.saveFailed;
+    } finally { operating.value = false; saveController = undefined; }
   }
   async function navigate(next: "preview" | "design"): Promise<void> {
-    if (next !== mode.value && await prepare()) mode.value = next;
+    if (busy.value || next === mode.value) return;
+    if (next === "design" && !editorVisited.value) {
+      if (configurationDirty.value && layoutChanged.value) { notice.value = m.value.applyLayoutFirst; return; }
+      if (configurationDirty.value && !applyConfiguration()) return;
+      editorInitialDocument.value = beforeEditorChange;
+      editorVisited.value = true;
+      mode.value = next;
+    } else if (await prepare()) mode.value = next;
+  }
+  function failDesignLoad(cause: unknown): void {
+    editorVisited.value = false; mode.value = "preview";
+    notice.value = `${m.value.designLoadFailed} ${cause instanceof Error ? cause.message : String(cause)}`;
   }
   let approvedReset = false;
   const beforeDiscard = (context: TemplateEditorBeforeDiscardContext) => approvedReset || discard.request(context);
   async function guardChanges(): Promise<boolean> {
     if (busy.value) return false;
     const pending = editor.value?.pendingLocalChanges === true;
-    if (!pending && !configurationDirty.value) return true;
+    if (!pending && !documentDirty.value && !configurationDirty.value) return true;
     const allowed = pending && editor.value
       ? await editor.value.guardChanges()
       : await discard.request({ reason: "replace", document: parseReportTemplate(document.value), pendingLocalChanges: true });
@@ -217,10 +280,11 @@ export function useLabelStudio(props: LabelStudioOptions, emit: (document: Repor
     if (pending && editor.value) {
       approvedReset = true;
       try { await editor.value.reset(); } finally { approvedReset = false; }
-      update(parseReportTemplate(savedDocument));
     }
+    update(parseReportTemplate(savedDocument.value));
+    beforeEditorChange = undefined;
     restoreConfiguration();
     return true;
   }
-  return { m, notice, title, document, mode, record, recordIndex, sheet, busy, editor, rows, datasets, designDatasets, schemas, bindings, paper, labelCount, fetcher, update, save, navigate, prepare, guardChanges, preset, presets: LABEL_STUDIO_PRESETS, brandName, brandTagline, fields, fieldQuery, selectedFields, availableFields, fieldCount: computed(() => candidates.value.length), configurationDirty, pendingLocalChanges, custom, toggleField, applyConfiguration, restoreConfiguration, beforeDiscard, confirmation: discard.confirmation, decideDiscard: discard.decide };
+  return { m, notice, title, document, mode, editorVisited, editorInitialDocument, failDesignLoad, sheetLayout, sheetHint, rebuilding, layoutChanged, record, recordIndex, sheet, busy, editor, rows, datasets, designDatasets, schemas, bindings, paper, labelCount, fetcher, update, save, navigate, prepare, guardChanges, preset, presets: LABEL_STUDIO_PRESETS, brandName, brandTagline, fields, fieldQuery, selectedFields, availableFields, fieldCount: computed(() => candidates.value.length), configurationDirty, pendingLocalChanges, custom, toggleField, applyConfiguration, requestRebuild: () => { rebuilding.value = true; }, cancelRebuild: () => { rebuilding.value = false; }, restoreConfiguration, beforeDiscard, confirmation: discard.confirmation, decideDiscard: discard.decide };
 }

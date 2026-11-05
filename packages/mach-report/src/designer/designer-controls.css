@@ -1,0 +1,49 @@
+.mr-designer-controls {
+  color: var(--mrp-toolbar-fg, #334155);
+  font: inherit;
+}
+
+.mr-designer-controls :where(button, input, select) {
+  box-sizing: border-box;
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--mrp-toolbar-border, #dbe3ec);
+  border-radius: 6px;
+  background: var(--mrp-toolbar-bg, #fff);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.mr-designer-controls :where(button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+
+.mr-designer-controls :where(input, select) {
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 7px;
+}
+
+.mr-designer-controls :where(button):hover:enabled {
+  border-color: var(--mrp-btn-border, #c4d4e8);
+  background: var(--mrp-btn-hover-bg, #eff6ff);
+  color: var(--mrp-btn-hover-fg, #1d4ed8);
+}
+
+.mr-designer-controls :where(button, input, select, summary):focus-visible {
+  outline: 2px solid var(--mrp-btn-active-bg, #2563eb);
+  outline-offset: 2px;
+}
+
+.mr-designer-controls :where(button, input, select):disabled {
+  cursor: default;
+  opacity: 0.45;
+}

@@ -13,6 +13,7 @@ import type { ExcelBindingWizardApply } from "./useExcelBindingWizard";
 import ReportIcon from "../vue/ReportIcon.vue";
 import DesignerTaskGuide from "./DesignerTaskGuide.vue";
 import DesignerInsertMenu from "./DesignerInsertMenu.vue";
+import DesignerInsertionConfirm from "./DesignerInsertionConfirm.vue";
 import TemplateTotalsEditor from "./TemplateTotalsEditor.vue";
 import { useDesignerInsert } from "./useDesignerInsert";
 import { useDesignerShortcuts } from "./useDesignerShortcuts";
@@ -126,8 +127,13 @@ const assetPending = computed(() => draft.value.template.pages.some(page => page
   if (component.kind === "image") return !component.imageData || component.meta?.designerPlaceholder === true;
   return ["qrcode", "barcode"].includes(component.kind) && !component.imageData && !(component.code?.value ?? component.fallbackText ?? component.text ?? "").trim();
 })));
-const saveReason = computed(() => assetPending.value ? insertion.messages.value.assetPending : navigationSaveReason.value);
+const saveReason = computed(() => insertion.confirmation.value
+  ? insertion.messages.value.newPagePending
+  : assetPending.value ? insertion.messages.value.assetPending : navigationSaveReason.value);
 async function saveDocument(): Promise<void> {
+  if (insertion.confirmation.value) {
+    return;
+  }
   if (assetPending.value) {
     error.value = insertion.messages.value.assetPending;
     return;
@@ -202,7 +208,7 @@ function openPanel(target: TemplateEditorPanel): void {
   section.value = target === "layout" ? "template" : target === "fields" && lists.value.length ? "fields" : "component";
   setMode(section.value === "fields" ? "preview" : "design");
 }
-const canApply = computed(() => !props.readonly && !blocked.value && !jsonPending.value && !editor.toolPending.value && !editor.fieldChange.value && validation.value.ok && !assetPending.value);
+const canApply = computed(() => !props.readonly && !blocked.value && !jsonPending.value && !editor.toolPending.value && !editor.fieldChange.value && validation.value.ok && !assetPending.value && !insertion.confirmation.value);
 defineExpose({
   openPanel,
   applyTemplate: editor.applyTemplate,
@@ -218,10 +224,16 @@ defineExpose({
     return saving.value;
   },
   get blocked() {
-    return blocked.value;
+    return blocked.value || !!insertion.confirmation.value;
   },
-  guardChanges: editor.guardChanges,
-  reset: editor.reset,
+  guardChanges: (...args: Parameters<typeof editor.guardChanges>) => {
+    insertion.cancelInsertion();
+    return editor.guardChanges(...args);
+  },
+  reset: async () => {
+    insertion.cancelInsertion();
+    await editor.reset();
+  },
   save: saveDocument,
   insertComponent: canvas.insertComponent,
 });
@@ -349,6 +361,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
       </div>
     </header>
     <p v-if="insertion.notice.value" class="mr-designer-insert-notice" role="status">{{ insertion.notice.value }}</p>
+    <DesignerInsertionConfirm v-if="insertion.confirmation.value" v-bind="insertion.confirmation.value" @confirm="insertion.confirmInsertion" @cancel="insertion.cancelInsertion" />
     <TemplateRecoveryPanel :recovery="editor.recovery" :conflict="editor.conflict" :readonly="readonly" :can-load="!!loadLatest" :can-copy="!!keepCopy" :messages="recoveryMessages" />
     <TemplateFieldImpactPanel :messages="productMessages" :change="editor.fieldChange.value" :disabled="editDisabled" @confirm="editor.confirmFieldChange" @cancel="editor.cancelFieldChange" @locate="locateReview" />
     <div v-if="pendingConfigurations.length" :id="`${id}-pending`" class="mr-designer-pending" role="status">

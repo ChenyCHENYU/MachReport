@@ -1,5 +1,6 @@
 import { flushPromises, mount } from "@vue/test-utils";
-import { defineComponent, type PropType } from "vue";
+import { defineComponent, reactive, type PropType } from "vue";
+import * as serialization from "../../source/template-serialization";
 import { describe, expect, it, vi } from "vitest";
 import {
   createTableTemplate,
@@ -66,6 +67,92 @@ function harness(options: TemplateEditorOptions) {
 }
 
 describe("轻量模板属性编辑器", () => {
+  it("shares the validated edit snapshot with JSON, dirty, history and independent host echoes", async () => {
+    const { wrapper, editor } = harness({ modelValue: document() });
+    const stringify = vi.spyOn(serialization, "stringifyValidatedTemplate");
+    try {
+      editor.setName("Changed");
+      expect(editor.dirty.value).toBe(true);
+      expect(editor.canUndo.value).toBe(true);
+      expect(editor.canRedo.value).toBe(false);
+      expect(editor.validation.value.ok).toBe(true);
+      expect(JSON.parse(editor.json.value).name).toBe("Changed");
+      expect(stringify).toHaveBeenCalledTimes(1);
+      const emitted = wrapper.emitted("update:modelValue")!.at(-1)![0] as ReportTemplateDocument;
+      await wrapper.setProps({ modelValue: emitted });
+      expect(stringify).toHaveBeenCalledTimes(2); // Incoming host data is validated independently.
+      expect(editor.dirty.value).toBe(true);
+      emitted.name = "Host mutation";
+      expect(editor.draft.value.name).toBe("Changed");
+      editor.undo();
+      expect(editor.draft.value.name).toBe("日报");
+      expect(editor.dirty.value).toBe(false);
+    } finally { stringify.mockRestore(); wrapper.unmount(); }
+  });
+
+  it("does not traverse source rows for template edits and still refreshes in-place dataset changes", async () => {
+    let reads = 0;
+    const datasets = reactive({ detail: [{ get heat() { reads++; return "A"; }, weight: 0 }] });
+    const { wrapper, editor } = harness({ modelValue: document(), datasets });
+    await flushPromises(); reads = 0;
+    editor.setColumn(0, "header", "Edited header");
+    await flushPromises();
+    expect(reads).toBe(0);
+    const before = editor.fetcher.value;
+    datasets.detail[0]!.weight = 2;
+    await flushPromises();
+    expect(reads).toBeGreaterThan(0);
+    expect(editor.fetcher.value).not.toBe(before);
+    wrapper.unmount();
+  });
+
+  it("restores invalid form drafts without emitting them or losing the current CAS revision", async () => {
+    const save = vi.fn(async (value: ReportTemplateDocument) => ({ ...value, revision: "2" }));
+    const { wrapper, editor } = harness({ modelValue: document(), save });
+    editor.setDescription("Saved content"); await editor.save();
+    const emitted = wrapper.emitted("update:modelValue")!.length;
+    editor.setName("");
+    expect(editor.validation.value.ok).toBe(false);
+    expect(editor.dirty.value).toBe(true);
+    editor.undo();
+    expect(editor.draft.value).toMatchObject({ name: "日报", revision: "2" });
+    editor.redo();
+    expect(editor.draft.value).toMatchObject({ name: "", revision: "2" });
+    expect(editor.jsonPending.value).toBe(false);
+    expect(editor.fetcher.value).toBeUndefined();
+    await editor.save();
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(wrapper.emitted("update:modelValue")).toHaveLength(emitted + 1); // Only the valid undo emits.
+    editor.setName("Corrected");
+    expect(editor.validation.value.ok).toBe(true);
+    expect(editor.draft.value.revision).toBe("2");
+    wrapper.unmount();
+  });
+
+  it("rejects oversized transaction, host and save snapshots before replacing the current draft", async () => {
+    const save = vi.fn(async (value: ReportTemplateDocument) => ({ ...value, name: "oversized", revision: "2" }));
+    const { wrapper, editor } = harness({ modelValue: document(), save });
+    const original = serialization.stringifyValidatedTemplate;
+    const stringify = vi.spyOn(serialization, "stringifyValidatedTemplate").mockImplementation(value => {
+      if (value.name === "oversized") throw new RangeError("formatted JSON budget");
+      return original(value);
+    });
+    try {
+      expect(editor.transaction(value => { value.name = "oversized"; })).toBe(false);
+      expect(editor.draft.value.name).toBe("日报");
+      expect(editor.dirty.value).toBe(false);
+      await wrapper.setProps({ modelValue: { ...document(), name: "oversized" } });
+      expect(editor.error.value).toBe("formatted JSON budget");
+      expect(editor.draft.value.name).toBe("日报");
+      editor.setName("Retained local content");
+      await editor.save();
+      expect(editor.error.value).toBe("formatted JSON budget");
+      expect(editor.draft.value).toMatchObject({ name: "Retained local content", revision: "1" });
+      expect(editor.dirty.value).toBe(true);
+      expect(wrapper.emitted("saved")).toBeUndefined();
+    } finally { stringify.mockRestore(); wrapper.unmount(); }
+  });
+
   it("keeps preview identity for metadata edits and refreshes only layout or dataset changes", async () => {
     const { wrapper, editor } = harness({ modelValue: document(), datasets: { detail: [{ heat: "A", weight: 0 }] } });
     await flushPromises();

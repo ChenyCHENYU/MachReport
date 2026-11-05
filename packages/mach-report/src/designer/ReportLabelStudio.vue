@@ -1,14 +1,23 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from "vue";
+import { markRaw, nextTick, onScopeDispose, ref, shallowRef, watch, type Component } from "vue";
 import { ReportPreview } from "@agile-team/mach-report/vue";
 import type { ReportTemplateDocument } from "@agile-team/mach-report";
-import ReportTemplateEditor from "./ReportTemplateEditor.vue";
 import ReportIcon from "../vue/ReportIcon.vue";
 import { useLabelStudio, type LabelStudioOptions } from "./useLabelStudio";
 const props = withDefaults(defineProps<LabelStudioOptions>(), { showSave: true });
 const emit = defineEmits<{ (event: "update:modelValue", document: ReportTemplateDocument): void }>();
 const studio = useLabelStudio(props, document => emit("update:modelValue", document));
-const { m, notice, title, document, mode, record, recordIndex, sheet, busy, editor, rows, designDatasets, schemas, bindings, paper, labelCount, fetcher, preset, presets, brandName, brandTagline, fields, fieldQuery, selectedFields, availableFields, fieldCount, configurationDirty, pendingLocalChanges, custom, confirmation } = studio;
+const { m, notice, title, document, mode, record, recordIndex, sheet, busy, editor, rows, designDatasets, schemas, bindings, paper, labelCount, fetcher, preset, presets, brandName, brandTagline, fields, fieldQuery, selectedFields, availableFields, fieldCount, configurationDirty, pendingLocalChanges, custom, confirmation, editorVisited, editorInitialDocument, sheetLayout, sheetHint, rebuilding, layoutChanged } = studio;
+const LabelEditor = shallowRef<Component>();
+let disposed = false;
+onScopeDispose(() => { disposed = true; });
+watch(studio.editorVisited, async requested => {
+  if (!requested || LabelEditor.value) return;
+  try {
+    const module = await import("./ReportTemplateEditor.vue");
+    if (!disposed) LabelEditor.value = markRaw(module.default);
+  } catch (cause) { if (!disposed) studio.failDesignLoad(cause); }
+});
 const keepEditingButton = ref<HTMLButtonElement>();
 let previousFocus: HTMLElement | null = null;
 watch(confirmation, async value => {
@@ -52,10 +61,12 @@ defineExpose({ guardChanges: studio.guardChanges, prepare: studio.prepare, get b
           <label>{{ m.brandName }}<input v-model="brandName" maxlength="80" :placeholder="title" /></label>
           <label>{{ m.brandTagline }}<input v-model="brandTagline" maxlength="120" /></label>
         </details>
-        <button class="mr-label-apply" type="button" :disabled="!configurationDirty || !preset" @click="studio.applyConfiguration"><ReportIcon name="arrow-right" :size="13" />{{ m.applyLayout }}</button>
+        <button class="mr-label-apply" type="button" :disabled="!configurationDirty || !preset" @click="studio.applyConfiguration()"><ReportIcon name="arrow-right" :size="13" />{{ layoutChanged ? m.applyLayout : m.applyContent }}</button>
+        <button v-if="custom && preset && !rebuilding" class="mr-label-reset-configuration mr-label-rebuild-current" type="button" @click="studio.requestRebuild">{{ m.rebuildCurrent }}</button>
+        <div v-if="rebuilding" class="mr-label-rebuild" role="alert"><strong>{{ m.rebuildTitle }}</strong><p>{{ m.rebuildDescription }}</p><div><button type="button" @click="studio.cancelRebuild">{{ m.cancelRebuild }}</button><button type="button" @click="studio.applyConfiguration(true)">{{ m.confirmRebuild }}</button></div></div>
         <button v-if="configurationDirty" class="mr-label-reset-configuration" type="button" @click="studio.restoreConfiguration">{{ m.restoreConfiguration }}</button>
         <p v-if="configurationDirty && !preset" class="mr-label-reflow-hint">{{ m.choosePreset }}</p>
-        <p class="mr-label-reflow-hint">{{ m.reflowHint }}</p>
+        <p class="mr-label-reflow-hint">{{ layoutChanged ? m.reflowHint : m.contentHint }}</p>
       </fieldset>
       <label class="mr-label-record">{{ m.records }}<select v-model="record" :disabled="busy || !props.rows.length"><option value="all">{{ m.all }} · {{ props.rows.length }}</option><option value="single">{{ m.single }}</option></select></label>
       <label v-if="record === 'single'" class="mr-label-record-index">{{ m.record }}<input v-model.number="recordIndex" type="number" min="1" :max="props.rows.length" :aria-label="m.record" :disabled="busy" /> / {{ props.rows.length }}</label>
@@ -67,10 +78,11 @@ defineExpose({ guardChanges: studio.guardChanges, prepare: studio.prepare, get b
       <p v-if="notice" class="mr-label-notice" role="status">{{ notice }}</p>
       <div v-if="confirmation" class="mr-label-confirm" role="alertdialog" :aria-label="m.discardTitle" @keydown.esc.prevent.stop="studio.decideDiscard(false)"><div><strong>{{ m.discardTitle }}</strong><p>{{ m.discardDescription }}</p></div><button ref="keepEditingButton" type="button" @click="studio.decideDiscard(false)">{{ m.keepEditing }}</button><button type="button" @click="studio.decideDiscard(true)">{{ m.discard }}</button></div>
       <ReportPreview v-if="mode === 'preview'" report-id="labels" :fetcher="fetcher" :show-params="false" height="100%" :toolbar="{ exportFormats: ['pdf','png','html'], editing: false, excelImport: false }" :messages="{ title, empty: m.empty }">
-        <template #settings><label class="mr-label-imposition"><input v-model="sheet" type="checkbox">{{ m.sheet }}<small>{{ m.sheetHint }}</small></label></template>
+        <template #settings><label class="mr-label-imposition"><input v-model="sheet" type="checkbox" :disabled="!sheetLayout">{{ m.sheet }}<small>{{ sheetHint }}</small></label></template>
       </ReportPreview>
-      <div v-show="mode === 'design'" class="mr-label-editor">
-        <ReportTemplateEditor ref="editor" :model-value="document" mode="design" :show-mode-switch="false" :show-save="showSave" :capabilities="{ params: false }" :datasets="designDatasets" :data-schemas="schemas" :binding-datasets="bindings" :save="studio.save" :before-discard="studio.beforeDiscard" :preview="preview" @update:model-value="studio.update" />
+      <div v-if="editorVisited" v-show="mode === 'design'" class="mr-label-editor">
+        <p v-if="!LabelEditor" class="mr-label-editor-loading" role="status">{{ m.designLoading }}</p>
+        <component :is="LabelEditor" v-if="LabelEditor" ref="editor" :model-value="editorInitialDocument ?? document" mode="design" :show-mode-switch="false" :show-save="showSave" :capabilities="{ params: false }" :datasets="designDatasets" :data-schemas="schemas" :binding-datasets="bindings" :save="studio.save" :before-discard="studio.beforeDiscard" :preview="preview" @update:model-value="studio.update" />
       </div>
     </div>
   </section>

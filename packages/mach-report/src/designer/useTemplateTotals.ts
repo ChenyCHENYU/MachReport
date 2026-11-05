@@ -173,13 +173,16 @@ export function useTemplateTotals(
     });
   });
   const blocked = computed(() => !!props.readonly || complex.value);
+  const currentEntry = computed(() =>
+    entries.value.find((item) => item.field === field.value),
+  );
   const canAdd = computed(
     () =>
       !blocked.value &&
       fields.value.some((item) => item.field === field.value) &&
-      !entries.value.some(
-        (item) => item.field === field.value && !item.editable,
-      ),
+      (!currentEntry.value ||
+        (currentEntry.value.editable &&
+          currentEntry.value.op !== operation.value)),
   );
   const scope = computed(() =>
     target.value.group === undefined ? m.value.scope : m.value.groupScope,
@@ -196,9 +199,7 @@ export function useTemplateTotals(
       );
     }, 0),
   );
-  const updating = computed(() =>
-    entries.value.some((item) => item.field === field.value),
-  );
+  const updating = computed(() => !!currentEntry.value);
   watch(
     fields,
     (next) => {
@@ -211,6 +212,16 @@ export function useTemplateTotals(
     if (!next.some((item) => item.key === position.value))
       position.value = "total";
   });
+  watch(
+    [field, position, () => props.list, () => currentEntry.value?.op],
+    () => {
+      const configured = currentEntry.value;
+      operation.value = configured?.editable
+        ? (configured.op as SimpleOperation)
+        : "sum";
+    },
+    { immediate: true },
+  );
   function add(): void {
     if (!canAdd.value) return;
     const next: ListComponent = JSON.parse(JSON.stringify(props.list)),

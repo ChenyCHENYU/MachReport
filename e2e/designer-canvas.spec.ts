@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import type { ReportTemplateDocument } from "../packages/mach-report/src/index";
 type CanvasWindow = Window & {
@@ -8,6 +8,11 @@ type CanvasWindow = Window & {
     readonly(value: boolean): void;
   };
 };
+async function acceptAdditionalPage(root: Locator): Promise<void> {
+  const confirmation = root.getByRole("alertdialog", { name: "需要新增一个版面", exact: true });
+  if (await confirmation.isVisible())
+    await confirmation.getByRole("button", { name: "新增版面并添加", exact: true }).click();
+}
 async function mountCanvas(page: Page) {
   await page.goto("http://localhost:8610");
   await expect(page.getByText("产品出库单")).toBeVisible();
@@ -239,6 +244,7 @@ test("设计器列排序/显隐/拖宽、多层表头合并拆分与组件命令
   await root.getByRole("button", { name: "添加内容", exact: true }).click();
   await root.getByRole("dialog", { name: "添加到当前版面", exact: true })
     .getByRole("button", { name: /^图片或 Logo/ }).click();
+  await acceptAdditionalPage(root);
   await expect.poll(() => page.evaluate(() =>
     (window as CanvasWindow).__canvasFixture.document.template.pages
       .reduce((count, page) => count + page.components.length, 0),
@@ -271,6 +277,13 @@ test("设计器列排序/显隐/拖宽、多层表头合并拆分与组件命令
 
 test("画布适宽适页、多选对齐与位置锁保持模板和视口一致", async ({ page }, testInfo) => {
   const root = await mountCanvas(page);
+  for (const selector of [".mr-insert-trigger", ".mr-designer-guide > button"]) {
+    const control = root.locator(selector);
+    await expect(control).toHaveCSS("border-top-style", "solid");
+    await expect(control).toHaveCSS("border-top-width", "1px");
+    await expect(control).toHaveCSS("border-radius", "6px");
+    await expect(control).toHaveCSS("font-size", "12px");
+  }
   const viewport = root.locator(".mr-canvas-scroll"), paper = root.locator(".mr-canvas-paper");
   await root.getByRole("button", { name: "适宽", exact: true }).click();
   expect(await paper.evaluate(node => node.getBoundingClientRect().width)).toBeLessThanOrEqual((await viewport.evaluate(node => node.clientWidth)) - 39);
@@ -308,6 +321,8 @@ test("添加字段与说明文字、表尾汇总在同一工作区预览并保�
   await expect(totals).not.toHaveAttribute("open");
   await expect(totals.locator("summary")).toContainText("未设置");
   await totals.locator("summary").click();
+  await expect(totals.getByRole("combobox", { name: "计算方式", exact: true })).toHaveCSS("border-top-style", "solid");
+  await expect(totals.getByRole("combobox", { name: "计算方式", exact: true })).toHaveCSS("border-radius", "6px");
   await totals.getByRole("combobox", { name: "显示位置", exact: true }).selectOption("total");
   await totals.getByRole("combobox", { name: "汇总字段", exact: true }).selectOption("weight");
   await totals.getByRole("combobox", { name: "计算方式", exact: true }).selectOption("sum");
@@ -326,6 +341,7 @@ test("添加字段与说明文字、表尾汇总在同一工作区预览并保�
   await root.getByRole("button", { name: "添加内容", exact: true }).click();
   await root.getByRole("dialog", { name: "添加到当前版面", exact: true })
     .getByRole("button", { name: /^说明文字/ }).click();
+  await acceptAdditionalPage(root);
   const text = root.getByLabel("文本内容", { exact: true });
   await text.fill("生产口径已核对");
   await text.press("Tab");
@@ -340,4 +356,31 @@ test("添加字段与说明文字、表尾汇总在同一工作区预览并保�
   await expect(root.locator(".mr-canvas-paper")).toContainText("生产口径已核对");
   expect(errors).toEqual([]);
   await root.screenshot({ path: testInfo.outputPath("template-continuity-totals.png") });
+});
+
+test("新增版面先显示影响，取消保留原模板，确认后一次撤销恢复", async ({ page }) => {
+  const root = await mountCanvas(page);
+  const before = await page.evaluate(() => (window as CanvasWindow).__canvasFixture.changes);
+  await root.getByRole("button", { name: "添加内容", exact: true }).click();
+  await root.getByRole("dialog", { name: "添加到当前版面", exact: true })
+    .getByRole("button", { name: /^说明文字/ }).click();
+  const confirmation = root.getByRole("alertdialog", { name: "需要新增一个版面", exact: true });
+  await expect(confirmation).toBeVisible();
+  await expect(confirmation).toContainText("模板版面 1 → 2");
+  await expect(confirmation).toContainText("最终输出页数由明细分页决定");
+  const cancel = confirmation.getByRole("button", { name: "取消添加", exact: true });
+  await expect(cancel).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(confirmation.getByRole("button", { name: "新增版面并添加", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(confirmation).toHaveCount(0);
+  expect(await page.evaluate(() => (window as CanvasWindow).__canvasFixture.changes)).toBe(before);
+  await expect(root.getByRole("button", { name: "添加内容", exact: true })).toBeFocused();
+  await root.getByRole("button", { name: "添加内容", exact: true }).click();
+  await root.getByRole("dialog", { name: "添加到当前版面", exact: true })
+    .getByRole("button", { name: /^说明文字/ }).click();
+  await confirmation.getByRole("button", { name: "新增版面并添加", exact: true }).click();
+  expect(await page.evaluate(() => (window as CanvasWindow).__canvasFixture.document.template.pages.length)).toBe(2);
+  await root.getByRole("button", { name: "撤销", exact: true }).click();
+  expect(await page.evaluate(() => (window as CanvasWindow).__canvasFixture.document.template.pages.length)).toBe(1);
 });

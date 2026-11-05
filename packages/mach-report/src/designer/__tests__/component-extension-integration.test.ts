@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { flushPromises, mount } from "@vue/test-utils";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createReportComponentRegistry, defineReportTemplate, type ReportTemplateDocument } from "../../index";
 import ReportTemplateEditor from "../ReportTemplateEditor.vue";
 import type { TemplateEditorController } from "../useTemplateEditor";
@@ -21,11 +21,11 @@ describe("registered component canvas insertion", () => {
       const updated = updates[updates.length - 1]![0] as ReportTemplateDocument;
       expect(updated.template.pages[0]!.components[0]).toMatchObject({ leftMm: 80, topMm: 90, widthMm: 20, heightMm: 10 });
       expect(editor.pendingLocalChanges).toBe(true);
-      expect(wrapper.find('.mr-designer-preview img').attributes("src")).toBe(PNG);
+      await vi.waitFor(() => expect(wrapper.find('.mr-designer-preview img').attributes("src")).toBe(PNG));
       await wrapper.get('button[aria-label="撤销"]').trigger("click"); await flushPromises();
-      expect(wrapper.find('.mr-designer-preview img').exists()).toBe(false);
+      await vi.waitFor(() => expect(wrapper.find('.mr-designer-preview img').exists()).toBe(false));
       await wrapper.get('button[aria-label="重做"]').trigger("click"); await flushPromises();
-      expect(wrapper.find('.mr-designer-preview img').attributes("src")).toBe(PNG);
+      await vi.waitFor(() => expect(wrapper.find('.mr-designer-preview img').attributes("src")).toBe(PNG));
       await wrapper.setProps({ readonly: true });
       expect(editor.insertComponent(component)).toBe(false);
     } finally { wrapper.unmount(); await registry.dispose(); }

@@ -2,15 +2,14 @@
 import { resolveListSampleCell, resolveListHeaderStyle } from "../layout/list-cell";
 import { designListSamples } from "./tree-samples";
 import { useCanvasViewport } from "./useCanvasViewport";
+import { createCanvasGridLayouts } from "./canvas-grid-layouts";
 import { resolveFontSize } from "../render/style";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { canvasContentSample, canvasRulerMarks } from "./canvas-samples";
 import { pageName } from "./page-commands";
 import {
-  resolveGridLayout,
   type DatasetRows,
   type ListComponent,
-  type PlanComponent,
   type ReportTemplateDocument,
 } from "@agile-team/mach-report";
 import {
@@ -47,6 +46,7 @@ const { viewport, zoom, scale, page, wide, fraction, fit, setZoom, sync, navigat
 const geometryDisabled = computed(() => props.disabled === true || props.geometryDisabled === true || !!page.value.flow);
 const samples = computed(() => page.value.components.map(component => component.kind === "list" ? designListSamples(component, props.datasets?.[component.dataset] ?? [], page.value.flow || component.cardinality === "record" ? 1 : 3) : []));
 const contentSamples = computed(() => page.value.components.map(component => canvasContentSample(component, props.document, props.datasets)));
+const gridLayouts = createCanvasGridLayouts();
 const rulers = ref(true);
 const horizontalMarks = computed(() => canvasRulerMarks(page.value.widthMm, scale.value));
 const verticalMarks = computed(() => canvasRulerMarks(page.value.heightMm, scale.value));
@@ -106,27 +106,6 @@ function columnEdges(list: ListComponent): number[] {
     width += column.widthMm;
     return width;
   });
-}
-function staticCells(component: PlanComponent) {
-  return component.grid
-    ? resolveGridLayout(
-        component.grid,
-        component.widthMm,
-        component.heightMm,
-      ).cells.slice(0, 2000)
-    : [];
-}
-function headerCells(list: ListComponent) {
-  return list.headerGrid
-    ? resolveGridLayout(
-        list.headerGrid,
-        list.widthMm,
-        list.headerGrid.rowHeightsMm?.reduce(
-          (sum, height) => sum + height,
-          0,
-        ) ?? list.headerGrid.cells.length * 8,
-      ).cells
-    : [];
 }
 let cancelColumn: (() => void) | undefined;
 watch(
@@ -247,7 +226,7 @@ function resizeColumn(
                 }"
               >
                 <div
-                  v-for="(box, cellIndex) in headerCells(component)"
+                  v-for="(box, cellIndex) in gridLayouts.read(component).cells"
                   :key="cellIndex"
                   :style="{
                     left: `${box.xMm * scale}px`,
@@ -308,7 +287,7 @@ function resizeColumn(
           </template>
           <div v-else-if="component.grid" class="mr-canvas-static-grid">
             <div
-              v-for="(box, cellIndex) in staticCells(component)"
+              v-for="(box, cellIndex) in gridLayouts.read(component).cells"
               :key="cellIndex"
               :style="{
                 left: `${box.xMm * scale}px`,
@@ -325,10 +304,7 @@ function resizeColumn(
               {{ box.cell.text }}
             </div>
             <span
-              v-if="
-                component.grid.cells.reduce((sum, row) => sum + row.length, 0) >
-                2000
-              "
+              v-if="gridLayouts.read(component).limited"
               class="mr-canvas-grid-limit"
               >{{ m.canvasGridLimited }}</span>
           </div>

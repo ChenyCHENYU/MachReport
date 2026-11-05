@@ -40,9 +40,9 @@ function header(title: string, width: number, brand?: LabelStudioLayout["brand"]
     components.push({ kind: "image", leftMm: 4, topMm: 3, widthMm: 12, heightMm: 7, imageData: brand.logoData, meta: { labelBrandLogo: true } });
     left = 19;
   }
-  components.push({ ...text(brand?.name?.trim() || title, left, 3, width - left - 4, 5, 9), style: { fontSize: 9, color: "#205582" } });
+  components.push({ ...text(brand?.name?.trim() || title, left, 3, width - left - 4, 5, 9), style: { fontSize: 9, color: "#205582" }, meta: { labelStudioRole: "brand-name" } });
   if (brand?.tagline?.trim())
-    components.push({ ...text(brand.tagline.trim(), left, 8, width - left - 4, 3, 5.5), style: { fontSize: 5.5, color: muted } });
+    components.push({ ...text(brand.tagline.trim(), left, 8, width - left - 4, 3, 5.5), style: { fontSize: 5.5, color: muted }, meta: { labelStudioRole: "brand-tagline" } });
   components.push(line(12, width));
   return components;
 }
@@ -51,8 +51,8 @@ function details(fields: LabelField[], top: number, labelWidth: number, valueWid
   return fields.flatMap((field, index) => {
     const y = top + index * gap;
     return [
-      { ...text(field.label ?? field.field, 4, y, labelWidth, 4, 6), style: { fontSize: 6, color: muted } },
-      { ...text("", 4 + labelWidth, y, valueWidth, 4, 7), binding: { field: field.field, ...(field.format ? { format: field.format } : {}) } },
+      { ...text(field.label ?? field.field, 4, y, labelWidth, 4, 6), style: { fontSize: 6, color: muted }, meta: { labelStudioRole: "field-label", labelStudioField: field.field } },
+      { ...text("", 4 + labelWidth, y, valueWidth, 4, 7), binding: { field: field.field, ...(field.format ? { format: field.format } : {}) }, meta: { labelStudioRole: "field-value", labelStudioField: field.field } },
     ];
   });
 }
@@ -87,8 +87,8 @@ function warehouseFace(schema: DatasetContract, title: string, identity: string 
     fields.forEach((field, index) => {
       const left = index % 2 === 0 ? 4 : 52;
       const top = 46 + Math.floor(index / 2) * 4.3;
-      components.push({ ...text(field.label ?? field.field, left, top, 19, 3.7, 5.8), style: { fontSize: 5.8, color: muted } });
-      components.push({ ...text("", left + 19, top, 25, 3.7, 6.5), binding: { field: field.field, ...(field.format ? { format: field.format } : {}) } });
+      components.push({ ...text(field.label ?? field.field, left, top, 19, 3.7, 5.8), style: { fontSize: 5.8, color: muted }, meta: { labelStudioRole: "field-label", labelStudioField: field.field } });
+      components.push({ ...text("", left + 19, top, 25, 3.7, 6.5), binding: { field: field.field, ...(field.format ? { format: field.format } : {}) }, meta: { labelStudioRole: "field-value", labelStudioField: field.field } });
     });
   } else components.push(...details(fields.slice(0, 1), 46, 24, width - 32, 5));
   return components;

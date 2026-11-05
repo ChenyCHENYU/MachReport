@@ -52,17 +52,26 @@ export function captureSessionGuard(parts: readonly ReportEditSessionPart[]): ()
   collect(parts, stamps, new Set(), { nodes: 0 }, 0);
   return () => { try { return stamps.every(matches); } catch { return false; } };
 }
-function clone(value: unknown, budget: Budget, depth: number): unknown {
+function clone(value: unknown, budget: Budget, depth: number, validate = false): unknown {
   checkBudget(budget, depth);
+  if (validate) {
+    if (typeof value === "function" || typeof value === "symbol") throw new ReportCellEditError("conflict");
+    if (value !== null && typeof value === "object") checkObject(value);
+  }
   // Strings are immutable: retain their value without copying or scanning their characters.
   if (value === null || typeof value !== "object") return value;
   if (value instanceof Date) return new Date(Date.prototype.getTime.call(value));
   if (Array.isArray(value)) {
     const result: unknown[] = [];
-    for (let index = 0; index < value.length; index++) result[index] = clone(ownValue(value, String(index)), budget, depth + 1);
+    for (let index = 0; index < value.length; index++) result[index] = clone(ownValue(value, String(index)), budget, depth + 1, validate);
     return result;
   }
-  return Object.fromEntries(Object.keys(value).map((key) => [key, clone(ownValue(value, key), budget, depth + 1)]));
+  return Object.fromEntries(Object.keys(value).map((key) => [key, clone(ownValue(value, key), budget, depth + 1, validate)]));
+}
+/** Layout owns its plain/Date/scalar input before yielding to host events. The
+ * descriptor checks share edit-session policy and never invoke custom getters. */
+export function snapshotLayoutPart(part: ReportEditSessionPart): ReportEditSessionPart {
+  return clone(part, { nodes: 0 }, 0, true) as ReportEditSessionPart;
 }
 /** Called only after the guard succeeds; depth/node bounds apply again to the owned snapshot. */
 export function snapshotSessionParts(parts: readonly ReportEditSessionPart[]): ReportEditSessionPart[] {
