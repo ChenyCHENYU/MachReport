@@ -145,6 +145,7 @@ test("结构大纲跨页定位，改名先展示公式引用并守卫保存", as
     .click();
   await expect(page.locator(".mr-outline")).toBeVisible();
   await page.getByRole("tab", { name: "字段", exact: true }).click();
+  await expect(page.getByLabel("业务字段", { exact: true })).toHaveValue("energy");
   await page.getByLabel("业务字段", { exact: true }).fill("energy_new");
   await page.getByLabel("业务字段", { exact: true }).press("Tab");
   const impact = page.getByRole("alertdialog", {
