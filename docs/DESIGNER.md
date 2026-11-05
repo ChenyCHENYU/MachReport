@@ -112,6 +112,23 @@ async function canLeave() { return await editor.value?.guardChanges() ?? true; }
 
 ## 查询参数、模板库与批量生成
 
+已有项目工作台可选用 `/designer` 的 `useTemplateWorkbench()` 组合函数，继续使用自己的模板管理器、设计器和弹窗。它统一异步动作去重、忙碌与错误反馈，并按宿主声明的顺序保护已挂载的各工作区草稿。
+
+```ts
+const workspace = useTemplateWorkbench({
+  blocked: () => editor.value?.blocked === true,
+  guards: () => [reportGuard, labelGuard],
+  prepare: prepareCurrentDocument,
+  apply: applyTemplate,
+  applied: () => { opened.value = false; },
+  onError: showOperationError,
+});
+```
+
+`prepare` 返回已验证并保存的当前文档，返回 `undefined` 可保留编辑现场。`apply(document, { signal })` 返回可等待的真实结果，返回 `false` 表示取消，抛错交给 `onError`。成功后才执行 `applied`。组件作用域销毁会取消任务并隔离迟到的完成反馈，外部作用域也可主动调用 `dispose()`。其他管理动作使用同一个 `run()`，不重复维护第二份忙碌状态。业务取数、权限、字段兼容校验和实际落库继续由现有接口提供。
+
+接入方可向设计器传入 `binding-data-contract`。用户在 Excel 向导明确完成字段映射并接受模板后，目标契约与模板内容在同一笔事务中采用，单步撤销同时恢复原内容和来源。导入 JSON、打开旧草稿以及普通属性编辑继续保留文档自身的来源契约，套用前仍须核对兼容性。
+
 工具中的“查询参数”使用可视化表单维护模板参数；支持排序、必填、默认值、边界与选择项。未应用参数草稿参与离开保护，应用复用模板事务、撤销/重做与版本保存。详见[参数](PARAMETERS.md)。
 
 可选 `ReportTemplateLibrary` 接收一个 `ReportTemplateCatalogProvider`：包内处理搜索/分类、远程分页、取消和过期响应，`open` 返回经过校验的独立模板文档。仅提供真实 `create(document,{signal})` 保存动作后显示复制入口，副本使用新 ID 并清除原修订；持久化与权限由宿主服务处理。库不持有企业账号。

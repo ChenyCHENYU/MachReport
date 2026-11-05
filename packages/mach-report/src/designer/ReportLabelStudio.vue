@@ -30,7 +30,7 @@ watch(confirmation, async value => {
     previousFocus = null;
   }
 });
-defineExpose({ guardChanges: studio.guardChanges, prepare: studio.prepare, get busy() { return busy.value; }, get pendingLocalChanges() { return pendingLocalChanges.value; } });
+defineExpose({ guardChanges: studio.guardChanges, prepare: studio.prepare, preview: studio.showPreview, print: studio.print, get mode() { return mode.value; }, get canPrint() { return studio.canPrint.value; }, get busy() { return busy.value; }, get pendingLocalChanges() { return pendingLocalChanges.value; } });
 </script>
 <template>
   <section class="mr-label-studio" :class="{ 'is-design': mode === 'design' }" :aria-label="title">
@@ -77,12 +77,12 @@ defineExpose({ guardChanges: studio.guardChanges, prepare: studio.prepare, get b
       <header class="mr-label-bar"><nav :aria-label="title"><button type="button" :aria-pressed="mode === 'preview'" :disabled="busy" @click="studio.navigate('preview')"><ReportIcon name="file" :size="14" />{{ m.preview }}</button><button type="button" :aria-pressed="mode === 'design'" :disabled="busy" @click="studio.navigate('design')"><ReportIcon name="settings" :size="14" />{{ m.design }}</button></nav><span>{{ mode === 'design' ? m.designHint : m.flow }}</span></header>
       <p v-if="notice" class="mr-label-notice" role="status">{{ notice }}</p>
       <div v-if="confirmation" class="mr-label-confirm" role="alertdialog" :aria-label="m.discardTitle" @keydown.esc.prevent.stop="studio.decideDiscard(false)"><div><strong>{{ m.discardTitle }}</strong><p>{{ m.discardDescription }}</p></div><button ref="keepEditingButton" type="button" @click="studio.decideDiscard(false)">{{ m.keepEditing }}</button><button type="button" @click="studio.decideDiscard(true)">{{ m.discard }}</button></div>
-      <ReportPreview v-if="mode === 'preview'" report-id="labels" :fetcher="fetcher" :show-params="false" height="100%" :toolbar="{ exportFormats: ['pdf','png','html'], editing: false, excelImport: false }" :messages="{ title, empty: m.empty }">
+      <ReportPreview v-if="mode === 'preview'" :ref="studio.preview.ref" report-id="labels" :fetcher="fetcher" :show-params="false" height="100%" :toolbar="{ exportFormats: ['pdf','png','html'], editing: false, excelImport: false }" :messages="{ title, empty: m.empty }">
         <template #settings><label class="mr-label-imposition"><input v-model="sheet" type="checkbox" :disabled="!sheetLayout">{{ m.sheet }}<small>{{ sheetHint }}</small></label></template>
       </ReportPreview>
       <div v-if="editorVisited" v-show="mode === 'design'" class="mr-label-editor">
         <p v-if="!LabelEditor" class="mr-label-editor-loading" role="status">{{ m.designLoading }}</p>
-        <component :is="LabelEditor" v-if="LabelEditor" ref="editor" :model-value="editorInitialDocument ?? document" mode="design" :show-mode-switch="false" :show-save="showSave" :capabilities="{ params: false }" :datasets="designDatasets" :data-schemas="schemas" :binding-datasets="bindings" :save="studio.save" :before-discard="studio.beforeDiscard" :preview="preview" @update:model-value="studio.update" />
+        <component :is="LabelEditor" v-if="LabelEditor" ref="editor" :model-value="editorInitialDocument ?? document" mode="design" :show-mode-switch="false" :show-save="showSave" :capabilities="{ params: false }" :datasets="designDatasets" :data-schemas="schemas" :binding-datasets="bindings" :binding-data-contract="dataContract" :save="studio.save" :before-discard="studio.beforeDiscard" :preview="preview" @update:model-value="studio.update" />
       </div>
     </div>
   </section>

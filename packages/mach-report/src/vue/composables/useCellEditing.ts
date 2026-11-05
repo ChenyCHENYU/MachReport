@@ -78,7 +78,7 @@ export function useCellEditing(host: CellEditingHost) {
       return true;
     }
     if (active.value === session) {
-      session.editor.input.disabled = false;
+      session.editor.input.disabled = host.blocked() || saving.value;
       session.editor.feedback(history.lastError.value ?? undefined);
       session.editor.input.focus();
     }
@@ -141,7 +141,7 @@ export function useCellEditing(host: CellEditingHost) {
       input.addEventListener("keydown", (event) => onEditorKey(event as KeyboardEvent));
       input.addEventListener("input", () => { inputChanged.value = input.value !== editor.initialInput; editor.feedback(); });
       input.addEventListener("change", () => { inputChanged.value = input.value !== editor.initialInput; });
-      input.addEventListener("blur", () => { if (!saving.value && !host.suspendBlur?.()) void commit(); });
+      input.addEventListener("blur", () => { if (!saving.value && !host.blocked() && !host.suspendBlur?.()) void commit(); });
       editor.focus();
     } catch (cause) {
       reportFailure(cause);
@@ -155,6 +155,11 @@ export function useCellEditing(host: CellEditingHost) {
     if (cell) await editCell(cell);
   }
 
+  // A host refresh keeps the draft mounted. Freeze its native input as well as transactions,
+  // so a previously approved replacement cannot discard text typed after that approval.
+  watch([active, saving, () => active.value && host.blocked()], () => {
+    if (active.value) active.value.editor.input.disabled = host.blocked() || saving.value;
+  }, { flush: "sync" });
   watch(host.options, (option, previous) => { if (!option || option !== previous) cancel(); }, { flush: "sync" });
   watch(host.plan, () => {
     if (active.value && host.plan.value !== active.value.plan) {

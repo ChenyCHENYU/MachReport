@@ -85,7 +85,7 @@ import {
   type MachReportMessages
 } from "./config";
 
-import { MachReportError, type MachReportErrorCode } from "./errors";
+import { MachReportError, normalizeReportLoadError, type MachReportErrorCode } from "./errors";
 import type { MachReportController, MachReportState, MachReportStateError } from "./controller";
 import type { ReportEditingOptions } from "./editing";
 import type { ExcelImportOptions, ExcelImportResult } from "../xlsx/import-types";
@@ -95,7 +95,7 @@ import { type ReportFieldTarget } from "./composables/useCellSelection";
 import { useFrozenPanes } from "./composables/useFrozenPanes";
 import { useReportParams } from "./composables/useReportParams";
 import { usePreviewSession } from "./composables/usePreviewSession";
-import { type MachReportToolbarOptions, type ReportEmptyState, type ReportPreviewPreferences, type ReportPreviewTool, type ReportInteractionOptions, type ReportPreferencesOptions, type ReportSection } from "./tools";
+import { type MachReportToolbarOptions, type ReportEmptyState, type ReportPreviewPreferences, type ReportPreviewTool, type ReportInteractionOptions, type ReportPreferencesOptions, type ReportSection, type ReportRefreshOptions } from "./tools";
 
 const props = defineProps({
   prefill: { type: [Boolean, Object] as PropType<ReportPrefillReviewOptions | false>, default: undefined },
@@ -120,6 +120,7 @@ const props = defineProps({
   toolbar: { type: Object as PropType<MachReportToolbarOptions>, default: undefined },
   interaction: { type: Object as PropType<ReportInteractionOptions>, default: undefined },
   preferences: { type: Object as PropType<ReportPreferencesOptions>, default: undefined },
+  refresh: { type: Object as PropType<ReportRefreshOptions>, default: undefined },
   guardChanges: { type: Boolean, default: undefined },
   beforeDiscard: { type: Function as PropType<ReportBeforeDiscard>, default: undefined },
   output: { type: Object as PropType<ReportOutputOptions>, default: undefined },
@@ -163,6 +164,7 @@ const emit = defineEmits<{
 }>();
 
 const errorMessage = ref("");
+const retryingSnapshot = ref(false);
 const lastError = shallowRef<Readonly<MachReportStateError> | null>(null);
 
 const exportNotice = ref<{ kind: "error" | "warning" | "progress"; message: string } | null>(null);
@@ -184,14 +186,17 @@ const outputDiagnostics = computed(() => diagnostics.entries.value.filter(entry 
 
 const session = usePreviewSession({
   source: { ids: () => reportIds.value, fetcher: () => effectiveFetcher.value, readParams: () => paramMetadata.value.error ? { error: paramMetadata.value.error, quiet: false } : queryParams.query(), invalidParams: () => { if (!paramMetadata.value.error) paramAttempted.value = true; } },
-  policy: { guard: reason => effectiveGuardChanges.value && editing.pendingLocalChanges.value ? discard.check(reason) : true, assets: () => effectiveAssets.value, importOptions: () => effectiveExcelImport.value, importingMessage: () => resolvedMessages.value.importing },
+  policy: { guard: reason => effectiveGuardChanges.value && editing.pendingLocalChanges.value ? discard.check(reason) : true, assets: () => effectiveAssets.value, importOptions: () => effectiveExcelImport.value, importingMessage: () => resolvedMessages.value.importing, refresh: () => effectiveRefresh.value },
   feedback: { errorMessage, lastError, notice: exportNotice, reportError }, task, diagnostics,
   view: {
-    invalidate: () => { editing.reset(); cells.reset(); output.invalidate(); currentPage.value = 1; search.reset(); },
+    invalidate: preservePosition => { editing.reset(); cells.reset(); output.invalidate(); if (!preservePosition) currentPage.value = 1; search.reset(); },
     beforeImport: () => { editing.cancel(); output.invalidatePending(); },
-    accepted: kind => {
-      currentPage.value = 1;
-      if (viewportRef.value) { viewportRef.value.scrollTop = 0; viewportRef.value.scrollLeft = 0; }
+    accepted: (kind, preservePosition) => {
+      if (preservePosition) restoreReadingPosition();
+      else {
+        currentPage.value = 1;
+        if (viewportRef.value) { viewportRef.value.scrollTop = 0; viewportRef.value.scrollLeft = 0; }
+      }
       const nextMemoryKey = wideReport.value ? WIDE_UI_MEMORY_KEY : UI_MEMORY_KEY;
       if (kind === "import" || nextMemoryKey !== zoomMemoryKey) { zoomMemoryKey = nextMemoryKey; loadZoomMemory(); }
       if (kind === "query" && zoomMode.value === "fit") applyFitZoom();
@@ -199,13 +204,15 @@ const session = usePreviewSession({
   },
   events: { warning: message => emit("warning", message), logWarning: message => resolved.value.logger.warn("[mach-report] 报表告警:", message), loaded: count => emit("loaded", count), imported: result => emit("template-import", result) }
 });
-const { plan, loading, importing, importedResult, loadedContext, timing, reload, importExcel } = session;
+const { plan, loading, importing, stale: sessionStale, importedResult, loadedContext, timing, reload, importExcel } = session;
 
 const wideReport = computed(() => !!plan.value?.pages.length && plan.value.pages.every((page) => page.layout === "wide"));
 const PX_PER_MM = 96 / 25.4;
 const UI_MEMORY_KEY = "mach-report:ui";
 const WIDE_UI_MEMORY_KEY = "mach-report:ui:wide";
 let zoomMemoryKey = UI_MEMORY_KEY;
+let restoringZoom = false;
+let zoomRestoreGeneration = 0;
 
 const injectedFetcher = inject(MACH_REPORT_FETCHER_KEY, null);
 const injectedPdfExporter = inject(MACH_REPORT_PDF_EXPORTER_KEY, null);
@@ -214,14 +221,15 @@ const reportIds = computed(() => normalizeReportIds(props.reportId));
 const effectiveFetcher = computed(() => props.fetcher ?? injectedFetcher);
 const pageCount = computed(() => plan.value?.pages.length ?? 0);
 const state = computed<MachReportState>(() => Object.freeze({
-  loading: loading.value,
+  loading: loading.value || effectiveRefresh.value.pending === true,
+  stale: stale.value,
   hasPlan: pageCount.value > 0,
   pageCount: pageCount.value,
   currentPage: currentPage.value,
   exporting: exporting.value,
   printing: printing.value,
-  canExport: !loading.value && !importing.value && !editing.saving.value && pageCount.value > 0 && exporting.value === null,
-  canPrint: !loading.value && !importing.value && !editing.saving.value && pageCount.value > 0 && !printing.value,
+  canExport: !interactionBlocked.value && !importing.value && !editing.saving.value && pageCount.value > 0 && exporting.value === null,
+  canPrint: !interactionBlocked.value && !importing.value && !editing.saving.value && pageCount.value > 0 && !printing.value,
   error: lastError.value,
   pdfFont: pdfFont.value,
   editing: editing.active.value !== null,
@@ -239,6 +247,35 @@ const state = computed<MachReportState>(() => Object.freeze({
   selection: cells.selection.value ? cloneReportSnapshot(cells.selection.value) : null
 }));
 
+function restoreReadingPosition(): void {
+  const previousPage = currentPage.value;
+  const top = viewportRef.value?.scrollTop ?? 0;
+  const left = viewportRef.value?.scrollLeft ?? 0;
+  const snapshot = plan.value;
+  currentPage.value = Math.max(1, Math.min(previousPage, pageCount.value));
+  void nextTick(() => {
+    if (plan.value !== snapshot || !viewportRef.value) return;
+    viewportRef.value.scrollTop = top;
+    viewportRef.value.scrollLeft = left;
+    pageRendering.refreshViewport();
+    frozenPanes.refresh();
+  });
+}
+
+async function retryRetainedSnapshot(): Promise<void> {
+  if (destroyed || retryingSnapshot.value || loading.value || effectiveRefresh.value.pending) return;
+  const retry = effectiveRefresh.value.stale ? effectiveRefresh.value.retry : undefined;
+  if (!retry) { await reload(); return; }
+  retryingSnapshot.value = true;
+  try { await retry(); }
+  catch (cause) {
+    if (destroyed) return;
+    const error = normalizeReportLoadError(cause);
+    errorMessage.value = error.message;
+    reportError(error.message, error.code, error.cause);
+  } finally { retryingSnapshot.value = false; }
+}
+
 function reportError(message: string, code: MachReportErrorCode, cause?: unknown): void {
   lastError.value = Object.freeze({ message, code, cause });
   emit("error", message, { code, cause });
@@ -248,8 +285,10 @@ const {
   resolved, resolvedMessages, effectiveShowExport,
   effectiveShowSettings, effectiveGuardChanges, effectiveOutput, effectiveInteraction, effectiveAssets,
   effectiveGapPx, effectiveShowParams, availableTools, tools, toolState, visibleExportFormats,
-  effectiveEditable, effectiveExcelImport, persistedEditing, emptyStateContent, sessionInteraction
+  effectiveEditable, effectiveExcelImport, persistedEditing, emptyStateContent, sessionInteraction, effectivePreferences, effectiveRefresh, unavailableReasons
 } = usePreviewConfiguration(props, wideReport, (message) => emit("warning", message));
+const stale = computed(() => sessionStale.value || !!plan.value && effectiveRefresh.value.stale === true);
+const interactionBlocked = computed(() => loading.value || stale.value || effectiveRefresh.value.pending === true);
 const pdfToolsEnabled = computed(() => toolState.value.pdf || toolState.value.pdfWindow);
 const effectivePrefill = computed(() => props.prefill ?? resolved.value.prefill);
 const effectiveDataComparison = computed(() => props.dataComparison ?? resolved.value.dataComparison);
@@ -273,6 +312,7 @@ async function resetTools(): Promise<void> {
   tools.reset();
   sessionInteraction.value = {};
   localPrintCalibration.value = undefined;
+  loadZoomMemory();
   emit("preferences-change", Object.freeze({ ...toolState.value }));
 }
 async function toggleSettings(section: "general" | "tools" | "advanced" = "general"): Promise<void> {
@@ -287,7 +327,7 @@ async function toggleSettings(section: "general" | "tools" | "advanced" = "gener
 const { editing, cells, discard, confirmDiscard } = usePreviewEditing({
   plan, root: containerRef, options: effectiveEditable,
   selectionEnabled: () => !!effectiveEditable.value || calculationsEnabled.value || !!effectiveDataComparison.value || !!(props.drill ?? resolved.value.drill),
-  busy: () => loading.value || importing.value || exporting.value !== null || printing.value,
+  busy: () => interactionBlocked.value || importing.value || exporting.value !== null || printing.value,
   messages: () => resolvedMessages.value, gotoPage, ensureVisible: address => pageRendering.reveal(address),
   guard: {
     reportIds: () => loadedContext.value?.reportIds ?? reportIds.value,
@@ -300,7 +340,7 @@ const { editing, cells, discard, confirmDiscard } = usePreviewEditing({
 });
 const output = usePreviewOutput({
   plan, editing, diagnostics, task,
-  busy: () => loading.value || importing.value, wide: () => wideReport.value,
+  busy: () => interactionBlocked.value || importing.value, wide: () => wideReport.value,
   defaultsPrint: () => resolved.value.printOptions, printOverrides: () => props.printOptions,
   messages: () => resolvedMessages.value, fidelity: () => effectiveOutput.value.fidelity,
   execution: () => props.exportExecution ?? resolved.value.exportExecution,
@@ -313,8 +353,8 @@ const { exporting, printing, localPrintCalibration, effectivePrintOptions, canCa
 const dataReview = usePreviewDataReview({
   plan, prefill: effectivePrefill, comparison: effectiveDataComparison, editingOptions: effectiveEditable,
   issues: editing.validationIssues, messages: resolvedMessages,
-  busy: () => loading.value || importing.value || editing.saving.value || !!exporting.value || printing.value,
-  replacing: () => loading.value || importing.value,
+  busy: () => interactionBlocked.value || importing.value || editing.saving.value || !!exporting.value || printing.value,
+  replacing: () => interactionBlocked.value || importing.value,
   settle: editing.settle, apply: editing.apply, editError: () => editing.lastError.value,
   locate: address => { void cells.focusCell(address); },
   missing: () => { exportNotice.value = { kind: "warning", message: resolvedMessages.value.locateFieldMissing ?? "Field not found" }; },
@@ -336,7 +376,7 @@ const drill = useReportDrill({
   params: () => ({ ...loadedContext.value?.params }),
   view: () => ({ zoom: zoom.value, scrollTop: containerRef.value?.scrollTop ?? 0, scrollLeft: containerRef.value?.scrollLeft ?? 0 }),
   messages: () => resolvedMessages.value,
-  busy: () => loading.value || importing.value || editing.saving.value || !!exporting.value || printing.value,
+  busy: () => interactionBlocked.value || importing.value || editing.saving.value || !!exporting.value || printing.value,
   beforeOpen: () => confirmDiscard("leave")
 });
 function cancelTask(): void { task.cancel(); }
@@ -516,16 +556,20 @@ function onKeydown(e: KeyboardEvent): void {
 
 /** 缩放模式持久化（mach-table persistence 同思路；隐私模式/SSR 静默降级） */
 function persistZoom(): void {
+  if (restoringZoom) return;
+  const mode = zoomMode.value === "fit" ? "fit" : Math.round(zoom.value * 100);
+  if (effectivePreferences.value) { tools.setZoomMode(wideReport.value, mode); return; }
   try {
     localStorage.setItem(
       zoomMemoryKey,
-      JSON.stringify({ zoomMode: zoomMode.value === "fit" ? "fit" : Math.round(zoom.value * 100) })
+      JSON.stringify({ zoomMode: mode })
     );
   } catch {
     /* localStorage 不可用时忽略 */
   }
 }
-watch([zoomMode, zoom], persistZoom);
+watch([zoomMode, zoom], ([mode], [previousMode]) => { if (mode !== "fit" || previousMode !== "fit") persistZoom(); });
+watch(interactionBlocked, blocked => { if (blocked) output.invalidatePending(); }, { flush: "sync" });
 
 /** 窗口内页 → DOM（holder 首次出现时挂载，页面级懒渲染）+ 搜索高亮 */
 let lastFocusedMatch = "";
@@ -606,7 +650,12 @@ function onResize(): void {
 }
 
 function loadZoomMemory(): void {
-  setZoom(zoomMemoryKey === WIDE_UI_MEMORY_KEY ? 100 : "fit");
+  const generation = ++zoomRestoreGeneration;
+  restoringZoom = true;
+  void nextTick(() => { if (generation === zoomRestoreGeneration) restoringZoom = false; });
+  const fallback = wideReport.value ? 100 : "fit";
+  if (effectivePreferences.value) { setZoom(tools.getZoomMode(wideReport.value) ?? fallback); return; }
+  setZoom(fallback);
   try {
     const saved = JSON.parse(localStorage.getItem(zoomMemoryKey) ?? "{}") as {
       zoomMode?: "fit" | number;
@@ -617,6 +666,8 @@ function loadZoomMemory(): void {
     /* 忽略 */
   }
 }
+
+watch([effectivePreferences, () => tools.getZoomMode(wideReport.value)], loadZoomMemory);
 
 onMounted(() => {
   window.addEventListener("resize", onResize);
@@ -642,15 +693,16 @@ onUnmounted(() => {
 });
 
 watch(
-  () => [JSON.stringify(reportIds.value), JSON.stringify(props.params), effectiveFetcher.value] as const,
+  [() => JSON.stringify(reportIds.value), () => JSON.stringify(props.params), effectiveFetcher, () => effectiveRefresh.value.key],
   async () => {
     if (props.autoLoad) {
       void reload();
       return;
     }
     if (!await discard.check("replace") || destroyed) return;
-    // 手动加载模式也不能继续呈现已切换的 ID / 查询 / 数据源的旧结果。
-    session.clear();
+    // Retained snapshots stay explicitly read-only until their replacement is loaded.
+    if (effectiveRefresh.value.retainPrevious && plan.value) session.retainPrevious();
+    else session.clear();
   }
 );
 
@@ -690,7 +742,7 @@ defineExpose({ ...controller, state });
       :search="{ visible: search.visible.value, query: search.query.value, matchIndex: search.matchIndex.value, matchCount: search.matchCount.value, searching: search.searching.value }"
       :thumbs-visible="showThumbs"
       :show-import="!!effectiveExcelImport"
-      :busy="loading || importing || editing.saving.value"
+      :busy="interactionBlocked || importing || editing.saving.value"
       @goto="gotoPage"
       @zoom="setZoom"
       @export="(f) => exportAs(f)"
@@ -703,9 +755,10 @@ defineExpose({ ...controller, state });
       @import-excel="importInputRef?.click()"
       @settings-toggle="toggleSettings"
     >
-      <template #data-tools><ReportDataTools :prefill="dataReview.availablePrefill.value" :comparison="dataReview.availableComparison.value" :issue-count="editing.validationIssues.value.length" :messages="dataReview.messages.value" :busy="loading || importing || editing.saving.value || !!exporting || printing" @open="dataReview.open" /></template>
+      <template v-if="$slots.export" #export><slot name="export" :busy="interactionBlocked || importing || editing.saving.value || !!exporting || printing" :export-report="exportAs" :formats="visibleExportFormats" :messages="resolvedMessages" /></template>
+      <template #data-tools><ReportDataTools :prefill="dataReview.availablePrefill.value" :comparison="dataReview.availableComparison.value" :issue-count="editing.validationIssues.value.length" :messages="dataReview.messages.value" :busy="interactionBlocked || importing || editing.saving.value || !!exporting || printing" @open="dataReview.open" /></template>
       <template v-if="sections.length <= 1" #navigation>
-        <ReportNavigation :plan="plan" compact v-if="pageCount > 0 && effectiveInteraction.navigation !== false" :sections="sections" :current-page="currentPage" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @locate-target="locateTarget" @goto="gotoPage" @locate="locateField" />
+        <ReportNavigation :plan="plan" compact v-if="pageCount > 0 && effectiveInteraction.navigation !== false" :sections="sections" :current-page="currentPage" :messages="resolvedMessages" :busy="interactionBlocked || importing || editing.saving.value" @locate-target="locateTarget" @goto="gotoPage" @locate="locateField" />
       </template>
     </ReportToolbar>
     <ReportDataReviewDialog v-if="dataReview.opened.value" :title="dataReview.title.value" :close-label="dataReview.messages.value.reviewClose" @close="dataReview.close">
@@ -716,13 +769,13 @@ defineExpose({ ...controller, state });
     <ReportDiscardDialog v-if="discard.request.value" :messages="resolvedMessages" @answer="discard.settle" />
     <ReportTaskStatus :task="task.state.value" :messages="resolvedMessages" @cancel="cancelTask" />
     <ReportDiagnostics :entries="outputDiagnostics" :messages="resolvedMessages" @locate="locateDiagnostic" />
-    <ReportDataExplanation :entries="dataExplanations" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @locate="locateDataExplanation" />
-    <ReportDrillActions :entries="drill.entries.value" :pending="drill.pending.value" :error="drill.error.value" :busy="loading || importing || editing.saving.value" :messages="resolvedMessages" @open="drill.open" />
-    <ReportSettings v-if="settingsOpen && effectiveShowSettings" :available="availableTools" :enabled="toolState" :messages="resolvedMessages" :persisted-editing="persistedEditing" :interaction="effectiveInteraction" :section="settingsSection" :busy="loading || importing || editing.saving.value || !!exporting || printing" @section="settingsSection = $event" @interaction="onInteractionChange" @change="onToolChange" @reset="resetTools" @close="settingsOpen = false">
+    <ReportDataExplanation :entries="dataExplanations" :messages="resolvedMessages" :busy="interactionBlocked || importing || editing.saving.value" @locate="locateDataExplanation" />
+    <ReportDrillActions :entries="drill.entries.value" :pending="drill.pending.value" :error="drill.error.value" :busy="interactionBlocked || importing || editing.saving.value" :messages="resolvedMessages" @open="drill.open" />
+    <ReportSettings v-if="settingsOpen && effectiveShowSettings" :available="availableTools" :unavailable-reasons="unavailableReasons" :enabled="toolState" :messages="resolvedMessages" :persisted-editing="persistedEditing" :interaction="effectiveInteraction" :section="settingsSection" :busy="interactionBlocked || importing || editing.saving.value || !!exporting || printing" @section="settingsSection = $event" @interaction="onInteractionChange" @change="onToolChange" @reset="resetTools" @close="settingsOpen = false">
       <slot name="settings" />
       <ReportPrintSettings v-if="toolState.print" :value="effectivePrintOptions.calibration ?? {}" :messages="resolvedMessages" :busy="printing || loading || importing || editing.saving.value" :can-test="canCalibratePrint" @change="localPrintCalibration = $event" @test="testPrintCalibration" />
     </ReportSettings>
-    <ReportNavigation :plan="plan" @locate-target="locateTarget" v-if="sections.length > 1 && pageCount > 0 && effectiveInteraction.navigation !== false" :sections="sections" :current-page="currentPage" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @goto="gotoPage" @locate="locateField" />
+    <ReportNavigation :plan="plan" @locate-target="locateTarget" v-if="sections.length > 1 && pageCount > 0 && effectiveInteraction.navigation !== false" :sections="sections" :current-page="currentPage" :messages="resolvedMessages" :busy="interactionBlocked || importing || editing.saving.value" @goto="gotoPage" @locate="locateField" />
     <ReportImportSummary v-if="importedResult" :result="importedResult" :messages="resolvedMessages" />
     <ReportEditBar v-if="effectiveEditable && pageCount > 0" :differences="editing.differences.value" :conflicts="editing.conflicts.value" :messages="resolvedMessages" :saving="editing.saving.value" :can-undo="editing.canUndo.value" :can-redo="editing.canRedo.value" :persisted="persistedEditing" :busy="!!exporting || printing" @undo="editing.undo" @redo="editing.redo" @restore="editing.restore" @locate="locateEdit" />
     <input v-if="effectiveExcelImport" ref="importInputRef" class="mrp-import-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden @change="onImportFile" />
@@ -733,6 +786,10 @@ defineExpose({ ...controller, state });
     <div v-if="pdfFont.status === 'error' && pdfToolsEnabled" class="mrp-export-notice mrp-export-warning" role="status">
       {{ resolvedMessages.pdfFontUnavailable }}
       <button type="button" @click="retryPdfFont">{{ resolvedMessages.retry }}</button>
+    </div>
+    <div v-if="stale" class="mrp-export-notice mrp-stale-snapshot" role="status">
+      <span>{{ resolvedMessages.previousSnapshot }} <span v-if="errorMessage">{{ errorMessage }}</span></span>
+      <button v-if="!loading && !effectiveRefresh.pending" class="mrp-retry" type="button" :disabled="retryingSnapshot" @click="retryRetainedSnapshot">{{ resolvedMessages.retry }}</button>
     </div>
     <div class="mrp-main">
       <div
@@ -747,8 +804,8 @@ defineExpose({ ...controller, state });
         @paste="cells.onPaste"
         @scroll.passive="onViewportScroll($event.target as HTMLElement); pageRendering.refreshViewport(); frozenPanes.refresh()"
       >
-        <div v-if="loading" class="mrp-state">{{ resolvedMessages.loading }}</div>
-        <div v-else-if="errorMessage" class="mrp-state mrp-error">
+        <div v-if="loading && !plan" class="mrp-state">{{ resolvedMessages.loading }}</div>
+        <div v-else-if="errorMessage && !plan" class="mrp-state mrp-error">
           {{ errorMessage }}
           <button class="mrp-retry" type="button" @click="reload">{{ resolvedMessages.retry }}</button>
         </div>
@@ -813,11 +870,11 @@ defineExpose({ ...controller, state });
     </div>
     <footer v-if="pageCount > 0" class="mrp-footer">
       <div class="mrp-footer-context">
-        <ReportRecordNavigation v-if="effectiveInteraction.navigation !== false" :plan="plan" :current-page="currentPage" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @goto="gotoPage" />
+        <ReportRecordNavigation v-if="effectiveInteraction.navigation !== false" :plan="plan" :current-page="currentPage" :messages="resolvedMessages" :busy="interactionBlocked || importing || editing.saving.value" @goto="gotoPage" />
         <ReportSelectionSummary v-if="calculationsEnabled" :state="calculation" :messages="calculationMessages" />
         <button v-if="calculationsEnabled" ref="calculationTrigger" class="mrp-calculation-toggle" type="button" :aria-label="calculationMessages.calculationAdvanced" :aria-expanded="calculationOpen" @click="openCalculations"><span aria-hidden="true">∑</span>{{ calculationMessages.calculationAdvanced }}</button>
       </div>
-      <ReportPagination :page-count="pageCount" :current-page="currentPage" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @goto="gotoPage" />
+      <ReportPagination :page-count="pageCount" :current-page="currentPage" :messages="resolvedMessages" :busy="interactionBlocked || importing || editing.saving.value" @goto="gotoPage" />
     </footer>
     <!-- 默认插槽（overlay 层）：自定义操作按钮/状态徽标 -->
     <div class="mrp-overlay">

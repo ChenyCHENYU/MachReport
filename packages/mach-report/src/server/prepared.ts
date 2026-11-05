@@ -4,10 +4,11 @@ import type { PreparedReport, ReportPdfFontOptions, ReportRuntimeExportInput, Re
 import { ReportSourceError } from "../source/report-source";
 import { portableSha256Hex } from "./sha256";
 import { ReportRuntimeError, throwIfAborted } from "./control";
+import { snapshotAdditionalSheets, snapshotSheetNames } from "../output/workbook-sheets";
 
 /** Encoding settings are scalar declarations; capture them before any async boundary. */
 export function snapshotXlsxOptions(options: ReportRuntimeExportInput["xlsx"]): ReportRuntimeExportInput["xlsx"] {
-  return options && { ...options };
+  return options && { ...options, sheetNames: snapshotSheetNames(options.sheetNames), additionalSheets: snapshotAdditionalSheets(options.additionalSheets) };
 }
 
 export function snapshotPdfFonts(pdf?: ReportPdfFontOptions): ReportPdfFontOptions | undefined {

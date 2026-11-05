@@ -1,5 +1,6 @@
 import { onScopeDispose, ref, shallowRef, type Ref } from "vue";
 import type { AssetRenderOptions, RenderPlan } from "@agile-team/mach-report";
+import type { ReportRefreshOptions } from "../tools";
 import type { PlanFetcher } from "../adapters";
 import type { ExcelImportOptions, ExcelImportResult } from "../../xlsx/import-types";
 import type { MachReportStateError } from "../controller";
@@ -17,15 +18,16 @@ export type PreviewNotice = { kind: "error" | "warning" | "progress"; message: s
 /** A query or import owns a generation and a captured source context, never the live form. */
 export function usePreviewSession({ source, policy, feedback, view, events, task, diagnostics }: {
   source: { ids(): string[]; fetcher(): PlanFetcher | null; readParams(): { params?: Record<string, string>; error?: MachReportError; quiet: boolean }; invalidParams(): void };
-  policy: { guard(reason: "reload" | "import"): boolean | Promise<boolean>; assets(): AssetRenderOptions | undefined; importOptions(): boolean | ExcelImportOptions; importingMessage(): string | undefined };
+  policy: { guard(reason: "reload" | "import"): boolean | Promise<boolean>; assets(): AssetRenderOptions | undefined; importOptions(): boolean | ExcelImportOptions; importingMessage(): string | undefined; refresh?(): ReportRefreshOptions };
   feedback: { errorMessage: Ref<string>; lastError: Ref<Readonly<MachReportStateError> | null>; notice: Ref<PreviewNotice | null>; reportError(message: string, code: MachReportErrorCode, cause?: unknown): void };
-  view: { invalidate(): void; beforeImport(): void; accepted(kind: "query" | "import"): void };
+  view: { invalidate(preservePosition?: boolean): void; beforeImport(): void; accepted(kind: "query" | "import", preservePosition?: boolean): void };
   events: { warning(message: string): void; logWarning(message: string): void; loaded(count: number): void; imported(result: ExcelImportResult): void };
   task: ReturnType<typeof usePreviewTask>;
   diagnostics: ReturnType<typeof usePreviewDiagnostics>;
 }) {
   const plan = shallowRef<RenderPlan | null>(null);
-  const loading = ref(false), importing = ref(false);
+  const loading = ref(false), importing = ref(false), stale = ref(false);
+  let loadedKey: string | undefined;
   const loadedContext = shallowRef<{ reportIds: readonly string[]; params: Readonly<Record<string, string>> } | null>(null);
   const importedResult = shallowRef<Pick<ExcelImportResult, "sheets" | "warnings"> | null>(null);
   const { errorMessage, lastError, notice: exportNotice, reportError } = feedback;
@@ -34,6 +36,8 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
   function invalidate(): void {
     view.invalidate();
     importing.value = false;
+    stale.value = false;
+    loadedKey = undefined;
     importedResult.value = null;
     plan.value = null;
     loadedContext.value = null;
@@ -58,13 +62,24 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
   function readQueryParams(): Record<string, string> | null {
     const query = source.readParams();
     if (query.params) return query.params;
-    invalidate();
+    if (!policy.refresh?.().retainPrevious || !plan.value) invalidate();
+    else stale.value = true;
     errorMessage.value = query.quiet ? "" : query.error!.message;
     if (!query.quiet) {
       source.invalidParams();
       reportError(query.error!.message, query.error!.code, query.error!.cause);
     }
     return null;
+  }
+
+  function beginRefresh(params: Record<string, string>) {
+    const refresh = policy.refresh?.();
+    const retained = !!refresh?.retainPrevious && !!plan.value && !!loadedContext.value;
+    const requestedKey = refresh?.key;
+    const preservePosition = retained && requestedKey === loadedKey && sameContext(source.ids(), params, loadedContext.value!);
+    if (retained) { stale.value = true; diagnostics.reset(); }
+    else invalidate();
+    return { retained, requestedKey, preservePosition };
   }
 
   async function reload(): Promise<void> {
@@ -97,13 +112,15 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
     loading.value = true;
     errorMessage.value = "";
     exportNotice.value = null;
-    invalidate();
+    const previousDiagnostics = [...diagnostics.entries.value];
+    const { retained, requestedKey, preservePosition } = beginRefresh(params);
     const t0 = timing.start();
     const controller = new AbortController();
     loadController = controller;
     const operation = task.start("query", "query", () => {
       if (loadController !== controller) return;
       controller.abort(); reloadSeq++; loadController = null; loading.value = false;
+      if (retained) { diagnostics.reset(); diagnostics.addMany(previousDiagnostics); }
     });
     const requestedIds = [...source.ids()];
     const requestedParams = Object.freeze({ ...params });
@@ -126,18 +143,23 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
         onWarning: reportWarning
       }, policy.assets(), operation.update);
       if (!isCurrentLoad(seq, controller)) return;
+      view.invalidate(preservePosition);
+      importedResult.value = null;
       plan.value = next;
+      stale.value = false;
+      loadedKey = requestedKey;
       loadedContext.value = Object.freeze({ reportIds: Object.freeze(requestedIds), params: requestedParams });
       diagnostics.inspect(next, "dom");
       if (!isCurrentLoad(seq, controller)) return;
       operation.finish();
       timing.end(t0);
-      view.accepted("query");
+      view.accepted("query", preservePosition);
       events.loaded(next.pages.length);
     } catch (error) {
       if (seq !== reloadSeq) return;
       if (controller.signal.aborted) { operation.finish("cancelled"); return; }
       operation.finish("failed");
+      if (retained) { diagnostics.reset(); diagnostics.addMany(previousDiagnostics); }
       const normalized = normalizeReportLoadError(error);
       errorMessage.value = normalized.message;
       const detail = toErrorDetail(normalized);
@@ -156,6 +178,8 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
 
   function acceptImportedPlan(next: RenderPlan, result: ExcelImportResult): void {
     view.invalidate();
+    stale.value = false;
+    loadedKey = undefined;
     plan.value = next;
     loadedContext.value = null;
     diagnostics.reset();
@@ -217,6 +241,13 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
   }
 
 
+  /** Manual-load hosts can change the next source without admitting an obsolete in-flight result. */
+  function retainPrevious(): void {
+    if (loadController) task.cancel();
+    reloadSeq++; loadController?.abort(); loadController = null;
+    loading.value = false; importing.value = false;
+    stale.value = !!plan.value;
+  }
   function clear(): void {
     reloadSeq++; loadController?.abort(); loadController = null;
     loading.value = false; errorMessage.value = ""; lastError.value = null; exportNotice.value = null;
@@ -227,5 +258,11 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
     loading.value = false; importing.value = false;
   }
   onScopeDispose(dispose);
-  return { plan, loading, importing, loadedContext, importedResult, timing, reload, importExcel, invalidate, clear };
+  return { plan, loading, importing, stale, loadedContext, importedResult, timing, reload, importExcel, invalidate, clear, retainPrevious };
+}
+
+function sameContext(ids: readonly string[], params: Readonly<Record<string, string>>, previous: { reportIds: readonly string[]; params: Readonly<Record<string, string>> }): boolean {
+  if (ids.length !== previous.reportIds.length || ids.some((id, index) => id !== previous.reportIds[index])) return false;
+  const keys = Object.keys(params);
+  return keys.length === Object.keys(previous.params).length && keys.every(key => params[key] === previous.params[key]);
 }

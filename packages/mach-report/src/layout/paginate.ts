@@ -34,6 +34,7 @@ export { PaginateCellLimitError, PaginatePageLimitError, PaginateChartComponentL
 
 import { createColumnVisualResolvers, type ColumnVisualResolver } from "./column-visual";
 import type { ListColumn, ListComponent, ListGroupBy } from "./list-model";
+import type { ReportTemplateDataContract } from "../source/template-compatibility";
 export type { ListAlignment, ListColumn, ListComponent, ListGroupBy, ListGrandTotal, ListDetail } from "./list-model";
 
 export type TemplateComponent = PlanComponent | ListComponent;
@@ -84,6 +85,8 @@ export interface ReportParamDef {
 
 export interface ReportTemplate {
   schemaVersion?: string;
+  /** Optional source identity and stable field meanings for safe stored-template reuse. */
+  dataContract?: ReportTemplateDataContract;
   /** 参数定义（可选；宿主也可经 ReportPreview 的 paramDefs prop 提供，prop 优先） */
   params?: ReportParamDef[];
   /** Fixed label pages repeat in record → copy → template-page order. */

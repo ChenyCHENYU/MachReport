@@ -55,3 +55,6 @@ export { compareReportData, type ReportDataComparisonField, type ReportDataCompa
 export { createReportPrefill, reportPrefillInputs, type ReportPrefillField, type ReportPrefillOptions, type ReportPrefillStatus, type ReportPrefillReason, type ReportPrefillItem, type ReportPrefillPreview } from "./editing/prefill";
 export { reportDataSnapshotFromPlan, type ReportPlanDataOptions } from "./editing/data-source";
 export { reportDateDefault, type ReportDateDefaultOptions } from "./source/date-defaults";
+export { bindReportTemplateContext } from "./source/template-context";
+export { inspectReportTemplateCompatibility } from "./source/template-compatibility";
+export type { ReportTemplateDataContract, ReportTemplateFieldBinding, ReportTemplateCompatibilityIssue, ReportTemplateCompatibilityResult } from "./source/template-compatibility";

@@ -239,7 +239,14 @@ defineExpose({
 });
 async function acceptExcel(result: ExcelBindingWizardApply): Promise<boolean> {
   // Binding inside an editor replaces content, never the persistent template identity or CAS revision.
-  const candidate = { ...result.document, id: draft.value.id };
+  const candidate = {
+    ...result.document,
+    id: draft.value.id,
+    template: {
+      ...result.document.template,
+      ...(props.bindingDataContract ? { dataContract: props.bindingDataContract } : {}),
+    },
+  };
   if (draft.value.revision === undefined) delete candidate.revision;
   else candidate.revision = draft.value.revision;
   if (!await editor.replaceDocument(candidate)) return false;

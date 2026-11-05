@@ -73,7 +73,9 @@ function clearSearch(): void { emit("search-input", ""); searchControls.focus();
     </div>
     <div v-if="showImport || showExport || showPrint || showPdfWindow" class="mrp-output-tools" role="group" :aria-label="messages.settingsExport ?? '导出与打印'">
       <button v-if="showImport" class="mrp-nav mrp-import-excel" type="button" :disabled="busy" @click="emit('import-excel')"><ReportIcon name="upload" />{{ messages.importExcel ?? '导入 Excel 模板' }}</button>
-      <ReportExportMenu v-if="showExport" :messages="messages" :formats="exportFormats" :busy="busy" @export="emit('export', $event)" />
+      <slot v-if="showExport" name="export" :messages="messages" :formats="exportFormats" :busy="busy">
+        <ReportExportMenu :messages="messages" :formats="exportFormats" :busy="busy" @export="emit('export', $event)" />
+      </slot>
       <button v-if="showPrint" class="mrp-nav" type="button" :disabled="busy" @click="emit('print')"><ReportIcon name="print" />{{ messages.print }}</button>
       <button v-if="showPdfWindow" class="mrp-nav" type="button" :disabled="busy" @click="emit('pdf-window')"><ReportIcon name="external" />{{ messages.pdfWindow }}</button>
     </div>

@@ -1,9 +1,9 @@
 import { computed, ref, shallowRef, watch, onMounted, onScopeDispose } from "vue";
-import { createReportSource, defineLabelReport, imposeLabelSheets, parseReportTemplate, serializeReportTemplate, type DatasetContract, type LabelReportRows, type ReportTemplateDocument } from "@agile-team/mach-report";
+import { createReportSource, defineLabelReport, imposeLabelSheets, inspectReportTemplateCompatibility, parseReportTemplate, serializeReportTemplate, type DatasetContract, type LabelReportRows, type ReportTemplate, type ReportTemplateDocument } from "@agile-team/mach-report";
 import { createLazyLabelCodeAssets } from "./label-studio-assets";
 import { labelStudioSheetLayout } from "./label-studio-sheets";
 import { isCustomLabelStudioLayout, patchLabelStudioContent, rebuildLabelStudioDocument } from "./label-studio-content";
-import { provideMachReportConfig } from "@agile-team/mach-report/vue";
+import { provideMachReportConfig, useMachReport } from "@agile-team/mach-report/vue";
 import type { TemplateEditorController, TemplateEditorOptions } from "./useTemplateEditor";
 import { useTemplateDiscard, type TemplateEditorBeforeDiscardContext } from "./useTemplateDiscard";
 import { createLabelStudioDocument } from "./label-studio-template";
@@ -17,13 +17,24 @@ export interface LabelStudioOptions extends LabelStudioLayout {
   schema: DatasetContract;
   title?: string;
   identityField?: string;
+  /** Optional business provenance retained by generated label templates for safe reuse. */
+  dataContract?: ReportTemplate["dataContract"];
   modelValue?: ReportTemplateDocument;
   preview?: TemplateEditorOptions["preview"];
   save?: TemplateEditorOptions["save"];
   beforeDiscard?: TemplateEditorOptions["beforeDiscard"];
   messages?: Partial<LabelStudioMessages>;
 }
-export interface LabelStudioController { readonly busy?: boolean; readonly pendingLocalChanges?: boolean; guardChanges(): Promise<boolean>; prepare(): Promise<ReportTemplateDocument | undefined> }
+export interface LabelStudioController {
+  readonly busy?: boolean;
+  readonly pendingLocalChanges?: boolean;
+  readonly mode: "preview" | "design";
+  readonly canPrint: boolean;
+  preview(): Promise<boolean>;
+  print(): Promise<void>;
+  guardChanges(): Promise<boolean>;
+  prepare(): Promise<ReportTemplateDocument | undefined>;
+}
 
 function storedLayout(document: ReportTemplateDocument): LabelStudioLayout | undefined {
   const value = document.template.pages[0]?.meta?.labelStudio;
@@ -48,10 +59,11 @@ function availableSelection(schema: DatasetContract, identity: string | undefine
 
 /** One persistent editor owns history; full record output and bounded design samples stay separate. */
 export function useLabelStudio(props: LabelStudioOptions, emit: (document: ReportTemplateDocument) => void) {
+  const preview = useMachReport();
   const m = computed(() => ({ ...LABEL_STUDIO_MESSAGES, ...props.messages }));
   const title = computed(() => props.title ?? m.value.title);
   const initialLayout = { preset: props.preset, brand: props.brand, fields: props.fields };
-  const document = shallowRef(props.modelValue ? parseReportTemplate(props.modelValue) : createLabelStudioDocument(props.schema, title.value, props.identityField, initialLayout));
+  const document = shallowRef(props.modelValue ? parseReportTemplate(props.modelValue) : createLabelStudioDocument(props.schema, title.value, props.identityField, initialLayout, props.dataContract));
   const savedDocument = shallowRef(parseReportTemplate(document.value));
   const editorVisited = ref(false), editorInitialDocument = shallowRef<ReportTemplateDocument>();
   let beforeEditorChange: ReportTemplateDocument | undefined;
@@ -60,7 +72,7 @@ export function useLabelStudio(props: LabelStudioOptions, emit: (document: Repor
   const mode = ref<"preview" | "design">("preview"), record = ref("all"), recordIndex = ref(1), sheet = ref(false), operating = ref(false);
   const editor = ref<TemplateEditorController>();
   const discard = useTemplateDiscard(() => props.beforeDiscard);
-  const busy = computed(() => operating.value || discard.pending.value || editorVisited.value && !editor.value || editor.value?.saving === true || editor.value?.blocked === true);
+  const busy = computed(() => operating.value || discard.pending.value || editorVisited.value && !editor.value || editor.value?.saving === true || editor.value?.blocked === true || preview.state.printing || preview.state.exporting !== null);
   const notice = ref("");
   const identity = computed(() => labelIdentityField(props.schema, props.identityField));
   const preset = ref<LabelStudioPreset | undefined>(storedLayout(document.value)?.preset ?? (props.modelValue ? undefined : props.preset ?? "paired"));
@@ -220,7 +232,9 @@ export function useLabelStudio(props: LabelStudioOptions, emit: (document: Repor
   const fetcher = computed(() => {
     const source = createReportSource({ labels: defineLabelReport({ template: document.value.template, rows: rows.value, dataSchema: props.schema }) });
     const imposed = sheet.value ? sheetLayout.value : undefined;
+    const compatibility = props.dataContract ? inspectReportTemplateCompatibility(document.value.template, props.dataContract) : undefined;
     return async (input: Parameters<typeof source>[0]) => {
+      if (compatibility && !compatibility.ok) throw new Error(compatibility.issues.map(issue => issue.message).join("；"));
       const plan = await source(input);
       return imposed ? imposeLabelSheets(plan, { ...imposed, signal: input.signal }) : plan;
     };
@@ -286,5 +300,13 @@ export function useLabelStudio(props: LabelStudioOptions, emit: (document: Repor
     restoreConfiguration();
     return true;
   }
-  return { m, notice, title, document, mode, editorVisited, editorInitialDocument, failDesignLoad, sheetLayout, sheetHint, rebuilding, layoutChanged, record, recordIndex, sheet, busy, editor, rows, datasets, designDatasets, schemas, bindings, paper, labelCount, fetcher, update, save, navigate, prepare, guardChanges, preset, presets: LABEL_STUDIO_PRESETS, brandName, brandTagline, fields, fieldQuery, selectedFields, availableFields, fieldCount: computed(() => candidates.value.length), configurationDirty, pendingLocalChanges, custom, toggleField, applyConfiguration, requestRebuild: () => { rebuilding.value = true; }, cancelRebuild: () => { rebuilding.value = false; }, restoreConfiguration, beforeDiscard, confirmation: discard.confirmation, decideDiscard: discard.decide };
+  const canPrint = computed(() => mode.value === "preview" && !busy.value && preview.state.canPrint);
+  async function showPreview(): Promise<boolean> {
+    await navigate("preview");
+    return !disposed && mode.value === "preview";
+  }
+  async function print(): Promise<void> {
+    if (canPrint.value) await preview.print();
+  }
+  return { m, notice, title, document, mode, preview, showPreview, print, canPrint, editorVisited, editorInitialDocument, failDesignLoad, sheetLayout, sheetHint, rebuilding, layoutChanged, record, recordIndex, sheet, busy, editor, rows, datasets, designDatasets, schemas, bindings, paper, labelCount, fetcher, update, save, navigate, prepare, guardChanges, preset, presets: LABEL_STUDIO_PRESETS, brandName, brandTagline, fields, fieldQuery, selectedFields, availableFields, fieldCount: computed(() => candidates.value.length), configurationDirty, pendingLocalChanges, custom, toggleField, applyConfiguration, requestRebuild: () => { rebuilding.value = true; }, cancelRebuild: () => { rebuilding.value = false; }, restoreConfiguration, beforeDiscard, confirmation: discard.confirmation, decideDiscard: discard.decide };
 }

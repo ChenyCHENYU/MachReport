@@ -4,7 +4,7 @@ import type { XlsxRenderOptions } from "../xlsx/render-xlsx";
 import type { ExcelImportOptions } from "../xlsx/import-types";
 import type { ReportEditingOptions } from "./editing";
 import type { ReportDataReviewMessages, ReportPrefillReviewOptions, ReportDataComparisonReviewOptions } from "./data-review";
-import type { MachReportToolbarOptions, ReportInteractionOptions, ReportPreferencesOptions } from "./tools";
+import type { MachReportToolbarOptions, ReportInteractionOptions, ReportPreferencesOptions, ReportRefreshOptions } from "./tools";
 import type { ReportBeforeDiscard, ReportOutputOptions } from "./guards";
 import type { AssetRenderOptions } from "@agile-team/mach-report";
 import type { ReportCalculationMessages } from "./composables/useSelectionCalculation";
@@ -19,6 +19,7 @@ import { DEFAULT_PRINT_MESSAGES, type ReportPrintMessages, type ReportPrintOptio
 
 /** 工具栏与状态文案（默认简体中文；出海场景覆写） */
 export interface MachReportMessages extends Partial<ReportCalculationMessages>, Partial<ReportDataReviewMessages>, ReportPrintMessages, ReportParamOptionsMessages {
+  previousSnapshot?: string;
   reviewTools?: string;
   validationTitle?: string;
   validationError?: string;
@@ -241,6 +242,7 @@ export function resolveCalculationMessages(messages: Partial<ReportCalculationMe
 }
 
 export const DEFAULT_MESSAGES: MachReportMessages = {
+  previousSnapshot: "当前保留上次成功结果，刷新成功后恢复编辑和输出。",
   ...PARAM_OPTIONS_MESSAGES,
   ...DEFAULT_DATA_REVIEW_MESSAGES,
   reviewTools: "数据工具", validationTitle: "数据校验", validationError: "错误", validationWarning: "提示", validationDataset: "全表", validationRow: "行", validationMore: "请缩小范围查看更多问题",
@@ -397,6 +399,7 @@ export interface MachReportDefaults {
   toolbar?: MachReportToolbarOptions;
   interaction?: ReportInteractionOptions;
   preferences?: ReportPreferencesOptions;
+  refresh?: ReportRefreshOptions;
   /** Protect local input and drafts before replacing a report. Default true. */
   guardChanges?: boolean;
   beforeDiscard?: ReportBeforeDiscard;
@@ -470,6 +473,7 @@ export type ResolvedConfig = Required<
   toolbar: MachReportToolbarOptions;
   interaction: ReportInteractionOptions;
   preferences?: ReportPreferencesOptions;
+  refresh?: ReportRefreshOptions;
   assets?: AssetRenderOptions;
   guardChanges: boolean;
   beforeDiscard?: ReportBeforeDiscard;
@@ -506,6 +510,11 @@ function mergePrintOptions(base?: ReportPrintOptions, overlay?: ReportPrintOptio
   if (!base && !overlay) return undefined;
   return { ...base, ...overlay, calibration: { ...base?.calibration, ...overlay?.calibration } };
 }
+function mergeToolbar(base: MachReportToolbarOptions = {}, overlay: MachReportToolbarOptions = {}): MachReportToolbarOptions {
+  const toolbar = { ...base, ...overlay };
+  if (base.unavailableReasons || overlay.unavailableReasons) toolbar.unavailableReasons = { ...base.unavailableReasons, ...overlay.unavailableReasons };
+  return toolbar;
+}
 function mergeDefaults(
   base: MachReportDefaults | undefined,
   overlay: MachReportDefaults | undefined
@@ -517,8 +526,9 @@ function mergeDefaults(
     messages: { ...base?.messages, ...overlay?.messages },
     preview: { ...base?.preview, ...overlay?.preview },
     xlsx: { ...base?.xlsx, ...overlay?.xlsx },
-    toolbar: { ...base?.toolbar, ...overlay?.toolbar },
+    toolbar: mergeToolbar(base?.toolbar, overlay?.toolbar),
     interaction: { ...base?.interaction, ...overlay?.interaction },
+    refresh: { ...base?.refresh, ...overlay?.refresh },
     output: { ...base?.output, ...overlay?.output },
     printOptions: mergePrintOptions(base?.printOptions, overlay?.printOptions)
   };
@@ -564,6 +574,7 @@ export function resolveConfig(
     toolbar: { ...merged.toolbar },
     interaction: { ...merged.interaction },
     preferences: merged.preferences,
+    refresh: merged.refresh,
     assets: merged.assets,
     guardChanges: merged.guardChanges ?? true,
     beforeDiscard: merged.beforeDiscard,

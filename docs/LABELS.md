@@ -37,6 +37,10 @@ const schema = {
 
 `v-model` 接收/提供模板文档，`save` 可选回调沿用设计器的修订与取消契约；默认仅为当前组件会话保存。宿主已有“完成调整”等统一动作时设置 `show-save="false"` 收起内层保存，继续调用 `prepare()` 保存。宿主关闭或替换工作区时调用组件 `guardChanges()`；下载当前模板前可调用 `prepare()`，它验证并保存有效草稿后返回独立文档。组件复用已有预览、设计器、原尺寸输出和真实编码器；它不新增接口、持久化服务或业务写权限。打印字体继续通过 `provideMachReportConfig` 配置。实体设备仍需试打和扫码验收。
 
+宿主可通过组件 ref 的 `LabelStudioController` 读取 `mode` 与 `canPrint`。设计状态的主操作调用 `preview()`，它先准备有效草稿再进入成品预览。预览状态的主操作调用 `print()`，继续复用当前预览的字体、码图和打印管线。`canPrint` 仅在实际计划可打印时成立，输出进行中继续使用 `busy` 阻止重复动作。
+
+可选 `data-contract` 声明业务来源及 `records` 字段语义，初次生成与确认重建时随模板保留。导入其他模板前，宿主使用 `inspectReportTemplateCompatibility()` 对照当前契约，明确处理缺少来源或字段语义不兼容的情况。相同列名或 Excel 坐标不能证明两个业务字段可互换。
+
 ## 最少接入
 
 ```ts

@@ -56,3 +56,5 @@ export type { LabelStudioMessages } from "./designer/label-studio-messages";
 
 export { DESIGNER_GUIDE_MESSAGES } from "./designer/guide-messages";
 export type { DesignerGuideMessages } from "./designer/guide-messages";
+export { useTemplateWorkbench } from "./designer/useTemplateWorkbench";
+export type { TemplateWorkbenchOptions, TemplateWorkbenchTaskContext } from "./designer/useTemplateWorkbench";

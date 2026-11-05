@@ -9,6 +9,7 @@ import {
 } from "../../index";
 import ReportTemplateEditor from "../ReportTemplateEditor.vue";
 import type { ExcelBindingSession } from "../../xlsx/binding-workflow";
+import type { TemplateEditorController } from "../useTemplateEditor";
 function fixture() {
   return defineReportTemplate({
     id: "daily",
@@ -106,6 +107,31 @@ async function tab(wrapper: ReturnType<typeof mount>, name: string) {
   await flushPromises();
 }
 describe("完整设计器工作流", () => {
+  it("explicit Excel binding adopts the target data contract in the same undo transaction", async () => {
+    const initial = fixture();
+    initial.template.dataContract = { source: "line-a", datasets: { detail: { fields: [{ field: "heat", semanticKey: "heat_a", type: "text" }] } } };
+    const target = { source: "line-b", datasets: { detail: { fields: [{ field: "heat", semanticKey: "heat_b", type: "text" as const }] } } };
+    const wrapper = mount(ReportTemplateEditor, {
+      props: { modelValue: initial, bindingDataContract: target },
+      global: { stubs: { ReportPreview: true, ExcelBindingWizard: wizard } },
+    });
+    expect(initial.template.dataContract.source).toBe("line-a");
+    await tab(wrapper, "工具");
+    await wrapper.getComponent({ name: "ExcelBindingWizard" }).get("button").trigger("click");
+    await flushPromises();
+    const accepted = wrapper.emitted("excel-bound")![0]![0] as { document: ReportTemplateDocument };
+    expect(accepted.document.template.dataContract).toEqual(target);
+    expect(accepted.document.name).toBe("绑定");
+    expect(initial.template.dataContract.source).toBe("line-a");
+    target.source = "late mutation";
+    expect(accepted.document.template.dataContract!.source).toBe("line-b");
+    const control = wrapper.vm as unknown as TemplateEditorController;
+    expect(control.canUndo).toBe(true);
+    control.undo?.(); await flushPromises();
+    expect(wrapper.emitted("update:modelValue")!.at(-1)![0]).toEqual(initial);
+    expect(control.canUndo).toBe(false);
+    wrapper.unmount();
+  });
   it("绑定会话传给向导，旧草稿取消不发送accepted事件，确认后只发一次完整会话", async () => {
     const wrapper = mount(ReportTemplateEditor, {
       props: { modelValue: fixture(), bindingSession: session },

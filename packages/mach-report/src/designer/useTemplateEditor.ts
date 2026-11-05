@@ -90,6 +90,8 @@ export interface TemplateEditorOptions extends TemplateEditorConflictOptions {
   datasets?: DatasetRows;
   dataSchemas?: Record<string, DatasetContract>;
   bindingDatasets?: ExcelBindingDataset[];
+  /** Adopt the host's declared field meaning only after an explicit Excel binding is accepted. */
+  bindingDataContract?: ReportTemplateDocument["template"]["dataContract"];
   /** Optional independently persisted Excel source and binding recipe. */
   bindingSession?: AnyExcelBindingSession;
   readonly?: boolean;

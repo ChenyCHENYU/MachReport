@@ -17,6 +17,8 @@ export interface MachReportStateError {
 /** 只读快照，由组件的同一套状态驱动；无需通过事件另建状态。 */
 export interface MachReportState {
   readonly loading: boolean;
+  /** A retained previous snapshot is readable while writes/output remain blocked. */
+  readonly stale?: boolean;
   readonly hasPlan: boolean;
   readonly pageCount: number;
   readonly currentPage: number;
@@ -120,6 +122,7 @@ export function useMachReport(): MachReportHandle {
   // 固定对象 + 只读 getter，支持 const { state } = report，挂载/卸载后仍实时读取。
   const state: MachReportState = Object.freeze({
     get loading() { return currentState().loading; },
+    get stale() { return currentState().stale ?? false; },
     get hasPlan() { return currentState().hasPlan; },
     get pageCount() { return currentState().pageCount; },
     get currentPage() { return currentState().currentPage; },

@@ -5,6 +5,7 @@ import type { ReportInteractionOptions, ReportPreviewPreferences, ReportPreviewT
 
 const props = defineProps<{
   available: ReportPreviewPreferences;
+  unavailableReasons?: Partial<Record<ReportPreviewTool, string>>;
   enabled: ReportPreviewPreferences;
   messages: MachReportMessages;
   persistedEditing: boolean;
@@ -115,7 +116,7 @@ onUnmounted(() => {
           <fieldset v-for="group in groups" :key="group.label">
             <legend>{{ group.label }}</legend>
             <label v-for="tool in group.tools" :key="tool.key" class="mrp-settings-option" :class="{ 'mrp-settings-unavailable': !available[tool.key] }">
-              <span>{{ tool.label }}<small v-if="!available[tool.key]">{{ messages.settingsUnavailable }}</small></span>
+              <span>{{ tool.label }}<small v-if="!available[tool.key]">{{ unavailableReasons?.[tool.key] || messages.settingsUnavailable }}</small></span>
               <input type="checkbox" :checked="enabled[tool.key]" :disabled="busy || !available[tool.key]" @change="onChange($event, tool.key)" />
             </label>
           </fieldset>

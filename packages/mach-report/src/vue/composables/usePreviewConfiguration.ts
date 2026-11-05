@@ -23,6 +23,8 @@ export function usePreviewConfiguration(props: PreviewConfigProps, wideReport: R
   const effectiveOutput = computed(() => ({ ...resolved.value.output, ...props.output }));
   const toolbarOptions = computed(() => ({ ...resolved.value.toolbar, ...props.toolbar }));
   const effectiveInteraction = computed(() => ({ ...resolved.value.interaction, ...props.interaction, ...sessionInteraction.value }));
+  const effectiveRefresh = computed(() => ({ ...resolved.value.refresh, ...props.refresh }));
+  const unavailableReasons = computed(() => ({ ...resolved.value.toolbar.unavailableReasons, ...props.toolbar?.unavailableReasons }));
   const effectivePreferences = computed(() => props.preferences ?? resolved.value.preferences);
   const effectiveAssets = computed(() => props.assets ?? resolved.value.assets);
   const effectiveGapPx = computed(() => props.gapPx ?? (wideReport.value ? 0 : resolved.value.gapPx));
@@ -52,5 +54,5 @@ export function usePreviewConfiguration(props: PreviewConfigProps, wideReport: R
   const persistedEditing = computed(() => typeof availableEditable.value === "object" && (typeof availableEditable.value.save === "function" || typeof availableEditable.value.saveBatch === "function"));
   const emptyStateContent = computed(() => typeof props.emptyState === "object" ? props.emptyState : {});
 
-  return { resolved, resolvedMessages, effectiveShowExport, effectiveShowPrint, effectiveShowPdfWindow, effectiveShowSettings, effectiveGuardChanges, effectiveOutput, effectiveInteraction, effectiveAssets, effectiveGapPx, effectiveShowParams, availableTools, tools, toolState, visibleExportFormats, effectiveEditable, effectiveExcelImport, persistedEditing, emptyStateContent, sessionInteraction };
+  return { effectivePreferences, effectiveRefresh, unavailableReasons, resolved, resolvedMessages, effectiveShowExport, effectiveShowPrint, effectiveShowPdfWindow, effectiveShowSettings, effectiveGuardChanges, effectiveOutput, effectiveInteraction, effectiveAssets, effectiveGapPx, effectiveShowParams, availableTools, tools, toolState, visibleExportFormats, effectiveEditable, effectiveExcelImport, persistedEditing, emptyStateContent, sessionInteraction };
 }

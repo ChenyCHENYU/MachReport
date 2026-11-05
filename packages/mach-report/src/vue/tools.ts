@@ -2,6 +2,8 @@
 export type ReportExportFormat = "html" | "pdf" | "xlsx" | "png" | "word";
 
 export interface MachReportToolbarOptions {
+  /** Reasons explain host restrictions without granting capabilities. */
+  unavailableReasons?: Partial<Record<ReportPreviewTool, string>>;
   search?: boolean;
   thumbnails?: boolean;
   zoom?: boolean;
@@ -34,11 +36,26 @@ export interface ReportInteractionOptions {
   /** Show workbook sheets / report sections when available. Default true. */
   navigation?: boolean;
 }
+/** Explicit refresh policy. The key identifies template/layout revisions outside query parameters. */
+export interface ReportRefreshOptions {
+  retainPrevious?: boolean;
+  key?: string;
+  /** Host API request preceding the preview reload. Blocks edits and output without discarding drafts. */
+  pending?: boolean;
+  /** The host retained an earlier snapshot after its own query failed or was cancelled. */
+  stale?: boolean;
+  /** Retry the host HTTP query when it owns the stale snapshot. The host updates its own state. */
+  retry?(): void | Promise<void>;
+}
+export interface ReportStoredPreferences extends Partial<ReportPreviewPreferences> {
+  zoomMode?: "fit" | number;
+  wideZoomMode?: "fit" | number;
+}
 export interface ReportSection { label: string; pageIndex: number }
 
 export interface ReportPreferencesAdapter {
-  load(key: string): Partial<ReportPreviewPreferences> | null | Promise<Partial<ReportPreviewPreferences> | null>;
-  save(key: string, value: Readonly<Partial<ReportPreviewPreferences>>): void | Promise<void>;
+  load(key: string): ReportStoredPreferences | null | Promise<ReportStoredPreferences | null>;
+  save(key: string, value: Readonly<ReportStoredPreferences>): void | Promise<void>;
   remove?(key: string): void | Promise<void>;
 }
 export interface ReportPreferencesOptions {
@@ -50,7 +67,7 @@ export interface ReportPreferencesOptions {
 /** Optional browser convenience adapter. Access errors are handled by the preview. */
 export function createReportStoragePreferences(storage: Pick<Storage, "getItem" | "setItem" | "removeItem">): ReportPreferencesAdapter {
   return {
-    load: (key) => JSON.parse(storage.getItem(key) ?? "null") as Partial<ReportPreviewPreferences> | null,
+    load: (key) => JSON.parse(storage.getItem(key) ?? "null") as ReportStoredPreferences | null,
     save: (key, value) => storage.setItem(key, JSON.stringify(value)),
     remove: (key) => storage.removeItem(key)
   };

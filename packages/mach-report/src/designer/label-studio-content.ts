@@ -90,7 +90,7 @@ export function isCustomLabelStudioLayout(document: ReportTemplateDocument, cano
 }
 
 export function rebuildLabelStudioDocument(document: ReportTemplateDocument, schema: DatasetContract, title: string, identity: string | undefined, layout: LabelStudioLayout): ReportTemplateDocument {
-  const next = { ...document, template: createLabelStudioDocument(schema, title, identity, layout).template };
+  const next = { ...document, template: createLabelStudioDocument(schema, title, identity, layout, document.template.dataContract).template };
   const repeat = document.template.repeat;
   if (repeat?.copies !== undefined && next.template.repeat) next.template.repeat.copies = repeat.copies;
   return next;

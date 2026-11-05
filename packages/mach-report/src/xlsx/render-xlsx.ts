@@ -14,6 +14,8 @@ import { reportOutputDiagnostics, type OutputDiagnostic } from "../output/capabi
 import { resolvePlanAssets, type AssetRenderOptions } from "../output/assets";
 import { importedImageOverlay } from "./import-images";
 import { composeExcelFlowPages, excelFlowPageInfo } from "./region-output";
+import { snapshotAdditionalSheets, snapshotSheetNames, type XlsxAdditionalSheet } from "../output/workbook-sheets";
+export type { XlsxAdditionalSheet } from "../output/workbook-sheets";
 
 /**
  * RenderPlan → xlsx 导出（B 端第二出口，对齐家族 @agile-team/mach-table-xlsx 路线）：
@@ -27,6 +29,8 @@ import { composeExcelFlowPages, excelFlowPageInfo } from "./region-output";
 export interface XlsxRenderOptions extends AssetRenderOptions, XlsxImageOptions {
   /** 工作表命名（连续表默认使用标题，其余默认 "Sheet1" 起序）。 */
   sheetName?: (sheetIndex: number) => string;
+  /** 可序列化命名，用于 Worker；未提供的项沿用默认名称。 */
+  sheetNames?: readonly string[];
   /** auto 默认将 wide 逻辑表合并为连续 Sheet；pages 保留逐页；continuous 要求明确的表来源。 */
   sheetMode?: "auto" | "pages" | "continuous";
   /** 宽表或连续表默认 raw，其余默认 text；显式配置可覆盖默认值。 */
@@ -35,16 +39,18 @@ export interface XlsxRenderOptions extends AssetRenderOptions, XlsxImageOptions 
   maxDataBars?: number;
   /** 连续表默认不限制打印纸型；显式 A3/A4/A5 仅设置打印适配，不改变 Excel 列宽。 */
   paperSize?: "auto" | "a3" | "a4" | "a5";
+  /** 在最终编码前追加说明、审计等标量工作表，可直接交给 Worker。 */
+  additionalSheets?: readonly XlsxAdditionalSheet[];
 }
 
-export interface XlsxRenderResult {
+export interface XlsxWorkbookResult {
   workbook: ExcelJS.Workbook;
-  buffer: ExcelJS.Buffer;
   warnings: string[];
   diagnostics?: OutputDiagnostic[];
   /** Informational output semantics; these do not indicate missing content. */
   notes?: string[];
 }
+export interface XlsxRenderResult extends XlsxWorkbookResult { buffer: ExcelJS.Buffer }
 
 const MM_TO_PT = 72 / 25.4;
 const MAX_CELL_CHARACTERS = 32_767;
@@ -455,7 +461,10 @@ function validateOptions(options: XlsxRenderOptions): void {
   }
 }
 
-export async function renderPlanToXlsx(plan: RenderPlan, options: XlsxRenderOptions = {}): Promise<XlsxRenderResult> {
+/** 构建可修改工作簿，调用方需要追加内容时自行完成唯一一次编码。 */
+export async function renderPlanToWorkbook(plan: RenderPlan, options: XlsxRenderOptions = {}): Promise<XlsxWorkbookResult> {
+  const additional = snapshotAdditionalSheets(options.additionalSheets);
+  const sheetNames = snapshotSheetNames(options.sheetNames);
   validateOptions(options);
   assertOutputActive(options.signal);
   const prepared = options.assetRegistry || options.assetRenderers
@@ -477,7 +486,7 @@ export async function renderPlanToXlsx(plan: RenderPlan, options: XlsxRenderOpti
     const contents = await sheetContents(unit, schedule);
     if (unit.continuous && !unit.flow) validateContinuousTable(unit, contents.grids);
     const page = unit.pages[0]!.page;
-    const name = options.sheetName?.(sheetIndex) ?? generatedSheetName(unit.title, sheetIndex, usedNames);
+    const name = sheetNames?.[sheetIndex] ?? options.sheetName?.(sheetIndex) ?? generatedSheetName(unit.title, sheetIndex, usedNames);
     usedNames.add(name.toLowerCase());
     const sheet = workbook.addWorksheet(name, worksheetOptions(unit, options.paperSize, warnings));
     const valueMode = options.valueMode ?? (isWidePage(page) || unit.continuous || unit.flow ? "raw" : "text");
@@ -485,8 +494,31 @@ export async function renderPlanToXlsx(plan: RenderPlan, options: XlsxRenderOpti
     await writeSheet({ sheet, warnings, limits, valueMode, schedule, images, dataBars }, contents, unit.continuous, images);
     await outputCheckpoint(options, sheetIndex + 1, units.length);
   }
+  await appendSheets(workbook, additional, options);
+  return { workbook, warnings, diagnostics, ...(notes.length ? { notes } : {}) };
+}
+
+async function appendSheets(workbook: ExcelJS.Workbook, sheets: readonly XlsxAdditionalSheet[] = [], options: XlsxRenderOptions): Promise<void> {
+  const schedule = createOutputScheduler(options);
+  for (const source of sheets) {
+    assertOutputActive(options.signal);
+    if (workbook.worksheets.some(sheet => sheet.name.toLowerCase() === source.name.toLowerCase())) throw new TypeError(`附加工作表名称已被报表使用 ${source.name}`);
+    const sheet = workbook.addWorksheet(source.name);
+    if (source.columnWidths) sheet.columns = source.columnWidths.map(width => ({ width }));
+    for (const row of source.rows) {
+      const target = sheet.addRow([...row]);
+      target.alignment = { vertical: "top", wrapText: true };
+      await schedule(row.length);
+    }
+  }
   assertOutputActive(options.signal);
-  const buffer = await workbook.xlsx.writeBuffer();
+}
+
+/** 默认出口保持原契约，全部工作表完成后只执行一次 ZIP 编码。 */
+export async function renderPlanToXlsx(plan: RenderPlan, options: XlsxRenderOptions = {}): Promise<XlsxRenderResult> {
+  const result = await renderPlanToWorkbook(plan, options);
   assertOutputActive(options.signal);
-  return { workbook, buffer, warnings, diagnostics, ...(notes.length ? { notes } : {}) };
+  const buffer = await result.workbook.xlsx.writeBuffer();
+  assertOutputActive(options.signal);
+  return { ...result, buffer };
 }

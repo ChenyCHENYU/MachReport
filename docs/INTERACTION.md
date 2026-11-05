@@ -118,7 +118,7 @@ const config = defineMachReportConfig({ defaults: {
 
 `adapter` 提供 `load(key)`、`save(key, value)`，可同步或异步；`remove` 为可选扩展。加载结果只接收已知工具的布尔值；晚到的加载不会覆盖用户的新操作，保存按顺序执行。读写失败会发出 `warning`，当前实例仍可使用设置。键应包含用户/租户范围，退出登录后由应用清理；SSR 中在客户端取得浏览器存储后再注册。
 
-当前适配器存储阅读/输出/编辑/导入工具的开关；冻结数量是当前实例的交互配置，列宽、业务对齐和模板样式属于模板或宿主的展示配置，不会隐式写入工具偏好。
+当前适配器存储阅读/输出/编辑/导入工具的开关，以及标准纸张 `zoomMode` 和宽表 `wideZoomMode` 的缩放记忆。两个缩放值均为 `"fit"` 或 30～300 的百分比，与工具偏好共用同一 key 和有序写入队列。提供适配器后不再使用全局浏览器缩放键，切换用户、租户或报表 key 会重新加载对应偏好。未提供适配器的旧接入保留全局缩放记忆。恢复默认仅重置当前作用域；冻结数量是当前实例的交互配置，列宽、业务对齐和模板样式属于模板或宿主的展示配置，不会隐式写入工具偏好。
 
 ## 导入兼容摘要与状态
 
@@ -135,3 +135,42 @@ Excel 导入完成后，预览保留 Sheet 导航，并展示可展开的兼容�
 同名字段通过稳定 `tableId` 消歧，空数据报表可定位到对应表头；重复打印表头不会重复列出。目录从计划生成，使用侧不维护另一套字段配置。高级定位可调用 `focusField({ field, datasetId, tableId })`。
 
 默认修改保护、可取消阶段状态与可定位输出诊断见[产品操作流程](./PRODUCT_WORKFLOWS.md)。普通页面无需为这些状态额外绑定事件；`state`、控制器与默认界面共用相同生命周期。
+
+## 查询刷新与操作来源
+
+需要在刷新时保留阅读内容的页面可以声明刷新策略。
+
+```vue
+<ReportPreview
+  :report-id="code"
+  :params="params"
+  :fetcher="fetcher"
+  :refresh="{ retainPrevious: true, key: templateRevision, pending: querying, stale: queryFailedOrCancelled, retry: queryReport }"
+  :toolbar="{ unavailableReasons: { editing: readonlyReason } }"
+/>
+```
+
+`pending` 表示宿主正在执行预览之前的 HTTP 查询，只阻止编辑和输出，保留现有本地草稿。宿主 HTTP 查询失败或取消且保留旧结果时，应结束 `pending` 并声明 `stale: true`，此时 `state.loading` 为 false、`state.stale` 为 true，旧结果继续可读，编辑和输出暂停。宿主新查询成功后清除该标记。外部查询由 `refresh.retry` 提供可等待的重试回调，旧快照条上的重试会调用该回调，组件去重处理在途点击并通过既有 error 回执报告失败。组件不会自行清除宿主的 `stale` 或 `pending`，宿主继续负责真实查询结果与状态。预览自身查询失败时沿用内部 reload。预览自身开始重新取数后，旧计划及其 `state.reportIds / state.params` 保留用于阅读，`state.stale` 为 true，编辑和输出暂停。请求失败或取消仍保留旧计划，重试成功再替换。新请求即使忽略 AbortSignal，过期结果也不能覆盖当前计划。
+
+同一报表 ID、参数和 `key` 的成功刷新会恢复页码及双轴滚动位置，参数或模板身份变化时回首页。`key` 应包含影响布局的模板版本或版式身份。未设置 `retainPrevious` 的接入维持查询开始时清空预览的行为。查询条件不直接等同于已显示结果，宿主的记事、保存及冻结等动作应使用已加载快照的业务上下文。
+
+`toolbar.unavailableReasons` 按工具名声明禁用原因，仅解释已有权限或能力限制。设置页会优先显示该原因，不能据此开启宿主未授权的能力。
+
+### 统一导出入口
+
+需要在预览出口追加原始数据下载的宿主可使用 `#export`，保留包内导出菜单及行为。
+
+```vue
+<ReportPreview v-bind="previewProps">
+  <template #export="{ busy, exportReport, formats, messages }">
+    <ReportExportMenu
+      :busy="busy"
+      :formats="formats"
+      :messages="messages"
+      @export="exportReport"
+    />
+  </template>
+</ReportPreview>
+```
+
+插槽中的 `busy` 包含刷新、导入、保存、导出及打印状态。`exportReport(format)` 输出当前预览，原始数据下载由宿主提供，入口应明确两者的数据范围。没有提供该插槽时使用默认导出菜单。

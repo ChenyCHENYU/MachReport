@@ -95,7 +95,7 @@ function warehouseFace(schema: DatasetContract, title: string, identity: string 
 }
 
 /** Finished layouts use declared fields and original values; custom documents stay host controlled. */
-export function createLabelStudioDocument(schema: DatasetContract, title: string, identityField?: string, layout: LabelStudioLayout = {}): ReportTemplateDocument {
+export function createLabelStudioDocument(schema: DatasetContract, title: string, identityField?: string, layout: LabelStudioLayout = {}, dataContract?: ReportTemplateDocument["template"]["dataContract"]): ReportTemplateDocument {
   const identity = labelIdentityField(schema, identityField);
   const preset = labelPreset(layout.preset);
   // The existing image component owns Logo bytes; metadata retains only small settings.
@@ -110,5 +110,5 @@ export function createLabelStudioDocument(schema: DatasetContract, title: string
   const pages = [{ widthMm: preset.widthMm, heightMm: preset.heightMm, meta: { title: `${title} · 1`, labelStudio: settings }, components: front }];
   if (preset.faces === 2)
     pages.push({ widthMm: preset.widthMm, heightMm: preset.heightMm, meta: { title: `${title} · 2`, labelStudio: settings }, components: warehouseFace(schema, title, identity, layout) });
-  return defineReportTemplate({ id: "record-label", name: title, template: createLabelTemplate({ dataset: "records", rowKey: schema.rowKey, pages }) });
+  return defineReportTemplate({ id: "record-label", name: title, template: { ...createLabelTemplate({ dataset: "records", rowKey: schema.rowKey, pages }), ...(dataContract ? { dataContract } : {}) } });
 }

@@ -5,8 +5,14 @@ import type { ReportExportFormat } from "./tools";
 import ReportIcon from "./ReportIcon.vue";
 import { usePopover } from "./composables/usePopover";
 
-const props = defineProps<{ messages: MachReportMessages; formats?: readonly ReportExportFormat[]; busy?: boolean }>();
-const emit = defineEmits<{ (e: "export", format: ReportExportFormat): void }>();
+const props = defineProps<{
+  messages: MachReportMessages;
+  formats?: readonly ReportExportFormat[];
+  busy?: boolean;
+  /** 宿主附加出口仍复用菜单的焦点、键盘与忙碌行为。 */
+  actions?: readonly { id: string; label: string; description?: string; disabled?: boolean }[];
+}>();
+const emit = defineEmits<{ (e: "export", format: ReportExportFormat): void; (e: "action", id: string): void }>();
 const { opened, root, trigger, panel, close, onKeydown } = usePopover();
 const choices = computed(() => [
   { format: "xlsx" as const, label: props.messages.exportExcel, extension: ".xlsx" },
@@ -19,6 +25,10 @@ watch(() => props.busy, (busy) => { if (busy) close(); });
 function choose(format: ReportExportFormat): void {
   if (props.busy) return;
   emit("export", format); close(true);
+}
+function chooseAction(id: string): void {
+  if (props.busy || props.actions?.find(action => action.id === id)?.disabled) return;
+  emit("action", id); close(true);
 }
 function openWithKeyboard(event: KeyboardEvent): void {
   if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
@@ -37,13 +47,16 @@ function navigate(event: KeyboardEvent): void {
 }
 </script>
 <template>
-  <div v-if="choices.length" ref="root" class="mrp-export-menu" @keydown="onKeydown">
+  <div v-if="choices.length || actions?.length" ref="root" class="mrp-export-menu" @keydown="onKeydown">
     <button ref="trigger" type="button" class="mrp-nav mrp-export-trigger" :disabled="busy" aria-haspopup="menu" :aria-expanded="opened" @click="opened = !opened" @keydown="openWithKeyboard">
       <ReportIcon name="download" />{{ messages.exportMenu ?? "导出" }}<ReportIcon name="chevron-down" :size="12" />
     </button>
     <div v-if="opened" ref="panel" class="mrp-export-panel" role="menu" :aria-label="messages.exportMenu ?? '导出'" @keydown="navigate">
       <p>{{ messages.exportMenuDescription ?? "选择文件格式" }}</p>
       <button v-for="item in choices" :key="item.format" type="button" role="menuitem" tabindex="-1" :aria-label="item.label" :disabled="busy" @click="choose(item.format)"><ReportIcon name="file" /><span>{{ item.label }}</span><small aria-hidden="true">{{ item.extension }}</small></button>
+      <div v-if="actions?.length" class="mrp-export-extra" role="group">
+        <button v-for="action in actions" :key="action.id" type="button" role="menuitem" tabindex="-1" :aria-label="action.label" :aria-description="action.description" :disabled="busy || action.disabled" @click="chooseAction(action.id)"><ReportIcon name="file" /><span>{{ action.label }}<small v-if="action.description" class="mrp-export-description">{{ action.description }}</small></span></button>
+      </div>
     </div>
   </div>
 </template>
@@ -113,6 +126,9 @@ function navigate(event: KeyboardEvent): void {
   opacity: .65;
   font-size: 11px;
 }
+.mrp-export-extra { margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--mrp-toolbar-border); }
+.mrp-export-extra button { height: auto; min-height: 44px; padding-top: 6px; padding-bottom: 6px; }
+.mrp-export-extra .mrp-export-description { display: block; margin: 3px 0 0; max-width: 260px; white-space: normal; line-height: 1.4; font-size: 11px; }
 .mrp-export-panel button:hover,.mrp-export-panel button:focus-visible {
   background: var(--mrp-btn-hover-bg);
   color: var(--mrp-btn-hover-fg);

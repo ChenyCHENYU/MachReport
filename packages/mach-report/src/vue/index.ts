@@ -33,3 +33,5 @@ export type { ReportCellSelection, ReportFieldTarget } from "./composables/useCe
 export * from "./composables/usePageWindow";
 export * from "./composables/useZoom";
 export * from "./composables/usePrintExport";
+export { default as ReportExportMenu } from "./ReportExportMenu.vue";
+export { default as ReportTaskStatus } from "./ReportTaskStatus.vue";

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { MachReportMessages } from "./config";
+import { DEFAULT_MESSAGES, type MachReportMessages } from "./config";
 import type { ReportPreviewTask } from "./guards";
-const props = defineProps<{ task: Readonly<ReportPreviewTask> | null; messages: MachReportMessages }>();
+const props = withDefaults(defineProps<{ task: Readonly<ReportPreviewTask> | null; messages?: MachReportMessages }>(), { messages: () => DEFAULT_MESSAGES });
 defineEmits<{ (e: "cancel"): void }>();
 const stages = computed(() => ({ query: props.messages.taskQuery, validate: props.messages.taskValidate, layout: props.messages.taskLayout, assets: props.messages.taskAssets, import: props.messages.importing, encode: props.messages.taskEncode, download: props.messages.taskDownload, print: props.messages.taskPrint }));
 const count = computed(() => props.task?.total === undefined ? "" : `${props.task.completed ?? 0} / ${props.task.total}`);

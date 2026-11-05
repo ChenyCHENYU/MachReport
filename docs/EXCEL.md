@@ -199,3 +199,23 @@ const result = await renderPlanToXlsx(planWithLogo, {
 `maxDataBars` 默认 10000，允许0–100000，`0`表示遇到非零数据条明确失败，绝不静默删除。连续Sheet与逐页Sheet沿用相同预算和媒体复用。`/xlsx/node` 的流式行导出不接收 RenderPlan，不承诺这一页面视觉还原。声明图表展开后的基础图元不生成原生Excel图表对象，无法表达的内容仍返回诊断；可通过既有可信资源适配器提供PNG/JPEG图表图片。
 
 用法见[数据工作流](DATA_WORKFLOW.md)。Office实机显示与编辑结果仍按[外部验收](EXTERNAL_ACCEPTANCE.md)核对，本轮没有可执行的实机环境。
+
+## 编码前追加说明表
+
+附加标量工作表与主体共用一次编码，声明可交给浏览器或服务端 Worker。输入在异步执行前捕获独立快照，拒绝公式对象、非法名称、超长文本和超出预算的内容。
+
+```ts
+const result = await renderPlanToXlsx(plan, {
+  valueMode: "raw",
+  sheetNames: ["业务明细"],
+  additionalSheets: [{
+    name: "来源与版本",
+    columnWidths: [24, 80],
+    rows: [["厂别", "YTS0"], ["规则版本", "r1"]]
+  }]
+});
+```
+
+工作表名称需与主体及其他附加表互不重复。附加内容总计最多 100 张表、100000 个单元格与 4000000 个文本字符，每张表最多 100000 行，单行最多 16384 列。文本遵循 Excel 单元格字符及换行限制。编码取消会沿用任务的 `signal`。
+
+需要自行设置 ExcelJS 特有属性时使用 `renderPlanToWorkbook(plan, options)`，完善返回的 `workbook` 后执行 `workbook.xlsx.writeBuffer()`。这个构建入口返回工作簿和诊断，编码由调用方完成一次。`renderPlanToXlsx` 继续返回已编码的 `buffer`，现有调用保持兼容。
