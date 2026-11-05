@@ -4,7 +4,7 @@ import type { useTemplateWorkspace } from "./useTemplateWorkspace";
 import type { useTemplateInspector, TemplateInspectorSection } from "./useTemplateInspector";
 
 /** Targets, tool visibility and unapplied configuration move together, independently of rendering. */
-export function useDesignerNavigation(editor: ReturnType<typeof useTemplateEditor>, workspace: ReturnType<typeof useTemplateWorkspace>, inspector: ReturnType<typeof useTemplateInspector>, host: { id: string; readonly(): boolean }) {
+export function useDesignerNavigation(editor: ReturnType<typeof useTemplateEditor>, workspace: ReturnType<typeof useTemplateWorkspace>, inspector: ReturnType<typeof useTemplateInspector>, host: { id: string; readonly(): boolean; capabilities?(): Partial<Record<string, boolean>> | undefined }) {
   const { lists, selected, jsonPending, saving, blocked, validation, pendingLocalChanges, messages: m } = editor;
   const { section } = inspector;
   const { mode, tool, canvasPage, setMode: setWorkspaceMode, chooseCanvas: chooseCanvasUnchecked, locateReview: locateReviewUnchecked } = workspace;
@@ -14,7 +14,7 @@ export function useDesignerNavigation(editor: ReturnType<typeof useTemplateEdito
     "component",
     "template",
     "tools",
-    "advanced",
+    ...(host.capabilities?.()?.advanced === false ? [] : ["advanced" as const]),
   ]);
   const dockedTools = ref(new Set(["outline", "reuse"]));
   const toolPreview = computed(() => section.value === "tools" && dockedTools.value.has(tool.value));

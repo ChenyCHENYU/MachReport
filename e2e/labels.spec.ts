@@ -25,7 +25,7 @@ test("industrial labels render real symbols, switch records and export physical-
   await page.getByRole("combobox", { name: "预览记录", exact: true }).selectOption("single");
   await page.getByRole("spinbutton", { name: "记录序号", exact: true }).fill("2");
   await expect(page.locator(".mrp-page-holder").first()).toContainText("S316LS");
-  await expect(page.locator(".mrp-page-holder").first()).toContainText("0 kg");
+  await expect(page.locator(".mrp-page-holder").first().getByText("0", { exact: true })).toBeVisible();
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出", exact: true }).click();
   await page.getByRole("menuitem", { name: "导出 PDF", exact: true }).click();
@@ -64,16 +64,31 @@ test("label designer edits actual paper, binding and symbols through undo and sa
   await expect(page.locator(".mr-page-list > button")).toHaveCount(2);
   await expect(page.locator('.mr-page-list > button[aria-pressed="true"]')).toContainText("产品追溯标签");
   await page.getByRole("tab", { name: "组件", exact: true }).click();
-  await page.getByRole("combobox", { name: "添加组件", exact: true }).selectOption("qrcode");
-  await expect(page.locator(".mr-canvas-code").last()).toContainText("二维码");
+  const codes = page.locator('.mr-canvas-component[aria-label$=" qrcode"]');
+  const previousCodes = await codes.count();
+  await page.getByRole("button", { name: "添加内容", exact: true }).click();
+  await page.getByRole("dialog", { name: "添加到当前版面", exact: true })
+    .getByRole("button", { name: /^二维码/ }).click();
+  await expect(page.getByLabel("绑定字段", { exact: true })).toHaveValue("heat");
+  await expect(page.locator(".mr-canvas-component.is-selected .mr-canvas-code")).toContainText("DEMO2601");
+  const insertedPage = Number(await page.locator(".mr-label-editor")
+    .getByRole("combobox", { name: "页", exact: true }).inputValue());
+  await page.getByRole("button", { name: "打印预览", exact: true }).click();
+  const insertedCode = page.locator(".mr-label-main > .mach-report-preview .mrp-page-holder")
+    .nth(insertedPage).locator('img[src^="data:image/png;base64,"]');
+  await expect(insertedCode).toBeVisible();
+  expect(await insertedCode.evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 100)).toBe(true);
+  await expect(page.locator(".mr-label-main > .mach-report-preview [role=alert]")).toHaveCount(0);
+  await page.getByRole("button", { name: "设计标签", exact: true }).click();
   await page.getByRole("button", { name: "撤销", exact: true }).click();
-  await expect(page.locator(".mr-canvas-code")).toHaveCount(1);
+  await expect(codes).toHaveCount(previousCodes);
   await page.getByRole("button", { name: "保存草稿", exact: true }).click();
   await expect(page.getByRole("button", { name: "保存草稿", exact: true })).toBeDisabled();
-  await page.getByRole("button", { name: "预览", exact: true }).click();
-  await expect(page.locator('.mr-designer-preview img[src^="data:image/png;base64,"]').first()).toBeVisible();
-  await expect(page.locator(".mr-designer [role=alert]")).toHaveCount(0);
-  await page.getByRole("button", { name: "设计", exact: true }).click();
+  await expect(page.locator(".mr-designer-mode")).toHaveCount(0);
+  await page.getByRole("button", { name: "打印预览", exact: true }).click();
+  await expect(page.locator('.mr-label-main > .mach-report-preview img[src^="data:image/png;base64,"]').first()).toBeVisible();
+  await expect(page.locator(".mr-label-main > .mach-report-preview [role=alert]")).toHaveCount(0);
+  await page.getByRole("button", { name: "设计标签", exact: true }).click();
   await page.screenshot({ path: testInfo.outputPath("industrial-label-designer.png"), fullPage: true });
   expect(errors).toEqual([]);
 });
@@ -103,12 +118,54 @@ test("label preview saves valid edits without an implicit discard and preserves 
   await expect(page.locator(".mr-label-count")).toHaveText("2 条记录 → 8 张标签");
   const dataset = page.getByRole("combobox", { name: "记录数据集", exact: true });
   await dataset.fill("renamed"); await dataset.press("Tab");
-  await expect(page.locator(".mr-designer-preview .mrp-pageinfo")).toContainText("1 / 8");
-  await expect(page.locator('.mr-designer-preview img[src^="data:image/png;base64,"]').first()).toBeVisible();
+  await expect(page.locator(".mr-designer .mr-canvas-paper")).toBeVisible();
+  await expect(page.locator(".mr-designer-mode")).toHaveCount(0);
   await expect(page.locator(".mr-designer [role=alert]")).toHaveCount(0);
   await page.getByRole("button", { name: "打印预览", exact: true }).click();
   await expect(page.getByRole("button", { name: "丢弃修改并继续", exact: true })).toHaveCount(0);
   await expect(page.locator(".mr-label-count")).toHaveText("2 条记录 → 8 张标签");
   await expect(page.locator(".mrp-pageinfo")).toContainText("1 / 8");
   await expect(page.locator(".mrp-page-holder").first()).toContainText("S304H3");
+});
+
+
+test("label preview preserves insertion history across save and return without a second mode switch", async ({ page }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.goto("http://localhost:8610/labels.html");
+  await page.getByRole("button", { name: "设计标签", exact: true }).click();
+  await expect(page.locator(".mr-designer-mode")).toHaveCount(0);
+  const editor = page.locator(".mr-label-editor");
+  await editor.getByRole("button", { name: "添加内容", exact: true }).click();
+  const menu = editor.getByRole("dialog", { name: "添加到当前版面", exact: true });
+  await menu.getByRole("button", { name: /^业务字段/ }).click();
+  const fieldSearch = menu.getByRole("textbox", { name: "搜索业务字段", exact: true });
+  await expect(fieldSearch).toBeVisible();
+  await fieldSearch.fill("产品编号");
+  await menu.getByRole("button", { name: /产品编号.*coil/ }).click();
+  await expect(editor.getByLabel("绑定字段", { exact: true })).toHaveValue("coil");
+  await expect(editor.locator(".mr-canvas-component.is-selected")).toContainText("A001");
+  await editor.getByRole("button", { name: "添加内容", exact: true }).click();
+  await editor.getByRole("dialog", { name: "添加到当前版面", exact: true })
+    .getByRole("button", { name: /^说明文字/ }).click();
+  const text = editor.getByLabel("文本内容", { exact: true });
+  await text.fill("复核后可追溯");
+  await text.press("Tab");
+  await expect(editor.locator(".mr-canvas-component.is-selected")).toContainText("复核后可追溯");
+  await page.getByRole("button", { name: "打印预览", exact: true }).click();
+  const preview = page.locator(".mr-label-main > .mach-report-preview");
+  await expect(preview).toContainText("复核后可追溯");
+  await expect(preview).toContainText("A001");
+  await page.getByRole("button", { name: "设计标签", exact: true }).click();
+  const undo = editor.getByRole("button", { name: "撤销", exact: true });
+  const redo = editor.getByRole("button", { name: "重做", exact: true });
+  await expect(undo).toBeEnabled();
+  await undo.click();
+  await expect(editor.locator(".mr-canvas-paper")).not.toContainText("复核后可追溯");
+  await expect(redo).toBeEnabled();
+  await redo.click();
+  await expect(editor.locator(".mr-canvas-paper")).toContainText("复核后可追溯");
+  await expect(editor.getByRole("button", { name: "保存草稿", exact: true })).toBeDisabled();
+  expect(errors).toEqual([]);
+  await page.screenshot({ path: testInfo.outputPath("label-continuous-editing.png"), fullPage: true });
 });

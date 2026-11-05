@@ -48,6 +48,7 @@ import type { ReportPrefillReviewOptions, ReportDataComparisonReviewOptions } fr
 import ReportPagination from "./ReportPagination.vue";
 import ReportRecordNavigation from "./ReportRecordNavigation.vue";
 import ReportCalculationPanel from "./ReportCalculationPanel.vue";
+import ReportSelectionSummary from "./ReportSelectionSummary.vue";
 import { useSelectionCalculation } from "./composables/useSelectionCalculation";
 import ReportSettings from "./ReportSettings.vue";
 import ReportEmpty from "./ReportEmpty.vue";
@@ -320,7 +321,15 @@ const dataReview = usePreviewDataReview({
   error: (message, cause) => reportError(message, "edit", cause)
 });
 const calculation = useSelectionCalculation({ plan, selection: cells.selection, enabled: () => calculationsEnabled.value });
-function openCalculations(): void { void toggleSettings("advanced"); }
+const calculationOpen = ref(false);
+const calculationTrigger = ref<HTMLButtonElement | null>(null);
+function openCalculations(): void { calculationOpen.value = !calculationOpen.value; }
+function closeCalculations(): void { calculationOpen.value = false; calculationTrigger.value?.focus(); }
+function onInteractionChange(value: ReportInteractionOptions): void {
+  sessionInteraction.value = { ...sessionInteraction.value, ...value };
+  if (value.calculations === true) { settingsOpen.value = false; calculationOpen.value = true; }
+}
+watch(calculationsEnabled, enabled => { if (!enabled) calculationOpen.value = false; });
 const drill = useReportDrill({
   plan, selection: cells.selection,
   options: () => props.drill ?? resolved.value.drill,
@@ -709,10 +718,9 @@ defineExpose({ ...controller, state });
     <ReportDiagnostics :entries="outputDiagnostics" :messages="resolvedMessages" @locate="locateDiagnostic" />
     <ReportDataExplanation :entries="dataExplanations" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @locate="locateDataExplanation" />
     <ReportDrillActions :entries="drill.entries.value" :pending="drill.pending.value" :error="drill.error.value" :busy="loading || importing || editing.saving.value" :messages="resolvedMessages" @open="drill.open" />
-    <ReportSettings v-if="settingsOpen && effectiveShowSettings" :available="availableTools" :enabled="toolState" :messages="resolvedMessages" :persisted-editing="persistedEditing" :interaction="effectiveInteraction" :section="settingsSection" :busy="loading || importing || editing.saving.value || !!exporting || printing" @section="settingsSection = $event" @interaction="sessionInteraction = { ...sessionInteraction, ...$event }" @change="onToolChange" @reset="resetTools" @close="settingsOpen = false">
+    <ReportSettings v-if="settingsOpen && effectiveShowSettings" :available="availableTools" :enabled="toolState" :messages="resolvedMessages" :persisted-editing="persistedEditing" :interaction="effectiveInteraction" :section="settingsSection" :busy="loading || importing || editing.saving.value || !!exporting || printing" @section="settingsSection = $event" @interaction="onInteractionChange" @change="onToolChange" @reset="resetTools" @close="settingsOpen = false">
       <slot name="settings" />
       <ReportPrintSettings v-if="toolState.print" :value="effectivePrintOptions.calibration ?? {}" :messages="resolvedMessages" :busy="printing || loading || importing || editing.saving.value" :can-test="canCalibratePrint" @change="localPrintCalibration = $event" @test="testPrintCalibration" />
-      <template #advanced><ReportCalculationPanel :state="calculation" :messages="calculationMessages" /></template>
     </ReportSettings>
     <ReportNavigation :plan="plan" @locate-target="locateTarget" v-if="sections.length > 1 && pageCount > 0 && effectiveInteraction.navigation !== false" :sections="sections" :current-page="currentPage" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @goto="gotoPage" @locate="locateField" />
     <ReportImportSummary v-if="importedResult" :result="importedResult" :messages="resolvedMessages" />
@@ -799,11 +807,15 @@ defineExpose({ ...controller, state });
         </button>
         <div v-if="thumbs.windowRange.value.padBottomPx > 0" class="mrp-thumb-spacer" :style="{ height: `${thumbs.windowRange.value.padBottomPx}px` }" aria-hidden="true" />
       </aside>
+      <aside v-if="calculationsEnabled && calculationOpen" class="mrp-analysis" :aria-label="calculationMessages.calculationAdvanced" @keydown.esc.stop.prevent="closeCalculations">
+        <ReportCalculationPanel :state="calculation" :messages="calculationMessages" closable @close="closeCalculations" />
+      </aside>
     </div>
     <footer v-if="pageCount > 0" class="mrp-footer">
       <div class="mrp-footer-context">
         <ReportRecordNavigation v-if="effectiveInteraction.navigation !== false" :plan="plan" :current-page="currentPage" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @goto="gotoPage" />
-        <button v-if="calculationsEnabled && effectiveShowSettings" class="mrp-calculation-toggle" type="button" :aria-label="calculationMessages.calculationTitle" @click="openCalculations"><span aria-hidden="true">∑</span>{{ calculationMessages.calculationTitle }}<strong v-if="calculation.result.value">{{ calculation.result.value.formatted }}</strong></button>
+        <ReportSelectionSummary v-if="calculationsEnabled" :state="calculation" :messages="calculationMessages" />
+        <button v-if="calculationsEnabled" ref="calculationTrigger" class="mrp-calculation-toggle" type="button" :aria-label="calculationMessages.calculationAdvanced" :aria-expanded="calculationOpen" @click="openCalculations"><span aria-hidden="true">∑</span>{{ calculationMessages.calculationAdvanced }}</button>
       </div>
       <ReportPagination :page-count="pageCount" :current-page="currentPage" :messages="resolvedMessages" :busy="loading || importing || editing.saving.value" @goto="gotoPage" />
     </footer>

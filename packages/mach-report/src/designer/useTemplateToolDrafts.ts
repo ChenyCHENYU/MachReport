@@ -6,17 +6,20 @@ interface ToolBridge {
   epoch: { value: number };
 }
 const toolBridge: InjectionKey<ToolBridge> = Symbol("mach-report:tool-drafts");
-export function provideTemplateToolDrafts(onPending: (tool: string, pending: boolean) => void) {
+export function provideTemplateToolDrafts(onPending: (tool: string, pending: boolean) => void, onChange?: () => void) {
   const records = ref<Record<string, TemplateToolDraft>>({}), epoch = ref(0);
   const bridge: ToolBridge = {
     epoch,
     read: key => records.value[key],
     write(key, value) {
+      const previous = records.value[key];
+      if (previous?.baseline === value?.baseline && previous?.value === value?.value) return;
       const next = { ...records.value };
       if (value) next[key] = value; else delete next[key];
       records.value = next;
       const tool = key.split(":")[0]!;
       onPending(tool, Object.keys(next).some(item => item.split(":")[0] === tool));
+      onChange?.();
     },
   };
   provide(toolBridge, bridge);
@@ -33,20 +36,28 @@ export function useTemplateToolDraft(options: {
   baseline: () => string;
   pending: () => boolean;
   snapshot: () => string;
-  restore: (value: string, baseline: string) => void;
+  reset?: () => void;
+  restore: (value: string, baseline: string, context?: { pending: boolean }) => void;
 }): void {
   const bridge = inject(toolBridge, undefined);
   if (!bridge) return;
   let restoring = false;
-  const restore = () => {
+  let clean = { key: options.key(), baseline: options.baseline(), value: options.snapshot() };
+  const restore = (current: readonly [string, number], previous?: readonly [string, number]) => {
     const record = bridge.read(options.key());
-    if (!record) return;
+    if (!record && (!previous || current[1] === previous[1])) return;
+    const state = record ?? (clean.key === current[0] ? clean : undefined);
+    if (!state && !options.reset) return;
     restoring = true;
-    try { options.restore(record.value, record.baseline); } finally { restoring = false; }
+    try {
+      if (!record && options.reset) options.reset();
+      else if (state) options.restore(state.value, state.baseline, { pending: !!record });
+    } finally { restoring = false; }
   };
-  watch([options.key, () => bridge.epoch.value], restore, { immediate: true, flush: "sync" });
+  watch(() => [options.key(), bridge.epoch.value] as const, restore, { immediate: true, flush: "post" });
   const stop = watch([options.pending, options.snapshot], () => {
     if (restoring) return;
+    if (!options.pending()) clean = { key: options.key(), baseline: options.baseline(), value: options.snapshot() };
     bridge.write(options.key(), options.pending() ? { baseline: options.baseline(), value: options.snapshot() } : undefined);
   }, { flush: "post" });
   onBeforeUnmount(stop);

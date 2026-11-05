@@ -844,9 +844,12 @@
   flex: 1;
 }
 .mr-designer-object-tools button {
-  width: 28px;
+  width: auto;
+  min-width: 28px;
+  flex-shrink: 0;
   height: 28px;
-  padding: 3px;
+  padding: 3px 8px;
+  white-space: nowrap;
 }
 .mr-designer-layer-tools {
   display: flex;
@@ -937,3 +940,17 @@
 .mr-designer-arrange { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:9px 0; border-bottom:1px solid #e2e8f0; font-size:11px; }.mr-designer-arrange strong { flex-basis:100%; font-weight:500; color:#64748b; }.mr-designer-arrange small { flex-basis:100%; color:#64748b; }.mr-designer-arrange select { width:100%; }
 
 .mr-designer-flow-note{display:grid;gap:7px;padding:10px;margin-bottom:12px;border:1px solid #d6e6fa;border-radius:7px;background:#f2f7fe;color:#5d7b9f}.mr-designer-flow-note button{justify-self:start;font-size:12px}
+
+/* 主操作保持文字可辨，窄工作区只换行一次，不裁切插入菜单。 */
+.mr-designer-bar {
+  height: auto;
+  min-height: 42px;
+  flex-wrap: wrap;
+  padding: 0 12px;
+  gap: 0 12px;
+}
+.mr-designer-history .mr-designer-icon-button{width:auto;min-width:52px;padding:4px 8px}
+.mr-designer-insert-notice{margin:0;padding:7px 12px;border-bottom:1px solid #dae6f3;background:#f0f6fe;color:#35618f;font-size:11px}
+.mr-designer-field-actions{display:flex;justify-content:flex-end;margin:0 0 8px}
+.mr-designer-field-actions button{font-size:10px;color:#64748b;padding:2px 6px}
+@media(max-width:1100px){.mr-designer-heading span{display:none}.mr-designer-tabs>button{padding:0 8px}.mr-designer-bar{gap:6px 8px}.mr-designer-actions{flex-wrap:wrap;justify-content:flex-end;gap:4px}.mr-designer-guide>button{font-size:11px}.mr-designer-save-reason{display:none}}

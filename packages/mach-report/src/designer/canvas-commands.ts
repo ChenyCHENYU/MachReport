@@ -65,8 +65,8 @@ export function createCanvasComponent(
 ): TemplateComponent {
   const base = { leftMm: 10, topMm: 10, widthMm: 60, heightMm: 10 };
   if (kind === "chart") return { ...base, kind, widthMm: 110, heightMm: 60, chartBinding: { dataset, categoryField: "field", measures: [{ op: "sum", field: "value" }], type: "bar" } };
-  if (kind === "qrcode") return { ...base, kind, widthMm: 22, heightMm: 22, code: { value: "MACHREPORT", errorCorrection: "M", quietZoneModules: 4 } };
-  if (kind === "barcode") return { ...base, kind, widthMm: 50, heightMm: 16, code: { value: "MR20261022", symbology: "code128", quietZoneModules: 10, showText: true } };
+  if (kind === "qrcode") return { ...base, kind, widthMm: 22, heightMm: 22, code: { errorCorrection: "M", quietZoneModules: 4 } };
+  if (kind === "barcode") return { ...base, kind, widthMm: 50, heightMm: 16, code: { symbology: "code128", quietZoneModules: 10, showText: true } };
   if (kind === "list")
     return {
       kind,
@@ -99,14 +99,13 @@ export function createCanvasComponent(
         backgroundColor: "#eff6ff",
       },
     };
-  const svg =
-    '<svg xmlns="http://www.w3.org/2000/svg" width="180" height="90" viewBox="0 0 180 90"><rect width="180" height="90" rx="5" fill="#eff6ff"/><path d="m25 68 32-32 25 23 27-35 45 44" fill="none" stroke="#94b8e5" stroke-width="3"/><circle cx="45" cy="24" r="7" fill="#bfd5ef"/></svg>';
   return {
     ...base,
     kind,
     widthMm: 48,
     heightMm: 24,
-    imageData: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+    imageData: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAYAAAC8/X7cAAAAQ0lEQVR4nO3PsQkAIADAMP//1NVZ0CMcgtChezrm2ufnhgY0oAENaEADGtCABjSgAQ1oQAMa0IAGNKABDWhAAxrw2gWyBkQAzw4dBAAAAABJRU5ErkJggg==",
+    meta: { designerPlaceholder: true },
   };
 }
 export function constrainGeometry(
@@ -284,4 +283,33 @@ export function splitCanvasHeader(
     list.columns.map((column) => column.widthMm),
     list.headerGrid.rowHeightsMm ?? matrix.map(() => 8),
   );
+}
+
+/** 字段增删同步可视表头和列宽，已有合并区域保持覆盖关系。 */
+export function appendCanvasColumn(list: ListComponent, column: ListComponent["columns"][number], grow = false): void {
+  const matrix = headerMatrix(list);
+  const oldWidth = list.widthMm;
+  list.columns.push(column);
+  for (let row = 0; row < matrix.length; row++) matrix[row]!.push({ text: row === matrix.length - 1 ? column.header : "", style: { ...list.headerStyle, align: "center" } });
+  const total = list.columns.reduce((sum, item) => sum + item.widthMm, 0);
+  if (grow) list.widthMm = total;
+  else for (const item of list.columns) item.widthMm *= oldWidth / total;
+  if (list.headerGrid) list.headerGrid = compactGrid(matrix, list.columns.map(item => item.widthMm), list.headerGrid.rowHeightsMm ?? matrix.map(() => 8));
+}
+export function removeCanvasColumn(list: ListComponent, index: number, grow = false): void {
+  if (list.columns.length < 2 || !list.columns[index]) return;
+  const matrix = headerMatrix(list), oldWidth = list.widthMm;
+  if (list.headerGrid) {
+    for (const box of resolveGridLayout(list.headerGrid, list.widthMm, 100).cells) {
+      if (index < box.ci || index >= box.ci + (box.cell.colSpan ?? 1) || (box.cell.colSpan ?? 1) < 2) continue;
+      const cell = { ...box.cell, colSpan: (box.cell.colSpan ?? 1) - 1 };
+      matrix[box.ri]![box.ci === index ? index + 1 : box.ci] = cell;
+    }
+  }
+  matrix.forEach(row => row.splice(index, 1));
+  list.columns.splice(index, 1);
+  const total = list.columns.reduce((sum, item) => sum + item.widthMm, 0);
+  if (grow) list.widthMm = total;
+  else for (const item of list.columns) item.widthMm *= oldWidth / total;
+  if (list.headerGrid) list.headerGrid = compactGrid(matrix, list.columns.map(item => item.widthMm), list.headerGrid.rowHeightsMm ?? matrix.map(() => 8));
 }

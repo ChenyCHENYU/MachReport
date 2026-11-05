@@ -212,14 +212,17 @@ export function resolveDataReviewMessages(messages: Partial<ReportDataReviewMess
   return { ...DEFAULT_DATA_REVIEW_MESSAGES, ...Object.fromEntries(Object.entries(messages).filter(([, value]) => value !== undefined)) };
 }
 
-export const DEFAULT_CALCULATION_MESSAGES: ReportCalculationMessages = {
+export const DEFAULT_CALCULATION_MESSAGES: Required<ReportCalculationMessages> = {
   calculationTitle: "选区计算", calculationLocal: "仅本地分析，不写回实绩、不重算原公式。请选取同一单位与量纲的数值。",
   calculationHint: "点击起点，Shift + 点击终点或方向键扩选。",
   calculationFormula: "计算方式", calculationExpression: "组合公式",
   calculationExpressionHint: "支持 SUM、AVERAGE/AVG、MIN、MAX、COUNT、MEDIAN 及 + - * / 和括号，不执行 Excel 公式；采用浮点数，精度仅用于展示。",
   calculationPrecision: "展示小数位", calculationRun: "计算选区", calculationCancel: "取消计算", calculationResult: "计算结果",
   calculationIncluded: "参与数值", calculationExcluded: "排除单元格", calculationEmpty: "选区没有可计算数值，计数为 0，其余结果为空。",
-  calculationNoSelection: "先关闭设置并选择数据，再从底部工具栏打开选区计算。",
+  calculationNoSelection: "在旁边报表中点击起点，再 Shift + 点击终点选择数据。",
+  calculationSummary: "选区摘要", calculationAdvanced: "高级计算", calculationClose: "收起选区计算", calculationPending: "正在计算选区…",
+  calculationSummarySum: "求和", calculationSummaryAverage: "均值", calculationSummaryCount: "数值",
+  calculationMixedColumns: "选区跨多列，请确认单位与口径后使用高级计算。",
   calculationSum: "求和 SUM", calculationAverage: "平均值 AVERAGE", calculationMin: "最小值 MIN", calculationMax: "最大值 MAX",
   calculationCount: "数值计数 COUNT", calculationMedian: "中位数 MEDIAN", calculationCustom: "组合公式",
   calculationErrorSelection: "请选择同一明细区域中的数据。", calculationErrorLimit: "选区超过计算预算，请缩小范围后重试。",
@@ -228,7 +231,7 @@ export const DEFAULT_CALCULATION_MESSAGES: ReportCalculationMessages = {
 };
 
 /** 新消息保持可选，旧的完整文案对象也能获得新增能力的默认文案。 */
-export function resolveCalculationMessages(messages: Partial<ReportCalculationMessages>): ReportCalculationMessages {
+export function resolveCalculationMessages(messages: Partial<ReportCalculationMessages>): Required<ReportCalculationMessages> {
   const result = { ...DEFAULT_CALCULATION_MESSAGES };
   for (const key of Object.keys(result) as (keyof ReportCalculationMessages)[]) {
     const value = messages[key];
@@ -252,7 +255,7 @@ export const DEFAULT_MESSAGES: MachReportMessages = {
   columnSearchHint: "输入列名或字段标识", columnSearchShortcut: "↑ ↓ 选择 · Enter 定位", closeColumnDirectory: "关闭字段目录",
   columnResultsMore: "{count} 个匹配字段，显示前 {limit} 个；继续输入可缩小范围", columnCount: "{count} 个字段",
   settingsGeneral: "常规", settingsTools: "工具", settingsAdvanced: "高级", settingsAdvancedDescription: "按需开启分析能力，保持日常阅读简洁。",
-  settingsCalculations: "启用选区计算", settingsCalculationsDescription: "选取数值后计算求和、平均值或组合公式，仅用于本地分析。",
+  settingsCalculations: "启用选区计算", settingsCalculationsDescription: "开启后直接在报表旁选择数据，底部查看单列摘要，侧栏配置高级计算。",
   title: "报表预览",
   prevPage: "‹ 上一页",
   nextPage: "下一页 ›",

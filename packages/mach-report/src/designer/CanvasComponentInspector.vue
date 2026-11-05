@@ -59,6 +59,11 @@ const alignLabels = computed(() => ({
 function input(event: Event): string {
   return (event.target as HTMLInputElement).value;
 }
+function setImage(imageData: string): void {
+  const meta = { ...props.component.meta };
+  delete meta.designerPlaceholder;
+  emit("patch", { imageData, meta });
+}
 async function upload(event: Event): Promise<void> {
   const target = event.target as HTMLInputElement,
     file = target.files?.[0];
@@ -68,7 +73,7 @@ async function upload(event: Event): Promise<void> {
   try {
     if (
       file.size > 4 * 1024 * 1024 ||
-      !["image/png", "image/jpeg", "image/webp", "image/svg+xml"].includes(
+      !["image/png", "image/jpeg"].includes(
         file.type,
       )
     )
@@ -80,7 +85,7 @@ async function upload(event: Event): Promise<void> {
       reader.readAsDataURL(file);
     });
     if (!props.disabled && props.component === selected)
-      emit("patch", { imageData: data });
+      setImage(data);
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : String(cause);
   } finally {
@@ -105,11 +110,11 @@ async function upload(event: Event): Promise<void> {
           }}<textarea
             rows="2"
             :value="component.imageData"
-            @change="emit('patch', { imageData: input($event) })"
+            @change="setImage(input($event))"
           /></label><label class="mr-component-upload">{{ m.imageUpload
           }}<input
             type="file"
-            accept="image/png,image/jpeg,image/webp,image/svg+xml"
+            accept="image/png,image/jpeg"
             :aria-label="m.imageUpload"
             @change="upload"
         /></label>

@@ -258,7 +258,7 @@ export function useRuleDataLayout(
     if (!props.accept) change(next);
     localDraft.accept();
   }
-  useTemplateToolDraft({ key: () => `${props.recoveryKey ?? "rules:0:0"}:${props.mode}`, baseline: () => JSON.stringify(props.list[props.mode]), pending: () => localDraft.pending.value, snapshot: () => JSON.stringify({ enabled: enabled.value, detail: detail.value, matrix: matrix.value, tree: tree.value, baseline: localDraft.baseline.value }), restore(value) {
+  useTemplateToolDraft({ key: () => `${props.recoveryKey ?? "rules:0:0"}:${props.mode}`, baseline: () => JSON.stringify(props.list[props.mode]), pending: () => localDraft.pending.value, reset: () => { committed = undefined; reset(); }, snapshot: () => JSON.stringify({ enabled: enabled.value, detail: detail.value, matrix: matrix.value, tree: tree.value, baseline: localDraft.baseline.value }), restore(value) {
     const state = JSON.parse(value) as { enabled: boolean; detail: ListDetail; matrix: MatrixTableOptions; tree: TreeTableOptions; baseline: string };
     enabled.value = state.enabled; detail.value = state.detail; matrix.value = state.matrix; tree.value = state.tree; localDraft.baseline.value = state.baseline;
   } });

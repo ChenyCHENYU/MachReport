@@ -31,19 +31,19 @@ async function advanced(wrapper: VueWrapper) { await tab(wrapper, "高级").trig
 function checkbox(wrapper: VueWrapper) { return wrapper.find(".mrp-settings-feature input[type='checkbox']"); }
 async function enable(wrapper: VueWrapper) {
   await settings(wrapper); await advanced(wrapper); await checkbox(wrapper).setValue(true);
-  await wrapper.find(".mrp-settings-close").trigger("click");
 }
 async function selectAll(wrapper: VueWrapper) {
   await wrapper.find('td[data-mr-row-index="0"][data-mr-column-index="0"]').trigger("click");
   await wrapper.find('td[data-mr-row-index="1"][data-mr-column-index="2"]').trigger("click", { shiftKey: true });
 }
 async function reopenCalculation(wrapper: VueWrapper) {
+  if (wrapper.find(".mrp-analysis").exists()) return;
   const toggle = wrapper.find(".mrp-calculation-toggle"); (toggle.element as HTMLElement).focus();
   await toggle.trigger("click"); await flushPromises();
 }
 
 describe("optional analysis through the real ReportPreview", () => {
-  it("defaults off and enables only from the advanced settings, preserving tab semantics and focus", async () => {
+  it("enables a nonmodal calculation workspace directly from advanced settings, preserving normal selection and focus", async () => {
     const { wrapper } = await create();
     expect(wrapper.find(".mrp-calculation").exists()).toBe(false);
     expect(wrapper.find(".mrp-calculation-toggle").exists()).toBe(false);
@@ -56,27 +56,31 @@ describe("optional analysis through the real ReportPreview", () => {
     expect(document.activeElement).toBe(advancedTab.element);
     expect((checkbox(wrapper).element as HTMLInputElement).checked).toBe(false);
     expect(wrapper.find(".mrp-calculation").exists()).toBe(false);
-    await checkbox(wrapper).setValue(true);
-    expect(wrapper.find(".mrp-calculation").attributes("aria-label")).toBe("选区计算");
-    expect(wrapper.find(".mrp-calculation-toggle").exists()).toBe(true);
     const footer = wrapper.find(".mrp-settings-panel footer button"); (footer.element as HTMLElement).focus();
     const tabKey = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
     footer.element.dispatchEvent(tabKey);
     expect(tabKey.defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(wrapper.find(".mrp-settings-close").element);
-    await wrapper.find(".mrp-settings-close").trigger("click");
-    expect(document.activeElement).toBe(wrapper.find(".mrp-settings-toggle").element);
-    await reopenCalculation(wrapper);
-    expect(tab(wrapper, "高级").attributes("aria-selected")).toBe("true");
-    await wrapper.find(".mrp-settings-panel").trigger("keydown", { key: "Escape" });
+    await checkbox(wrapper).setValue(true); await flushPromises();
+    expect(wrapper.find(".mrp-calculation").attributes("aria-label")).toBe("选区计算");
+    expect(wrapper.find(".mrp-calculation-toggle").attributes("aria-expanded")).toBe("true");
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+    await wrapper.find('td[data-mr-row-index="0"][data-mr-column-index="0"]').trigger("click");
+    await wrapper.find('td[data-mr-row-index="1"][data-mr-column-index="0"]').trigger("click", { shiftKey: true });
+    await vi.waitFor(() => expect(wrapper.get(".mrp-selection-summary").text()).toContain("求和 4"));
+    expect(wrapper.get(".mrp-selection-summary").text()).toContain("均值 2");
+    expect(wrapper.get(".mrp-selection-summary").text()).toContain("数值 2");
+    await wrapper.find(".mrp-analysis").trigger("keydown", { key: "Escape" });
+    expect(wrapper.find(".mrp-analysis").exists()).toBe(false);
     expect(document.activeElement).toBe(wrapper.find(".mrp-calculation-toggle").element);
+    expect(wrapper.find(".mrp-selection-summary").text()).toContain("求和 4");
   });
 
   it("calculates readonly Shift selections with zero, excludes text/date/blank and diagnoses a controlled expression", async () => {
     const { wrapper, controller, original, fetcher } = await create();
     const before = structuredClone(original);
     await enable(wrapper); await selectAll(wrapper);
+    expect(wrapper.get(".mrp-selection-summary").text()).toContain("跨多列");
     expect(wrapper.findAll(".mrp-cell-selected")).toHaveLength(6);
     expect(controller.getSelection()?.anchor.rowIndex).toBe(0);
     await reopenCalculation(wrapper);
@@ -128,14 +132,14 @@ describe("optional analysis through the real ReportPreview", () => {
     await enable(wrapper); await selectAll(wrapper); await reopenCalculation(wrapper);
     await wrapper.find(".mrp-calculation-run").trigger("click"); await flushPromises();
     expect(wrapper.find("output").text()).toBe("6.00");
-    await checkbox(wrapper).setValue(false); await flushPromises();
+    await settings(wrapper); await advanced(wrapper); await checkbox(wrapper).setValue(false); await flushPromises();
     expect(wrapper.find(".mrp-calculation-toggle").exists()).toBe(false);
     expect(wrapper.find(".mrp-calculation").exists()).toBe(false);
     await checkbox(wrapper).setValue(true); await flushPromises();
     expect(wrapper.find("output").exists()).toBe(false);
     await wrapper.find(".mrp-calculation-run").trigger("click"); await flushPromises();
     expect(wrapper.find("output").text()).toBe("6.00");
-    await wrapper.find(".mrp-settings-close").trigger("click");
+    await wrapper.find(".mrp-calculation-close").trigger("click");
     await wrapper.find('td[data-mr-row-index="0"][data-mr-column-index="1"]').trigger("click");
     await wrapper.find(".mrp-body").trigger("keydown", { key: "ArrowLeft", shiftKey: true }); await flushPromises();
     await reopenCalculation(wrapper);

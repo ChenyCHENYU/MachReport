@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, getCurrentInstance } from "vue";
 import type { ReportCalculationOperation } from "@agile-team/mach-report";
-import type { ReportCalculationMessages, ReportSelectionCalculationState } from "./composables/useSelectionCalculation";
+import { calculationErrorMessage, type ReportCalculationMessages, type ReportSelectionCalculationState } from "./composables/useSelectionCalculation";
 
-const props = defineProps<{ state: ReportSelectionCalculationState; messages: ReportCalculationMessages }>();
+const props = defineProps<{ state: ReportSelectionCalculationState; messages: ReportCalculationMessages; closable?: boolean }>();
+defineEmits<{ (event: "close"): void }>();
 const expressionHintId = `mrp-calculation-expression-hint-${getCurrentInstance()?.uid ?? 0}`;
 const choices = computed(() => [
   ["sum", props.messages.calculationSum], ["average", props.messages.calculationAverage],
@@ -11,17 +12,12 @@ const choices = computed(() => [
   ["count", props.messages.calculationCount], ["median", props.messages.calculationMedian],
   ["expression", props.messages.calculationCustom]
 ]);
-const diagnostic = computed(() => {
-  const key = props.state.error.value;
-  if (!key) return "";
-  const messages = props.messages;
-  return { selection: messages.calculationErrorSelection, limit: messages.calculationErrorLimit, expression: messages.calculationErrorExpression, division: messages.calculationErrorDivision, overflow: messages.calculationErrorOverflow, precision: messages.calculationErrorPrecision }[key];
-});
+const diagnostic = computed(() => calculationErrorMessage(props.messages, props.state.error.value));
 </script>
 
 <template>
   <section class="mrp-calculation" :aria-label="messages.calculationTitle" :aria-busy="state.busy.value">
-    <header class="mrp-calculation-heading"><span class="mrp-calculation-symbol" aria-hidden="true">∑</span><div><strong>{{ messages.calculationTitle }}</strong><p>{{ messages.calculationHint }}</p></div></header>
+    <header class="mrp-calculation-heading"><span class="mrp-calculation-symbol" aria-hidden="true">∑</span><div><strong>{{ messages.calculationTitle }}</strong><p>{{ messages.calculationHint }}</p></div><button v-if="closable" class="mrp-calculation-close" type="button" :aria-label="messages.calculationClose" @click="$emit('close')">×</button></header>
     <div class="mrp-calculation-controls">
       <label><span>{{ messages.calculationFormula }}</span><select :aria-label="messages.calculationFormula" :value="state.operation.value" @change="state.setOperation(($event.target as HTMLSelectElement).value as ReportCalculationOperation)" :disabled="state.busy.value"><option v-for="[value, label] in choices" :key="value" :value="value">{{ label }}</option></select></label>
       <label class="mrp-calculation-precision"><span>{{ messages.calculationPrecision }}</span><input :aria-label="messages.calculationPrecision" :value="state.precision.value" @change="state.setPrecision(Number(($event.target as HTMLInputElement).value))" type="number" min="0" max="12" step="1" :disabled="state.busy.value" /></label>
@@ -41,6 +37,7 @@ const diagnostic = computed(() => {
 .mrp-calculation-symbol { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; color: var(--calculation-accent); background: color-mix(in srgb, var(--calculation-accent) 10%, transparent); font-size: 24px; }
 .mrp-calculation-heading strong { font-size: 14px; font-weight: 650; }
 .mrp-calculation-heading p { margin: 4px 0 0; opacity: .7; line-height: 1.5; }
+.mrp-calculation-close { flex: none; margin-left: auto; width: 28px; height: 28px; border: 1px solid var(--mrp-btn-border); border-radius: 6px; background: transparent; color: inherit; font-size: 18px; cursor: pointer; }
 .mrp-calculation-controls { display: flex; gap: 10px; }
 .mrp-calculation-controls label { flex: 1; min-width: 0; }
 .mrp-calculation-controls .mrp-calculation-precision { flex: 0 0 76px; }

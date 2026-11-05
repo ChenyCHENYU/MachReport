@@ -20,6 +20,8 @@
   overflow: hidden;
 }
 .mrp-main { display: flex; flex: 1; min-height: 0; }
+.mrp-analysis { flex: 0 0 320px; min-width: 0; min-height: 0; box-sizing: border-box; overflow: auto; padding: 10px; border-left: 1px solid var(--mrp-toolbar-border); background: var(--mrp-toolbar-bg); }
+@media (max-width: 760px) { .mrp-analysis { flex-basis: 270px; padding: 6px; } .mrp-footer-context { flex-wrap: wrap; } }
 .mrp-footer { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; flex:none; box-sizing:border-box; margin:0; padding:0; border-top:1px solid var(--mrp-toolbar-border); background:var(--mrp-toolbar-bg); color:var(--mrp-toolbar-fg); font-size:12px; font-weight:400; line-height:18px; }
 .mrp-footer-context { display:flex; align-items:center; gap:8px; min-width:0; max-width:100%; margin:0 auto 0 0; padding:0 0 0 14px; }
 .mrp-footer :deep(.mrp-pagination) { border-top:0; }

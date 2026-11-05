@@ -36,6 +36,25 @@ function harness(options: TemplateEditorOptions, tool?: "params" | "rules" | "ex
 }
 
 describe("declaration-only draft recovery", () => {
+  it.each(["params", "rules", "excel"] as const)("undoes and redoes unapplied %s declarations in the same editing session", async tool => {
+    const app = harness({ modelValue: fixtures() }, tool);
+    await app.show();
+    expect(app.editor.toolPending.value).toBe(false);
+    if (tool === "params") { app.params.add(); app.params.current.value!.field = "pendingParameter"; }
+    if (tool === "rules") app.rules.formula.value.field = "pendingCalculated";
+    if (tool === "excel") { app.excel.recipe.value.sheet = "Sheet1"; app.excel.recipe.value.dataset = "pendingDataset"; }
+    await tick();
+    expect(app.editor.toolPending.value).toBe(true);
+    expect(app.editor.canUndo.value).toBe(true);
+    app.editor.undo(); await tick();
+    expect(app.editor.toolPending.value).toBe(false);
+    expect(app.editor.pendingLocalChanges.value).toBe(false);
+    app.editor.redo(); await tick();
+    expect(app.editor.toolPending.value).toBe(true);
+    if (tool === "params") expect(app.params.current.value!.field).toBe("pendingParameter");
+    if (tool === "rules") expect(app.rules.formula.value.field).toBe("pendingCalculated");
+    if (tool === "excel") expect(app.excel.recipe.value.dataset).toBe("pendingDataset");
+  });
   it("offers explicit recovery for template and invalid unapplied JSON without production rows", async () => {
     const { storage, values } = memory(); const first = harness({ modelValue: fixtures(), draftStorage: storage, datasets: { detail: [{ heat: "PRODUCTION-SECRET" }] } });
     await tick(); first.editor.setName("本地草稿"); first.editor.json.value = "{ invalid input"; await tick();

@@ -333,7 +333,7 @@ export function useRuleEditor(
     if (commit(next)) { const cache = new Map(conditionDrafts.value); cache.delete(conditionKey); conditionDrafts.value = cache; conditionDraft.accept(); }
   }
   const recoverySnapshot = () => JSON.stringify(readRecovery());
-  useTemplateToolDraft({ key: () => props.recoveryKey ?? "rules:0:0", baseline: () => JSON.stringify(props.list), pending: () => pendingLocalChanges.value, snapshot: recoverySnapshot, restore(value) {
+  useTemplateToolDraft({ key: () => props.recoveryKey ?? "rules:0:0", baseline: () => JSON.stringify(props.list), pending: () => pendingLocalChanges.value, reset: () => { committed = undefined; reset(); }, snapshot: recoverySnapshot, restore(value) {
     const state = JSON.parse(value) as ReturnType<typeof readRecovery>;
     formula.value = state.formula; groups.value = state.groups; when.value = state.when; composedWhen.value = state.composedWhen; style.value = state.style;
     selectedComputed.value = state.selectedComputed; column.value = state.column; conditionIndex.value = state.conditionIndex;

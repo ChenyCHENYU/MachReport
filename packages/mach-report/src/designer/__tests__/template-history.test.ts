@@ -3,6 +3,32 @@ import { describe, expect, it } from "vitest";
 import { useTemplateHistory } from "../useTemplateHistory";
 
 describe("bounded designer history", () => {
+  it("restores the edited list, field and section while keeping older page-only frames compatible", () => {
+    const history = useTemplateHistory("initial");
+    history.record("edited", { pageIndex: 1, componentIndex: 2, listIndex: 3, fieldIndex: 4, section: "fields" });
+    history.annotate({ pageIndex: 1, componentIndex: 2, listIndex: 3, fieldIndex: 5, section: "fields" });
+    expect(history.move(-1)).toBe("initial");
+    expect(history.context.value).toEqual({ pageIndex: 1, componentIndex: 2, listIndex: 3, fieldIndex: 4, section: "fields" });
+    expect(history.move(1)).toBe("edited");
+    expect(history.context.value).toEqual({ pageIndex: 1, componentIndex: 2, listIndex: 3, fieldIndex: 5, section: "fields" });
+    history.record("old frame", { pageIndex: 0 });
+    history.move(-1);
+    expect(history.context.value).toEqual({ pageIndex: 0 });
+  });
+  it("groups only consecutive compatible text edits and closes the group at navigation boundaries", () => {
+    const history = useTemplateHistory("initial");
+    history.record("a", undefined, "title");
+    history.record("ab", undefined, "title");
+    history.record("abc", undefined, "title");
+    expect(history.move(-1)).toBe("initial");
+    expect(history.move(1)).toBe("abc");
+    history.record("abcd", undefined, "title");
+    expect(history.move(-1)).toBe("abc");
+    history.record("separate", undefined, "different");
+    history.endGroup();
+    history.record("next", undefined, "different");
+    expect(history.move(-1)).toBe("separate");
+  });
   it("prunes oldest frames by memory as well as count, and discards redo on a new branch", () => {
     const history = useTemplateHistory("one", { entries: 3, bytes: 20 });
     history.record("two"); history.record("three");

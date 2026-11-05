@@ -1,5 +1,6 @@
 import { onScopeDispose, ref, shallowRef, watch, type Ref } from "vue";
 import { calculateReportSelection, ReportCalculationError, type RenderPlan, type ReportCalculationErrorCode, type ReportCalculationOperation, type ReportCalculationSelection, type ReportSelectionCalculationResult } from "@agile-team/mach-report";
+import { useSelectionSummary } from "./useSelectionSummary";
 
 export interface ReportCalculationMessages {
   calculationTitle: string;
@@ -29,14 +30,34 @@ export interface ReportCalculationMessages {
   calculationErrorDivision: string;
   calculationErrorOverflow: string;
   calculationErrorPrecision: string;
+  calculationSummary?: string;
+  calculationAdvanced?: string;
+  calculationClose?: string;
+  calculationPending?: string;
+  calculationSummarySum?: string;
+  calculationSummaryAverage?: string;
+  calculationSummaryCount?: string;
+  calculationMixedColumns?: string;
 }
 interface CalculationHost {
   plan: Ref<RenderPlan | null>;
   selection: Ref<ReportCalculationSelection | null>;
   enabled(): boolean;
 }
+export function calculationErrorMessage(messages: ReportCalculationMessages, code: ReportCalculationErrorCode | null): string {
+  if (!code) return "";
+  return {
+    selection: messages.calculationErrorSelection,
+    limit: messages.calculationErrorLimit,
+    expression: messages.calculationErrorExpression,
+    division: messages.calculationErrorDivision,
+    overflow: messages.calculationErrorOverflow,
+    precision: messages.calculationErrorPrecision,
+  }[code];
+}
 /** Selection changes invalidate results; computation starts only after explicit user action. */
 export function useSelectionCalculation(host: CalculationHost) {
+  const summary = useSelectionSummary(host);
   const operation = ref<ReportCalculationOperation>("sum");
   const expression = ref("SUM / COUNT");
   const precision = ref(2);
@@ -70,6 +91,6 @@ export function useSelectionCalculation(host: CalculationHost) {
   function setOperation(value: ReportCalculationOperation): void { operation.value = value; }
   function setExpression(value: string): void { expression.value = value; }
   function setPrecision(value: number): void { precision.value = value; }
-  return { operation, expression, precision, busy, result, error, run, cancel, clear, setOperation, setExpression, setPrecision };
+  return { operation, expression, precision, busy, result, error, summary, run, cancel, clear, setOperation, setExpression, setPrecision };
 }
 export type ReportSelectionCalculationState = ReturnType<typeof useSelectionCalculation>;

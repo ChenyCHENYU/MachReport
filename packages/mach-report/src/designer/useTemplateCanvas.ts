@@ -1,5 +1,6 @@
 import { computed, ref, watch, type Ref } from "vue";
 import { useCanvasSelection } from "./useCanvasSelection";
+import { placeCanvasComponent } from "./canvas-placement";
 import {
   parseReportTemplate,
   type ReportTemplateDocument,
@@ -23,8 +24,13 @@ export type TemplateTransaction = (
 export function useTemplateCanvas(
   draft: Ref<ReportTemplateDocument>,
   transaction: TemplateTransaction,
+  options: { mode?(): "design" | "preview" | undefined; onModeChange?(mode: "design" | "preview"): void } = {},
 ) {
-  const mode = ref<"design" | "preview">("preview");
+  const localMode = ref<"design" | "preview">("preview");
+  const mode = computed({ get: () => options.mode?.() ?? localMode.value, set: (value: "design" | "preview") => {
+    if (options.mode?.() === undefined) localMode.value = value;
+    options.onModeChange?.(value);
+  } });
   const selection = ref<CanvasSelection>();
   const pageIndex = ref(0);
   const geometryDisabled = computed(() => !!draft.value.template.pages[selection.value?.pageIndex ?? pageIndex.value]?.flow);
@@ -67,8 +73,22 @@ export function useTemplateCanvas(
       );
     });
   }
+  const insertedOnNewPage = ref(false);
   function insert(kind: CanvasInsertKind): void {
-    insertComponent(createCanvasComponent(kind));
+    insertPlaced(createCanvasComponent(kind));
+  }
+  function insertPlaced(component: TemplateComponent): boolean {
+    if (draft.value.template.pages[pageIndex.value]?.flow || component.kind === "list" && draft.value.template.repeat) return false;
+    let next = pageIndex.value, index = -1, newPage = false;
+    const inserted = transaction(document => {
+      // 解析建立自有副本，避免宿主对象与模板共享引用。
+      const owned = JSON.parse(JSON.stringify(component)) as TemplateComponent;
+      const placement = placeCanvasComponent(document, next, owned);
+      next = placement.pageIndex; newPage = placement.newPage;
+      index = document.template.pages[next]!.components.length - 1;
+    });
+    if (inserted) { insertedOnNewPage.value = newPage; select({ pageIndex: next, componentIndex: index }); }
+    return inserted;
   }
   function insertComponent(component: TemplateComponent): boolean {
     if (draft.value.template.pages[pageIndex.value]?.flow || component.kind === "list" && draft.value.template.repeat) return false;
@@ -158,6 +178,8 @@ export function useTemplateCanvas(
     mutate,
     geometry,
     insert,
+    insertPlaced,
+    insertedOnNewPage,
     insertComponent,
     remove,
     duplicate,

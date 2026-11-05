@@ -479,10 +479,13 @@ export function useExcelBindingWizard(
       error.value = text(cause);
     } finally { applying.value = false; }
   }
-  useTemplateToolDraft({ key: () => "excel", baseline: () => "declarations-only", pending: () => localDraft.pending.value || recoveredMapping.value, snapshot: () => JSON.stringify(declaration()), restore(value) {
+  useTemplateToolDraft({ key: () => "excel", baseline: () => "declarations-only", pending: () => localDraft.pending.value || recoveredMapping.value, snapshot: () => JSON.stringify(declaration()), restore(value, _baseline, context) {
     const state = JSON.parse(value) as MappingDeclaration;
     if (!state.recipe || !state.regions || !Array.isArray(state.cached?.table) || !Array.isArray(state.cached?.regions)) throw new Error("Invalid Excel mapping draft");
-    applyRecoveredMapping(state); pendingMapping = state; recoveredMapping.value = true;
+    applyRecoveredMapping(state);
+    recoveredMapping.value = context?.pending !== false;
+    pendingMapping = recoveredMapping.value ? state : undefined;
+    if (!recoveredMapping.value) localDraft.accept();
   } });
   return {
     recoveredMapping,

@@ -157,7 +157,7 @@ const PRODUCT_TEMPLATE_EDITOR_MESSAGES = {
   componentText: "文本内容",
   imageSource: "图片地址或 data URI",
   imageUpload: "上传图片",
-  imageBudget: "图片不超过 4 MB，支持 PNG/JPEG/WebP/SVG",
+  imageBudget: "图片不超过 4 MB，上传 PNG/JPEG 可供预览与文件输出共用",
   leftPosition: "左侧",
   topPosition: "顶部",
   componentWidth: "宽度",

@@ -24,6 +24,7 @@ import {
 } from "@agile-team/mach-report/vue";
 import { useTemplateColumns } from "./useTemplateColumns";
 import { useTemplateHistory, type TemplateHistoryContext } from "./useTemplateHistory";
+import { restoreTemplateHistoryDocument, serializeTemplateHistory, type TemplateHistoryState } from "./template-history-state";
 import {
   useTemplateDiscard,
   type TemplateEditorBeforeDiscard,
@@ -48,6 +49,11 @@ export interface TemplateEditorController {
   openPanel?(target: TemplateEditorPanel): void;
   /** Insert a native/registered component through validation, geometry constraints and undo history. */
   insertComponent(component: import("@agile-team/mach-report").TemplateComponent): boolean;
+  applyTemplate?(template: import("@agile-team/mach-report").ReportTemplate): boolean;
+  undo?(): void;
+  redo?(): void;
+  readonly canUndo?: boolean;
+  readonly canRedo?: boolean;
   readonly canApply?: boolean;
   readonly saveReason?: string;
   readonly pendingLocalChanges: boolean;
@@ -63,6 +69,11 @@ export interface TemplateEditorController {
 export interface TemplateEditorOptions extends TemplateEditorConflictOptions {
   /** Hide the duplicate save action when the host already provides an apply/save footer. */
   showSave?: boolean;
+  /** Host-controlled view for an editor embedded inside a studio. */
+  mode?: "design" | "preview";
+  showModeSwitch?: boolean;
+  capabilities?: Partial<Record<"params" | "excel" | "rules" | "review" | "advanced" | "outline" | "reuse", boolean>>;
+  insertionMessages?: Partial<import("./insertion-messages").DesignerInsertMessages>;
   guideMessages?: Partial<import("./guide-messages").DesignerGuideMessages>;
   /** Opt-in declaration-only recovery. Scope should include project and account identity. */
   draftStorage?: TemplateDraftStorage;
@@ -162,16 +173,19 @@ export function useTemplateEditor(
   function setToolPending(tool: string, pending: boolean): void {
     localDrafts.value = { ...localDrafts.value, [tool]: pending }; localRevision.value++;
   }
-  const toolDrafts = provideTemplateToolDrafts(setToolPending);
+  let restoringHistory = false;
+  let documentFramePending = false;
+  let jsonHistoryRevision: { revision?: string } | undefined;
+  const toolDrafts = provideTemplateToolDrafts(setToolPending, () => {
+    if (restoringHistory) return;
+    if (documentFramePending) history.amend(snapshot(), historyView?.read());
+    else history.record(snapshot(), historyView?.read());
+  });
   const pendingLocalChanges = computed(
     () => dirty.value || json.value !== appliedJson.value || toolPending.value || !!columns.fieldChange.value,
   );
-  const snapshot = () =>
-    JSON.stringify({
-      document: draft.value,
-      json: json.value,
-      appliedJson: appliedJson.value,
-    });
+  const snapshot = () => serializeTemplateHistory(draft.value, toolDrafts.records.value,
+    jsonPending.value ? { text: json.value, revision: jsonHistoryRevision ? jsonHistoryRevision.revision : draft.value.revision } : undefined);
   const history = useTemplateHistory(snapshot());
   const historyViewRevision = ref(0);
   let historyView: { read: () => TemplateHistoryContext; restore: (context: TemplateHistoryContext) => void } | undefined;
@@ -195,10 +209,23 @@ export function useTemplateEditor(
   // Document metadata does not change the report. Keep its fetcher identity stable
   // while editing a name/description; only layout/data changes invalidate preview.
   const previewFetcher = shallowRef<ReturnType<typeof createLocalFetcher>>();
-  watch([() => draft.value.template, () => props.datasets], () => {
+  let previewTimer: ReturnType<typeof setTimeout> | undefined;
+  let changeGroup: string | undefined;
+  let previewGroup: string | undefined;
+  function refreshPreview(): void {
+    clearTimeout(previewTimer);
+    previewTimer = undefined;
     previewFetcher.value = createLocalFetcher({ draft: {
-      template: draft.value.template, datasets: props.datasets ?? {}, params: [],
+      get template() { return draft.value.template; },
+      get datasets() { return props.datasets ?? {}; }, params: [],
     } });
+  }
+  watch([() => draft.value.template, () => props.datasets], (next, previous) => {
+    clearTimeout(previewTimer);
+    const sameTextEdit = changeGroup && previewGroup === changeGroup && next[1] === previous?.[1];
+    if (sameTextEdit) previewTimer = setTimeout(refreshPreview, 150);
+    else refreshPreview();
+    previewGroup = changeGroup;
   }, { deep: true, immediate: true });
   const fetcher = computed(() => validation.value.ok ? previewFetcher.value : undefined);
 
@@ -237,6 +264,7 @@ export function useTemplateEditor(
     original.value = serializeReportTemplate(document);
     json.value = original.value;
     appliedJson.value = json.value;
+    jsonHistoryRevision = undefined;
     error.value = "";
     selected.value = 0;
     columns.clearSelection(); columns.cancelFieldChange();
@@ -276,19 +304,24 @@ export function useTemplateEditor(
   onBeforeUnmount(() => {
     replacementGeneration++;
     cancelSave();
+    clearTimeout(previewTimer);
   });
 
-  function changed(): void {
+  function changed(group?: string): void {
+    changeGroup = group;
+    documentFramePending = true;
+    queueMicrotask(() => { documentFramePending = false; });
     discard.cancel();
     error.value = "";
     if (validation.value.ok) {
       json.value = serializeReportTemplate(draft.value);
       appliedJson.value = json.value;
+      jsonHistoryRevision = undefined;
       emit("update:modelValue", parseReportTemplate(draft.value));
     }
     // Navigation itself is not an edit; each frame retains this operation's
     // before/after coordinates independently from adjacent edits on other pages.
-    if (history.record(snapshot(), historyView?.read())) historyViewRevision.value++;
+    if (history.record(snapshot(), historyView?.read(), group)) historyViewRevision.value++;
   }
   function transaction(
     change: (document: ReportTemplateDocument) => void,
@@ -312,6 +345,13 @@ export function useTemplateEditor(
       return false;
     }
   }
+  function applyTemplate(template: import("@agile-team/mach-report").ReportTemplate): boolean {
+    if (toolPending.value || columns.fieldChange.value) {
+      error.value = messages.value.toolsPending;
+      return false;
+    }
+    return transaction(document => { document.template = parseReportTemplate({ ...document, template }).template; });
+  }
   async function replaceDocument(
     value: ReportTemplateDocument,
   ): Promise<boolean> {
@@ -333,12 +373,12 @@ export function useTemplateEditor(
   function setName(value: string): void {
     if (!canEdit()) return;
     draft.value.name = value;
-    changed();
+    changed("document:name");
   }
   function setDescription(value: string): void {
     if (!canEdit()) return;
     draft.value.description = value;
-    changed();
+    changed("document:description");
   }
   function applyJson(): void {
     if (props.readonly || blocked.value) return;
@@ -347,7 +387,10 @@ export function useTemplateEditor(
       if (document.id !== draft.value.id)
         throw new Error("属性编辑不允许更换模板 ID，请另存为新模板");
       if (document.revision !== draft.value.revision)
-        throw new Error("修订号由保存服务管理，不能在 JSON 中修改");
+        if (!jsonHistoryRevision || document.revision !== jsonHistoryRevision.revision)
+          throw new Error("修订号由保存服务管理，不能在 JSON 中修改");
+      if (draft.value.revision === undefined) delete document.revision;
+      else document.revision = draft.value.revision;
       draft.value = document;
       selected.value = 0;
       columns.clearSelection();
@@ -369,16 +412,17 @@ export function useTemplateEditor(
     const frame = history.move(delta);
     if (!frame) return;
     discard.cancel();
-    const restored = JSON.parse(frame) as {
-      document: ReportTemplateDocument;
-      json: string;
-      appliedJson: string;
-    };
-    draft.value = restored.document;
-    json.value = restored.json;
-    appliedJson.value = restored.appliedJson;
+    const restored = JSON.parse(frame) as TemplateHistoryState;
+    restoringHistory = true;
+    draft.value = restoreTemplateHistoryDocument(restored, parseReportTemplate(original.value));
+    appliedJson.value = serializeReportTemplate(draft.value);
+    json.value = restored.json?.text ?? appliedJson.value;
+    jsonHistoryRevision = restored.json ? { revision: restored.json.revision } : undefined;
+    toolDrafts.restore(restored.tools);
+    queueMicrotask(() => { restoringHistory = false; });
     error.value = "";
-    selected.value = 0;
+    const listIndex = history.context.value?.listIndex;
+    selected.value = listIndex !== undefined && lists.value[listIndex] ? listIndex : 0;
     columns.clearSelection();
     if (history.context.value) historyView?.restore(history.context.value);
     if (validation.value.ok)
@@ -406,7 +450,8 @@ export function useTemplateEditor(
       original.value = serializeReportTemplate(saved);
       json.value = original.value;
       appliedJson.value = json.value;
-      history.reset(snapshot(), historyView?.read());
+      history.endGroup();
+      jsonHistoryRevision = undefined;
       toolDrafts.clear(); recovery.flush();
       emit("saved", parseReportTemplate(saved));
       emit("update:modelValue", parseReportTemplate(saved));
@@ -483,6 +528,7 @@ export function useTemplateEditor(
     captureHistoryView,
     historyViewRevision,
     transaction,
+    applyTemplate,
     replaceDocument,
     originalDocument: computed(() => parseReportTemplate(original.value)),
     canUndo,
@@ -512,6 +558,7 @@ export function useTemplateEditor(
     headerAlignments,
     previewOptions,
     fetcher,
+    flushPreview: refreshPreview,
     messages,
     setName,
     setDescription,

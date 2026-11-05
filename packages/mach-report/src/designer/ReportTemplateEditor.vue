@@ -12,6 +12,10 @@ import {
 import type { ExcelBindingWizardApply } from "./useExcelBindingWizard";
 import ReportIcon from "../vue/ReportIcon.vue";
 import DesignerTaskGuide from "./DesignerTaskGuide.vue";
+import DesignerInsertMenu from "./DesignerInsertMenu.vue";
+import TemplateTotalsEditor from "./TemplateTotalsEditor.vue";
+import { useDesignerInsert } from "./useDesignerInsert";
+import { useDesignerShortcuts } from "./useDesignerShortcuts";
 import type { TemplateEditorPanel } from "./useTemplateEditor";
 import TemplateDesignCanvas from "./TemplateDesignCanvas.vue";
 import CanvasComponentInspector from "./CanvasComponentInspector.vue";
@@ -44,11 +48,12 @@ const TemplateReusePanel = defineAsyncComponent(() => import("./TemplateReusePan
 const TemplateReviewPanel = defineAsyncComponent(
   () => import("./TemplateReviewPanel.vue"),
 );
-const props = withDefaults(defineProps<TemplateEditorOptions>(), { showSave: true });
+const props = withDefaults(defineProps<TemplateEditorOptions>(), { showSave: true, showModeSwitch: true });
 const emit = defineEmits<{
   (event: "update:modelValue", document: ReportTemplateDocument): void;
   (event: "saved", document: ReportTemplateDocument): void;
   (event: "excel-bound", result: ExcelBindingWizardApply): void;
+  (event: "update:mode", mode: "design" | "preview"): void;
 }>();
 const editor = useTemplateEditor(props, (event, document) => {
   if (event === "saved") emit("saved", document);
@@ -85,6 +90,7 @@ const workspace = useTemplateWorkspace(
   editor,
   inspector,
   () => props.dataSchemas,
+  { mode: () => props.mode, onModeChange: value => emit("update:mode", value) },
 );
 const {
   mode,
@@ -95,7 +101,6 @@ const {
   visitedTools,
   editDisabled,
   dataSchema,
-  insertComponent,
   patchCanvas,
   changeList,
   moveColumn,
@@ -103,10 +108,37 @@ const {
   canvas,
 } = workspace;
 
-const { sections, toolPreview, setMode, toggleToolPreview, chooseToolComponent, openBinding,
-  pendingConfigurations, saveReason, openPending, headingStatus, chooseCanvas, locateReview,
-  chooseRuleList, navigateSection } = useDesignerNavigation(editor, workspace, inspector, { id, readonly: () => props.readonly === true });
+const { sections, toolPreview, setMode: navigateMode, toggleToolPreview, chooseToolComponent, openBinding,
+  pendingConfigurations, saveReason: navigationSaveReason, openPending, headingStatus, chooseCanvas, locateReview,
+  chooseRuleList, navigateSection } = useDesignerNavigation(editor, workspace, inspector, { id, readonly: () => props.readonly === true, capabilities: () => props.capabilities });
 
+const insertion = useDesignerInsert(editor, workspace, inspector, () => props.dataSchemas, () => props.datasets, () => props.insertionMessages);
+const shortcuts = useDesignerShortcuts(() => ({ undo: editor.undo, redo: editor.redo, canUndo: canUndo.value, canRedo: canRedo.value, blocked: blocked.value || props.readonly }));
+const toolNames = ["outline", "reuse", "excel", "rules", "params", "review"] as const;
+const availableTools = computed(() => toolNames.filter(name => props.capabilities?.[name] !== false));
+watch(availableTools, tools => {
+  if (!tools.includes(tool.value)) tool.value = tools[0] ?? "outline";
+  if (!tools.length && section.value === "tools") section.value = lists.value.length ? "fields" : "component";
+});
+const guideTasks = computed(() => (["fields", "components", "layout", "excel", "rules", "review"] as const).filter(name => !["excel", "rules", "review"].includes(name) || props.capabilities?.[name as "excel" | "rules" | "review"] !== false));
+const assetPending = computed(() => draft.value.template.pages.some(page => page.components.some(component => {
+  if (component.kind === "list" || component.binding) return false;
+  if (component.kind === "image") return !component.imageData || component.meta?.designerPlaceholder === true;
+  return ["qrcode", "barcode"].includes(component.kind) && !component.imageData && !(component.code?.value ?? component.fallbackText ?? component.text ?? "").trim();
+})));
+const saveReason = computed(() => assetPending.value ? insertion.messages.value.assetPending : navigationSaveReason.value);
+async function saveDocument(): Promise<void> {
+  if (assetPending.value) {
+    error.value = insertion.messages.value.assetPending;
+    return;
+  }
+  await editor.save();
+}
+function setMode(next: "design" | "preview"): void {
+  if (next === "preview" && assetPending.value) { error.value = insertion.messages.value.assetPending; return; }
+  editor.flushPreview(); navigateMode(next);
+}
+watch(mode, next => { if (next === "preview") editor.flushPreview(); });
 const canvasFlow = computed(() => !!draft.value.template.pages[canvasPage.value]?.flow);
 const repeatSchema = computed(() => props.dataSchemas?.[draft.value.template.repeat?.dataset ?? ""]);
 const componentDirectory = computed(() => {
@@ -162,7 +194,7 @@ watch(confirmation, async (value) => {
   }
 });
 function openPanel(target: TemplateEditorPanel): void {
-  if (blocked.value) return;
+  if (blocked.value || props.capabilities?.[target as "excel" | "rules" | "params" | "review"] === false) return;
   if (["excel", "rules", "params", "review"].includes(target)) {
     section.value = "tools"; tool.value = target as "excel" | "rules" | "params" | "review";
     return;
@@ -170,9 +202,13 @@ function openPanel(target: TemplateEditorPanel): void {
   section.value = target === "layout" ? "template" : target === "fields" && lists.value.length ? "fields" : "component";
   setMode(section.value === "fields" ? "preview" : "design");
 }
-const canApply = computed(() => !props.readonly && !blocked.value && !jsonPending.value && !editor.toolPending.value && !editor.fieldChange.value && validation.value.ok);
+const canApply = computed(() => !props.readonly && !blocked.value && !jsonPending.value && !editor.toolPending.value && !editor.fieldChange.value && validation.value.ok && !assetPending.value);
 defineExpose({
   openPanel,
+  applyTemplate: editor.applyTemplate,
+  undo: editor.undo, redo: editor.redo,
+  get canUndo() { return canUndo.value; },
+  get canRedo() { return canRedo.value; },
   get canApply() { return canApply.value; },
   get saveReason() { return saveReason.value; },
   get pendingLocalChanges() {
@@ -186,7 +222,7 @@ defineExpose({
   },
   guardChanges: editor.guardChanges,
   reset: editor.reset,
-  save: editor.save,
+  save: saveDocument,
   insertComponent: canvas.insertComponent,
 });
 async function acceptExcel(result: ExcelBindingWizardApply): Promise<boolean> {
@@ -216,7 +252,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
 </script>
 
 <template>
-  <section class="mr-designer" :aria-label="m.title" :aria-busy="saving">
+  <section class="mr-designer" :aria-label="m.title" :aria-busy="saving" @keydown="shortcuts.keydown">
     <header class="mr-designer-bar">
       <div class="mr-designer-heading">
         <ReportIcon name="columns" :size="15" />
@@ -246,7 +282,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
           <span v-if="(item === 'tools' && editor.toolPending.value) || (item === 'advanced' && jsonPending)" class="mr-designer-pending-dot" aria-hidden="true"></span>
         </button>
       </nav>
-      <div class="mr-designer-mode" role="group" :aria-label="m.design">
+      <div v-if="showModeSwitch !== false" class="mr-designer-mode" role="group" :aria-label="m.design">
         <button
           type="button"
           :aria-pressed="mode === 'design'"
@@ -262,7 +298,8 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
         </button>
       </div>
       <div class="mr-designer-actions">
-        <DesignerTaskGuide :fields="!!lists.length" :disabled="blocked" :messages="guideMessages" @choose="openPanel" />
+        <DesignerInsertMenu :disabled="editDisabled || canvasFlow" :repeat="!!draft.template.repeat" :fields="draft.template.repeat || activeList ? insertion.fields.value : []" :columns="!draft.template.repeat" :used-fields="draft.template.repeat ? [] : (activeList?.columns.map(column => column.field) ?? [])" :messages="insertionMessages" @insert="insertion.insert" @field="insertion.addField" />
+        <DesignerTaskGuide :available="guideTasks" :fields="!!lists.length" :disabled="blocked" :messages="guideMessages" @choose="openPanel" />
         <div class="mr-designer-history">
           <button
             type="button"
@@ -274,7 +311,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
           >
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M4 10h10a6 6 0 0 1 0 12M4 10l5-5M4 10l5 5" />
-            </svg>
+            </svg>{{ m.undo }}
           </button>
           <button
             type="button"
@@ -286,7 +323,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
           >
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M20 10H10a6 6 0 0 0 0 12m10-12-5-5m5 5-5 5" />
-            </svg>
+            </svg>{{ m.redo }}
           </button>
         </div>
         <button
@@ -304,13 +341,14 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
           :title="saveReason || m.save"
           :aria-describedby="pendingConfigurations.length ? `${id}-pending` : saveReason ? `${id}-save-reason` : undefined"
           :disabled="!canApply || !pendingLocalChanges"
-          @click="editor.save"
+          @click="saveDocument"
         >
           <ReportIcon name="file" :size="13" />{{ saving ? m.saving : m.save }}
         </button>
         <span v-if="save && showSave !== false && saveReason && !pendingConfigurations.length" :id="`${id}-save-reason`" class="mr-designer-save-reason">{{ saveReason }}</span>
       </div>
     </header>
+    <p v-if="insertion.notice.value" class="mr-designer-insert-notice" role="status">{{ insertion.notice.value }}</p>
     <TemplateRecoveryPanel :recovery="editor.recovery" :conflict="editor.conflict" :readonly="readonly" :can-load="!!loadLatest" :can-copy="!!keepCopy" :messages="recoveryMessages" />
     <TemplateFieldImpactPanel :messages="productMessages" :change="editor.fieldChange.value" :disabled="editDisabled" @confirm="editor.confirmFieldChange" @cancel="editor.cancelFieldChange" @locate="locateReview" />
     <div v-if="pendingConfigurations.length" :id="`${id}-pending`" class="mr-designer-pending" role="status">
@@ -353,7 +391,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
       >
         <nav class="mr-designer-tool-tabs" :aria-label="m.toolsSection">
           <button
-            v-for="item in ['outline', 'reuse', 'excel', 'rules', 'params', 'review'] as const"
+            v-for="item in availableTools"
             :key="item"
             :id="`${id}-tool-${item}`"
             type="button"
@@ -455,6 +493,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
                 </option>
               </select></label>
             <template v-if="activeList">
+              <div class="mr-designer-field-actions"><button type="button" :disabled="editDisabled || fieldFlow || activeList.columns.length < 2" @click="insertion.removeColumn">{{ insertion.messages.value.removeColumn }}</button></div>
               <div class="mr-designer-current">
                 <button
                   ref="directoryTrigger"
@@ -497,6 +536,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
                   </button>
                 </div>
               </div>
+              <TemplateTotalsEditor :list="activeList" :schema="dataSchema" :readonly="editDisabled || fieldFlow" @change="changeList" />
               <fieldset
                 v-if="activeColumn"
                 class="mr-designer-properties"
@@ -802,27 +842,14 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
           </template>
           <template v-else-if="section === 'component'">
             <div class="mr-designer-object-tools">
-              <select
-                :aria-label="m.insertComponent"
-                :disabled="editDisabled || canvasFlow"
-                @change="insertComponent"
-              >
-                <option value="">{{ m.insertComponent }}</option>
-                <option value="text">{{ m.insertText }}</option>
-                <option value="list" :disabled="!!draft.template.repeat">{{ m.insertList }}</option>
-                <option value="image">{{ m.insertImage }}</option>
-                <option value="rect">{{ m.insertRect }}</option>
-                <option v-if="!draft.template.repeat" value="chart">{{ m.chartComponent }}</option>
-                <option value="qrcode">{{ m.insertQrcode }}</option>
-                <option value="barcode">{{ m.insertBarcode }}</option>
-</select><button
+              <button
                 type="button"
                 :title="m.duplicateComponent"
                 :aria-label="m.duplicateComponent"
                 :disabled="editDisabled || canvasFlow || !canvasActive"
                 @click="canvas.duplicate"
               >
-                ＋
+                {{ insertion.messages.value.duplicate }}
 </button><button
                 type="button"
                 :title="m.removeComponent"
@@ -831,6 +858,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
                 @click="canvas.remove"
               >
                 <ReportIcon name="close" :size="14" />
+                {{ m.removeComponent }}
               </button>
             </div>
             <label v-if="draft.template.pages.length > 1">{{ m.page

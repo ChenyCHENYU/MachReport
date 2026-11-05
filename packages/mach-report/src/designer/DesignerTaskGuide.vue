@@ -2,7 +2,7 @@
 import { computed, ref, onMounted, onBeforeUnmount } from "vue";
 import type { TemplateEditorPanel } from "./useTemplateEditor";
 import { DESIGNER_GUIDE_MESSAGES, type DesignerGuideMessages } from "./guide-messages";
-const props = defineProps<{ fields: boolean; disabled?: boolean; messages?: Partial<DesignerGuideMessages> }>();
+const props = defineProps<{ fields: boolean; available?: readonly TemplateEditorPanel[]; disabled?: boolean; messages?: Partial<DesignerGuideMessages> }>();
 const emit = defineEmits<{ (event: "choose", target: TemplateEditorPanel): void }>();
 const m = computed(() => ({ ...DESIGNER_GUIDE_MESSAGES, ...props.messages }));
 const open = ref(false);
@@ -16,7 +16,7 @@ function blur(event: FocusEvent): void {
 }
 onMounted(() => window.document.addEventListener("pointerdown", outside));
 onBeforeUnmount(() => window.document.removeEventListener("pointerdown", outside));
-const tasks = computed(() => [ ...(props.fields ? ["fields" as const] : []), "components", "layout", "excel", "rules", "review" ] as const);
+const tasks = computed(() => ([ ...(props.fields ? ["fields" as const] : []), "components", "layout", "excel", "rules", "review" ] as const).filter(task => !props.available || props.available.includes(task)));
 function choose(target: TemplateEditorPanel): void { emit("choose", target); open.value = false; trigger.value?.focus(); }
 function close(): void { open.value = false; trigger.value?.focus(); }
 </script>

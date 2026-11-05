@@ -312,6 +312,8 @@ test("规则工具实际配置精确小数公式与分组，预览/Excel一致�
   await expect
     .poll(async () => (await currentList(page)).groups)
     .toBeUndefined();
+  // Undo restores the command's editing context. Re-open its rendered output explicitly.
+  await preview(root);
   await expect(actual).not.toContainText("Plant A");
   await expect(actual).toContainText("9007199254740993.10");
   await page.screenshot({
@@ -379,6 +381,8 @@ test("矩阵通过真实配置应用，动态列与零值导出正确且派生�
   await expect
     .poll(async () => (await currentList(page)).matrix)
     .toBeUndefined();
+  // Undo restores the command's editing context. Re-open its rendered output explicitly.
+  await preview(root);
   await expect(actual).toContainText("M1");
   await page.screenshot({
     path: info.outputPath("matrix-restored-preview.png"),
@@ -465,6 +469,8 @@ test("主从配置按业务键关联，明细零值在预览/Excel保留并可�
   await expect
     .poll(async () => (await currentList(page)).detail)
     .toBeUndefined();
+  // Undo restores the command's editing context. Re-open its rendered output explicitly.
+  await preview(root);
   await expect(actual).not.toContainText("L1");
   await expect(actual).toContainText("M1");
   await page.screenshot({

@@ -15,7 +15,7 @@ export function useTemplateColumns(
   draft: Ref<ReportTemplateDocument>,
   valid: () => boolean,
   canEdit: () => boolean,
-  changed: () => void,
+  changed: (group?: string) => void,
 ) {
   const selected = ref(0);
   const query = ref("");
@@ -109,12 +109,7 @@ export function useTemplateColumns(
     if ((key === "widthMm" || key === "hidden") && location && draft.value.template.pages[location.pageIndex]?.flow) return;
     const column = activeList.value?.columns[index];
     if (!column) return;
-    if (key === "field" && value !== column.field) {
-      const dataset = activeList.value!.dataset;
-      const own = `$.template.pages[${location!.pageIndex}].components[${location!.componentIndex}].columns[${index}].field`;
-      const references = inspectTemplateFieldUsage(draft.value.template, dataset, column.field).filter(reference => reference.path !== own);
-      if (references.length) { fieldChange.value = { index, listIndex: selected.value, before: column.field, after: String(value), references }; return; }
-    }
+    if (requestFieldChange(index, key, value)) return;
     if (
       key === "hidden" &&
       value === true &&
@@ -131,7 +126,17 @@ export function useTemplateColumns(
         value as "left" | "center" | "right" | "justify",
       );
     if (key === "widthMm") updateWidths();
-    changed();
+    changed(key === "header" ? `column:${location?.pageIndex}:${location?.componentIndex}:${index}:header` : undefined);
+  }
+  function requestFieldChange(index: number, key: string, value: unknown): boolean {
+    if (key !== "field") return false;
+    const list = activeList.value, location = lists.value[selected.value], column = list?.columns[index];
+    if (!list || !location || !column || value === column.field) return false;
+    const own = `$.template.pages[${location.pageIndex}].components[${location.componentIndex}].columns[${index}].field`;
+    const references = inspectTemplateFieldUsage(draft.value.template, list.dataset, column.field).filter(reference => reference.path !== own);
+    if (!references.length) return false;
+    fieldChange.value = { index, listIndex: selected.value, before: column.field, after: String(value), references };
+    return true;
   }
   function confirmFieldChange(): void {
     const pending = fieldChange.value;

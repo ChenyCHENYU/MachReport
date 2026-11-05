@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import ReportCalculationPanel from "../ReportCalculationPanel.vue";
 import { effectScope, ref, shallowRef } from "vue";
 import { useSelectionCalculation, type ReportCalculationMessages } from "../composables/useSelectionCalculation";
 import type { RenderPlan } from "../../schema/render-plan";
 import type { ReportCalculationSelection } from "../../selection-calculations";
+import * as core from "@agile-team/mach-report";
 
 function fixture(rows = 1) {
   const plan = shallowRef<RenderPlan | null>({ schemaVersion: "test", pages: [{ pageWidthMm: 100, pageHeightMm: 100, components: [{ kind: "rect", leftMm: 0, topMm: 0, widthMm: 20, heightMm: 20, grid: { cells: Array.from({ length: rows }, () => [{ value: 2, editable: false }]) } }] }] });
@@ -17,6 +18,48 @@ function fixture(rows = 1) {
 }
 
 describe("explicit, cancellable selection analysis", () => {
+  it("requires explicit unit confirmation for cross-column selection without scanning its cells", async () => {
+    vi.useFakeTimers();
+    const { plan, selection, state, enabled, scope } = fixture();
+    const grid = plan.value!.pages[0]!.components[0]!.grid!, cells = grid.cells;
+    let reads = 0;
+    Object.defineProperty(grid, "cells", { configurable: true, get: () => { reads++; return cells; } });
+    try {
+      enabled.value = true;
+      selection.value = { anchor: { pageIndex: 0, componentIndex: 0, rowIndex: 0, columnIndex: 0 }, focus: { pageIndex: 0, componentIndex: 0, rowIndex: 0, columnIndex: 1 } };
+      await vi.advanceTimersByTimeAsync(200);
+      expect(reads).toBe(0); expect(state.summary.result.value).toBeNull(); expect(state.summary.requiresConfirmation.value).toBe(true);
+    } finally { scope.stop(); vi.useRealTimers(); }
+  });
+  it("aborts an obsolete automatic summary and rejects its late result", async () => {
+    vi.useFakeTimers();
+    let finish: (value: core.ReportSelectionCalculationResult) => void = () => {};
+    const compute = vi.spyOn(core, "calculateReportSelection").mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const { state, enabled, select, scope } = fixture();
+    try {
+      enabled.value = true; select(); await vi.advanceTimersByTimeAsync(150);
+      expect(compute).toHaveBeenCalledOnce();
+      const signal = compute.mock.calls[0]![2]!.signal!;
+      select(); expect(signal.aborted).toBe(true);
+      finish({ value: 99, formatted: "99.00", numericCells: 1, selectedCells: 1, excludedCells: 0, precision: 2 });
+      await flushPromises(); expect(state.summary.result.value).toBeNull();
+    } finally { scope.stop(); compute.mockRestore(); vi.useRealTimers(); }
+  });
+  it("waits for a settled selection before a single bounded summary pass and cancels an obsolete scheduled pass", async () => {
+    vi.useFakeTimers();
+    const { plan, state, enabled, select, scope } = fixture();
+    const grid = plan.value!.pages[0]!.components[0]!.grid!, cells = grid.cells;
+    let reads = 0;
+    Object.defineProperty(grid, "cells", { configurable: true, get: () => { reads++; return cells; } });
+    try {
+      enabled.value = true; select(); await vi.advanceTimersByTimeAsync(149);
+      expect(reads).toBe(0); select(); await vi.advanceTimersByTimeAsync(149); expect(reads).toBe(0);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(reads).toBeGreaterThan(0); expect(state.summary.result.value).toMatchObject({ value: 2, numericCells: 1 });
+      select(); expect(state.summary.result.value).toBeNull(); scope.stop();
+      const previous = reads; await vi.advanceTimersByTimeAsync(200); expect(reads).toBe(previous);
+    } finally { scope.stop(); vi.useRealTimers(); }
+  });
   it("defaults disabled, supports readonly cells and never computes while selection is moving", async () => {
     const fixtureA = fixture(); const { state, select, enabled, scope } = fixtureA;
     select(); await state.run(); expect(state.result.value).toBeNull();
@@ -30,6 +73,18 @@ describe("explicit, cancellable selection analysis", () => {
     await state.run(); expect(state.error.value).toBe("selection");
     state.operation.value = "median"; expect(state.error.value).toBeNull();
     scope.stop();
+  });
+  it("reports automatic summary failures and clears them when the selection is replaced", async () => {
+    vi.useFakeTimers();
+    const { state, enabled, selection, select, scope } = fixture();
+    try {
+      enabled.value = true;
+      selection.value = { anchor: { pageIndex: 0, componentIndex: 0, rowIndex: 999, columnIndex: 0 }, focus: { pageIndex: 0, componentIndex: 0, rowIndex: 999, columnIndex: 0 } };
+      await vi.advanceTimersByTimeAsync(150);
+      expect(state.summary.error.value).toBe("selection"); expect(state.summary.busy.value).toBe(false);
+      select(); expect(state.summary.error.value).toBeNull(); await vi.advanceTimersByTimeAsync(150);
+      expect(state.summary.result.value?.value).toBe(2);
+    } finally { scope.stop(); vi.useRealTimers(); }
   });
   it.each(["selection", "plan", "disable", "cancel", "dispose"])("isolates a late result after %s", async (change) => {
     const { state, enabled, select, plan, scope } = fixture(5000); enabled.value = true; select();

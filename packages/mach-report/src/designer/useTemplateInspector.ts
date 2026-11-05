@@ -22,7 +22,7 @@ export function useTemplateInspector(
   });
   watch(selectedList, () => {
     activeIndex.value = firstIndex();
-  });
+  }, { flush: "sync" });
   watch(list, (value) => {
     if (!value?.columns[activeIndex.value]) activeIndex.value = firstIndex();
     if (!value && section.value === "fields") section.value = "component";

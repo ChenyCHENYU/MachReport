@@ -60,7 +60,10 @@ async function mountCanvas(page: Page) {
               changes++;
             },
             datasets: {
-              detail: [{ id: "000418", weight: 64200, energy: 30800 }],
+              detail: [
+                { id: "000418", weight: 64200, energy: 30800, cost: 400 },
+                { id: "000419", weight: 5800, energy: 4200, cost: 50 },
+              ],
             },
             dataSchemas: {
               detail: {
@@ -68,6 +71,7 @@ async function mountCanvas(page: Page) {
                   { field: "id", type: "text", label: "编号" },
                   { field: "weight", type: "number", label: "重量" },
                   { field: "energy", type: "number", label: "电量" },
+                  { field: "cost", type: "number", label: "成本" },
                 ],
               },
             },
@@ -232,17 +236,33 @@ test("设计器列排序/显隐/拖宽、多层表头合并拆分与组件命令
   await expect(list.locator(".mr-canvas-merged>div")).toHaveCount(5);
   await root.getByRole("button", { name: "拆分表头", exact: true }).click();
   await expect(list.locator(".mr-canvas-merged>div")).toHaveCount(6);
-  await root.getByLabel("添加组件", { exact: true }).selectOption("image");
-  await expect(root.locator("[data-canvas-component]")).toHaveCount(3);
-  await expect(root.locator('[data-canvas-component="2"] img')).toBeVisible();
+  await root.getByRole("button", { name: "添加内容", exact: true }).click();
+  await root.getByRole("dialog", { name: "添加到当前版面", exact: true })
+    .getByRole("button", { name: /^图片或 Logo/ }).click();
+  await expect.poll(() => page.evaluate(() =>
+    (window as CanvasWindow).__canvasFixture.document.template.pages
+      .reduce((count, page) => count + page.components.length, 0),
+  )).toBe(3);
+  await expect(root.locator('.mr-canvas-component.is-selected[aria-label$=" image"]')).toBeVisible();
+  const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ1EAAAAASUVORK5CYII=";
+  const source = root.getByLabel("图片地址或 data URI", { exact: true });
+  await source.fill(png);
+  await source.press("Tab");
+  await expect(root.locator('.mr-canvas-component.is-selected img')).toHaveAttribute("src", png);
   await root.getByRole("button", { name: "复制组件", exact: true }).click();
-  await expect(root.locator("[data-canvas-component]")).toHaveCount(4);
+  await expect.poll(() => page.evaluate(() =>
+    (window as CanvasWindow).__canvasFixture.document.template.pages
+      .reduce((count, page) => count + page.components.length, 0),
+  )).toBe(4);
   await root.getByRole("button", { name: "删除组件", exact: true }).click();
-  await expect(root.locator("[data-canvas-component]")).toHaveCount(3);
+  await expect.poll(() => page.evaluate(() =>
+    (window as CanvasWindow).__canvasFixture.document.template.pages
+      .reduce((count, page) => count + page.components.length, 0),
+  )).toBe(3);
   await page.evaluate(() =>
     (window as CanvasWindow).__canvasFixture.readonly(true),
   );
-  await expect(root.getByLabel("添加组件", { exact: true })).toBeDisabled();
+  await expect(root.getByRole("button", { name: "添加内容", exact: true })).toBeDisabled();
   await page.screenshot({
     path: testInfo.outputPath("canvas-design.png"),
     fullPage: true,
@@ -269,4 +289,55 @@ test("画布适宽适页、多选对齐与位置锁保持模板和视口一致",
   await root.locator('[data-canvas-component="0"]').focus(); await page.keyboard.press("ArrowRight");
   expect(await page.evaluate(() => (window as CanvasWindow).__canvasFixture.changes)).toBe(before);
   await root.screenshot({ path: testInfo.outputPath("canvas-selection-lock.png") });
+});
+
+
+test("添加字段与说明文字、表尾汇总在同一工作区预览并保持撤销重做", async ({ page }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  const root = await mountCanvas(page);
+  await root.getByRole("button", { name: "添加内容", exact: true }).click();
+  const menu = root.getByRole("dialog", { name: "添加到当前版面", exact: true });
+  await menu.getByRole("button", { name: /^添加表格字段/ }).click();
+  const fieldSearch = menu.getByRole("textbox", { name: "搜索业务字段", exact: true });
+  await expect(fieldSearch).toBeVisible();
+  await fieldSearch.fill("成本");
+  await menu.getByRole("button", { name: /成本.*cost/ }).click();
+  await expect(root.getByLabel("表头", { exact: true })).toHaveValue("成本");
+  const totals = root.locator(".mr-totals-editor");
+  await expect(totals).not.toHaveAttribute("open");
+  await expect(totals.locator("summary")).toContainText("未设置");
+  await totals.locator("summary").click();
+  await totals.getByRole("combobox", { name: "显示位置", exact: true }).selectOption("total");
+  await totals.getByRole("combobox", { name: "汇总字段", exact: true }).selectOption("weight");
+  await totals.getByRole("combobox", { name: "计算方式", exact: true }).selectOption("sum");
+  await totals.getByRole("button", { name: "添加汇总", exact: true }).click();
+  await expect(totals.locator("summary")).toContainText("1 项汇总");
+  await expect(totals).toContainText("跨页时继续累计");
+  await root.getByRole("button", { name: "预览", exact: true }).click();
+  const preview = root.locator(".mr-designer-preview .mach-report-preview");
+  await expect(preview).toContainText("成本");
+  await expect(preview.getByText("70,000", { exact: true })).toBeVisible();
+  await root.getByRole("button", { name: "设计", exact: true }).click();
+  await root.getByRole("button", { name: "撤销", exact: true }).click();
+  await expect(totals.locator("summary")).toContainText("未设置");
+  await root.getByRole("button", { name: "重做", exact: true }).click();
+  await expect(totals.locator("summary")).toContainText("1 项汇总");
+  await root.getByRole("button", { name: "添加内容", exact: true }).click();
+  await root.getByRole("dialog", { name: "添加到当前版面", exact: true })
+    .getByRole("button", { name: /^说明文字/ }).click();
+  const text = root.getByLabel("文本内容", { exact: true });
+  await text.fill("生产口径已核对");
+  await text.press("Tab");
+  await expect(root.locator(".mr-canvas-component.is-selected")).toContainText("生产口径已核对");
+  await root.getByRole("button", { name: "预览", exact: true }).click();
+  await expect(preview).toContainText("生产口径已核对");
+  await expect(preview.getByText("70,000", { exact: true })).toBeVisible();
+  await root.getByRole("button", { name: "设计", exact: true }).click();
+  await root.getByRole("button", { name: "撤销", exact: true }).click();
+  await expect(root.locator(".mr-canvas-paper")).not.toContainText("生产口径已核对");
+  await root.getByRole("button", { name: "重做", exact: true }).click();
+  await expect(root.locator(".mr-canvas-paper")).toContainText("生产口径已核对");
+  expect(errors).toEqual([]);
+  await root.screenshot({ path: testInfo.outputPath("template-continuity-totals.png") });
 });

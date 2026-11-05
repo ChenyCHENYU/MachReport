@@ -123,7 +123,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #8894a5;
+  color: #64748b;
   font-size: 11px;
 }
 .mr-binding-file {
@@ -160,7 +160,7 @@
 }
 .mr-binding-sample-note {
   margin-left: auto;
-  color: #8894a5;
+  color: #64748b;
   font-size: 10px;
 }
 .mr-binding-layout {
@@ -587,7 +587,7 @@
   gap: 10px;
   padding: 32px;
   text-align: center;
-  color: #8191a8;
+  color: #64748b;
 }
 .mr-binding-placeholder svg {
   width: 72px;

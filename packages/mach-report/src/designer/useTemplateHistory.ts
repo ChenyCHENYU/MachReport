@@ -2,9 +2,15 @@ import { computed, ref, shallowRef } from "vue";
 import { applyHistoryFrame, createHistoryFrame, historyFrameBytes, type HistoryFrame } from "./history-patch";
 
 /** Session-only coordinates are bounded and never serialized into a report document. */
-export interface TemplateHistoryContext { pageIndex: number; componentIndex?: number }
+export interface TemplateHistoryContext {
+  pageIndex: number;
+  componentIndex?: number;
+  listIndex?: number;
+  fieldIndex?: number;
+  section?: "fields" | "component" | "template" | "tools" | "advanced";
+}
 type ContextFrame = HistoryFrame & { view?: { before: TemplateHistoryContext; after: TemplateHistoryContext } };
-const frameBytes = (frame: ContextFrame) => historyFrameBytes(frame) + (frame.view ? 64 : 0);
+const frameBytes = (frame: ContextFrame) => historyFrameBytes(frame) + (frame.view ? 128 : 0);
 const withContext = (frame: HistoryFrame, context?: TemplateHistoryContext): ContextFrame => context ? { ...frame, view: { before: { ...context }, after: { ...context } } } : frame;
 
 /** Private reversible deltas retain invalid input too; checkpoints bound reconstruction work. */
@@ -18,7 +24,12 @@ export function useTemplateHistory(initial: string, budget = { entries: 100, byt
   const current = computed(() => value.value);
   const retainedBytes = computed(() => frames.value.reduce((sum, frame) => sum + frameBytes(frame), 0));
   const context = shallowRef<TemplateHistoryContext>();
+  let group: string | undefined;
+  let groupTime = 0;
+  let groupBase: string | undefined;
+  function endGroup(): void { group = undefined; groupBase = undefined; }
   function reset(snapshot: string, nextContext?: TemplateHistoryContext): void {
+    endGroup();
     frames.value = [withContext({ kind: "snapshot", value: snapshot }, nextContext)]; cursor.value = 0; value.value = snapshot; context.value = nextContext;
   }
   function at(index: number): string {
@@ -46,14 +57,28 @@ export function useTemplateHistory(initial: string, budget = { entries: 100, byt
     next[cursor.value] = current.view ? { ...current, view: { before: current.view.before, after: { ...nextContext } } } : withContext(current, nextContext);
     frames.value = next;
   }
-  function record(snapshot: string, nextContext?: TemplateHistoryContext): boolean {
+  function record(snapshot: string, nextContext?: TemplateHistoryContext, mergeGroup?: string): boolean {
     if (value.value === snapshot) return false;
     const next = frames.value.slice(0, cursor.value + 1);
-    next.push(withContext(createHistoryFrame(value.value, snapshot, next.length % 20 === 0), nextContext));
+    const now = Date.now();
+    const merge = !!mergeGroup && mergeGroup === group && now - groupTime <= 600 && cursor.value > 0 && !canRedo.value;
+    if (merge) {
+      const previous = next.pop()!;
+      const base = groupBase ?? at(cursor.value - 1);
+      const frame = withContext(createHistoryFrame(base, snapshot, next.length % 20 === 0), previous.view?.before ?? nextContext);
+      if (frame.view && nextContext) frame.view.after = { ...nextContext };
+      next.push(frame);
+    } else {
+      groupBase = mergeGroup ? value.value : undefined;
+      next.push(withContext(createHistoryFrame(value.value, snapshot, next.length % 20 === 0), nextContext));
+    }
+    group = mergeGroup;
+    groupTime = now;
     frames.value = prune(next); cursor.value = frames.value.length - 1; value.value = snapshot;
     return true;
   }
   function move(delta: -1 | 1): string | undefined {
+    endGroup();
     if (delta < 0 ? !canUndo.value : !canRedo.value) return;
     const frame = frames.value[cursor.value]!;
     context.value = delta < 0 ? frame.view?.before : frames.value[cursor.value + 1]?.view?.after;
@@ -63,5 +88,17 @@ export function useTemplateHistory(initial: string, budget = { entries: 100, byt
     cursor.value += delta;
     return value.value;
   }
-  return { canUndo, canRedo, current, context, retainedBytes, reset, record, move, annotate };
+  /** Finalize tool cleanup in the same transaction that applied its document change. */
+  function amend(snapshot: string, nextContext?: TemplateHistoryContext): boolean {
+    if (!cursor.value || canRedo.value || value.value === snapshot) return false;
+    const next = frames.value.slice();
+    const previous = next.pop()!;
+    const frame = withContext(createHistoryFrame(at(cursor.value - 1), snapshot, next.length % 20 === 0), previous.view?.before ?? nextContext);
+    if (frame.view && nextContext) frame.view.after = { ...nextContext };
+    next.push(frame);
+    frames.value = prune(next); cursor.value = frames.value.length - 1; value.value = snapshot;
+    endGroup();
+    return true;
+  }
+  return { canUndo, canRedo, current, context, retainedBytes, reset, record, amend, move, annotate, endGroup };
 }

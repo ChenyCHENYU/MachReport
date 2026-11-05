@@ -338,7 +338,7 @@ describe("轻量模板属性编辑器", () => {
     editor.redo();
     expect(editor.activeList.value!.columns[1]!.align).toBe("right");
     await editor.save();
-    expect(editor.canUndo.value).toBe(false);
+    expect(editor.canUndo.value).toBe(true);
     expect(editor.draft.value.revision).toBe("2");
     editor.setName("修订 2 修改");
     editor.undo();

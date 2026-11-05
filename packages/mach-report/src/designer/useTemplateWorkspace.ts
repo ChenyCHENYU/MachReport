@@ -17,11 +17,12 @@ export function useTemplateWorkspace(
   editor: ReturnType<typeof useTemplateEditor>,
   inspector: ReturnType<typeof useTemplateInspector>,
   schemas: () => Record<string, DatasetContract> | undefined,
+  options: { mode?(): "design" | "preview" | undefined; onModeChange?(mode: "design" | "preview"): void } = {},
 ) {
   const { draft, lists, selected, activeList, blocked, jsonPending, error } =
     editor;
   const { section, activeIndex } = inspector;
-  const canvas = useTemplateCanvas(draft, editor.transaction);
+  const canvas = useTemplateCanvas(draft, editor.transaction, options);
   const {
     mode,
     selection: canvasSelection,
@@ -29,13 +30,16 @@ export function useTemplateWorkspace(
     active: canvasActive,
   } = canvas;
   editor.connectHistoryView({
-    read: () => ({ pageIndex: canvasPage.value, componentIndex: canvasSelection.value?.pageIndex === canvasPage.value ? canvasSelection.value.componentIndex : undefined }),
+    read: () => ({ pageIndex: canvasPage.value, componentIndex: canvasSelection.value?.pageIndex === canvasPage.value ? canvasSelection.value.componentIndex : undefined, listIndex: selected.value, fieldIndex: activeIndex.value, section: section.value }),
     restore: (context) => {
       canvasPage.value = Math.max(0, Math.min(draft.value.template.pages.length - 1, context.pageIndex));
       canvas.selection.value = undefined;
       canvas.selections.value = [];
       if (context.componentIndex !== undefined && draft.value.template.pages[canvasPage.value]?.components[context.componentIndex])
         canvas.select({ pageIndex: canvasPage.value, componentIndex: context.componentIndex });
+      if (context.listIndex !== undefined && lists.value[context.listIndex]) selected.value = context.listIndex;
+      if (context.fieldIndex !== undefined) inspector.activate(context.fieldIndex);
+      if (context.section) section.value = context.section;
     },
   });
   // A validated command may select its newly inserted page/component after the

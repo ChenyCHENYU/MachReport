@@ -46,7 +46,9 @@ describe("integrated parameter design transactions", () => {
     expect(wrapper.find(".mr-designer-pending").exists()).toBe(false);
     expect(wrapper.get(".mr-designer-save").attributes("disabled")).toBeUndefined();
     await wrapper.get('button[aria-label="撤销"]').trigger("click"); await flushPromises();
-    expect(params(wrapper)).toBeUndefined(); expect(form.text()).toContain("尚未配置查询参数");
+    expect(params(wrapper)).toBeUndefined();
+    expect((form.get('input[aria-label="参数标识"]').element as HTMLInputElement).value).toBe("month");
+    expect(wrapper.get(".mr-designer-pending").text()).toContain("查询参数待应用");
     await wrapper.get('button[aria-label="重做"]').trigger("click"); await flushPromises();
     expect(params(wrapper)).toEqual([{ field: "month", type: "month" }]);
     await wrapper.get(".mr-designer-save").trigger("click"); await flushPromises();

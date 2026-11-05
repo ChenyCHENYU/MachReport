@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.19.1-2563eb" alt="Source version 2.19.1" />
+  <img src="https://img.shields.io/badge/source-2.20.0-2563eb" alt="Source version 2.20.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -206,6 +206,19 @@ document.querySelector("#report")!.replaceChildren(renderPlan(plan, document));
 `paginateTemplate` 可在客户端或服务端运行。`renderPlan` 需要 DOM；Canvas、图片与浏览器打印同样需要浏览器环境。大量页面使用页窗口或 Vue 预览组件，避免一次创建全部页面节点。
 
 ## 工业标签与材料标识
+
+默认成品样式和自由设计共用同一工作台。直接传入记录与字段契约，即可预览双版材料标识，二维码绑定业务编号原值。左侧可切换单面物料卡、双版标识、仓储标签，选择展示字段和品牌。需要调整时进入“设计标签”，从统一的“添加内容”入口追加字段、文字和图片，切换预览后仍可撤销。
+
+```vue
+<ReportLabelStudio
+  :rows="materials"
+  :schema="materialContract"
+  identity-field="id"
+  :brand="{ name: 'MACH STEEL', tagline: '材料追溯' }"
+/>
+```
+
+组件从 `@agile-team/mach-report/designer` 按需导入，包内处理模板、记录选择、码图和输出。可选 `preset`、`fields`、`v-model` 与 `save` 接入自定义样式及现有持久化。完整配置见[标签工作台](./docs/LABELS.md)。
 
 同一引擎可设计 80 × 55 mm 等自定义标签。`createLabelTemplate({ dataset, rowKey, components })` 声明尺寸和字段绑定；多版使用 `pages`，逐条记录按“份数 → 各版”相邻输出。真实零值和前导零保留，缺字段、文字溢出和超预算明确反馈。设计器提供纸张、边距、页面复制、字段与码图属性，复用毫米画布、吸附、对齐和撤销。
 
@@ -519,7 +532,7 @@ Ctrl/Cmd+F 打开或聚焦内容搜索，输入时显示检索状态与命中数
 <MachReportPreview report-id="daily" :params="query" :interaction="{ calculations: true }" />
 ```
 
-关闭设置，单击起点后用 Shift + 单击或 Shift + 方向键选择数据，再从底部「选区计算」进入高级页。可选求和、平均值、最小值、最大值、数值计数与中位数，或输入 `SUM / COUNT` 等受控摘要表达式；点击「计算选区」才运行，选择过程不会反复重算。取消、切换选区或报表、关闭能力会隔离在途任务与旧结果。
+启用后设置自动收起，直接选择报表中的数据。同一字段的选区在底部显示求和、均值和数值数量，150 ms 合并连续操作并取消过期扫描。跨字段选择显示量纲核对提示，从“高级计算”打开侧栏，仍可在旁边调整选区，确认计算方式后运行。侧栏支持求和、平均值、最值、计数、中位数及 `SUM / COUNT` 等受控表达式。取消、切换选区或报表、关闭能力会隔离在途任务与旧结果。
 
 仅原始 `number` 参与；文本编号、数字字符串、日期、布尔和空值排除，真实 `0` 保留。合并格只计一次，同一逻辑表跨页去重，重复表头和结构汇总不叠加。计算采用浮点数，展示小数位不改变源值；应选择单位与量纲一致的数据，不安全整数、除零、溢出和超限均返回诊断。结果仅用于本地分析，不落库、不修改 KPI，也不执行或重算 Excel 原公式。
 
@@ -530,6 +543,8 @@ Ctrl/Cmd+F 打开或聚焦内容搜索，输入时显示检索状态与命中数
 普通页面继续只传报表 ID 和参数。包内默认保护尚未保存的输入与本地草稿；重新查询、导入替换前提供确认，保留焦点与原内容。`state.pendingLocalChanges` 与已保存的净差异 `state.dirty` 分开，已落库的改动不会反复触发丢弃提示。路由离开可复用 `await report.confirmDiscard("leave")`，宿主已有确认组件可通过 `beforeDiscard` 接入。
 
 查询、校验、排版、资源准备、文件生成提供阶段反馈和取消；PDF / Excel / 图片及 HTML / Word 输出报告真实完成单位，无法估算的编码过程不显示虚假百分比。`report.cancelTask()` 与 `state.task` 复用同一状态；忽略取消的自定义接口或导出器也不能用迟到结果覆盖当前报表。
+
+模板中需要随报表输出的统计，直接在设计器“字段 → 总计与小计”选择业务字段、求和 / 均值 / 非空计数和表尾或既有分组尾位置，配置随模板保存并进入正式排版与导出。原始数据由既有取数链路提供。
 
 宽表字段目录直接读取模板中的中文列名、多层表头与数据集，支持搜索和跨表精确定位。可选设计器把当前字段的内容、格式与编辑开关集中在首屏，字段目录按需展开并支持搜索、批量对齐与键盘导航；模板信息与高级 JSON 各有独立分区，保留撤销重做和草稿保护，无需使用方再维护一份列目录。
 
@@ -684,7 +699,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.19.1`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.20.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

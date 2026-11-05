@@ -49,6 +49,9 @@ export type { TemplateRecoveryMessages } from "./designer/recovery-messages";
 export const ReportLabelStudio = defineAsyncComponent(() => import("./designer/ReportLabelStudio.vue"));
 export type { LabelStudioOptions, LabelStudioController } from "./designer/useLabelStudio";
 export { LABEL_STUDIO_MESSAGES } from "./designer/label-studio-messages";
+export type { LabelStudioPreset, LabelStudioBrand, LabelStudioLayout } from "./designer/label-studio-presets";
+export type { DesignerInsertMessages } from "./designer/insertion-messages";
+export type { TemplateTotalsMessages } from "./designer/totals-messages";
 export type { LabelStudioMessages } from "./designer/label-studio-messages";
 
 export { DESIGNER_GUIDE_MESSAGES } from "./designer/guide-messages";

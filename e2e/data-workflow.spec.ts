@@ -87,7 +87,9 @@ test("模板原生插入图表、配置同源聚合，并修改列色阶后实�
   await openDemo(page); await page.getByRole("button", { name: "模板设计", exact: true }).click();
   await expect(page.locator(".mr-designer-preview")).toContainText("EAF-001");
   await page.getByRole("tab", { name: "组件", exact: true }).click();
-  await page.getByRole("combobox", { name: "添加组件", exact: true }).selectOption("chart");
+  await page.getByRole("button", { name: "添加内容", exact: true }).click();
+  await page.getByRole("dialog", { name: "添加到当前版面", exact: true })
+    .getByRole("button", { name: /^图表/ }).click();
   const inspector = page.locator(".mr-chart-binding"); await expect(inspector).toBeVisible();
   await inspector.getByRole("combobox", { name: "分类字段", exact: true }).selectOption("shift");
   await inspector.getByRole("combobox", { name: "度量与聚合", exact: true }).first().selectOption("output");

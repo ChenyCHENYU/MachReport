@@ -16,6 +16,10 @@ function fixture(): ReportTemplateDocument {
 const schemas = { labels: { rowKey: "id", fields: [{ field: "id", label: "产品编码", type: "text" as const }, { field: "weight", label: "重量", type: "number" as const }, { field: "copies", label: "份数", type: "number" as const }] } };
 function control(wrapper: Pick<VueWrapper, "findAll">, label: string, selector = "input") { return wrapper.findAll("label").find(item => item.text().startsWith(label))!.get(selector); }
 async function tab(wrapper: VueWrapper, name: string) { await wrapper.findAll('[role="tab"]').find(item => item.text() === name)!.trigger("click"); await flushPromises(); }
+async function insert(wrapper: VueWrapper, name: string) {
+  await wrapper.get(".mr-insert-trigger").trigger("click");
+  await wrapper.findAll(".mr-insert-grid button").find(button => button.get("strong").text() === name)!.trigger("click");
+}
 function latest(wrapper: VueWrapper): ReportTemplateDocument { return wrapper.emitted("update:modelValue")!.at(-1)![0] as ReportTemplateDocument; }
 function editor() { return mount(ReportTemplateEditor, { props: { modelValue: fixture(), datasets: { labels: [{ id: "000418", weight: 0, copies: 2 }] }, dataSchemas: schemas }, global: { stubs: { ReportPreview: true } } }); }
 
@@ -64,15 +68,15 @@ describe("工业标签设计工作流", () => {
   });
   it("symbol insertion, square QR resizing, EAN defaults, and explicit design placeholders are honest", async () => {
     const wrapper = editor(); await tab(wrapper, "组件");
-    await wrapper.get('select[aria-label="添加组件"]').setValue("qrcode");
+    await insert(wrapper, "二维码");
     const inspector = wrapper.getComponent(CanvasComponentInspector);
     await control(inspector, "宽度").setValue("20");
     expect(latest(wrapper).template.pages[0]!.components[1]).toMatchObject({ kind: "qrcode", widthMm: 20, heightMm: 20 });
-    expect(wrapper.get(".mr-canvas-code").text()).toContain("MACHREPORT");
+    expect(wrapper.get(".mr-canvas-code").text()).toContain("编码区域");
     expect(wrapper.get(".mr-canvas-code").find("img").exists()).toBe(false);
-    await wrapper.get('select[aria-label="添加组件"]').setValue("barcode");
+    await insert(wrapper, "条形码");
     await control(wrapper.getComponent(CanvasComponentInspector), "条码制式", "select").setValue("ean8");
-    expect(latest(wrapper).template.pages[0]!.components[2]).toMatchObject({ code: { value: "MR20261022" } });
+    expect(JSON.stringify(latest(wrapper).template.pages[0]!.components[2])).not.toContain("MR20261022");
     await control(wrapper.getComponent(CanvasComponentInspector), "固定编码内容", "textarea").setValue("96385074");
     expect(latest(wrapper).template.pages[0]!.components[2]).toMatchObject({ kind: "barcode", code: { symbology: "ean8", value: "96385074", quietZoneModules: 11, showText: true } });
     expect(wrapper.findAll(".mr-canvas-code")).toHaveLength(2); expect(wrapper.findAll(".mr-canvas-ruler")).toHaveLength(2);
@@ -83,13 +87,14 @@ describe("工业标签设计工作流", () => {
     const wrapper = editor(); await wrapper.setProps({ readonly: true }); await tab(wrapper, "模板");
     expect(wrapper.getComponent(TemplatePageInspector).get("fieldset").attributes("disabled")).toBeDefined();
     expect(wrapper.getComponent(TemplateRepeatInspector).get("fieldset").attributes("disabled")).toBeDefined();
-    await tab(wrapper, "组件"); expect(wrapper.get('select[aria-label="添加组件"]').attributes("disabled")).toBeDefined();
-    await wrapper.get('select[aria-label="添加组件"]').setValue("qrcode");
+    await tab(wrapper, "组件"); expect(wrapper.get(".mr-insert-trigger").attributes("disabled")).toBeDefined();
+    await wrapper.get(".mr-insert-trigger").trigger("click");
+    expect(wrapper.find(".mr-insert-panel").exists()).toBe(false);
     expect(wrapper.emitted("update:modelValue")).toBeUndefined(); wrapper.unmount();
   });
   it("undo of an inserted symbol clears the invalid selection and image bindings expose only supported settings", async () => {
     const wrapper = editor(); await tab(wrapper, "组件");
-    await wrapper.get('select[aria-label="添加组件"]').setValue("qrcode");
+    await insert(wrapper, "二维码");
     expect(wrapper.findAll(".mr-canvas-component.is-selected")).toHaveLength(1);
     await wrapper.get('button[aria-label="撤销"]').trigger("click");
     expect(wrapper.find(".mr-designer-arrange").exists()).toBe(false);
