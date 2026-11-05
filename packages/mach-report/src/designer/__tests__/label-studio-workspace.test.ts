@@ -4,7 +4,7 @@ import ReportLabelStudio from "../ReportLabelStudio.vue";
 import ReportTemplateEditor from "../ReportTemplateEditor.vue";
 import CanvasComponentInspector from "../CanvasComponentInspector.vue";
 import { type ReportTemplateDocument } from "@agile-team/mach-report";
-import { ReportPreview } from "@agile-team/mach-report/vue";
+import { ReportPreview, type PlanFetcher } from "@agile-team/mach-report/vue";
 import type { LabelStudioController } from "../useLabelStudio";
 
 const schema = { rowKey: "id", fields: [{ field: "id", type: "text" as const }, { field: "heat", label: "炉号", type: "text" as const, semanticRole: "identifier" as const }, { field: "weight", label: "重量", type: "number" as const }] };
@@ -88,7 +88,8 @@ it("adding a business field can prepare and generate the real print preview with
   expect(controller.pendingLocalChanges).toBe(false);
   await wrapper.findAll(".mr-label-bar button").find(button => button.text() === "打印预览")!.trigger("click");
   await flushPromises();
-  const fetcher = wrapper.getComponent(ReportPreview).props("fetcher")!;
+  const fetcher = wrapper.getComponent(ReportPreview).props("fetcher") as PlanFetcher;
+  expect(typeof fetcher).toBe("function");
   const plan = await fetcher({ reportIds: ["labels"], params: {} });
   expect(plan.pages.flatMap(page => page.components).some(component => component.text === "卷号  A001")).toBe(true);
   expect(wrapper.find(".mr-label-notice").exists()).toBe(false);
