@@ -5,7 +5,7 @@ import type { ReportTemplateDocument } from "@agile-team/mach-report";
 import ReportTemplateEditor from "./ReportTemplateEditor.vue";
 import ReportIcon from "../vue/ReportIcon.vue";
 import { useLabelStudio, type LabelStudioOptions } from "./useLabelStudio";
-const props = defineProps<LabelStudioOptions>();
+const props = withDefaults(defineProps<LabelStudioOptions>(), { showSave: true });
 const emit = defineEmits<{ (event: "update:modelValue", document: ReportTemplateDocument): void }>();
 const studio = useLabelStudio(props, document => emit("update:modelValue", document));
 const { m, notice, title, document, mode, record, recordIndex, sheet, busy, editor, rows, designDatasets, schemas, bindings, paper, labelCount, fetcher, preset, presets, brandName, brandTagline, fields, fieldQuery, selectedFields, availableFields, fieldCount, configurationDirty, pendingLocalChanges, custom, confirmation } = studio;
@@ -70,7 +70,7 @@ defineExpose({ guardChanges: studio.guardChanges, prepare: studio.prepare, get b
         <template #settings><label class="mr-label-imposition"><input v-model="sheet" type="checkbox">{{ m.sheet }}<small>{{ m.sheetHint }}</small></label></template>
       </ReportPreview>
       <div v-show="mode === 'design'" class="mr-label-editor">
-        <ReportTemplateEditor ref="editor" :model-value="document" mode="design" :show-mode-switch="false" :capabilities="{ params: false }" :datasets="designDatasets" :data-schemas="schemas" :binding-datasets="bindings" :save="studio.save" :before-discard="studio.beforeDiscard" :preview="preview" @update:model-value="studio.update" />
+        <ReportTemplateEditor ref="editor" :model-value="document" mode="design" :show-mode-switch="false" :show-save="showSave" :capabilities="{ params: false }" :datasets="designDatasets" :data-schemas="schemas" :binding-datasets="bindings" :save="studio.save" :before-discard="studio.beforeDiscard" :preview="preview" @update:model-value="studio.update" />
       </div>
     </div>
   </section>

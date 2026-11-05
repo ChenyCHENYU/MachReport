@@ -23,6 +23,9 @@ it("one design action opens the real canvas and one editor survives preview navi
   const instance = editor.vm.$.uid;
   expect(editor.find(".mr-designer-mode").exists()).toBe(false);
   expect(editor.props("capabilities")).toMatchObject({ params: false });
+  expect(editor.find(".mr-designer-save").exists()).toBe(true);
+  await wrapper.setProps({ showSave: false });
+  expect(editor.find(".mr-designer-save").exists()).toBe(false);
   await wrapper.findAll(".mr-label-bar button").find(button => button.text() === "设计标签")!.trigger("click");
   await flushPromises();
   expect(editor.find(".mr-canvas").isVisible()).toBe(true);

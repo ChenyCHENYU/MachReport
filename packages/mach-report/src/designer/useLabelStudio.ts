@@ -9,6 +9,8 @@ import { LABEL_STUDIO_PRESETS, labelDisplayFields, labelIdentityField, type Labe
 import { LABEL_STUDIO_MESSAGES, type LabelStudioMessages } from "./label-studio-messages";
 
 export interface LabelStudioOptions extends LabelStudioLayout {
+  /** A host-owned completion action may replace the inner draft-save button. */
+  showSave?: boolean;
   rows: LabelReportRows;
   schema: DatasetContract;
   title?: string;
