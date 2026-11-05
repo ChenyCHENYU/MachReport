@@ -1,5 +1,11 @@
 # @agile-team/mach-report
 
+## 2.21.1
+
+### Patch Changes
+
+- 标签内容更新复用已独立创建的模板对象，取消检查使用兼容的 AbortSignal 状态，避免依赖旧浏览器缺少的 structuredClone 与 throwIfAborted。补充缺少这些原生 API 时的回归验证。
+
 ## 2.21.0
 
 ### Minor Changes

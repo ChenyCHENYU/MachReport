@@ -17,3 +17,24 @@ it("an already cancelled resource never creates an encoder", async () => {
   await expect(createLazyLabelCodeAssets().assetRenderers!.qrcode!(context(controller.signal))).rejects.toMatchObject({ name: "AbortError" });
   expect(mocks.create).not.toHaveBeenCalled();
 });
+
+it("legacy AbortSignal without throwIfAborted supports rendering and both cancellation checkpoints", async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "throwIfAborted");
+  Object.defineProperty(AbortSignal.prototype, "throwIfAborted", { configurable: true, value: undefined });
+  try {
+    const assets = createLazyLabelCodeAssets();
+    expect(new AbortController().signal.throwIfAborted).toBeUndefined();
+    expect(await assets.assetRenderers!.qrcode!(context())).toBe("qr");
+    expect(await assets.assetRenderers!.barcode!(context())).toBe("bar");
+    const early = new AbortController(); early.abort();
+    await expect(assets.assetRenderers!.qrcode!(context(early.signal))).rejects.toMatchObject({ name: "AbortError" });
+    const late = new AbortController();
+    const render = vi.fn(() => "uncommitted");
+    mocks.create.mockImplementationOnce(() => { late.abort(); return { qrcode: render, barcode: render }; });
+    await expect(createLazyLabelCodeAssets().assetRenderers!.qrcode!(context(late.signal))).rejects.toMatchObject({ name: "AbortError" });
+    expect(render).not.toHaveBeenCalled();
+  } finally {
+    if (descriptor) Object.defineProperty(AbortSignal.prototype, "throwIfAborted", descriptor);
+    else Reflect.deleteProperty(AbortSignal.prototype, "throwIfAborted");
+  }
+});

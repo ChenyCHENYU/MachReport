@@ -28,11 +28,12 @@ function intersects(left: TemplateComponent, right: TemplateComponent): boolean 
   return left.leftMm < right.leftMm + right.widthMm && left.leftMm + left.widthMm > right.leftMm
     && left.topMm < right.topMm + rightHeight && left.topMm + leftHeight > right.topMm;
 }
+// The canonical document is already an independent snapshot. Transfer its bindings without another clone.
 function updateContent(current: TemplateComponent, expected: TemplateComponent): TemplateComponent {
   const next = { ...current, meta: { ...current.meta, ...expected.meta } };
   if (next.kind === "text" && expected.kind === "text") {
     next.text = expected.text;
-    if (expected.binding) next.binding = structuredClone(expected.binding);
+    if (expected.binding) next.binding = expected.binding;
     else delete next.binding;
   }
   return next;
@@ -49,7 +50,7 @@ function patchPage(page: LabelPage, previous: LabelPage, desired: LabelPage, cha
     if (!changes.has(String(kind))) continue;
     const current = kind === "field-label" || kind === "field-value" ? slots.find(component => role(component) === kind && !replacements.has(component)) : page.components.find(component => role(component) === kind);
     if (current) replacements.set(current, updateContent(current, expected));
-    else additions.push(structuredClone(expected));
+    else additions.push(expected);
   }
   const components = page.components.filter(component => (!fieldsChanged || !before.has(component) || replacements.has(component)) && (!changes.has("brand-tagline") || role(component) !== "brand-tagline" || desired.components.some(item => role(item) === "brand-tagline")))
     .map(component => replacements.get(component) ?? component);

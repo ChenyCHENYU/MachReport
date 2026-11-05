@@ -1,9 +1,10 @@
-import { expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { parseReportTemplate, type DatasetContract } from "@agile-team/mach-report";
 import { createLabelStudioDocument } from "../label-studio-template";
-import { isCustomLabelStudioLayout, patchLabelStudioContent } from "../label-studio-content";
+import { isCustomLabelStudioLayout, patchLabelStudioContent, rebuildLabelStudioDocument } from "../label-studio-content";
 import { labelStudioSheetLayout } from "../label-studio-sheets";
 const schema: DatasetContract = { rowKey: "id", fields: [{ field: "id", type: "text" }, { field: "heat", type: "text", semanticRole: "identifier" }, { field: "weight", label: "重量", type: "number" }, { field: "grade", label: "钢种", type: "text" }] };
+afterEach(() => { vi.unstubAllGlobals(); });
 const layout = { preset: "material" as const, fields: ["weight"], brand: { name: "原标题" } };
 it("updates managed content while keeping manual geometry, styles, extra pages and original zero bindings", () => {
   const source = createLabelStudioDocument(schema, "标签", undefined, layout);
@@ -62,4 +63,22 @@ it("empty optional brand values do not overwrite manually edited titles during a
   name.text = "手工标题";
   const updated = patchLabelStudioContent(source, schema, "标签", undefined, previous, { ...previous, fields: ["grade"], brand: { name: "", tagline: "" } })!;
   expect(updated.template.pages[0]!.components.some(component => component.kind === "text" && component.text === "手工标题")).toBe(true);
+});
+
+it("content updates, additions and explicit rebuilds work without structuredClone and retain independent source data", () => {
+  vi.stubGlobal("structuredClone", undefined);
+  const source = createLabelStudioDocument(schema, "标签", undefined, layout);
+  const original = JSON.stringify(source);
+  const desired = { ...layout, fields: ["grade", "weight"], brand: { name: "更新标题", tagline: "新副标题" } };
+  const next = patchLabelStudioContent(source, schema, "标签", undefined, layout, desired)!;
+  expect(next).toBeDefined();
+  expect(next.template.pages[0]!.components.filter(component => component.meta?.labelStudioRole === "field-value")).toHaveLength(2);
+  expect(next.template.pages[0]!.components.some(component => component.kind === "text" && component.text === "新副标题")).toBe(true);
+  expect(isCustomLabelStudioLayout(source, createLabelStudioDocument(schema, "标签", undefined, layout))).toBe(false);
+  expect(rebuildLabelStudioDocument(next, schema, "标签", undefined, { ...desired, preset: "warehouse" }).template.pages[0]!.widthMm).toBe(100);
+  const binding = next.template.pages[0]!.components.find(component => component.kind === "text" && component.binding?.field === "grade");
+  if (binding?.kind !== "text" || !binding.binding) throw new Error("expected transferred field binding");
+  binding.binding.field = "manually-changed";
+  expect(JSON.stringify(source)).toBe(original);
+  expect(desired.fields).toEqual(["grade", "weight"]);
 });
