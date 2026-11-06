@@ -101,7 +101,7 @@ async function upload(event: Event): Promise<void> {
       <label v-if="component.kind === 'text' && !component.binding">{{ m.componentText
         }}<textarea
           rows="3"
-          :value="component.text"
+          data-mr-control="component-text" :value="component.text"
           @change="emit('patch', { text: input($event) })"
         />
       </label>
@@ -123,7 +123,7 @@ async function upload(event: Event): Promise<void> {
       <CodeComponentInspector v-if="component.kind === 'barcode' || component.kind === 'qrcode'" :component="component" :disabled="disabled" :messages="m" @change="emit('patch', { code: $event, imageData: undefined })" />
       <label v-if="component.kind === 'list'">{{ m.listDataset
         }}<input
-          :value="component.dataset"
+          data-mr-control="component-dataset" :value="component.dataset"
           @change="emit('patch', { dataset: input($event) })"
       /></label>
     </div>
@@ -135,12 +135,12 @@ async function upload(event: Event): Promise<void> {
             type="number"
             min="1"
             max="200"
-            :value="resolveFontSize(component.style).fontSizePt"
+            data-mr-control="component-style-fontSize" :value="resolveFontSize(component.style).fontSizePt"
             @change="style('fontSize', Number(input($event)))"
 /></label><label>{{ m.fontBold
           }}<input
             type="checkbox"
-            :checked="component.style?.bold === true"
+            data-mr-control="component-style-bold" :checked="component.style?.bold === true"
             @change="
               style('bold', ($event.target as HTMLInputElement).checked)
             "
@@ -157,12 +157,12 @@ async function upload(event: Event): Promise<void> {
         <label>{{ m.textColor
           }}<input
             type="color"
-            :value="component.style?.color ?? '#233c5c'"
+            data-mr-control="component-style-color" :value="component.style?.color ?? '#233c5c'"
             @change="style('color', input($event))"
 /></label><label>{{ m.backgroundColor
           }}<input
             type="color"
-            :value="component.style?.backgroundColor ?? '#ffffff'"
+            data-mr-control="component-style-backgroundColor" :value="component.style?.backgroundColor ?? '#ffffff'"
             @change="style('backgroundColor', input($event))"
         /></label>
       </div>
@@ -180,7 +180,7 @@ async function upload(event: Event): Promise<void> {
             type="number"
             step="0.5"
             :min="key === 'widthMm' || key === 'heightMm' ? 2 : 0"
-            :value="componentGeometry(component)[key]"
+            :data-mr-control="`component-${key}`" :value="componentGeometry(component)[key]"
             :disabled="geometryDisabled"
             @change="geometry(key, $event)"
         /></label>

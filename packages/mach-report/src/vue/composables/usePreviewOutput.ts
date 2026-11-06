@@ -45,11 +45,13 @@ export function usePreviewOutput(host: {
     if (!snapshot) return false;
     const normalized = ({ excel: "xlsx", image: "png", doc: "word" } as Record<string, string>)[format] ?? format;
     const target: OutputFormat = normalized === "pdf" ? "pdf" : normalized === "xlsx" ? "xlsx" : normalized === "png" ? "canvas" : "dom";
-    const issues = diagnostics.inspect(snapshot, target);
+    // Native codecs own the bounded preflight on their isolated snapshot. Legacy injected PDF exporters still need this guard.
+    if (target === "xlsx" || target === "pdf" && host.getPdfExporter().prepare) return true;
+    const issues = diagnostics.inspectSummary(snapshot, target);
     if (plan.value !== snapshot) return false;
-    if (issues.length && host.fidelity() === "strict") {
+    if (issues.total && host.fidelity() === "strict") {
       exportNotice.value = { kind: "error", message: host.messages().diagnosticsStrict ?? "输出存在已知降级" };
-      reportError(exportNotice.value.message, "export", { diagnostics: issues });
+      reportError(exportNotice.value.message, "export", { diagnostics: issues.entries, diagnosticSummary: issues });
       return false;
     }
     return true;
@@ -58,7 +60,8 @@ export function usePreviewOutput(host: {
     return plan.value ? diagnostics.inspect(plan.value, format) : [];
   }
   const exportApi = usePrintExport(plan, {
-    encoding: usePreviewEncoding({ execution: host.execution, fidelity: host.fidelity, diagnostic: diagnostics.add }),
+    encoding: usePreviewEncoding({ execution: host.execution, fidelity: host.fidelity, diagnostic: diagnostics.add, diagnosticSummary: diagnostics.addSummary,
+      fidelityMessage: () => host.messages().diagnosticsStrict ?? "输出存在已知降级" }),
     getPdfExporter: host.getPdfExporter,
     beforeOutput: () => editing.settle(),
     onTask: (value) => task.receive(value, () => exportApi.cancel()),

@@ -10,7 +10,8 @@ import { createXlsxImageWriter, type XlsxImageOptions, type XlsxImageWriter } fr
 import { resolveGridLayout, type GridLayout } from "../render/grid-geometry";
 import { mergeComponentStyles, resolveFontSize } from "../render/style";
 import { mmToExcelColumnWidth } from "./column-width";
-import { reportOutputDiagnostics, type OutputDiagnostic } from "../output/capabilities";
+import { collectOutputDiagnostics, type OutputDiagnostic } from "../output/capabilities";
+import { createDiagnosticMessages, type DiagnosticSummary } from "../output/diagnostic-collector";
 import { resolvePlanAssets, type AssetRenderOptions } from "../output/assets";
 import { importedImageOverlay } from "./import-images";
 import { composeExcelFlowPages, excelFlowPageInfo } from "./region-output";
@@ -46,7 +47,10 @@ export interface XlsxRenderOptions extends AssetRenderOptions, XlsxImageOptions 
 export interface XlsxWorkbookResult {
   workbook: ExcelJS.Workbook;
   warnings: string[];
+  /** Exact count when diagnosticLimit bounds legacy warning details. */
+  warningCount?: number;
   diagnostics?: OutputDiagnostic[];
+  diagnosticSummary?: DiagnosticSummary<OutputDiagnostic>;
   /** Informational output semantics; these do not indicate missing content. */
   notes?: string[];
 }
@@ -93,7 +97,7 @@ const EXCEL_PAPERS = {
   a5: { width: 148, height: 210, code: 11 }
 } as const;
 
-function paperSize(page: PlanPage, option: XlsxRenderOptions["paperSize"], index: number, warnings: string[]): number {
+function paperSize(page: PlanPage, option: XlsxRenderOptions["paperSize"], index: number, warnings: Pick<string[], "push">): number {
   if (option && option !== "auto") return EXCEL_PAPERS[option].code;
   const width = Math.min(page.pageWidthMm, page.pageHeightMm);
   const height = Math.max(page.pageWidthMm, page.pageHeightMm);
@@ -103,7 +107,7 @@ function paperSize(page: PlanPage, option: XlsxRenderOptions["paperSize"], index
   return EXCEL_PAPERS.a4.code;
 }
 
-function setCellValue(cell: ExcelJS.Cell, source: GridCell, mode: XlsxRenderOptions["valueMode"], warnings: string[]): void {
+function setCellValue(cell: ExcelJS.Cell, source: GridCell, mode: XlsxRenderOptions["valueMode"], warnings: Pick<string[], "push">): void {
   const text = typeof source.text === "string" ? source.text : "";
   if (mode !== "raw" || !Object.prototype.hasOwnProperty.call(source, "value")) {
     validateCellText(text, cell.address);
@@ -172,7 +176,7 @@ function isWidePage(page: PlanPage): boolean {
   return page.layout === "wide" || page.components.some((comp) => comp.table?.layout === "wide");
 }
 
-function sheetUnits(plan: RenderPlan, mode: XlsxRenderOptions["sheetMode"], warnings: string[]): SheetUnit[] {
+function sheetUnits(plan: RenderPlan, mode: XlsxRenderOptions["sheetMode"], warnings: Pick<string[], "push">): SheetUnit[] {
   const units: SheetUnit[] = [];
   const candidates = plan.pages.map(tablePage);
   // 某页混入自由矩阵时整张逻辑表一起回退，避免只导出部分连续行。
@@ -261,7 +265,7 @@ interface DimensionLimits {
   row(height: number): number;
 }
 
-function dimensionLimits(warnings: string[]): DimensionLimits {
+function dimensionLimits(warnings: Pick<string[], "push">): DimensionLimits {
   const warned = new Set<string>();
   function limit(value: number, maximum: number, kind: string, warning: string): number {
     if (value <= maximum) return value;
@@ -307,7 +311,7 @@ async function sheetContents(unit: SheetUnit, schedule: ReturnType<typeof create
   return { components, grids, columnCount, textWidthMm };
 }
 
-function worksheetOptions(unit: SheetUnit, paperOption: XlsxRenderOptions["paperSize"], warnings: string[]): Partial<ExcelJS.AddWorksheetOptions> {
+function worksheetOptions(unit: SheetUnit, paperOption: XlsxRenderOptions["paperSize"], warnings: Pick<string[], "push">): Partial<ExcelJS.AddWorksheetOptions> {
   const { page, index } = unit.pages[0]!;
   const explicitPaper = paperOption !== undefined && paperOption !== "auto";
   if ((unit.continuous || isWidePage(page)) && !explicitPaper) return {};
@@ -342,7 +346,7 @@ interface SheetWriter {
   images: XlsxImageWriter;
   dataBars: ReturnType<typeof createXlsxDataBarWriter>;
   sheet: ExcelJS.Worksheet;
-  warnings: string[];
+  warnings: Pick<string[], "push">;
   limits: DimensionLimits;
   valueMode: XlsxRenderOptions["valueMode"];
   schedule: ReturnType<typeof createOutputScheduler>;
@@ -462,6 +466,15 @@ function validateOptions(options: XlsxRenderOptions): void {
 }
 
 /** 构建可修改工作簿，调用方需要追加内容时自行完成唯一一次编码。 */
+function workbookDiagnostics(plan: RenderPlan, options: XlsxRenderOptions, prepared: { diagnostics: OutputDiagnostic[]; diagnosticSummary?: DiagnosticSummary<OutputDiagnostic> }): Pick<XlsxWorkbookResult, "diagnostics" | "diagnosticSummary"> {
+  const collector = collectOutputDiagnostics(plan, "xlsx", options, prepared);
+  return { diagnostics: collector.entries, ...(options.diagnosticLimit === undefined ? {} : { diagnosticSummary: collector.snapshot() }) };
+}
+
+function workbookResult(workbook: ExcelJS.Workbook, warnings: ReturnType<typeof createDiagnosticMessages>, diagnostics: Pick<XlsxWorkbookResult, "diagnostics" | "diagnosticSummary">, notes: string[], limit?: number): XlsxWorkbookResult {
+  return { workbook, warnings: warnings.entries, ...(limit === undefined ? {} : { warningCount: warnings.total }), ...diagnostics, ...(notes.length ? { notes } : {}) };
+}
+
 export async function renderPlanToWorkbook(plan: RenderPlan, options: XlsxRenderOptions = {}): Promise<XlsxWorkbookResult> {
   const additional = snapshotAdditionalSheets(options.additionalSheets);
   const sheetNames = snapshotSheetNames(options.sheetNames);
@@ -471,10 +484,10 @@ export async function renderPlanToWorkbook(plan: RenderPlan, options: XlsxRender
     ? await resolvePlanAssets(plan, { ...options, format: "xlsx" })
     : { plan, diagnostics: [] };
   plan = prepared.plan;
-  const diagnostics = [...prepared.diagnostics, ...reportOutputDiagnostics(plan, "xlsx", options)];
+  const diagnostics = workbookDiagnostics(plan, options, prepared);
   await assertXlsxDataBarBudget(plan, options.maxDataBars ?? 10_000, options);
   const workbook = new ExcelJSRuntime.Workbook();
-  const warnings: string[] = [];
+  const warnings = createDiagnosticMessages(options.diagnosticLimit);
   const images = createXlsxImageWriter(workbook, options, warnings);
   const notes: string[] = [];
   const dataBars = createXlsxDataBarWriter(images, options.maxDataBars ?? 10_000, notes);
@@ -496,7 +509,7 @@ export async function renderPlanToWorkbook(plan: RenderPlan, options: XlsxRender
     await outputCheckpoint(options, sheetIndex + 1, totalSheets);
   }
   await appendSheets(workbook, additional, options, units.length, totalSheets);
-  return { workbook, warnings, diagnostics, ...(notes.length ? { notes } : {}) };
+  return workbookResult(workbook, warnings, diagnostics, notes, options.diagnosticLimit);
 }
 
 async function appendSheets(workbook: ExcelJS.Workbook, sheets: readonly XlsxAdditionalSheet[] = [], options: XlsxRenderOptions, completed: number, total: number): Promise<void> {

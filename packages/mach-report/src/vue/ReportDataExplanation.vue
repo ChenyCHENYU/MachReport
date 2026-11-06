@@ -1,24 +1,28 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import type { ReportPreviewDiagnostic, ReportPreviewDataTarget } from "./guards";
 import type { MachReportMessages } from "./config";
 import type { ReportValueState } from "../source/data-explanation";
 import ReportIcon from "./ReportIcon.vue";
-const props = defineProps<{ entries: readonly Readonly<ReportPreviewDiagnostic>[]; messages: MachReportMessages; busy?: boolean }>();
+const props = defineProps<{ entries: readonly Readonly<ReportPreviewDiagnostic>[]; messages: MachReportMessages; total?: number; busy?: boolean }>();
 const emit = defineEmits<{ (e: "locate", target: ReportPreviewDataTarget): void }>();
 const query = ref("");
+const visibleCount = ref(100);
+const totalCount = computed(() => props.total ?? props.entries.length);
+const omitted = computed(() => Math.max(0, totalCount.value - props.entries.length));
+watch(query, () => { visibleCount.value = 100; });
 const labels = computed(() => ({ "missing-source": props.messages.dataMissingSource, "not-applicable": props.messages.dataNotApplicable, "not-calculable": props.messages.dataNotCalculable }));
 const matches = computed(() => {
   const terms = query.value.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
   return props.entries.filter(entry => terms.every(term => `${entry.message} ${entry.target?.datasetId} ${entry.target?.rowKey ?? ""} ${entry.target?.field} ${labels.value[entry.valueState as ReportValueState] ?? ""}`.toLocaleLowerCase().includes(term)));
 });
-const visible = computed(() => matches.value.slice(0, 100));
+const visible = computed(() => matches.value.slice(0, visibleCount.value));
 </script>
 <template>
-  <details v-if="entries.length" class="mrp-data-explanation">
+  <details v-if="totalCount" class="mrp-data-explanation">
     <summary>
       <ReportIcon name="file" :size="14" />
-      <span>{{ messages.dataExplanation }}</span><b>{{ entries.length }}</b>
+      <span>{{ messages.dataExplanation }}</span><b>{{ totalCount }}</b>
       <small>{{ messages.dataExplanationHint }}</small>
       <ReportIcon name="chevron-down" :size="12" />
     </summary>
@@ -50,9 +54,10 @@ v-if="entry.target" type="button" :disabled="busy"
         </li>
       </ul>
       <p v-if="!matches.length" role="status">{{ messages.dataExplanationEmpty }}</p>
-      <small v-if="matches.length > visible.length">
-        {{ (messages.diagnosticsMore ?? '').replace('{count}', String(matches.length)) }}
-      </small>
+      <button v-if="matches.length > visible.length" class="mrp-data-more" type="button" @click="visibleCount += 100">
+        {{ (messages.diagnosticsShowMore ?? messages.diagnosticsDetails ?? '').replace('{count}', String(matches.length - visible.length)) }}
+      </button>
+      <small v-if="omitted" class="mrp-data-omitted">{{ (messages.diagnosticsOmitted ?? messages.diagnosticsMore ?? '').replace('{count}', String(omitted)) }}</small>
     </div>
   </details>
 </template>
@@ -186,4 +191,6 @@ code {
 
 }
 
+.mrp-data-more { margin-top:6px; font-size:12px }
+.mrp-data-omitted { display:block; margin-top:8px; line-height:1.5 }
 </style>

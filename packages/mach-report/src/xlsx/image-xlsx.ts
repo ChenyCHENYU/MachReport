@@ -50,7 +50,7 @@ function verticalAnchor(sheet: ExcelJS.Worksheet, row: number, offsetMm: number)
   return { nativeRow: row - 1, nativeRowOff: Math.round(remaining * 25.4 / 72 * 36_000) };
 }
 /** Images occupy their own flow band; PDF-style absolute page geometry is not inferred. */
-export function createXlsxImageWriter(workbook: ExcelJS.Workbook, options: XlsxImageOptions, warnings: string[]): XlsxImageWriter {
+export function createXlsxImageWriter(workbook: ExcelJS.Workbook, options: XlsxImageOptions, warnings: Pick<string[], "push">): XlsxImageWriter {
   const inspect = createImageMediaInspector(options);
   const images = new Map<string, number>();
   return { write(sheet, component, row, overlay) {

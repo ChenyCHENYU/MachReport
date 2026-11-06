@@ -1,5 +1,11 @@
 # @agile-team/mach-report
 
+## 2.24.0
+
+### Minor Changes
+
+- Share immutable publication indexes and conservatively reuse unchanged layout for safe plain-text edits. Bound diagnostic sampling across preview, exports, runtime and Worker while preserving explicit full-detail APIs. Bind provider saves to the displayed query context and add source-aware, validated conflict review. Improve designer diagnostic navigation and optional bounded workspace restoration. Unify validation review themes and add searchable, paged access to every issue.
+
 ## 2.23.1
 
 ### Patch Changes

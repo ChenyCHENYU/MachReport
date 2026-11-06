@@ -1,14 +1,15 @@
 import { computed, onScopeDispose, shallowRef, watch, type Ref } from "vue";
 import {
-  createReportCellEditBatch, getReportCellContext, ReportCellEditError, validateReportCellFieldDefinition,
-  type RenderPlan, type ReportCellAddress, type ReportCellEdit
+  createReportCellEditBatch, getReportCellContext, reportCellEditKey, ReportCellEditError, validateReportCellFieldDefinition,
+  type RenderPlan, type ReportCellAddress, type ReportCellEdit, type ReportCellContext
 } from "@agile-team/mach-report";
-import type { ReportEditingOptions } from "../editing";
+import type { ReportEditingOptions, ReportEditQueryContext } from "../editing";
 import { cloneReportSnapshot } from "../snapshot";
 import { useEditHistory } from "./useEditHistory";
+import { mergeEditDifferences } from "./edit-history-state";
 import { resolveCellField } from "../cell-field";
 import { createCellEditor, type CellEditor } from "../cell-editor";
-import { assertRecalculationReady, createEditAddressResolver } from "./edit-recalculation";
+import { assertRecalculationReady, createEditAddressResolver, type EditAddressResolver } from "./edit-recalculation";
 
 interface EditorSession {
   plan: RenderPlan;
@@ -19,6 +20,7 @@ interface EditorSession {
 interface CellEditingHost {
   plan: Ref<RenderPlan | null>;
   options: Readonly<Ref<boolean | ReportEditingOptions>>;
+  query?(): Readonly<ReportEditQueryContext> | null;
   blocked(): boolean;
   label(): string;
   /** Opening a discard dialog must not blur-save input behind the dialog. */
@@ -28,6 +30,8 @@ interface CellEditingHost {
   onError(message: string, cause: unknown): void;
   onNavigate?(address: ReportCellAddress, key: "Enter" | "Tab", backwards: boolean): void;
   onInspect?(address: ReportCellAddress): void;
+  addressResolver?(plan: RenderPlan): EditAddressResolver;
+  resolveCell?(plan: RenderPlan, address: ReportCellAddress): ReportCellContext | null;
 }
 
 export function reportCellAddress(cell: HTMLElement): ReportCellAddress | null {
@@ -49,7 +53,7 @@ export function useCellEditing(host: CellEditingHost) {
   const history = useEditHistory(host);
   const { saving, changes } = history;
   const inputChanged = shallowRef(false);
-  const pendingLocalChanges = computed(() => inputChanged.value || history.hasLocalDrafts.value);
+  const pendingLocalChanges = computed(() => inputChanged.value || history.hasLocalDrafts.value || history.hasPendingEdits.value);
   let pending: Promise<boolean> | null = null;
 
   function cancel(): void {
@@ -64,6 +68,22 @@ export function useCellEditing(host: CellEditingHost) {
   function reset(): void {
     cancel();
     history.reset();
+  }
+
+  /** Keep typed intent before moving focus into conflict review, without retrying a save. */
+  function pauseForReview(): boolean {
+    if (saving.value || host.blocked()) return false;
+    const session = active.value;
+    if (!session) return true;
+    try {
+      if (!isCurrent(session)) return false;
+      const edits = createReportCellEditBatch(session.plan, [{ address: session.address, value: session.editor.value() }], "review").edits;
+      const intentions = new Map(history.getPendingEdits().map(edit => [reportCellEditKey(edit), edit]));
+      mergeEditDifferences(intentions, edits);
+      history.retainPending([...intentions.values()], history.conflicts.value);
+      cancel();
+      return true;
+    } catch (cause) { reportFailure(cause); return false; }
   }
 
   function isCurrent(session: EditorSession): boolean {
@@ -100,7 +120,7 @@ export function useCellEditing(host: CellEditingHost) {
     return result;
   }
 
-  function settle(): boolean | Promise<boolean> { return active.value || pending ? commit() : history.settle(); }
+  function settle(): boolean | Promise<boolean> { return active.value || pending ? commit().then(success => success && history.settle()) : history.settle(); }
 
   function onEditorKey(event: KeyboardEvent): void {
     event.stopPropagation();
@@ -109,11 +129,11 @@ export function useCellEditing(host: CellEditingHost) {
     if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
       event.preventDefault();
       const session = active.value;
-      const context = session && getReportCellContext(session.plan, session.address);
+      const context = session && (host.resolveCell ? host.resolveCell(session.plan, session.address) : getReportCellContext(session.plan, session.address));
       const edit = session && context ? createReportCellEditBatch(session.plan, [{ address: session.address, value: context.value }], "navigation").edits[0] : undefined;
       void commit().then((success) => {
         if (!success || !session || !host.plan.value) return;
-        const address = host.plan.value === session.plan ? session.address : edit && createEditAddressResolver(host.plan.value)(edit);
+        const address = host.plan.value === session.plan ? session.address : edit && (host.addressResolver ?? createEditAddressResolver)(host.plan.value)(edit);
         if (address) host.onNavigate?.(address, event.key as "Enter" | "Tab", event.shiftKey);
       });
     }
@@ -130,7 +150,7 @@ export function useCellEditing(host: CellEditingHost) {
     host.onInspect?.(address);
     const options = typeof host.options.value === "object" ? host.options.value : {};
     try {
-      const context = getReportCellContext(plan, address);
+      const context = host.resolveCell ? host.resolveCell(plan, address) : getReportCellContext(plan, address);
       if (!context?.editable || options.canEdit?.(context) === false) return;
       assertRecalculationReady(plan, !!context.source);
       if (options.requireSource && !context.source) throw new ReportCellEditError("missing");
@@ -172,7 +192,7 @@ export function useCellEditing(host: CellEditingHost) {
   }, { flush: "sync" });
   onScopeDispose(reset);
   return {
-    ...history, active, saving, changes, pendingLocalChanges, cancel, reset, commit, settle, onDoubleClick, editCell,
+    ...history, active, saving, changes, pendingLocalChanges, cancel, reset, commit, settle, pauseForReview, onDoubleClick, editCell,
     getChanges: (): ReportCellEdit[] => cloneReportSnapshot(changes.value)
   };
 }

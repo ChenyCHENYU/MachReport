@@ -17,8 +17,10 @@ const props = defineProps<{
   persisted?: boolean;
   plan?: RenderPlan | null;
   historyLimited?: boolean;
+  pendingCount?: number;
+  reviewConflicts?: boolean;
 }>();
-defineEmits<{ (e: "undo"): void; (e: "redo"): void; (e: "restore"): void; (e: "locate", edit: ReportCellEdit): void }>();
+defineEmits<{ (e: "undo"): void; (e: "redo"): void; (e: "restore"): void; (e: "review-conflicts", event: Event): void; (e: "locate", edit: ReportCellEdit): void }>();
 const { opened, root, trigger, panel, onKeydown } = usePopover();
 const id = `mrp-changes-${getCurrentInstance()?.uid ?? 0}`;
 const query = ref("");
@@ -92,7 +94,8 @@ watch(datasets, values => { if (dataset.value && !values.includes(dataset.value)
     <span v-if="saving" role="status">{{ messages.saving }}</span>
     <span v-else-if="differences.length && !conflicts.length" role="status">{{ persisted ? messages.editSaved : messages.editingLocal }}</span>
     <span v-if="historyLimited" class="mrp-history-limited" role="status">{{ messages.editHistoryLimited }}</span>
-    <details v-if="conflicts.length" class="mrp-conflicts" open><summary>{{ messages.conflicts }} · {{ conflicts.length }}</summary><ul><li v-for="(conflict, index) in conflicts" :key="index">{{ conflict.message }}</li></ul></details>
+    <div v-if="reviewConflicts && pendingCount" class="mrp-conflicts"><button type="button" :disabled="busy || saving" @pointerdown.prevent @click="$emit('review-conflicts', $event)">{{ messages.conflictReviewTitle }} · {{ pendingCount }}</button><span v-if="conflicts[0]">{{ conflicts[0].message }}</span></div>
+    <details v-else-if="conflicts.length" class="mrp-conflicts" open><summary>{{ messages.conflicts }} · {{ conflicts.length }}</summary><ul><li v-for="(conflict, index) in conflicts" :key="index">{{ conflict.message }}</li></ul></details>
   </div>
 </template>
 <style scoped>
@@ -121,4 +124,5 @@ button:focus-visible,select:focus-visible,.mrp-change-filters label:focus-within
 .mrp-changes-empty{padding:12px 0;color:var(--mrp-btn-fg)}
 .mrp-history-limited{font-size:11px;color:var(--mrp-btn-fg)}
 .mrp-conflicts{color:var(--mrp-error-fg,#b9382a);width:100%}
+.mrp-conflicts:has(>button){display:flex;align-items:center;gap:10px;flex-wrap:wrap}.mrp-conflicts>span{font-size:11px;overflow-wrap:anywhere}
 </style>

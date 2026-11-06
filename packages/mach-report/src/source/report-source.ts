@@ -5,7 +5,7 @@ import { getReportParamDefs } from "./report-params";
 import { ReportTemplateError, validateReportTemplate } from "./template-registry";
 import { templateRequiresRecalculation } from "../layout/template-calculations";
 import { assertReportParams } from "./param-validation";
-import { registerReportEditSession } from "../editing/session";
+import { registerOwnedReportEditSession } from "../editing/session";
 import { reflowReportTemplateResult } from "../editing/session-pagination";
 import type { ReportEditSessionPart } from "../editing/session-data";
 import { snapshotLayoutPart } from "../editing/session-snapshot";
@@ -321,7 +321,7 @@ export function createReportSource(
     warnings.push(...validation.warnings.map((warning) => `${warning.path}: ${warning.message}`));
     const reflowDefinitions = definitions.map((definition) => ({ ...definition, pagination: { ...definition.pagination } }));
     const reflowLimits = { maxPages: options.maxPages, maxCells: options.maxCells, maxChartComponents: options.maxChartComponents };
-    try { registerReportEditSession(plan, { parts: editParts, validationFormulas: reflowDefinitions.map(definition => definition.pagination?.formula), rebuild: (parts, editSignal) => reflowSource(parts, reflowDefinitions, requestedIds, reflowLimits, editSignal) }); }
+    try { registerOwnedReportEditSession(plan, { parts: editParts, validationFormulas: reflowDefinitions.map(definition => definition.pagination?.formula), rebuild: (parts, editSignal) => reflowSource(parts, reflowDefinitions, requestedIds, reflowLimits, editSignal) }, reflowDefinitions.map(definition => definition.pagination)); }
     catch { warnings.push("来源数据无法建立本地重算口径；当前预览仅支持计划内编辑，请使用可序列化模板数据启用规则重算"); }
     const warn = onWarning ?? options.onWarning ?? ((message: string) => console.warn("[mach-report]", message));
     for (const message of warnings) {

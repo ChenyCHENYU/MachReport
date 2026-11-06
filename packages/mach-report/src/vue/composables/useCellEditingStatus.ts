@@ -11,8 +11,9 @@ export function useCellEditingStatus(host: {
   attempted: Ref<ReportCellAddress | null>;
   busy(): boolean;
   messages(): MachReportMessages;
+  resolveCell?(plan: RenderPlan, address: ReportCellAddress): ReportCellContext | null;
 }) {
-  const resolver = computed(() => host.plan.value ? createReportCellResolver(host.plan.value) : null);
+  const resolver = computed(() => host.plan.value ? (host.resolveCell ? (address: ReportCellAddress) => host.resolveCell!(host.plan.value!, address) : createReportCellResolver(host.plan.value)) : null);
   watch([host.plan, host.options, host.selection], () => { host.attempted.value = null; }, { flush: "sync" });
   function reason(context: ReportCellContext, options: ReportEditingOptions, m: MachReportMessages): string | null {
     const fallback = m.editReadOnly ?? "";

@@ -4,7 +4,7 @@ import { MachReportError } from "./errors";
 import type { MachReportErrorCode } from "./errors";
 import type { PdfFontCheckResult } from "./pdf-exporter";
 import type { ReportDiscardReason, ReportPreviewTask, ReportPreviewDiagnostic } from "./guards";
-import type { RenderPlan, ReportCellEdit, ReportCellAddress, OutputFormat } from "@agile-team/mach-report";
+import type { RenderPlan, ReportCellEdit, ReportCellAddress, OutputFormat, DiagnosticSummary } from "@agile-team/mach-report";
 import type { ExcelImportOptions, ExcelImportResult } from "../xlsx/import-types";
 import type { ReportCellSelection, ReportFieldTarget } from "./composables/useCellSelection";
 
@@ -36,6 +36,7 @@ export interface MachReportState {
   readonly pendingLocalChanges?: boolean;
   readonly task?: Readonly<ReportPreviewTask> | null;
   readonly diagnostics?: readonly Readonly<ReportPreviewDiagnostic>[];
+  readonly diagnosticSummary?: DiagnosticSummary<Readonly<ReportPreviewDiagnostic>>;
   /** Context of the displayed API snapshot, which can differ from an unexecuted query form. */
   readonly reportIds?: readonly string[];
   readonly params?: Readonly<Record<string, string>>;

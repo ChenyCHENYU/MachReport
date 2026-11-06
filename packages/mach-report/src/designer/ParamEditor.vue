@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, getCurrentInstance, nextTick, ref, watch } from "vue";
 import { useDesignerTheme } from "./useDesignerTheme";
+import { useDesignerCursor } from "./workspace-view";
+import { focusDesignerControl } from "./designer-focus";
 const shellStyle = useDesignerTheme();
 import ReportParamPanel from "../vue/ReportParamPanel.vue";
 import { DEFAULT_MESSAGES, resolveConfig, useMachReportConfig } from "../vue/config";
@@ -12,6 +14,8 @@ const editor = useParamEditor(props);
 const config = useMachReportConfig();
 const optionLoader = computed(() => props.loadOptions ?? resolveConfig(config.value).loadParamOptions);
 const { m, rows, selected, current, changes, pending, conflicted, error, issues, issuesByRow } = editor;
+const workspaceCursor = useDesignerCursor();
+if (workspaceCursor) watch(() => current.value?.field, paramField => { workspaceCursor.value = { ...workspaceCursor.value, paramField }; }, { immediate: true });
 const dependencyChoices = computed(() => {
   const choices = rows.value.filter((_, index) => index !== selected.value).map(row => ({ field: row.field, label: row.label || row.field || m.value.paramUnnamed }));
   for (const field of current.value?.dependsOn ?? []) if (!choices.some(choice => choice.field === field)) choices.push({ field, label: `${field} · ${m.value.paramDependencyUnavailable}` });
@@ -42,8 +46,19 @@ function addOption(): void { if (current.value && !props.readonly) current.value
 function removeOption(index: number): void { if (!props.readonly) current.value?.options.splice(index, 1); }
 function controlAttrs(control: ParamControl): Record<string, string | undefined> {
   const invalid = editor.controlIssues(control).length > 0;
-  return { "aria-invalid": invalid ? "true" : undefined, "aria-describedby": invalid ? `${id}-${selected.value}-${control}` : undefined };
+  return { "data-mr-control": control, "aria-invalid": invalid ? "true" : undefined, "aria-describedby": invalid ? `${id}-${selected.value}-${control}` : undefined };
 }
+watch(() => props.location, async location => {
+  if (!location?.paramField) return;
+  const index = rows.value.findIndex(row => row.field === location.paramField);
+  const original = props.document.template.params?.findIndex(row => row.field === location.paramField) ?? -1;
+  const target = index >= 0 ? index : original;
+  if (!rows.value[target]) return;
+  selected.value = target;
+  await nextTick();
+  if (props.location !== location) return;
+  focusDesignerControl(main.value, location.control ?? "field");
+}, { immediate: true });
 function inputType(type: ParamDraft["type"]): string {
   if (type === "year") return "number";
   if (type === "dateRange") return "date";
@@ -89,10 +104,10 @@ defineExpose({ pending, reset: editor.reset, apply: editor.apply, locateIssue })
         <header class="mr-param-editor__heading"><div><strong>{{ current.label || current.field || m.paramUnnamed }}</strong><small>{{ typeLabel(current.type) }}</small></div><span :class="{ 'is-pending': pending || issues.length > 0 }">{{ issues.length ? m.paramInvalid : pending ? m.paramPending : m.paramReady }}</span></header>
         <div class="mr-param-editor__grid">
           <label>{{ m.paramField }}<input v-model="current.field" :aria-label="m.paramField" :disabled="readonly" autocomplete="off" v-bind="controlAttrs('field')"><small v-if="editor.controlIssues('field').length" :id="`${id}-${selected}-field`" class="mr-param-editor__field-error">{{ editor.controlIssues('field').join('；') }}</small></label>
-          <label>{{ m.paramLabel }}<input v-model="current.label" :aria-label="m.paramLabel" :disabled="readonly"></label>
+          <label>{{ m.paramLabel }}<input data-mr-control="label" v-model="current.label" :aria-label="m.paramLabel" :disabled="readonly"></label>
           <label>{{ m.paramType }}<select :value="current.type" :aria-label="m.paramType" :disabled="readonly" v-bind="controlAttrs('type')" @change="editor.setType(($event.target as HTMLSelectElement).value as ParamDraft['type'])"><option v-for="type in PARAM_TYPES" :key="type" :value="type">{{ typeLabel(type) }}</option></select><small v-if="editor.controlIssues('type').length" :id="`${id}-${selected}-type`" class="mr-param-editor__field-error">{{ editor.controlIssues('type').join('；') }}</small></label>
-          <label>{{ m.paramPlaceholder }}<input v-model="current.placeholder" :aria-label="m.paramPlaceholder" :disabled="readonly"></label>
-          <div class="mr-param-editor__checks"><label><input v-model="current.required" type="checkbox" :disabled="readonly">{{ m.paramRequired }}</label><label><input v-model="current.defaultEnabled" type="checkbox" :disabled="readonly">{{ m.paramDefaultEnabled }}</label></div>
+          <label>{{ m.paramPlaceholder }}<input data-mr-control="placeholder" v-model="current.placeholder" :aria-label="m.paramPlaceholder" :disabled="readonly"></label>
+          <div class="mr-param-editor__checks"><label><input data-mr-control="required" v-model="current.required" type="checkbox" :disabled="readonly">{{ m.paramRequired }}</label><label><input v-model="current.defaultEnabled" type="checkbox" :disabled="readonly">{{ m.paramDefaultEnabled }}</label></div>
           <div v-if="current.defaultEnabled" class="mr-param-editor__default" :class="{ 'is-range': current.type === 'dateRange' }">
             <div v-if="['multiSelect', 'cascader', 'numberRange'].includes(current.type)" class="mr-param-editor__compound-default"><span>{{ m.paramDefault }}</span><ReportParamPanel :defs="compoundDefault" :model-value="compoundDefaultValue" :messages="DEFAULT_MESSAGES" :load-options="optionLoader" :attempted="false" :show-title="false" :show-actions="false" :disabled="readonly" @update:model-value="setCompoundDefault" /></div>
             <template v-else-if="current.type === 'dateRange'"><span class="mr-param-editor__default-label">{{ m.paramDefault }}</span><div class="mr-param-editor__range"><label>{{ m.paramRangeStart }}<input :value="rangeValue(0)" type="date" :aria-label="m.paramRangeStart" :disabled="readonly" v-bind="controlAttrs('defaultValue')" @input="setRange(0, $event)"></label><span aria-hidden="true">—</span><label>{{ m.paramRangeEnd }}<input :value="rangeValue(1)" type="date" :aria-label="m.paramRangeEnd" :disabled="readonly" v-bind="controlAttrs('defaultValue')" @input="setRange(1, $event)"></label></div></template>

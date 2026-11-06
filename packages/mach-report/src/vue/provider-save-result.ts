@@ -13,10 +13,21 @@ function diagnostics(value: unknown): boolean {
     && (entry.path === undefined || typeof entry.path === "string") && hasValidDataExplanation(entry));
 }
 
+function finiteNumber(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value) && (!Number.isInteger(value) || Number.isSafeInteger(value));
+}
+function conflictValue(value: unknown): boolean {
+  return value === undefined || value === null || typeof value === "string" || typeof value === "boolean" || finiteNumber(value);
+}
+function conflictRevision(value: unknown): boolean {
+  return value === undefined || typeof value === "string" && !!value.trim() || finiteNumber(value);
+}
+
 function conflicts(value: unknown, editCount: number): boolean {
   return Array.isArray(value) && value.every((entry: unknown) => record(entry)
     && Number.isSafeInteger(entry.editIndex) && (entry.editIndex as number) >= 0 && (entry.editIndex as number) < editCount
-    && typeof entry.code === "string" && typeof entry.message === "string");
+    && typeof entry.code === "string" && typeof entry.message === "string"
+    && conflictValue(entry.currentValue) && conflictRevision(entry.revision));
 }
 
 /** HTTP 适配器也可能返回包装体或非法元数据；不要让它们进入已显示的计划。 */
@@ -25,6 +36,6 @@ export function assertProviderSaveResult(value: unknown, editCount: number): ass
   if (!record(value) || typeof value.revision !== "string" || !value.revision.trim()) field = "非空 revision（请先在适配器解包业务响应）";
   else if (value.sourceToken !== undefined && typeof value.sourceToken !== "string") field = "字符串 sourceToken";
   else if (value.diagnostics !== undefined && !diagnostics(value.diagnostics)) field = "结构化 diagnostics";
-  else if (value.conflicts !== undefined && !conflicts(value.conflicts, editCount)) field = "有效 editIndex/code/message conflicts";
+  else if (value.conflicts !== undefined && !conflicts(value.conflicts, editCount)) field = "有效 editIndex/code/message/currentValue/revision conflicts";
   if (field) throw new MachReportError("edit", `ReportProvider.save 必须返回${field}；服务器可能已提交，请重新查询确认后再编辑`);
 }

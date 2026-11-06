@@ -1,5 +1,5 @@
 import { nextTick, shallowRef, watch, type Ref } from "vue";
-import { createReportCellResolver, formatReportClipboard, parseReportClipboard, ReportCellEditError, type PlanComponent, type RenderPlan, type ReportCellAddress, type ReportCellEdit, type ReportCellInput } from "@agile-team/mach-report";
+import { formatReportClipboard, parseReportClipboard, ReportCellEditError, type PlanComponent, type RenderPlan, type ReportCellAddress, type ReportCellEdit, type ReportCellInput } from "@agile-team/mach-report";
 import { reportCellAddress } from "./useCellEditing";
 import { selectionAddressResolver, selectionCoordinate } from "./selection-grid";
 import { focusAdjacentControl } from "./focus-order";
@@ -23,6 +23,7 @@ interface SelectionHost {
   undo(): Promise<boolean>;
   redo(): Promise<boolean>;
   error(cause: unknown): void;
+  publicationIndex?(plan: RenderPlan): ReturnType<typeof createSelectionIndex>;
 }
 
 function selector(address: ReportCellAddress): string {
@@ -83,6 +84,7 @@ export function useCellSelection(host: SelectionHost) {
   let modifiedKeys = new Set<string>();
   let indexedPlan: RenderPlan | null = null, publication: ReturnType<typeof createSelectionIndex> | undefined;
   function index(plan: RenderPlan): ReturnType<typeof createSelectionIndex> {
+    if (host.publicationIndex) return host.publicationIndex(plan);
     if (plan !== indexedPlan || !publication) { indexedPlan = plan; publication = createSelectionIndex(plan); }
     return publication;
   }
@@ -92,6 +94,7 @@ export function useCellSelection(host: SelectionHost) {
     return { address: context.address, source: context.source, table: context.table, value: context.value, previousValue: context.value, text: context.cell.text ?? "", previousText: context.cell.text ?? "" };
   }
   watch(host.plan, (next, previous) => {
+    previousDifferences = null; previousPlan = null; modifiedKeys.clear();
     const current = selection.value;
     if (!current) { indexedPlan = null; publication = undefined; return; }
     if (!next || !previous) { selection.value = null; indexedPlan = null; publication = undefined; return; }
@@ -259,7 +262,7 @@ export function useCellSelection(host: SelectionHost) {
     const a = selectionCoordinate(plan, current.anchor);
     const b = selectionCoordinate(plan, current.focus, current.anchor);
     const resolve = selectionAddressResolver(plan, current.anchor);
-    const cellAt = createReportCellResolver(plan);
+    const cellAt = index(plan).cellAt;
     const minCol = Math.min(a.column, b.column);
     const maxCol = Math.max(a.column, b.column);
     if ((Math.abs(a.row - b.row) + 1) * (maxCol - minCol + 1) > 10_000) { host.error(new ReportCellEditError("limit")); return ""; }

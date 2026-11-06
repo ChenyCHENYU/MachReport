@@ -35,6 +35,28 @@ const runtime = createReportRuntime({
 });
 ```
 
+## 有界输出诊断
+
+直接调用核心预检或 PDF/XLSX 导出时，默认继续返回完整诊断数组。大报表可显式配置 `diagnosticLimit`，取值为 0～1000，准备、实时导出和已有计划导出使用相同约定。
+
+```ts
+const file = await runtime.exportPrepared({
+  prepared, format: "xlsx", diagnosticLimit: 200,
+  xlsx: { valueMode: "raw" }
+});
+const summary = file.diagnosticSummary;
+// summary.total、counts 为全部诊断的统计。
+// summary.entries 是有界定位样本，omitted 是未保留的详情数量。
+```
+
+`DiagnosticSummary<T>` 提供 `total / counts / entries / omitted`，`counts` 按错误码汇总。有限窗口会保留不同分类的代表位置。超过 128 个自定义业务错误码时，后续分类并入 `other`，总数继续准确累计。超长或 JSON 保留键形式的错误码也并入该分类。SDK 输出码及缺页、缺字等关键错误保留独立分类。可选 `explanations` 单独统计带 `valueState` 的业务说明，包含未保留的详情，界面据此区分来源说明和输出问题。
+
+设置 `diagnosticLimit` 后，PDF 的 `fidelityWarnings / pageErrors`、Excel 的 `warnings` 同样只保留有界字符串详情，并分别提供 `fidelityWarningCount / pageErrorCount / warningCount`。Runtime 将这些计数合并到返回摘要。`diagnosticLimit: 0` 可以只取计数，严格输出仍会拒绝已发现的问题，缺页或缺字也不会因为缺少定位样本而通过。
+
+`inspectOutputCapabilitiesSummary(plan, format, limit?)` 是不加载输出库的有界预检，默认保留 200 条。`inspectOutputCapabilities()` 与预览控制器的 `getOutputDiagnostics()` 继续完整枚举，适合确实需要所有位置的调用方，其内存成本随问题数量增长。摘要约束的是诊断详情，工作簿、PDF 和输出字节仍受各自预算约束。
+
+从 2.24.0 起，Worker/RPC 错误的 `diagnostics / issues` 最多传递 200 条详情。发生截断时，`diagnosticSummary / issueSummary` 明确携带总数与遗漏数，已有有界错误会保留其完整统计。错误消息、路径与诊断字符串分别设长度上限，避免异常载荷抵消文件预算。普通短错误保留原有结构。运行成功的 Runtime 响应按调用方显式配置的 `diagnosticLimit` 返回详情。
+
 ## 保存实例后再导出
 
 已有实例服务增加 `exportInstance()`，读取指定的不可变实例修订，随后走相同的 `exportPrepared()` 路径。

@@ -3,8 +3,10 @@ import type { ReportCellEdit } from "../editing/apply";
 import type { ReportDefinition, ReportLoadContext } from "./report-source";
 import type { ReportTemplateDocument, ReportTemplateSummary } from "./template-registry";
 import type { ReportDataTarget, ReportValueState } from "./data-explanation";
+import type { OutputDiagnostic } from "../output/capabilities";
+import type { ReportEditConflict } from "../editing/batch";
 
-export interface ReportDiagnostic {
+export interface ReportDiagnostic extends Partial<Pick<OutputDiagnostic, "format" | "pageIndex" | "componentIndex" | "componentPath" | "kind" | "nid" | "extension">> {
   code: string; message: string; path?: string; severity: "warning" | "error" | "info";
   /** Optional explanation supplied by the business source, not inferred from blank cells. */
   valueState?: ReportValueState;
@@ -16,6 +18,25 @@ export interface ReportQueryResult {
   sourceToken?: string;
   diagnostics?: ReportDiagnostic[];
 }
+/** One ordered query occurrence, shared by browser editing and Node preparation. */
+export interface ReportQuerySource {
+  reportId: string;
+  reportIndex: number;
+  reportScope: string;
+  revision?: string;
+  sourceToken?: string;
+}
+/** Context of an accepted query, independent of an unsubmitted filter form. */
+export interface ReportQueryContext {
+  queryId?: string;
+  reportIds: readonly string[];
+  params: Readonly<Record<string, string>>;
+  sources: readonly Readonly<ReportQuerySource>[];
+}
+export interface ReportProviderConflict extends Pick<ReportEditConflict, "message" | "currentValue" | "revision"> {
+  editIndex: number;
+  code: string;
+}
 export interface ReportSaveInput extends ReportLoadContext {
   requestId: string;
   expectedRevision?: string;
@@ -26,7 +47,7 @@ export interface ReportSaveInput extends ReportLoadContext {
 export interface ReportSaveResult {
   revision: string;
   sourceToken?: string;
-  conflicts?: Array<{ editIndex: number; code: string; message: string }>;
+  conflicts?: ReportProviderConflict[];
   diagnostics?: ReportDiagnostic[];
 }
 export interface ReportProviderExportInput extends ReportLoadContext { format: "pdf" | "xlsx" }

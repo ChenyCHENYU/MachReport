@@ -1,4 +1,4 @@
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, shallowRef, watch } from "vue";
 import type { DatasetContract, ListComponent } from "@agile-team/mach-report";
 import type { useTemplateEditor } from "./useTemplateEditor";
 import type { useTemplateInspector } from "./useTemplateInspector";
@@ -12,12 +12,16 @@ import {
   type CanvasSelection,
 } from "./canvas-commands";
 import type { HeaderCommand } from "./canvas-commands";
+import type { TemplateDraftStorage } from "./draft-storage";
+import { useTemplateWorkspaceStorage } from "./useTemplateWorkspaceStorage";
+import { componentViewKey, documentViewKey, pageViewKey, provideDesignerCursor, provideDesignerViewport, resolveWorkspaceRule, resolveWorkspaceView, type DesignerWorkspaceView } from "./workspace-view";
+import type { DesignerTarget } from "./template-location";
 /** 画布、字段与工具定位统一在包内协调；宿主只提供模板和业务契约。 */
 export function useTemplateWorkspace(
   editor: ReturnType<typeof useTemplateEditor>,
   inspector: ReturnType<typeof useTemplateInspector>,
   schemas: () => Record<string, DatasetContract> | undefined,
-  options: { mode?(): "design" | "preview" | undefined; onModeChange?(mode: "design" | "preview"): void } = {},
+  options: { mode?(): "design" | "preview" | undefined; onModeChange?(mode: "design" | "preview"): void; storage?(): TemplateDraftStorage | undefined; capabilities?(): Partial<Record<string, boolean>> | undefined } = {},
 ) {
   const { draft, lists, selected, activeList, blocked, jsonPending, error } =
     editor;
@@ -50,6 +54,57 @@ export function useTemplateWorkspace(
   // document transaction returns. Capture that final view once, after rendering.
   watch(editor.historyViewRevision, () => editor.captureHistoryView(), { flush: "post" });
   const tool = ref<"excel" | "rules" | "review" | "params" | "outline" | "reuse">("excel");
+  const viewport = provideDesignerViewport();
+  const cursor = provideDesignerCursor();
+  const diagnosticTarget = shallowRef<DesignerTarget>();
+  watch([() => draft.value.id, () => options.storage?.()?.scope], () => {
+    viewport.restore(undefined); cursor.value = {}; diagnosticTarget.value = undefined;
+  });
+  const positionDocumentKey = computed(() => documentViewKey(draft.value));
+  const positionSource = computed(() => {
+    const list = lists.value[selected.value];
+    return list && (section.value === "fields" || section.value === "tools" && tool.value === "rules") ? { pageIndex: list.pageIndex, componentIndex: list.componentIndex } : { pageIndex: canvasPage.value, componentIndex: canvasSelection.value?.pageIndex === canvasPage.value ? canvasSelection.value.componentIndex : undefined };
+  });
+  const positionPageKey = computed(() => pageViewKey(draft.value.template.pages[positionSource.value.pageIndex]!));
+  function readPosition(): DesignerWorkspaceView {
+    const { pageIndex, componentIndex } = positionSource.value, page = draft.value.template.pages[pageIndex]!;
+    const component = page.components[componentIndex ?? -1];
+    const rule = cursor.value.rule;
+    return { version: 1, templateId: draft.value.id, documentKey: positionDocumentKey.value, page: { index: pageIndex, key: positionPageKey.value }, componentKey: component ? componentViewKey(component) : undefined, field: component?.kind === "list" ? component.columns[activeIndex.value]?.field : undefined, section: section.value, tool: tool.value, mode: mode.value, viewport: pageIndex === canvasPage.value ? viewport.read() : undefined, paramField: cursor.value.paramField, rule: rule?.key === `rules:${pageIndex}:${componentIndex}` ? rule.target : undefined };
+  }
+  function restorePositionPanel(view: DesignerWorkspaceView, hasList: boolean): boolean {
+    const capabilities = options.capabilities?.() ?? {};
+    const allowedSection = view.section !== "advanced" || capabilities.advanced !== false;
+    section.value = allowedSection && (view.section !== "fields" || hasList) ? view.section : "template";
+    if (capabilities[view.tool] === false) { section.value = "template"; return true; }
+    tool.value = view.tool;
+    return section.value !== view.section;
+  }
+  function restorePositionTool(view: DesignerWorkspaceView, changed: boolean): boolean {
+    const rule = resolveWorkspaceRule(activeList.value, view.rule, changed);
+    const paramField = draft.value.template.params?.some(param => param.field === view.paramField) ? view.paramField : undefined;
+    diagnosticTarget.value = { section: section.value, tool: tool.value === "rules" || tool.value === "params" ? tool.value : undefined, paramField, rule };
+    return !!view.paramField && !paramField || !!view.rule && !rule;
+  }
+  async function restorePosition(view: DesignerWorkspaceView, signal: AbortSignal): Promise<boolean | undefined> {
+    if (editor.blocked.value || signal.aborted) return;
+    const target = resolveWorkspaceView(draft.value, view);
+    const listIndex = lists.value.findIndex(item => item.pageIndex === target.pageIndex && item.componentIndex === target.componentIndex);
+    if (listIndex >= 0 && listIndex !== selected.value && editor.isToolPending("rules") && !await editor.guardChanges()) return;
+    if (signal.aborted) return;
+    canvasPage.value = target.pageIndex;
+    canvas.selection.value = undefined; canvas.selections.value = []; canvas.clearLocks();
+    if (target.componentIndex !== undefined) canvas.select({ pageIndex: target.pageIndex, componentIndex: target.componentIndex });
+    if (listIndex >= 0) selected.value = listIndex;
+    if (target.fieldIndex !== undefined) inspector.activate(target.fieldIndex);
+    const panelAdjusted = restorePositionPanel(view, listIndex >= 0);
+    const toolAdjusted = restorePositionTool(view, target.adjusted);
+    mode.value = view.mode;
+    await nextTick();
+    if (!signal.aborted) viewport.restore(target.adjusted ? undefined : view.viewport);
+    return target.adjusted || panelAdjusted || toolAdjusted;
+  }
+  const position = useTemplateWorkspaceStorage({ storage: () => options.storage?.(), id: () => draft.value.id, changed: () => [canvasPage.value, canvasSelection.value, selected.value, activeIndex.value, section.value, tool.value, mode.value, viewport.revision.value, cursor.value], read: readPosition, restore: restorePosition });
   const visitedTools = ref(new Set<string>());
   watch([section, tool], () => {
     if (section.value === "tools")
@@ -211,5 +266,7 @@ export function useTemplateWorkspace(
     headerCommand,
     locateReview,
     canvas,
+    position,
+    diagnosticTarget,
   };
 }

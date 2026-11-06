@@ -13,6 +13,7 @@ import { createSessionRowResolver, sessionConcurrencyChanges, sourceDatasetKey, 
 import { indexSessionContexts } from "./session-context";
 import { captureSessionGuard, snapshotSessionParts } from "./session-snapshot";
 import { reflowReportTemplate } from "./session-pagination";
+import { createLocalSessionReflow } from "./session-reflow";
 
 export interface ReportPreparedEdit {
   /** Calculated preview; no source/session state changes until commit succeeds. */
@@ -85,9 +86,14 @@ function rememberConcurrency(metadata: Map<string, ReportEditResult>, batch: Rep
 
 /** Registers a bounded descriptor guard. Immutable strings are retained, never rescanned character by character. */
 export function registerReportEditSession(initial: RenderPlan, registration: ReportEditSessionRegistration): ReportEditSession {
+  return registerOwnedReportEditSession(initial, registration);
+}
+/** Internal built-in pagination policy. Not re-exported by the public entry. */
+export function registerOwnedReportEditSession(initial: RenderPlan, registration: ReportEditSessionRegistration, pagination?: readonly (PaginateOptions | undefined)[]): ReportEditSession {
   let sourceParts: readonly ReportEditSessionPart[] | undefined = registration.parts;
   const rebuild = registration.rebuild;
   const validationFormulas = [...(registration.validationFormulas ?? [])];
+  const local = pagination ? createLocalSessionReflow(initial, sourceParts, pagination) : undefined;
   let initialGuard: (() => boolean) | undefined = captureSessionGuard(sourceParts);
   let current = initial, parts: ReportEditSessionPart[] | undefined;
   const retainedContexts = new Map<string, ReportCellContext>();
@@ -106,7 +112,8 @@ export function registerReportEditSession(initial: RenderPlan, registration: Rep
     // Paint busy indicators before source fingerprint/snapshot and the first layout slice.
     await new Promise<void>((resolve) => setTimeout(resolve, 0)); active(options.signal);
     const base = baseline(plan), nextParts = updateSessionRows(base, changesFor(base, batch.edits));
-    const nextPlan = applyReportSourceMetadata(await rebuild(nextParts, options.signal), concurrency); active(options.signal);
+    const candidate = await local?.candidate(plan, batch.edits, options.signal); active(options.signal);
+    const nextPlan = applyReportSourceMetadata(candidate?.plan ?? await rebuild(nextParts, options.signal), concurrency); active(options.signal);
     let committed = false;
     let validationIssues: readonly ReportValidationIssue[] = [], warningPolicy: "allow" | "block" = "allow";
     let validationFailed = false;
@@ -121,6 +128,7 @@ export function registerReportEditSession(initial: RenderPlan, registration: Rep
     return { plan: nextPlan, get validationIssues() { return validationIssues; }, validate, commit(result) {
       active(options.signal);
       if (committed || current !== plan) throw new ReportCellEditError("conflict");
+      if (candidate && !candidate.unchanged()) throw new ReportCellEditError("conflict");
       if (result?.conflicts?.length) throw new ReportCellEditError("conflict");
       if (validationFailed) throw new Error("候选规则校验未完成，不能提交");
       assertReportValidation(validationIssues, warningPolicy);
@@ -130,7 +138,7 @@ export function registerReportEditSession(initial: RenderPlan, registration: Rep
         for (const [key, context] of retainedContexts) if (affected.has(sourceDatasetKey(context.source!))) retainedContexts.set(key, refreshContext(context, context.value, result));
       }
       contexts.forEach((context, index) => retainedContexts.set(reportCellEditKey(context), refreshContext(context, batch.edits[index]!.value, result)));
-      committed = true; parts = committedParts; sourceParts = undefined; initialGuard = undefined; current = committedPlan; sessions.set(current, session); return current;
+      committed = true; parts = committedParts; sourceParts = undefined; initialGuard = undefined; current = committedPlan; local?.publish(current); sessions.set(current, session); return current;
     } };
   }
   const session: ReportEditSession = {
@@ -160,5 +168,5 @@ export function registerReportEditSession(initial: RenderPlan, registration: Rep
 /** Optional standalone entry; normal createReportSource/createLocalFetcher already register it. */
 export function createReportEditSession(options: { template: ReportTemplate; datasets: DatasetRows; pagination?: PaginateOptions }): ReportEditSession {
   const plan = paginateTemplate(options.template, options.datasets, options.pagination).plan;
-  return registerReportEditSession(plan, { validationFormulas: [options.pagination?.formula], parts: [{ template: options.template, datasets: options.datasets }], rebuild: (parts, signal) => reflowReportTemplate(parts[0]!.template, parts[0]!.datasets, { ...options.pagination, signal }) });
+  return registerOwnedReportEditSession(plan, { validationFormulas: [options.pagination?.formula], parts: [{ template: options.template, datasets: options.datasets }], rebuild: (parts, signal) => reflowReportTemplate(parts[0]!.template, parts[0]!.datasets, { ...options.pagination, signal }) }, [options.pagination]);
 }

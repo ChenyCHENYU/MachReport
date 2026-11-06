@@ -137,6 +137,7 @@ async function exportExcel() {
 | `pdfFont` | 字体预检状态、URL 与诊断信息；不阻塞预览、打印或 Excel |
 | `editing` / `saving` / `importing` | 当前输入、业务保存和 Excel 导入状态 |
 | `dirty` / `changeCount` | 相对本次查询来源仍有净差异 / 差异单元格数；不代表数据库未保存 |
+| `pendingLocalChanges` | 活动输入、本地未保存修改或冲突后保留的待提交意图，供宿主离开保护复用 |
 | `canUndo` / `canRedo` / `selection` | 撤销/重做是否可用，以及当前物理选区 |
 
 卸载时句柄回到空状态。旧自定义控制器没有 `state` 时也使用空状态，旧六个方法继续可用；需要外部按钮状态的自定义控制器应实现新字段。
@@ -164,7 +165,23 @@ async function exportExcel() {
 
 业务持久化给 `editable` 提供 `{ requireSource: true, canEdit, validate, saveBatch }`；列表通过 `listOptions.rowKey`、`revisionField`、`sourceTokenField` 声明稳定业务来源，自动生成 `datasetId / rowKey / field`。包内先校验整批再保存，成功后更新计划，失败保留原值；保存函数应消费 `signal`，服务端按 `requestId` 幂等并在事务内校验版本。旧单格 `save` 仍兼容，没有原子 `saveBatch` 时不提交多格写入；撤销、重做和恢复也会调用真实保存回调。`getChanges()`、`getDifferences()` 和 `getPlan()` 返回独立快照。具体契约见[单元格编辑](./CELL_EDITING.md)。
 
-已注册 `ReportProvider` 时，再用 `createProviderEditing(provider, { reportId: "production", params: () => executedQuery.value })` 显式连接同一保存能力即可，包内转接单格、批量、来源版本及逐格冲突。页面不需要复制 Provider 保存逻辑；查询适配器仍不会隐式开启业务写入。
+已注册 `ReportProvider` 时，显式开启同一保存能力即可。
+
+```ts
+import { createProviderEditing } from "@agile-team/mach-report/vue";
+
+const editing = createProviderEditing(provider, {
+  canEdit: (context) => context.source?.field === "quantity"
+});
+```
+
+```vue
+<MachReportPreview report-id="production" :params="query" :editable="editing" />
+```
+
+单报表自动绑定最近成功查询的报表 ID、参数快照及 Provider 返回的 `revision / sourceToken`，成功保存后推进后续版本。尚未查询的表单输入不会影响保存上下文，页面可省去重复的 ID、参数和令牌接线。多报表及自有来源路由继续显式提供 `reportId / params` 或统一的 `saveBatch`，由该适配器完成来源映射和整批原子事务。已有 `reportId / params / expectedRevision / sourceToken` 值或 getter 接入继续兼容。
+
+保存冲突后整批本地意图保留。包内核对面板按原成功参数读取最新候选，逐项对照修改前、本地和最新值，未采用的候选保留在核对流程中。缺失、只读或身份有歧义的项只提供最新结果选项。采用后按最新 CAS 令牌重新走同一完整候选校验、计算和保存路径，失败仍可重读。搜索、100 项分页、暂停输入、关闭后焦点返回及待提交状态由包内统一处理，宿主可读取 `state.pendingLocalChanges` 并复用 `guardChanges`。完整语义见[冲突核对](CELL_EDITING.md#冲突核对与整批提交)。
 
 导入不执行 Excel 公式、宏或外部链接，也不猜测模板与后端字段之间的关系。公式单元格使用缓存结果并保持只读，缺少缓存时空值告警。宿主继续负责模板版本、业务数据绑定、权限和审批；资源预算与转换边界见[Excel 模板导入](./EXCEL_IMPORT.md)。
 

@@ -77,7 +77,9 @@ describe("candidate validation transaction integration", () => {
   });
   it("renders compact severity counts with keyboard-accessible stable issue navigation", () => {
     const issues = [{ ruleId: "x", severity: "error" as const, message: "超限", rowKey: 0, field: "amount", dataset: "detail" }, { ruleId: "y", severity: "warning" as const, message: "请核实" }];
-    const wrapper = mount(ReportValidationPanel, { props: { issues } });
+    const template = createTableTemplate({ columns: [{ field: "id", header: "ID" }, { field: "amount", header: "amount" }], listOptions: { rowKey: "id" } });
+    const plan = paginateTemplate(template, { detail: [{ id: 0, amount: 0 }] }).plan;
+    const wrapper = mount(ReportValidationPanel, { props: { issues, plan } });
     expect(wrapper.text()).toContain("1 错误 · 1 提示"); expect(wrapper.text()).toContain("detail · 0 · amount");
     wrapper.get("button").trigger("click"); expect(wrapper.emitted("locate")?.[0]).toEqual([issues[0]]);
     wrapper.unmount();

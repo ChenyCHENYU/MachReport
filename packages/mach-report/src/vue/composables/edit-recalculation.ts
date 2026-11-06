@@ -1,5 +1,5 @@
-import { createReportCellResolver, getReportEditSession, reportCellEditKey, ReportCellEditError, type RenderPlan, type ReportCellAddress, type ReportCellContext, type ReportCellEdit, type ReportCellInput, type ReportEditBatch, type ReportPreparedEdit } from "@agile-team/mach-report";
-import { resolveGridLayout } from "../../render/grid-geometry";
+import { getReportEditSession, reportCellEditKey, ReportCellEditError, type RenderPlan, type ReportCellAddress, type ReportCellContext, type ReportCellEdit, type ReportCellInput, type ReportEditBatch, type ReportPreparedEdit } from "@agile-team/mach-report";
+import { createReportCellIndex } from "../../editing/context";
 
 export interface HistoryEditTarget { edits: readonly ReportCellEdit[]; value: "previousValue" | "value" }
 export interface EditTransaction { batch: ReportEditBatch; contexts?: readonly ReportCellContext[]; prepared?: ReportPreparedEdit }
@@ -24,13 +24,12 @@ export interface EditAddressResolver {
   (edit: ReportCellEdit): ReportCellAddress | null;
   all(edit: ReportCellEdit): ReportCellAddress[];
 }
-function visibleSourceContexts(plan: RenderPlan, resolve: ReturnType<typeof createReportCellResolver>): Map<string, ReportCellContext[]> {
+function visibleSourceContexts(plan: RenderPlan, cells: ReturnType<typeof createReportCellIndex>): Map<string, ReportCellContext[]> {
   const index = new Map<string, ReportCellContext[]>();
   plan.pages.forEach((page, pageIndex) => page.components.forEach((component, componentIndex) => {
     if (!component.grid) return;
-    for (const box of resolveGridLayout(component.grid, component.widthMm, component.heightMm).cells) {
-      const context = resolve({ pageIndex, componentIndex, rowIndex: box.ri, columnIndex: box.ci });
-      if (!context?.source) continue;
+    for (const context of cells.entries(pageIndex, componentIndex)) {
+      if (!context.source) continue;
       const key = reportCellEditKey(context), locations = index.get(key) ?? [];
       locations.push(context); index.set(key, locations);
     }
@@ -38,8 +37,8 @@ function visibleSourceContexts(plan: RenderPlan, resolve: ReturnType<typeof crea
   return index;
 }
 /** One source index per publication/paint; every mirror is marked, while navigation prefers its original table. */
-export function createEditAddressResolver(plan: RenderPlan): EditAddressResolver {
-  const resolve = createReportCellResolver(plan), index = visibleSourceContexts(plan, resolve);
+export function createEditAddressResolver(plan: RenderPlan, cells = createReportCellIndex(plan)): EditAddressResolver {
+  const resolve = cells.resolve, index = visibleSourceContexts(plan, cells);
   function contexts(edit: ReportCellEdit): readonly ReportCellContext[] {
     if (edit.source) return index.get(reportCellEditKey(edit)) ?? [];
     const context = resolve(edit.address);

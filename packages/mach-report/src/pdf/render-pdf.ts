@@ -4,8 +4,9 @@ import { PDFDocument, StandardFonts, rgb, pushGraphicsState, popGraphicsState, r
 import { drawPdfRichText } from "./rich-text";
 import { createPdfFontEmbedding, type PdfFontEmbedding } from "./font-embedding";
 import type { ComponentStyle, PlanComponent, RenderPlan } from "../schema/render-plan";
-import { reportOutputDiagnostics, OutputFidelityError, type OutputDiagnostic } from "../output/capabilities";
+import { collectOutputDiagnostics, OutputFidelityError, type OutputDiagnostic } from "../output/capabilities";
 import { createImageMediaInspector, ImageMediaError, type ImageMediaOptions } from "../output/media";
+import { createDiagnosticCollector, createDiagnosticMessages, type DiagnosticSummary } from "../output/diagnostic-collector";
 import { notifyOutputDiagnostic } from "../output/diagnostic-notification";
 import { resolvePlanAssets, type AssetRenderOptions } from "../output/assets";
 import { resolveGridStrokes } from "../render/grid-strokes";
@@ -50,10 +51,13 @@ export interface PdfRenderResult {
   pdfDoc: PdfDocumentHandle;
   bytes: Uint8Array;
   pageErrors: string[];
+  pageErrorCount?: number;
   unsupportedTextCount: number;
   /** 保真度降级清单（富文本转纯文本、图片格式不支持等），供上层提示 */
   fidelityWarnings: string[];
+  fidelityWarningCount?: number;
   diagnostics: OutputDiagnostic[];
+  diagnosticSummary?: DiagnosticSummary<OutputDiagnostic>;
 }
 
 const MM_TO_PT = 72 / 25.4;
@@ -108,7 +112,7 @@ interface PdfRenderer {
   measurer: TextMeasurer;
   imageCache: Map<string, Promise<PDFImage | null>>;
   inspectImage: ReturnType<typeof createImageMediaInspector>;
-  fidelityWarnings: string[];
+  fidelityWarnings: ReturnType<typeof createDiagnosticMessages>;
   styleWarnings: Set<string>;
   unsupportedTextCount: number;
 }
@@ -386,7 +390,7 @@ async function drawComponent(renderer: PdfRenderer, page: PDFPage, comp: PlanCom
   }
 }
 
-async function createRenderer(document: PDFDocument, options: PdfRenderOptions): Promise<PdfRenderer> {
+async function createRenderer(document: PDFDocument, options: PdfRenderOptions, onWarning: (message: string) => void): Promise<PdfRenderer> {
   const embedding = createPdfFontEmbedding(document);
   const regularBytes = options.customFontFaces?.regular ?? options.customFontBytes;
   const fontCache = new Map<Uint8Array | ArrayBuffer, Promise<PDFFont>>();
@@ -408,7 +412,7 @@ async function createRenderer(document: PDFDocument, options: PdfRenderOptions):
   return {
     signal: options.signal, schedule: createOutputScheduler(options), document, fonts, customFont, customFontFaces: options.customFontFaces, embedding,
     measurer: options.measurer ?? heuristicMeasurer,
-    imageCache: new Map(), inspectImage: createImageMediaInspector(options), fidelityWarnings: [], styleWarnings: new Set(), unsupportedTextCount: 0
+    imageCache: new Map(), inspectImage: createImageMediaInspector(options), fidelityWarnings: createDiagnosticMessages(options.diagnosticLimit, onWarning), styleWarnings: new Set(), unsupportedTextCount: 0
   };
 }
 
@@ -422,14 +426,21 @@ function embedFontBytes(embedding: PdfFontEmbedding, bytes: Uint8Array | ArrayBu
   return font;
 }
 
+function pdfDiagnosticDetails(renderer: PdfRenderer, errors: ReturnType<typeof createDiagnosticMessages>, diagnostics: ReturnType<typeof createDiagnosticCollector<OutputDiagnostic>>, limit?: number): Pick<PdfRenderResult, "pageErrors" | "pageErrorCount" | "fidelityWarnings" | "fidelityWarningCount" | "diagnostics" | "diagnosticSummary"> {
+  return { pageErrors: errors.entries, fidelityWarnings: renderer.fidelityWarnings.entries, diagnostics: diagnostics.entries,
+    ...(limit === undefined ? {} : { fidelityWarningCount: renderer.fidelityWarnings.total, pageErrorCount: errors.total, diagnosticSummary: diagnostics.snapshot() }) };
+}
+
 export async function renderPlanToPdf(plan: RenderPlan, options: PdfRenderOptions = {}): Promise<PdfRenderResult> {
   const prepared = await resolvePlanAssets(plan, { ...options, format: "pdf" });
   plan = prepared.plan;
-  const diagnostics = [...prepared.diagnostics, ...reportOutputDiagnostics(plan, "pdf", options)];
-  const initialDiagnosticCount = diagnostics.length;
+  const diagnostics = collectOutputDiagnostics(plan, "pdf", options, prepared);
+  const initialDiagnosticCount = diagnostics.entries.length;
+  const initialEntries = options.diagnosticLimit === undefined ? undefined : new Set(diagnostics.entries);
   const pdfDoc = await PDFDocument.create();
-  const renderer = await createRenderer(pdfDoc, options);
-  const pageErrors: string[] = [];
+  let activeWarnings: { collector: ReturnType<typeof createDiagnosticCollector<OutputDiagnostic>>; location: Omit<OutputDiagnostic, "code" | "message"> } | undefined;
+  const renderer = await createRenderer(pdfDoc, options, message => activeWarnings?.collector.push({ ...activeWarnings.location, code: "output-degraded", message }));
+  const pageErrors = createDiagnosticMessages(options.diagnosticLimit);
   for (const [pageIndex, planPage] of plan.pages.entries()) {
     checkCancelled(options.signal);
     const widthPt = mmToPt(planPage.pageWidthMm);
@@ -443,7 +454,9 @@ export async function renderPlanToPdf(plan: RenderPlan, options: PdfRenderOption
     for (const [componentIndex, comp] of planPage.components.entries()) {
       checkCancelled(options.signal);
       const location = `page ${pageIndex + 1} ${comp.nid ?? comp.kind}`;
-      const previousWarnings = renderer.fidelityWarnings.length, previousUnsupported = renderer.unsupportedTextCount;
+      const previousUnsupported = renderer.unsupportedTextCount;
+      const locationDiagnostic = { severity: "warning" as const, format: "pdf" as const, pageIndex, componentIndex, kind: comp.kind, nid: comp.nid };
+      activeWarnings = { collector: createDiagnosticCollector<OutputDiagnostic>(options.diagnosticLimit), location: locationDiagnostic };
       try {
         await drawComponent(renderer, page, comp, heightPt, location);
       } catch (error) {
@@ -451,23 +464,23 @@ export async function renderPlanToPdf(plan: RenderPlan, options: PdfRenderOption
         pageErrors.push(`page ${pageIndex + 1} comp ${comp.nid ?? comp.kind}: ${String(error)}`);
         diagnostics.push({ code: error instanceof ImageMediaError ? error.code : "component-render-failed", severity: "warning", format: "pdf", pageIndex, componentIndex, kind: comp.kind, nid: comp.nid, message: String(error) });
       }
-      const locationDiagnostic = { severity: "warning" as const, format: "pdf" as const, pageIndex, componentIndex, kind: comp.kind, nid: comp.nid };
       if (renderer.unsupportedTextCount > previousUnsupported) diagnostics.push({ ...locationDiagnostic, code: "unsupported-text", message: "Text contains characters missing from the output font." });
-      for (const message of renderer.fidelityWarnings.slice(previousWarnings)) diagnostics.push({ ...locationDiagnostic, code: "output-degraded", message });
+      if (options.diagnosticLimit === undefined) activeWarnings.collector.entries.forEach(entry => diagnostics.push(entry));
+      else diagnostics.merge(activeWarnings.collector.snapshot());
+      activeWarnings = undefined;
     }
     await outputCheckpoint(options, pageIndex + 1, plan.pages.length);
   }
   checkCancelled(options.signal);
-  diagnostics.slice(initialDiagnosticCount).forEach(entry => notifyOutputDiagnostic(entry, options));
-  if (options.fidelity === "strict" && diagnostics.length) throw new OutputFidelityError(diagnostics);
+  const added = initialEntries ? diagnostics.entries.filter(entry => !initialEntries.has(entry)) : diagnostics.entries.slice(initialDiagnosticCount);
+  added.forEach(entry => notifyOutputDiagnostic(entry, options));
+  if (options.fidelity === "strict" && diagnostics.total) throw new OutputFidelityError(diagnostics.entries, options.diagnosticLimit === undefined ? undefined : diagnostics.snapshot());
   await renderer.embedding.finalize();
   const bytes = await pdfDoc.save();
   checkCancelled(options.signal);
   return {
-    pdfDoc, bytes, pageErrors,
-    unsupportedTextCount: renderer.unsupportedTextCount,
-    fidelityWarnings: renderer.fidelityWarnings,
-    diagnostics
+    pdfDoc, bytes, unsupportedTextCount: renderer.unsupportedTextCount,
+    ...pdfDiagnosticDetails(renderer, pageErrors, diagnostics, options.diagnosticLimit)
   };
 }
 

@@ -237,6 +237,16 @@ const PRODUCT_TEMPLATE_EDITOR_MESSAGES = {
   previewFieldDirectory: "定位字段",
 };
 export const TEMPLATE_EDITOR_MESSAGES = {
+  locationRemoved: "此项已删除，请在变更记录中核对原值。",
+  locationExternal: "此项来自样例或数据契约，请在来源配置中核对。",
+  locationUnavailable: "此项没有可用的编辑位置，请核对问题路径。",
+  locationScope: "已定位到所属配置区，请核对对应属性。",
+  backToReview: "返回检查列表",
+  viewAvailable: "已找到上次工作位置",
+  viewResume: "继续上次位置",
+  viewDismiss: "保持当前位置",
+  viewAdjusted: "模板结构已有变化，已恢复仍有效的工作位置。",
+  viewStorageError: "工作位置暂存失败",
   outlineTool: "结构大纲", reuseTool: "片段与样式",
   fitWidth: "适宽", fitPage: "适页", fitSelection: "选区", wideNavigation: "宽表导航", alignSelection: "对齐选区", leftEdges: "左对齐", centers: "水平居中", rightEdges: "右对齐", topEdges: "顶对齐", middles: "垂直居中", bottomEdges: "底对齐", horizontalSpacing: "水平等距", verticalSpacing: "垂直等距", lockSelection: "锁定位置", unlockSelection: "解锁位置", sessionLock: "位置锁定仅当前设计会话有效。",
   toolsPending: "工具中还有未应用的配置，请先应用或恢复后再保存模板。",
@@ -245,4 +255,4 @@ export const TEMPLATE_EDITOR_MESSAGES = {
 };
 /** Newly introduced labels are optional for existing complete message dictionaries. */
 export type TemplateEditorMessages = typeof BASE_TEMPLATE_EDITOR_MESSAGES &
-  Partial<typeof PRODUCT_TEMPLATE_EDITOR_MESSAGES>;
+  Partial<typeof PRODUCT_TEMPLATE_EDITOR_MESSAGES> & Partial<Pick<typeof TEMPLATE_EDITOR_MESSAGES, "locationRemoved" | "locationExternal" | "locationUnavailable" | "locationScope" | "backToReview" | "viewAvailable" | "viewResume" | "viewDismiss" | "viewAdjusted" | "viewStorageError">>;

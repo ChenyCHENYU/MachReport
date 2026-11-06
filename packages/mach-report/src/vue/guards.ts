@@ -1,5 +1,5 @@
-import type { OutputFormat } from "@agile-team/mach-report";
-import type { ReportDataTarget, ReportValueState } from "../source/data-explanation";
+import type { ReportDiagnostic } from "../source/provider";
+import type { ReportDataTarget } from "../source/data-explanation";
 
 export type ReportDiscardReason = "reload" | "import" | "replace" | "leave";
 
@@ -34,15 +34,6 @@ export interface ReportPreviewDataTarget extends ReportDataTarget {
   /** Added by the query adapter; isolates identical dataset/row/field identities across reports. */
   reportScope?: string;
 }
-export interface ReportPreviewDiagnostic {
-  valueState?: ReportValueState;
+export interface ReportPreviewDiagnostic extends ReportDiagnostic {
   target?: ReportPreviewDataTarget;
-  code: string;
-  severity: "warning" | "error" | "info";
-  message: string;
-  path?: string;
-  format?: OutputFormat;
-  pageIndex?: number;
-  componentIndex?: number;
-  componentPath?: readonly number[];
 }

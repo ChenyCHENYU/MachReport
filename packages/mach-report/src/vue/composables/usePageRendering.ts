@@ -81,8 +81,7 @@ export function usePageRendering(host: PageRenderingHost) {
       entry.holder.removeAttribute("aria-busy");
       const state = { page: entry.page, element, query: host.query(), viewport, windowed };
       mounted.set(entry.holder, state);
-      updateViewport(entry.holder, state);
-      host.mounted(entry.holder);
+      if (!updateViewport(entry.holder, state)) host.mounted(entry.holder);
       host.ready();
     } catch (cause) {
       if (!active(entry, version, plan, root)) return;
@@ -135,9 +134,9 @@ export function usePageRendering(host: PageRenderingHost) {
     if (!host.viewport?.value?.clientWidth || host.windowing?.() === false || page.layout !== "wide") return false;
     return page.components.reduce((total, component) => total + (component.grid?.cells.reduce((count, row) => count + row.length, 0) ?? 0), 0) > 1000;
   }
-  function updateViewport(holder: HTMLElement, state: MountedPage, measurement?: ViewportMeasurement): void {
+  function updateViewport(holder: HTMLElement, state: MountedPage, measurement?: ViewportMeasurement): boolean {
     const viewport = host.viewport?.value;
-    if (!viewport || !state.viewport) return;
+    if (!viewport || !state.viewport) return false;
     const { bounds, pageBounds, scale } = measurement ?? { bounds: viewport.getBoundingClientRect(), pageBounds: holder.getBoundingClientRect(), scale: PX_PER_MM * host.zoom() };
     const focused = holder.querySelector(".mrp-cell-editor-host")?.closest<HTMLElement>("td[data-mr-row-index]") ?? holder.ownerDocument.activeElement?.closest<HTMLElement>("td[data-mr-row-index]");
     const owner = focused?.closest<HTMLElement>("[data-mr-component-index]");
@@ -146,7 +145,9 @@ export function usePageRendering(host: PageRenderingHost) {
       widthMm: viewport.clientWidth / scale, heightMm: viewport.clientHeight / scale }, retained, host.frozen?.())) {
       host.highlight(state.element);
       host.mounted(holder);
+      return true;
     }
+    return false;
   }
   function refreshViewport(): void {
     if (disposed || viewportFrame) return;

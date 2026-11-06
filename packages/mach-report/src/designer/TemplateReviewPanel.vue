@@ -12,9 +12,10 @@ import {
 import { useReviewFixtures } from "./useReviewFixtures";
 import TemplateFixtureComparison from "./TemplateFixtureComparison.vue";
 import { useDesignerTheme } from "./useDesignerTheme";
+import { resolveDesignerLocation, type DesignerLocation } from "./template-location";
 const themeStyle = useDesignerTheme();
 const props = defineProps<
-  TemplateReviewOptions & { messages?: Partial<TemplateReviewMessages> }
+  TemplateReviewOptions & { messages?: Partial<TemplateReviewMessages>; capabilities?: Partial<Record<"params" | "rules", boolean>> }
 >();
 const emit = defineEmits<{
   (
@@ -58,14 +59,18 @@ const comparisonFixture = computed(() =>
 watch(stale, (value) => {
   if (value) comparison.value = undefined;
 });
-function locate(path: string): void {
-  const match = /\.pages\[(\d+)\]\.components\[(\d+)\]/.exec(path);
-  emit("locate", {
-    path,
-    ...(match
-      ? { pageIndex: Number(match[1]), componentIndex: Number(match[2]) }
-      : {}),
-  });
+function locate(location: Pick<ReportTemplateReviewIssue, "path" | "pageIndex" | "componentIndex" | "field">, event: Event): void {
+  const target = destination(location).target;
+  if (!target) return;
+  // Pointer activation does not focus buttons in every browser. Capture the real
+  // trigger before navigation moves focus into the destination control.
+  if (event.currentTarget instanceof HTMLElement) event.currentTarget.focus({ preventScroll: true });
+  emit("locate", { ...location, pageIndex: target.pageIndex, componentIndex: target.componentIndex, field: location.field ?? target.field });
+}
+function destination(location: DesignerLocation, removed = false) { return resolveDesignerLocation(props.document, location, removed, props.capabilities); }
+function locationHint(location: DesignerLocation, removed = false): string {
+  const reason = destination(location, removed).reason;
+  return reason === "removed" ? m.value.locationRemoved : reason === "external" ? m.value.locationExternal : m.value.locationUnavailable;
 }
 </script>
 <template>
@@ -173,9 +178,10 @@ function locate(path: string): void {
           <li v-for="(change, index) in report.changes?.changes" :key="index">
             <div>
               <span>{{ m.categories[change.category] }} ·
-                {{ m.kinds[change.kind] }}</span><b v-if="change.breaking">{{ m.breaking }}</b><button type="button" @click="locate(change.path)">
+                {{ m.kinds[change.kind] }}</span><b v-if="change.breaking">{{ m.breaking }}</b><button v-if="destination({ path: change.path }, change.kind === 'removed').target" type="button" :disabled="stale || running" @click="locate({ path: change.path }, $event)">
                 {{ m.locate }}
               </button>
+              <small v-else>{{ locationHint({ path: change.path }, change.kind === 'removed') }}</small>
             </div>
             <code>{{ change.path }}</code>
             <dl>
@@ -206,9 +212,10 @@ function locate(path: string): void {
             <div>
               <span :class="{ 'is-error': issue.severity === 'error' }">{{
                 issue.severity === "error" ? m.errors : m.warnings
-              }}</span><button type="button" @click="emit('locate', issue)">
+              }}</span><button v-if="destination(issue).target" type="button" :disabled="stale || running" @click="locate(issue, $event)">
                 {{ m.locate }}
               </button>
+              <small v-else>{{ locationHint(issue) }}</small>
             </div>
             <p>{{ issue.message }}</p>
             <code>{{ issue.path }}</code>

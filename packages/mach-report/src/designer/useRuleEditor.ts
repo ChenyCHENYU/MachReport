@@ -1,6 +1,7 @@
 import { computed, ref, watch } from "vue";
 import { useTemplateToolDraft } from "./useTemplateToolDrafts";
 import { useLocalDraft } from "./useLocalDraft";
+import type { DesignerRuleTarget } from "./template-location";
 import type {
   ListComponent,
   ListGroupBy,
@@ -20,6 +21,8 @@ import {
   type RuleEditorMessages,
 } from "./rule-messages";
 export interface RuleEditorOptions {
+  /** Advanced navigation supplied by the template workspace; preserves local rule drafts. */
+  location?: DesignerRuleTarget;
   recoveryKey?: string;
   list: ListComponent;
   datasets?: DatasetRows;

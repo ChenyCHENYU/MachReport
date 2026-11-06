@@ -22,6 +22,7 @@ const document = ref<ReportTemplateDocument>(initialDocument);
 const draftStorage = {
   scope: accountScope, // 例如项目 ID + 当前账号 ID；不使用访问令牌。
   adapter: createTemplateDraftStorage(sessionStorage),
+  rememberView: true, // 可选，继续上次的设计工作位置。
 };
 const save = (value: ReportTemplateDocument, context: TemplateEditorSaveContext) =>
   templateApi.save(value, context); // 服务端须原子校验 expectedRevision。
@@ -59,6 +60,7 @@ interface TemplateDraftStorage {
   };
   debounceMs?: number; // 默认 400，允许 0–10000 毫秒。
   maxBytes?: number;   // 默认 2 MiB，允许 1 KiB–16 MiB，按 UTF-16 预算。
+  rememberView?: boolean; // 默认 false，另存有界界面位置，不改变模板。
 }
 ```
 
@@ -103,3 +105,13 @@ interface TemplateDraftStorage {
 模板或 scope 变化取消旧读取，迟到回调不能改写当前 UI；卸载取消读取并保留已安排的最后写入。`pagehide` 会立即提交最后快照：浏览器同步 Storage 适配器可在该事件内完成，异步远端适配器在浏览器强制终止时不能保证最终网络请求完成，应提供自己的离线持久层。超出预算、损坏版本、错误身份或损坏工具声明均会被拒绝并明确提示。
 
 模板成功保存或恢复到无修改状态后清理暂存记录。浏览器存储不提供跨设备协作和原子版本管理；正式模板仍须经过宿主保存服务的权限及 CAS 校验。
+
+## 继续上次工作位置
+
+按需设置 `draftStorage.rememberView`，重新打开后可选择“继续上次位置”或“保持当前位置”。未保存草稿仍先由操作人选择恢复或放弃，工作位置不会替代内容恢复和版本核对。
+
+位置使用同一适配器、账号范围和模板标识下的独立版本化键，每份记录最多 8 KiB。它保存当前版面、组件标识、字段、设计与预览模式、工具分区、参数或规则游标，以及设计画布的缩放和滚动位置。业务数据、图片内容、验收样例、检查结果及撤销历史不进入位置记录。即使模板没有内容修改，也可以保存工作位置，切换字段、滚动和缩放不会改变模板、增加撤销记录或调用正式保存接口。
+
+重新打开时会核对页面结构和组件稳定标识，字段使用业务字段名匹配。页面插入或重排后尝试匹配原目标，已删除、重复且无法唯一识别的组件会裁剪到仍有效的页面位置，并显示范围变化提示。结构变化后保留有效字段和工具，重置可能指向另一条配置的规则索引及画布滚动。无稳定标识的组件使用有界结构摘要，不向模板注入身份字段。预览组件原有的视图偏好继续按预览配置处理，工作位置记录中的缩放和滚动专用于设计画布。
+
+位置写入复用草稿适配器的防抖与有界合并队列，同键重挂载会等待已排定的最后写入。账号范围、模板或配置变化取消旧读取，卸载取消在途读取并允许最后的位置写入完成。损坏或超预算记录只显示位置提示，不阻止模板编辑。已有版本 1 的内容草稿继续正常读取。

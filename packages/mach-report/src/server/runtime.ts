@@ -1,3 +1,5 @@
+import { createDiagnosticCollector } from "../output/diagnostic-collector";
+import { appendPreparedDiagnostics } from "./diagnostics";
 import { createReportSource, ReportSourceError, type ReportRegistry } from "../source/report-source";
 import { reportOccurrenceScope } from "../source/report-identity";
 import { getReportParamDefs } from "../source/report-params";
@@ -78,7 +80,7 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
     const started = Date.now();
     let rows = 0;
     let inputCells = 0;
-    const diagnostics: PreparedReport["diagnostics"] = [];
+    const diagnostics = createDiagnosticCollector<PreparedReport["diagnostics"][number]>(input.diagnosticLimit);
     const revisions: PreparedReport["revisions"] = {};
     const sources: ReportRuntimeSource[] = [];
     const reports = Object.fromEntries(Object.entries(options.reports).map(([id, definition]) => [id, { ...definition,
@@ -99,8 +101,8 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
       const reportScope = reportOccurrenceScope(reportIndex, id);
       Object.defineProperty(revisions, id, { value: { revision: result.revision, sourceToken: result.sourceToken }, enumerable: true, writable: true });
       sources.push({ reportId: id, reportIndex, reportScope, ...(result.revision === undefined ? {} : { revision: result.revision }), ...(result.sourceToken === undefined ? {} : { sourceToken: result.sourceToken }) });
-      diagnostics.push(...(result.diagnostics ?? []).map(entry => ({ ...entry, ...(entry.target ? { target: { ...entry.target, reportScope,
-        ...(entry.target.tableId ? { tableId: JSON.stringify([reportIndex, id, entry.target.tableId]) } : {}) } } : {}) })));
+      (result.diagnostics ?? []).forEach(entry => diagnostics.push({ ...entry, ...(entry.target ? { target: { ...entry.target, reportScope,
+        ...(entry.target.tableId ? { tableId: JSON.stringify([reportIndex, id, entry.target.tableId]) } : {}) } } : {}) }));
     } }).catch((error: unknown) => {
       if (error instanceof ReportSourceError && error.cause instanceof PaginatePageLimitError) throw new ReportRuntimeError("budget", error.cause.message, "$.budget.maxPages");
       if (error instanceof ReportSourceError && error.cause instanceof PaginateCellLimitError) throw new ReportRuntimeError("budget", error.cause.message, "$.budget.maxCells");
@@ -109,15 +111,16 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
     });
     throwIfAborted(input.signal);
     const resolved = options.assets
-      ? await createReportTaskReporter(input).run("assets", () => resolvePlanAssets(rawPlan, { ...options.assets, signal: input.signal }))
+      ? await createReportTaskReporter(input).run("assets", () => resolvePlanAssets(rawPlan, { ...options.assets, diagnosticLimit: input.diagnosticLimit, signal: input.signal }))
       : { plan: rawPlan, diagnostics: [] };
     const plan = resolved.plan;
-    diagnostics.push(...outputDiagnostics(resolved.diagnostics));
+    if (resolved.diagnosticSummary) diagnostics.merge({ ...resolved.diagnosticSummary, entries: outputDiagnostics(resolved.diagnosticSummary.entries) });
+    else outputDiagnostics(resolved.diagnostics).forEach(entry => diagnostics.push(entry));
     const cells = plan.pages.reduce((sum, page) => sum + page.components.reduce((count, component) => count + cellCount(component), 0), 0);
     assertBudget(budget, "maxPages", plan.pages.length); assertBudget(budget, "maxCells", cells);
     const fingerprint = reportFontFingerprint(input.pdf);
     const providedMetrics = options.pagination?.measurer || Object.values(options.reports).some(definition => definition.pagination?.measurer);
-    return { plan, diagnostics, revisions, sources, layout: { textMetrics: fingerprint ? "font-bytes" : providedMetrics ? "provided" : "heuristic", ...(fingerprint ? { fontFingerprint: fingerprint } : {}) }, stats: { rows, pages: plan.pages.length, cells, durationMs: Date.now() - started } };
+    return { plan, diagnostics: diagnostics.entries, ...(input.diagnosticLimit === undefined ? {} : { diagnosticSummary: diagnostics.snapshot() }), revisions, sources, layout: { textMetrics: fingerprint ? "font-bytes" : providedMetrics ? "provided" : "heuristic", ...(fingerprint ? { fontFingerprint: fingerprint } : {}) }, stats: { rows, pages: plan.pages.length, cells, durationMs: Date.now() - started } };
   };
   const localExport = async (input: ReportRuntimeExportInput): Promise<ReportRuntimeExportResult> => {
     const started = Date.now();
@@ -165,8 +168,9 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
       const monitoring = { ...request, signal, onEvent: observe };
       createReportTaskReporter(monitoring).runSync("validate", () => checkPreparedFont(monitoring));
       if (options.assets) {
-        const resolved = await createReportTaskReporter(monitoring).run("assets", () => resolvePlanAssets(prepared.plan, { ...options.assets, signal }));
-        prepared.plan = resolved.plan; prepared.diagnostics.push(...outputDiagnostics(resolved.diagnostics));
+        const resolved = await createReportTaskReporter(monitoring).run("assets", () => resolvePlanAssets(prepared.plan, { ...options.assets, diagnosticLimit: input.diagnosticLimit, signal }));
+        prepared.plan = resolved.plan;
+        appendPreparedDiagnostics(prepared, outputDiagnostics(resolved.diagnostics), resolved.diagnosticSummary ? { ...resolved.diagnosticSummary, entries: outputDiagnostics(resolved.diagnosticSummary.entries) } : undefined, input.diagnosticLimit);
       }
       return encodePreparedReport(monitoring, budget, started);
     }),

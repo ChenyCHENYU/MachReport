@@ -71,6 +71,8 @@ import { usePreviewDiagnostics } from "./composables/usePreviewDiagnostics";
 import type { ReportBeforeDiscard, ReportOutputOptions, ReportPreviewTask, ReportPreviewDiagnostic } from "./guards";
 import ReportParamPanel from "./ReportParamPanel.vue";
 import ReportEditBar from "./ReportEditBar.vue";
+import ReportConflictReview from "./ReportConflictReview.vue";
+import { usePreviewConflictRecovery } from "./composables/usePreviewConflictRecovery";
 import ReportNavigation from "./ReportNavigation.vue";
 import ReportImportSummary from "./ReportImportSummary.vue";
 import type { ReportParamDef } from "@agile-team/mach-report";
@@ -240,6 +242,7 @@ const state = computed<MachReportState>(() => Object.freeze({
   pendingLocalChanges: editing.pendingLocalChanges.value,
   task: task.state.value,
   diagnostics: diagnostics.entries.value,
+  diagnosticSummary: diagnostics.summary.value,
   reportIds: loadedContext.value?.reportIds ?? [],
   params: loadedContext.value?.params ?? {},
   canUndo: editing.canUndo.value,
@@ -327,6 +330,7 @@ async function toggleSettings(section: "general" | "tools" | "advanced" = "gener
 }
 const { editing, cells, cellStatus, discard, confirmDiscard } = usePreviewEditing({
   plan, root: containerRef, options: effectiveEditable,
+  query: () => loadedContext.value,
   selectionEnabled: () => !!effectiveEditable.value || calculationsEnabled.value || !!effectiveDataComparison.value || !!(props.drill ?? resolved.value.drill),
   busy: () => interactionBlocked.value || importing.value || exporting.value !== null || printing.value,
   messages: () => resolvedMessages.value, gotoPage, ensureVisible: address => pageRendering.reveal(address),
@@ -338,6 +342,27 @@ const { editing, cells, cellStatus, discard, confirmDiscard } = usePreviewEditin
   },
   changed: edit => { lastError.value = null; exportNotice.value = null; emit("cell-edit", edit); },
   failed: (message, cause) => { exportNotice.value = { kind: "error", message }; reportError(message, "edit", cause); }
+});
+const conflictRecovery = usePreviewConflictRecovery({
+  plan, busy: () => interactionBlocked.value || importing.value || editing.saving.value || !!exporting.value || printing.value,
+  canQuery: () => loadedContext.value !== null,
+  pending: editing.getPendingEdits, pause: editing.pauseForReview,
+  pendingRevision: () => editing.pendingRevision.value,
+  retain: edits => editing.retainPending(edits), prepare: session.prepareLatest, apply: editing.apply,
+  failure: () => editing.lastError.value,
+  stale: () => resolvedMessages.value.conflictReviewStale ?? "当前查询已变化，请重新核对",
+  error: cause => cause instanceof Error ? cause.message : resolvedMessages.value.conflictReviewStale ?? "当前查询已变化，请重新核对"
+});
+function reviewConflicts(event: Event): void {
+  const opening = conflictRecovery.open();
+  if (conflictRecovery.opened.value && event.currentTarget instanceof HTMLElement) event.currentTarget.focus({ preventScroll: true });
+  void opening;
+}
+watch(conflictRecovery.opened, (opened, previous) => {
+  if (opened || !previous) return;
+  void nextTick(() => {
+    if (!destroyed && document.activeElement === document.body) viewportRef.value?.focus({ preventScroll: true });
+  });
 });
 const output = usePreviewOutput({
   plan, editing, diagnostics, task,
@@ -602,12 +627,6 @@ const pageRendering = usePageRendering({
   error: (cause) => { errorMessage.value = cause instanceof Error ? cause.message : String(cause); reportError(errorMessage.value, "render", cause); }
 });
 
-// Selection must not become a dependency of page rendering: recreating search <mark>
-// nodes between two pointer clicks prevents the browser from dispatching dblclick.
-watch(() => cells.selection.value, () => {
-  cells.refresh();
-}, { flush: "post" });
-
 /** 查询清空时移除全部高亮标记 */
 watch(() => search.query.value, (q) => {
   if (q) return;
@@ -774,12 +793,15 @@ defineExpose({ ...controller, state });
     <ReportDataReviewDialog v-if="dataReview.opened.value" :title="dataReview.title.value" :close-label="dataReview.messages.value.reviewClose" @close="dataReview.close">
       <ReportPrefillPanel v-if="dataReview.opened.value === 'prefill'" :state="dataReview.prefill" :messages="dataReview.messages.value" />
       <ReportDataComparison v-else-if="dataReview.opened.value === 'comparison'" :state="dataReview.comparison" :messages="dataReview.messages.value" />
-      <ReportValidationPanel v-else :issues="editing.validationIssues.value" :messages="dataReview.validationMessages.value" @locate="dataReview.locateIssue" />
+      <ReportValidationPanel v-else :plan="plan" :busy="editing.saving.value" :issues="editing.validationIssues.value" :messages="dataReview.validationMessages.value" @locate="dataReview.locateIssue" />
     </ReportDataReviewDialog>
     <ReportDiscardDialog v-if="discard.request.value" :messages="resolvedMessages" @answer="discard.settle" />
+    <ReportDataReviewDialog v-if="conflictRecovery.opened.value" :title="resolvedMessages.conflictReviewTitle ?? resolvedMessages.conflicts ?? ''" :close-label="dataReview.messages.value.reviewClose" @close="conflictRecovery.close">
+      <ReportConflictReview :plan="plan" :rows="conflictRecovery.rows.value" :messages="resolvedMessages" :reading="conflictRecovery.reading.value" :applying="conflictRecovery.applying.value" :ready="conflictRecovery.ready.value" :can-query="loadedContext !== null" :error="conflictRecovery.error.value" @refresh="conflictRecovery.refresh" @choose="conflictRecovery.choose" @submit="conflictRecovery.submit" />
+    </ReportDataReviewDialog>
     <ReportTaskStatus :task="task.state.value" :messages="resolvedMessages" @cancel="cancelTask" />
-    <ReportDiagnostics :entries="outputDiagnostics" :messages="resolvedMessages" @locate="locateDiagnostic" />
-    <ReportDataExplanation :entries="dataExplanations" :messages="resolvedMessages" :busy="interactionBlocked || importing || editing.saving.value" @locate="locateDataExplanation" />
+    <ReportDiagnostics :entries="outputDiagnostics" :summary="diagnostics.outputSummary.value" :messages="resolvedMessages" @locate="locateDiagnostic" />
+    <ReportDataExplanation :entries="dataExplanations" :total="diagnostics.summary.value.explanations?.total" :messages="resolvedMessages" :busy="interactionBlocked || importing || editing.saving.value" @locate="locateDataExplanation" />
     <ReportDrillActions :entries="drill.entries.value" :pending="drill.pending.value" :error="drill.error.value" :busy="interactionBlocked || importing || editing.saving.value" :messages="resolvedMessages" @open="drill.open" />
     <ReportSettings v-if="settingsOpen && effectiveShowSettings" :available="availableTools" :unavailable-reasons="unavailableReasons" :enabled="toolState" :messages="resolvedMessages" :persisted-editing="persistedEditing" :interaction="effectiveInteraction" :section="settingsSection" :busy="interactionBlocked || importing || editing.saving.value || !!exporting || printing" @section="settingsSection = $event" @interaction="onInteractionChange" @change="onToolChange" @reset="resetTools" @close="settingsOpen = false">
       <slot name="settings" />
@@ -787,7 +809,7 @@ defineExpose({ ...controller, state });
     </ReportSettings>
     <ReportNavigation :plan="plan" @locate-target="locateTarget" v-if="sections.length > 1 && pageCount > 0 && effectiveInteraction.navigation !== false" :sections="sections" :current-page="currentPage" :messages="resolvedMessages" :busy="interactionBlocked || importing || editing.saving.value" @goto="gotoPage" @locate="locateField" />
     <ReportImportSummary v-if="importedResult" :result="importedResult" :messages="resolvedMessages" />
-    <ReportEditBar v-if="effectiveEditable && pageCount > 0" :plan="plan" :history-limited="editing.historyLimited.value" :differences="editing.differences.value" :conflicts="editing.conflicts.value" :messages="resolvedMessages" :saving="editing.saving.value" :can-undo="editing.canUndo.value" :can-redo="editing.canRedo.value" :persisted="persistedEditing" :busy="!!exporting || printing" @undo="editing.undo" @redo="editing.redo" @restore="editing.restore" @locate="locateEdit" />
+    <ReportEditBar v-if="effectiveEditable && pageCount > 0" :plan="plan" :history-limited="editing.historyLimited.value" :differences="editing.differences.value" :conflicts="editing.conflicts.value" :pending-count="editing.pendingEdits.value.length" review-conflicts :messages="resolvedMessages" :saving="editing.saving.value" :can-undo="editing.canUndo.value" :can-redo="editing.canRedo.value" :persisted="persistedEditing" :busy="interactionBlocked || importing || !!exporting || printing" @review-conflicts="reviewConflicts" @undo="editing.undo" @redo="editing.redo" @restore="editing.restore" @locate="locateEdit" />
     <input v-if="effectiveExcelImport" ref="importInputRef" class="mrp-import-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden @change="onImportFile" />
     <div v-if="effectiveEditable && pageCount > 0" class="mrp-edit-hint" role="status" aria-live="polite"><template v-if="!editing.saving.value && cellStatus"><span class="mrp-cell-access" :class="{ 'is-editable': cellStatus.editable }">{{ cellStatus.label }}</span><span class="mrp-cell-access-message" :title="cellStatus.message">{{ cellStatus.message }}</span></template><template v-else>{{ editing.saving.value ? resolvedMessages.saving : resolvedMessages.editingHint }}</template></div>
     <div v-if="exportNotice" class="mrp-export-notice" :class="`mrp-export-${exportNotice.kind}`" role="alert">

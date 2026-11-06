@@ -32,7 +32,7 @@ function copiesMode(event: Event): void {
 }
 </script>
 <template>
-  <fieldset class="mr-repeat-properties" :disabled="disabled">
+  <fieldset class="mr-repeat-properties" data-mr-control="template-repeat" :disabled="disabled">
     <label class="mr-repeat-toggle"><span><strong>{{ m.repeatRecords }}</strong><small>{{ incompatible ? m.repeatNeedsFixed : m.repeatRecordsHint }}</small></span><input type="checkbox" :checked="!!repeat" :disabled="disabled || (!!repeat && hasBindings) || (!repeat && incompatible)" @change="toggle" /></label>
     <template v-if="repeat">
       <label>{{ m.recordDataset }}<input :value="repeat.dataset" :list="`${id}-datasets`" @change="input($event).trim() && patch({ dataset: input($event).trim() })" /></label>

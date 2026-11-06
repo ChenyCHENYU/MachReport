@@ -18,6 +18,8 @@ export interface TemplateDraftStorageAdapter {
   remove(key: string, context: { signal: AbortSignal }): void | Promise<void>;
 }
 export interface TemplateDraftStorage {
+  /** Opt in to bounded, account-scoped workspace position recovery without storing report data. */
+  rememberView?: boolean;
   /** Account / project scope. Changing scope cancels previous reads and isolates recovery. */
   scope: string;
   adapter: TemplateDraftStorageAdapter;

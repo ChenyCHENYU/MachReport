@@ -1,6 +1,7 @@
 import { assertBoundedRenderTree } from "../schema/component-tree";
 import type { GridCell, PlanComponent, RenderPlan } from "../schema/render-plan";
 import { OutputFidelityError, type OutputDiagnostic, type OutputDiagnosticOptions, type OutputFormat } from "./capabilities";
+import { createDiagnosticCollector, type DiagnosticSummary } from "./diagnostic-collector";
 import { notifyOutputDiagnostic } from "./diagnostic-notification";
 import { waitForOutput, assertOutputActive } from "./progress";
 import { createImageMediaInspector, ImageMediaError, type ImageMediaOptions } from "./media";
@@ -63,7 +64,7 @@ export class OutputAssetError extends Error {
 interface AssetState {
   options: ResolvePlanAssetsOptions;
   signal: AbortSignal;
-  diagnostics: OutputDiagnostic[];
+  diagnostics: ReturnType<typeof createDiagnosticCollector<OutputDiagnostic>>;
   inspectImage: ReturnType<typeof createImageMediaInspector>;
   rendered: number;
   bytes: number;
@@ -176,12 +177,17 @@ function inspectExistingMedia(plan: RenderPlan, inspect: ReturnType<typeof creat
   for (const page of plan.pages) for (const component of page.components) inspectComponent(component);
 }
 function assertAssetFidelity(state: AssetState): void {
-  if (state.options.fidelity === "strict" && state.diagnostics.length) throw new OutputFidelityError(state.diagnostics);
+  if (state.options.fidelity === "strict" && state.diagnostics.total) throw new OutputFidelityError(state.diagnostics.entries, state.options.diagnosticLimit === undefined ? undefined : state.diagnostics.snapshot());
+}
+
+function assetResult(plan: RenderPlan, diagnostics: AssetState["diagnostics"], limit?: number) {
+  return { plan, diagnostics: diagnostics.entries, ...(limit === undefined ? {} : { diagnosticSummary: diagnostics.snapshot() }) };
 }
 
 /** Resolve optional third-party chart/barcode/QR adapters once, before any output backend. Input stays immutable. */
-export async function resolvePlanAssets(plan: RenderPlan, options: ResolvePlanAssetsOptions = {}): Promise<{ plan: RenderPlan; diagnostics: OutputDiagnostic[] }> {
+export async function resolvePlanAssets(plan: RenderPlan, options: ResolvePlanAssetsOptions = {}): Promise<{ plan: RenderPlan; diagnostics: OutputDiagnostic[]; diagnosticSummary?: DiagnosticSummary<OutputDiagnostic> }> {
   assertOutputActive(options.signal);
+  const diagnostics = createDiagnosticCollector<OutputDiagnostic>(options.diagnosticLimit);
   assertBoundedRenderTree(plan);
   const budget = assetBudget(options);
   const inspectImage = createImageMediaInspector(options);
@@ -190,8 +196,8 @@ export async function resolvePlanAssets(plan: RenderPlan, options: ResolvePlanAs
   const controller = new AbortController();
   const abort = () => controller.abort(options.signal?.reason);
   options.signal?.addEventListener("abort", abort, { once: true });
-  if (!options.assetRegistry && (!options.assetRenderers || !Object.keys(options.assetRenderers).length)) { options.signal?.removeEventListener("abort", abort); return { plan, diagnostics: [] }; }
-  const state: AssetState = { options, signal: controller.signal, diagnostics: [], rendered: 0, bytes: 0, budget, cache: new WeakMap(), inspectImage };
+  if (!options.assetRegistry && (!options.assetRenderers || !Object.keys(options.assetRenderers).length)) { options.signal?.removeEventListener("abort", abort); return assetResult(plan, diagnostics, options.diagnosticLimit); }
+  const state: AssetState = { options, signal: controller.signal, diagnostics, rendered: 0, bytes: 0, budget, cache: new WeakMap(), inspectImage };
   const timer = setTimeout(() => timeoutAssets(state, controller), budget.maxDurationMs);
   try {
     const pages = [];
@@ -203,6 +209,6 @@ export async function resolvePlanAssets(plan: RenderPlan, options: ResolvePlanAs
     }
     throwIfAborted(state.signal);
     assertAssetFidelity(state);
-    return { plan: pages.some((page, index) => page !== plan.pages[index]) ? { ...plan, pages } : plan, diagnostics: state.diagnostics };
+    return assetResult(pages.some((page, index) => page !== plan.pages[index]) ? { ...plan, pages } : plan, state.diagnostics, options.diagnosticLimit);
   } finally { clearTimeout(timer); options.signal?.removeEventListener("abort", abort); }
 }

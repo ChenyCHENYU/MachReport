@@ -1,14 +1,16 @@
 import type { PreparedReport, ReportRuntime, ReportRuntimeExportInput, ReportRuntimeExportResult, ReportRuntimeInput, ReportRuntimePreparedExportInput, ReportRuntimeBudget } from "../server/types";
 import type { ReportTaskEvent, ReportTaskObserver } from "../source/task-events";
+import { matchingDiagnosticSummary, validReportDiagnosticLocation } from "../server/diagnostics";
 import { validPreparedSources } from "../server/prepared";
 import { hasValidDataExplanation } from "../source/data-explanation";
+import { createDiagnosticCollector, DEFAULT_DIAGNOSTIC_LIMIT, validDiagnosticSummary, type DiagnosticSummary } from "../output/diagnostic-collector";
 import { validateRenderPlan } from "../schema/validate";
 
 export const REPORT_WORKER_PROTOCOL = "mach-report-worker/1" as const;
 export type ReportWorkerInput = Omit<ReportRuntimeInput, "signal" | "onEvent"> | Omit<ReportRuntimeExportInput, "signal" | "onEvent"> | Omit<ReportRuntimePreparedExportInput, "signal" | "onEvent">;
 export interface ReportWorkerRequest { protocol: typeof REPORT_WORKER_PROTOCOL; id: string; operation: "prepare" | "export" | "exportPrepared"; input: ReportWorkerInput; budget?: ReportRuntimeBudget }
 export interface ReportWorkerEvent { protocol: typeof REPORT_WORKER_PROTOCOL; id: string; type: "event"; event: ReportTaskEvent }
-export interface SerializedReportError { name: string; message: string; code?: string; path?: string; issues?: unknown; diagnostics?: unknown }
+export interface SerializedReportError { name: string; message: string; code?: string; path?: string; issues?: unknown; diagnostics?: unknown; diagnosticSummary?: DiagnosticSummary<Record<string, unknown>>; issueSummary?: DiagnosticSummary<Record<string, string>> }
 export interface ReportWorkerResponse {
   protocol: typeof REPORT_WORKER_PROTOCOL;
   id: string;
@@ -20,8 +22,10 @@ export class ReportWorkerError extends Error {
   readonly path?: string;
   readonly issues?: unknown;
   readonly diagnostics?: unknown;
+  readonly diagnosticSummary?: DiagnosticSummary<Record<string, unknown>>;
+  readonly issueSummary?: DiagnosticSummary<Record<string, string>>;
   constructor(error: SerializedReportError) {
-    super(error.message); this.name = error.name; this.code = error.code; this.path = error.path; this.issues = error.issues; this.diagnostics = error.diagnostics;
+    super(error.message); this.name = error.name; this.code = error.code; this.path = error.path; this.issues = error.issues; this.diagnostics = error.diagnostics; this.diagnosticSummary = error.diagnosticSummary; this.issueSummary = error.issueSummary;
   }
 }
 function object(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
@@ -31,7 +35,7 @@ function stats(value: unknown): boolean {
     && typeof value.durationMs === "number" && Number.isFinite(value.durationMs) && value.durationMs >= 0;
 }
 function diagnostics(value: unknown): boolean {
-  return Array.isArray(value) && value.every((entry: unknown) => object(entry) && typeof entry.code === "string" && typeof entry.message === "string" && ["info", "warning", "error"].includes(entry.severity as string) && hasValidDataExplanation(entry));
+  return Array.isArray(value) && value.every((entry: unknown) => object(entry) && typeof entry.code === "string" && typeof entry.message === "string" && ["info", "warning", "error"].includes(entry.severity as string) && hasValidDataExplanation(entry) && validReportDiagnosticLocation(entry as unknown as PreparedReport["diagnostics"][number]));
 }
 function revisions(value: unknown): boolean {
   return object(value) && Object.values(value).every((entry) => object(entry) && (entry.revision === undefined || typeof entry.revision === "string") && (entry.sourceToken === undefined || typeof entry.sourceToken === "string"));
@@ -44,35 +48,53 @@ function layoutMetrics(value: unknown): boolean {
 /** Worker 响应使用与运行时一致的值契约，不只相信 TypeScript 类型或返回的任务 ID。 */
 export function validReportWorkerResult(value: unknown, operation: ReportWorkerRequest["operation"]): value is PreparedReport | ReportRuntimeExportResult {
   if (!object(value) || !stats(value.stats) || !diagnostics(value.diagnostics) || !revisions(value.revisions) || !layoutMetrics(value.layout) || !validPreparedSources(value.sources)) return false;
+  if (value.diagnosticSummary !== undefined && !matchingDiagnosticSummary(value.diagnosticSummary, value.diagnostics as PreparedReport["diagnostics"])) return false;
   if (operation === "prepare") return validateRenderPlan(value.plan).ok;
   const contentType = value.format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   return value.bytes instanceof Uint8Array && (value.format === "pdf" || value.format === "xlsx") && value.contentType === contentType;
 }
 function serializeIssue(issue: unknown): Record<string, string> {
-  if (!issue || typeof issue !== "object") return { message: String(issue) };
+  if (!issue || typeof issue !== "object") return { message: String(issue).slice(0, 4096) };
   const result: Record<string, string> = {};
   for (const key of ["code", "path", "field", "message"]) {
     const value = (issue as Record<string, unknown>)[key];
-    if (typeof value === "string") result[key] = value;
+    if (typeof value === "string") result[key] = value.slice(0, key === "code" ? 128 : 4096);
   }
   return result;
 }
 function serializeDiagnostic(value: unknown): Record<string, unknown> {
   const result: Record<string, unknown> = serializeIssue(value);
   if (!object(value)) return result;
-  for (const key of ["format", "severity", "kind", "nid"]) if (typeof value[key] === "string") result[key] = value[key];
+  for (const key of ["format", "severity", "kind", "nid"]) if (typeof value[key] === "string") result[key] = (value[key] as string).slice(0, 4096);
   for (const key of ["pageIndex", "componentIndex"]) if (Number.isSafeInteger(value[key]) && (value[key] as number) >= 0) result[key] = value[key];
-  if (Array.isArray(value.componentPath) && value.componentPath.every((index) => Number.isSafeInteger(index) && index >= 0)) result.componentPath = value.componentPath;
+  if (hasValidDataExplanation(value) && value.valueState !== undefined && object(value.target)) {
+    result.valueState = value.valueState;
+    const target: Record<string, unknown> = {};
+    for (const key of ["datasetId", "field", "rowKey", "tableId", "reportScope"]) if (value.target[key] !== undefined) target[key] = value.target[key];
+    result.target = target;
+  }
+  if (object(value.extension) && typeof value.extension.id === "string" && typeof value.extension.version === "string") result.extension = { id: value.extension.id.slice(0, 128), version: value.extension.version.slice(0, 64) };
+  if (Array.isArray(value.componentPath) && value.componentPath.length <= 192 && value.componentPath.every((index) => Number.isSafeInteger(index) && index >= 0)) result.componentPath = value.componentPath;
   return result;
 }
+function errorDetails(values: readonly unknown[], serialize: (value: unknown) => Record<string, unknown>, previous?: unknown): DiagnosticSummary<Record<string, unknown>> {
+  const collector = createDiagnosticCollector<{ code: string; value: unknown }>(DEFAULT_DIAGNOSTIC_LIMIT);
+  if (validDiagnosticSummary(previous)) {
+    collector.merge({ ...previous, entries: previous.entries.slice(0, DEFAULT_DIAGNOSTIC_LIMIT).map(value => ({ code: object(value) && typeof value.code === "string" ? value.code : "unknown", value })) });
+  } else for (const value of values) collector.push({ code: object(value) && typeof value.code === "string" ? value.code : "unknown", value });
+  const result = collector.snapshot();
+  return { ...result, entries: result.entries.map(entry => serialize(entry.value)) };
+}
 export function serializeError(error: unknown): SerializedReportError {
-  if (!(error instanceof Error)) return { name: "Error", message: String(error) };
-  const detail = error as Error & { code?: unknown; path?: unknown; issues?: unknown; diagnostics?: unknown };
-  return { name: error.name, message: error.message,
-    ...(typeof detail.code === "string" ? { code: detail.code } : {}),
-    ...(typeof detail.path === "string" ? { path: detail.path } : {}),
-    ...(Array.isArray(detail.issues) ? { issues: detail.issues.map(serializeIssue) } : {}),
-    ...(Array.isArray(detail.diagnostics) ? { diagnostics: detail.diagnostics.map(serializeDiagnostic) } : {}) };
+  if (!(error instanceof Error)) return { name: "Error", message: String(error).slice(0, 8192) };
+  const detail = error as Error & { code?: unknown; path?: unknown; issues?: unknown; diagnostics?: unknown; diagnosticSummary?: unknown };
+  const diagnosticSummary = Array.isArray(detail.diagnostics) ? errorDetails(detail.diagnostics, serializeDiagnostic, detail.diagnosticSummary) : undefined;
+  const issueSummary = Array.isArray(detail.issues) ? errorDetails(detail.issues, serializeIssue) as DiagnosticSummary<Record<string, string>> : undefined;
+  return { name: error.name.slice(0, 128), message: error.message.slice(0, 8192),
+    ...(typeof detail.code === "string" ? { code: detail.code.slice(0, 128) } : {}),
+    ...(typeof detail.path === "string" ? { path: detail.path.slice(0, 4096) } : {}),
+    ...(issueSummary ? { issues: issueSummary.entries, ...(issueSummary.omitted ? { issueSummary } : {}) } : {}),
+    ...(diagnosticSummary ? { diagnostics: diagnosticSummary.entries, ...(diagnosticSummary.omitted || detail.diagnosticSummary !== undefined ? { diagnosticSummary } : {}) } : {}) };
 }
 export function isReportWorkerRequest(value: unknown): value is ReportWorkerRequest {
   if (!value || typeof value !== "object") return false;

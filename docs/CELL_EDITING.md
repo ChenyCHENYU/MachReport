@@ -23,7 +23,7 @@
 | 移出编辑框 | 提交当前输入 |
 | 打印或导出 | 先提交当前编辑，失败则停止输出 |
 | 在新窗口打开 PDF | 先用 Enter 完成编辑，再点击 PDF 窗口按钮，保留浏览器用户手势 |
-| 重新加载、切换报表或卸载 | 取消当前输入及在途操作，清空本次修改记录 |
+| 重新加载、切换报表或卸载 | 取消过期操作，未保存意图通过 `pendingLocalChanges` 与已配置的修改保护处理 |
 
 `editable: true` 用于本次预览的本地修改，不会自动调用业务写接口。成功提交后，DOM、Canvas、打印、PDF 和 Excel 使用更新后的同一份 `RenderPlan`；宿主传入的原计划和数据对象不会被修改。重新查询会重新生成报表，未持久化的修改不再保留。
 
@@ -102,15 +102,41 @@ const editing: ReportEditingOptions = {
 import { createProviderEditing } from "@agile-team/mach-report/vue";
 
 const editing = createProviderEditing(productionProvider, {
-  reportId: "production",
-  params: () => executedQuery.value,
   canEdit: (context) => context.source?.field === "quantity"
 });
 ```
 
-`productionProvider.save` 收到同一 `reportId / params / requestId / edits / action / signal`，并统一返回 `{ revision, sourceToken?, conflicts?, diagnostics? }`。桥接默认 `requireSource: true`；没有 `provider.save` 会立即报告配置错误，注册 Provider 本身不会自动开启写入。`expectedRevision`、`sourceToken` 可传值或 getter；getter 优先，否则从整批一致的单元格来源推导，成功结果推进后续版本。`params` getter 应与预览正在使用的已执行查询保持一致，不能指向尚未查询的临时表单值。
+单报表预览自动绑定最近一次成功查询的 `reportId`、参数快照、来源修订和 `sourceToken`。后续在参数表单中输入但尚未查询的值不会进入保存请求。成功保存推进该查询会话后续使用的版本，重新成功查询后采用新来源的元数据。查询回调按报表的出现顺序记录来源，重复报表 ID 仍有独立来源身份。
+
+`productionProvider.save` 收到 `reportId / params / requestId / edits / action / signal`，并统一返回 `{ revision, sourceToken?, conflicts?, diagnostics? }`。桥接默认 `requireSource: true`，没有 `provider.save` 会立即报告配置错误。预览通过 `editable` 显式开启写入，页面无需复制查询参数或维护一套并发令牌。
+
+自动绑定要求存在成功查询且只包含一个报表，并拒绝一批中跨多个独立来源域的隐式保存。多报表、独立核心调用及自有路由接入应显式提供 `reportId`、已执行的 `params`，或实现统一的 `saveBatch`，来源映射与整批原子事务由该显式适配器承担。原有值与 getter 接入继续可用，`expectedRevision`、`sourceToken` getter 保留优先语义。
+
+```ts
+// 自有查询上下文或多报表保存路由的显式接入。
+const editing = createProviderEditing(productionProvider, {
+  reportId: () => activeSavedReport.value,
+  params: () => executedQuery.value,
+  expectedRevision: () => currentRevision.value,
+  sourceToken: () => currentSourceToken.value
+});
+```
+
+显式 getter 须返回当前已展示查询的上下文。报表身份、参数和令牌应来自同一来源，服务端继续检查数据范围与批量原子性。
 
 Provider 冲突使用 `{ editIndex, code, message }`，`editIndex` 必须是本批补丁的有效整数索引，桥接自动定位回补丁来源并显示。接口包装须先在 Provider 内解包；桥接检查非空 `revision`、字符串 `sourceToken`、诊断与冲突结构。无效响应保留当前单元格和修改历史，明确提示“服务器可能已提交，请重新查询确认”，不能据此声称后台已回滚或直接重试写入。单格 `save` 与批量 `saveBatch` 都可由同一桥接提供。
+
+## 冲突核对与整批提交
+
+服务端拒绝一批修改时，插件保留整批本地意图，包括同批中未单独报告冲突的格。编辑状态栏显示待处理数量，可从“核对保存冲突”进入同一处理流程。
+
+1. 打开核对前暂停当前输入，将可解析的输入收进本地意图，输入无效时保留编辑框与提示。核对面板使用最近成功查询的参数读取最新数据，忽略尚未提交的表单条件。
+2. 最新查询先形成候选。用户尚未采用时，当前报表、来源上下文和已显示诊断继续保留。后续可用“读取最新数据”重新核对。
+3. 按稳定业务身份展示“修改前”“保留我的修改”“使用最新数据”。字段、数据集和业务键支持搜索，每页最多挂载 100 项。最新值等于修改前值时预选本地，最新值已等于本地目标时预选最新，其余项由操作人选择。
+4. 最新结果已缺失、已只读或同一身份存在不一致显示的项会说明原因，仅允许选择最新结果。插件不会按旧行号或任意镜像强行写回。
+5. “校验并提交选择”先采用新查询，并在通知加载完成前恢复仍需提交的本地意图。保留本地的项按新来源地址和新 CAS 令牌重新进入既有权限、字段、整批候选校验、计算与 `saveBatch` 流程。全部采用最新结果时完成查询采用，无需再次保存。
+
+再次冲突、校验或保存失败后，未完成意图继续保留，可重新读取最新数据后核对。关闭核对面板保留意图并归还入口焦点，读取可取消，过期候选、来源切换、正常重载或卸载后的迟到响应无法替换当前报表。`state.pendingLocalChanges` 包含这些待处理项，已开启的 `guardChanges` 会在重新查询或导入前提供修改保护。宿主已有离开页面保护可读取同一状态。
 
 ## 稳定业务身份与并发协议
 
@@ -187,7 +213,11 @@ return { conflicts: [{
 
 每个私有数据集最多保留 16 个计算计划、1 Mi UTF-16 units 定义键和 50 万个依赖/结果标量槽位，超出缓存预算自动完整求值；COW 候选事务继承只读结果后独立写入，取消、冲突和保存失败不会发布候选计算。撤销重做沿用相同依赖检查，计算格继续只读，空值、真实零和小数精度规则保持一致。
 
-几何排版仍按完整逐页引擎执行，以正确处理筛选、分组、排序、条件样式和行高变化；每 8 页让出执行并支持取消。单次分页内对相同文本及完整字体度量参数使用有界测量缓存（最多 4096 项、128 Ki UTF-16 定义键），不跨查询复用宿主字体测量结果。不会对每个只读预览额外执行一轮排版。模板数据在首次修改前被宿主原地改变会报告冲突，重新查询即可恢复。首笔成功后使用私有快照与 COW 更新，宿主数据和模板不受修改；来源口径指纹与首次快照最多100万个节点，首次快照最多32 MiB文本。数据应为普通数据属性（标准 Date 支持）；自定义 `toJSON`、getter、函数或 Symbol 不作为可重算来源，避免隐藏源数据变化。这里的依赖复用不等同于完整 Excel 增量公式引擎或局部几何分页。
+内置模板会话对可证明行高不变的普通文本明细采用局部重排，自动复用未受影响的页与组件。适用范围同时要求固定页面上的简单列表、可靠行键、纯文本值和内置测量方式，原值与新值均为非空单行文本、各不超过 16384 个 UTF-16 单元，且在同列宽及同字体度量下换行行数相同。列表具有计算、分组、合计、树、矩阵、主从、行筛选、合并表头、列格式、条件样式或可视化声明时，采用完整重算。带合并、旋转、缩进、公式、嵌套或显式单元格来源的结构，以及自定义测量、公式或分页策略，同样保留完整排版路径。
+
+局部候选继续校验当前计划与来源身份，并经过完整来源候选规则和原子保存协议。证明不足、单元格不匹配、行高可能变化或计划结构不适用时自动执行完整重算，取消会终止事务。该优化无需新增使用侧开关。完整分页每 8 页让出执行并支持取消，单次分页内对相同文本及完整字体度量参数使用有界测量缓存，最多 4096 项、128 Ki UTF-16 定义键。
+
+首次修改才建立私有来源快照，首笔成功后使用 COW 更新，宿主数据和模板保持独立。首次修改前宿主原地改变模板或数据会报告冲突，需要重新查询。来源口径指纹与首次快照最多 100 万个节点，首次快照最多 32 MiB 文本。数据应为普通数据属性，支持标准 `Date`，自定义 `toJSON`、getter、函数或 Symbol 会在建立可重算来源时被拒绝。
 
 后端 KPI、持久化规则和 Excel 原生公式继续由对应业务/公式引擎负责；SDK 不猜测后台口径。`requiresRecalculation` 是随 JSON/Worker 保留的编辑要求，不代表本地模板会话仍可用。没有稳定业务身份、直接使用 RenderPlan、或者跨 Worker/JSON 丢失会话的计算报表，预览会阻止编辑并提示改为模板接入或保存后重新查询，避免导出旧计算结果。无计算的旧计划保留原有计划内编辑行为。
 
@@ -207,7 +237,7 @@ await report.restoreChanges();
 
 `getChanges()` 返回本次成功操作的补丁流水，包括撤销与恢复操作；`getDifferences()` 返回相对本次来源的净差异。`getPlan()` 返回当前计划的独立快照，修改返回值不会影响预览。`cell-edit` 的参数包括 `address`、可选 `table` / `source`、`previousValue`、`previousText`、`value` 和 `text`。结构化错误通过现有 `error` 事件报告。
 
-只读 `state` 提供 `editing`、`saving`、`importing`、`dirty`、`pendingLocalChanges`、`canUndo`、`canRedo`、`changeCount` 和 `selection`。`dirty` 表示相对本次来源仍有净差异，不代表后台是否已持久化；有保存回调时同样会记录差异。`pendingLocalChanges` 只统计实际改动的活动输入及无保存回调的本地净修改；成功调用保存接口后，差异审阅仍可保留，但不会被误判为未保存。取消输入或本地撤销回原值会清除对应待保存状态。冻结、工具偏好与字段定位见[预览交互](./INTERACTION.md)。
+只读 `state` 提供 `editing`、`saving`、`importing`、`dirty`、`pendingLocalChanges`、`canUndo`、`canRedo`、`changeCount` 和 `selection`。`dirty` 表示相对本次来源仍有净差异，不代表后台是否已持久化，有保存回调时同样会记录差异。`pendingLocalChanges` 包含实际改动的活动输入、无保存回调的本地净修改，以及冲突核对中保留的待提交意图。成功保存对应项后清除其待处理状态，差异审阅仍可保留。取消输入或本地撤销回原值会清除对应输入或本地差异的待保存状态。冻结、工具偏好与字段定位见[预览交互](./INTERACTION.md)。
 
 ## 不使用 Vue
 

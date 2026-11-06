@@ -1,3 +1,4 @@
+import { appendPreparedDiagnostics, matchingDiagnosticSummary, validReportDiagnosticLocation } from "./diagnostics";
 import { hasValidDataExplanation } from "../source/data-explanation";
 import { snapshotReportJson } from "../schema/json-snapshot";
 import type { PreparedReport, ReportPdfFontOptions, ReportRuntimeBudget, ReportRuntimeExportInput, ReportRuntimePreparedExportInput } from "./types";
@@ -88,7 +89,8 @@ export function validPreparedSources(value: unknown): boolean {
 export function validatePreparedMetadata(snapshot: PreparedReport): void {
   if (!validPreparedSources(snapshot.sources)) throw new ReportSourceError("validate", "准备结果来源清单无效");
   if (!snapshot?.stats || ["rows", "pages", "cells"].some(key => !Number.isSafeInteger(snapshot.stats[key as "rows"]) || snapshot.stats[key as "rows"] < 0) || !Number.isFinite(snapshot.stats.durationMs) || snapshot.stats.durationMs < 0) throw new ReportSourceError("validate", "准备结果统计无效");
-  if (!Array.isArray(snapshot.diagnostics) || snapshot.diagnostics.some(entry => !entry || typeof entry.code !== "string" || typeof entry.message !== "string" || !["info", "warning", "error"].includes(entry.severity) || !hasValidDataExplanation(entry))) throw new ReportSourceError("validate", "准备结果诊断无效");
+  if (!Array.isArray(snapshot.diagnostics) || snapshot.diagnostics.some(entry => !entry || typeof entry.code !== "string" || typeof entry.message !== "string" || !["info", "warning", "error"].includes(entry.severity) || !hasValidDataExplanation(entry) || !validReportDiagnosticLocation(entry))) throw new ReportSourceError("validate", "准备结果诊断无效");
+  if (snapshot.diagnosticSummary !== undefined && !matchingDiagnosticSummary(snapshot.diagnosticSummary, snapshot.diagnostics)) throw new ReportSourceError("validate", "准备结果诊断摘要无效");
   if (!snapshot.revisions || typeof snapshot.revisions !== "object" || Array.isArray(snapshot.revisions) || Object.values(snapshot.revisions).some(value => !value || typeof value !== "object" || value.revision !== undefined && typeof value.revision !== "string" || value.sourceToken !== undefined && typeof value.sourceToken !== "string")) throw new ReportSourceError("validate", "准备结果修订无效");
   if (snapshot.layout && (!["heuristic", "provided", "font-bytes"].includes(snapshot.layout.textMetrics) || snapshot.layout.fontFingerprint !== undefined && !/^[a-f0-9]{64}$/.test(snapshot.layout.fontFingerprint))) throw new ReportSourceError("validate", "准备结果字体度量标识无效");
 }
@@ -97,12 +99,12 @@ export function checkPreparedFont(input: ReportRuntimePreparedExportInput): void
   if (input.layoutPolicy !== undefined && !["verify", "preserve"].includes(input.layoutPolicy)) throw new ReportSourceError("validate", "无效的 layoutPolicy");
   if (input.format !== "pdf") return;
   if (input.layoutPolicy === "preserve" && !input.prepared.layout?.fontFingerprint) {
-    input.prepared.diagnostics.push({ code: "prepared-layout-preserved", severity: "info", message: "显式保持现有分页与几何；未验证排版字体身份，实际 PDF 输出仍遵循 fidelity 校验。" });
+    appendPreparedDiagnostics(input.prepared, [{ code: "prepared-layout-preserved", severity: "info", message: "显式保持现有分页与几何；未验证排版字体身份，实际 PDF 输出仍遵循 fidelity 校验。" }]);
     return;
   }
   const expected = input.prepared.layout?.fontFingerprint, actual = reportFontFingerprint(input.pdf);
   if (expected === actual && (expected !== undefined || input.prepared.layout?.textMetrics === "heuristic" && !actual)) return;
   const message = "已准备计划的字体度量无法与本次 PDF 字体确认一致；保持现有分页，未重新查询或排版。请在 prepare 和 exportPrepared 提供相同字体字节。";
   if (input.fidelity === "strict") throw new ReportSourceError("validate", message);
-  input.prepared.diagnostics.push({ code: "prepared-font-metrics", severity: "warning", message });
+  appendPreparedDiagnostics(input.prepared, [{ code: "prepared-font-metrics", severity: "warning", message }]);
 }

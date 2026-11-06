@@ -1,9 +1,11 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { ListComponent, ReportTemplateDocument } from "@agile-team/mach-report";
 import { CANVAS_MM_TO_PX, componentGeometry, type CanvasSelection } from "./canvas-commands";
+import { useDesignerViewport } from "./workspace-view";
 interface CanvasViewportOptions { document: ReportTemplateDocument; pageIndex: number; selection?: CanvasSelection; columnIndex?: number }
 /** Viewport changes never write the template or trigger pagination. */
 export function useCanvasViewport(props: CanvasViewportOptions) {
+  const workspaceViewport = useDesignerViewport();
   const viewport = ref<HTMLElement>(), zoom = ref(.8), fraction = ref(0), width = ref(0);
   const scale = computed(() => zoom.value * CANVAS_MM_TO_PX);
   const page = computed(() => props.document.template.pages[props.pageIndex]!);
@@ -32,6 +34,7 @@ export function useCanvasViewport(props: CanvasViewportOptions) {
     const node = viewport.value; if (!node) return;
     width.value = node.clientWidth;
     fraction.value = node.scrollWidth > node.clientWidth ? Math.round(node.scrollLeft / (node.scrollWidth - node.clientWidth) * 100) : 0;
+    workspaceViewport?.changed();
   }
   function navigate(value: number): void {
     const node = viewport.value; if (node) node.scrollLeft = (node.scrollWidth - node.clientWidth) * value / 100;
@@ -66,7 +69,19 @@ export function useCanvasViewport(props: CanvasViewportOptions) {
   watch(() => [props.selection, props.columnIndex, props.pageIndex], () => { void reveal(); });
   watch(() => props.document.id, () => { automatic = !!props.document.template.repeat; void nextTick(refresh); });
   watch(() => [!!props.document.template.repeat, props.pageIndex, page.value.widthMm, page.value.heightMm], () => { void nextTick(refresh); });
-  onMounted(() => { refresh(); if (typeof ResizeObserver !== "undefined" && viewport.value) { observer = new ResizeObserver(scheduleRefresh); observer.observe(viewport.value); } });
-  onBeforeUnmount(() => { observer?.disconnect(); if (refreshFrame) cancelAnimationFrame(refreshFrame); });
+  let unregisterViewport: (() => void) | undefined;
+  onMounted(() => {
+    refresh();
+    unregisterViewport = workspaceViewport?.register({ read: () => ({ zoom: zoom.value, left: viewport.value?.scrollLeft ?? 0, top: viewport.value?.scrollTop ?? 0 }), restore(view) {
+      automatic = false; zoom.value = view.zoom;
+      void nextTick(() => { if (viewport.value) { viewport.value.scrollLeft = view.left; viewport.value.scrollTop = view.top; sync(); } });
+    }, reset() {
+      automatic = !!props.document.template.repeat; zoom.value = .8;
+      void nextTick(() => { if (viewport.value) { viewport.value.scrollLeft = 0; viewport.value.scrollTop = 0; refresh(); } });
+    } });
+    if (typeof ResizeObserver !== "undefined" && viewport.value) { observer = new ResizeObserver(scheduleRefresh); observer.observe(viewport.value); }
+  });
+  watch(zoom, () => workspaceViewport?.changed());
+  onBeforeUnmount(() => { unregisterViewport?.(); observer?.disconnect(); if (refreshFrame) cancelAnimationFrame(refreshFrame); });
   return { viewport, zoom, scale, page, wide, fraction, fit, setZoom, sync, navigate };
 }

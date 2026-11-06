@@ -9,6 +9,7 @@ import type { ReportBeforeDiscard, ReportOutputOptions } from "./guards";
 import type { AssetRenderOptions } from "@agile-team/mach-report";
 import type { ReportCalculationMessages } from "./composables/useSelectionCalculation";
 import { DEFAULT_PRINT_MESSAGES, type ReportPrintMessages, type ReportPrintOptions } from "./print-options";
+import { DEFAULT_CONFLICT_MESSAGES, type ConflictReviewMessages } from "./conflict-messages";
 
 /**
  * 配置中心（对齐 mach-table 的 defineMachTableConfig 体验）：
@@ -18,7 +19,7 @@ import { DEFAULT_PRINT_MESSAGES, type ReportPrintMessages, type ReportPrintOptio
  */
 
 /** 工具栏与状态文案（默认简体中文；出海场景覆写） */
-export interface MachReportMessages extends Partial<ReportCalculationMessages>, Partial<ReportDataReviewMessages>, ReportPrintMessages, ReportParamOptionsMessages {
+export interface MachReportMessages extends Partial<ReportCalculationMessages>, Partial<ReportDataReviewMessages>, Partial<ConflictReviewMessages>, ReportPrintMessages, ReportParamOptionsMessages {
   previousSnapshot?: string;
   reviewTools?: string;
   validationTitle?: string;
@@ -27,6 +28,21 @@ export interface MachReportMessages extends Partial<ReportCalculationMessages>, 
   validationDataset?: string;
   validationRow?: string;
   validationMore?: string;
+  validationSearch?: string;
+  validationSearchPlaceholder?: string;
+  validationSeverity?: string;
+  validationAllSeverities?: string;
+  validationDatasetFilter?: string;
+  validationAllDatasets?: string;
+  validationResults?: string;
+  validationRange?: string;
+  validationPage?: string;
+  validationEmpty?: string;
+  validationNoMatches?: string;
+  validationClear?: string;
+  validationLoading?: string;
+  validationUnavailable?: string;
+  validationFailureSummary?: string;
   drillActions?: string;
   drillOpening?: string;
   drillMissingValue?: string;
@@ -197,6 +213,8 @@ export interface MachReportMessages extends Partial<ReportCalculationMessages>, 
   diagnosticsTitle?: string;
   diagnosticsSearch?: string;
   diagnosticsMore?: string;
+  diagnosticsOmitted?: string;
+  diagnosticsShowMore?: string;
   diagnosticsLocate?: string;
   diagnosticsLocation?: string;
   diagnosticsStrict?: string;
@@ -256,10 +274,12 @@ export function resolveCalculationMessages(messages: Partial<ReportCalculationMe
 }
 
 export const DEFAULT_MESSAGES: MachReportMessages = {
+  ...DEFAULT_CONFLICT_MESSAGES,
   previousSnapshot: "当前保留上次成功结果，刷新成功后恢复编辑和输出。",
   ...PARAM_OPTIONS_MESSAGES,
   ...DEFAULT_DATA_REVIEW_MESSAGES,
   reviewTools: "数据工具", validationTitle: "数据校验", validationError: "错误", validationWarning: "提示", validationDataset: "全表", validationRow: "行", validationMore: "请缩小范围查看更多问题",
+  validationFailureSummary: "发现 {count} 项校验问题，请在数据校验中核对。",
   drillActions: "查看关联", drillOpening: "正在打开…", drillMissingValue: "当前单元格缺少关联参数", drillFailed: "关联内容打开失败，请重试",
   ...DEFAULT_PRINT_MESSAGES,
   ...DEFAULT_CALCULATION_MESSAGES,
@@ -364,6 +384,8 @@ export const DEFAULT_MESSAGES: MachReportMessages = {
   discardTitle: "保留当前修改？", discardDescription: "当前报表有尚未保存的输入或本地草稿，继续操作将替换这些内容。", discardKeep: "继续编辑", discardProceed: "放弃修改并继续",
   taskQuery: "正在获取数据…", taskValidate: "正在校验数据…", taskLayout: "正在生成版式…", taskAssets: "正在准备图片和字体…", taskEncode: "正在生成文件…", taskDownload: "正在准备下载…", taskPrint: "正在准备打印…", taskCancel: "取消任务", taskCancelled: "任务已取消，可重新操作。",
   diagnosticsSearch: "搜索提示、错误码或位置", diagnosticsMore: "共 {count} 条匹配，当前展示前 100 条；请搜索缩小范围。",
+  diagnosticsOmitted: "另有 {count} 条，当前展示有界定位样本。",
+  diagnosticsShowMore: "显示更多定位样本",
   diagnosticsTitle: "输出兼容性提示", diagnosticsLocate: "定位", diagnosticsLocation: "第 {page} 页 · 组件 {component}", diagnosticsStrict: "当前格式存在已知内容降级，请查看兼容性提示或选择其他输出格式。",
   diagnosticsDetails: "查看技术详情", diagnosticMissingImage: "图片或图表资源尚未准备完成，请重试或联系管理员。", diagnosticUnsupported: "当前输出格式会省略此内容，建议选择 PDF 或图片格式。", diagnosticUnsupportedStyle: "当前格式无法保留部分样式，请查看位置并选择适合的输出格式。", diagnosticImageFormat: "当前图片格式无法直接导出，请转换资源后重试。", diagnosticRichText: "文字内容会保留，部分字体与段落样式将简化。", diagnosticNested: "单元格中的嵌套内容会省略，单元格文字会保留。", diagnosticImageAsync: "图片需要完成加载后才能输出。", diagnosticImageDecode: "图片加载失败，请检查资源后重试。", diagnosticAssetFailed: "图表或图片生成失败，请重试或联系管理员。", diagnosticAssetBudget: "图片资源超出处理范围，请减少资源或缩小报表范围。"
 };

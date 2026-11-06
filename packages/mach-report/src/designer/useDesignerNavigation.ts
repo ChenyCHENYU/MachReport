@@ -1,7 +1,8 @@
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, ref, shallowRef, watch } from "vue";
 import type { useTemplateEditor } from "./useTemplateEditor";
 import type { useTemplateWorkspace } from "./useTemplateWorkspace";
 import type { useTemplateInspector, TemplateInspectorSection } from "./useTemplateInspector";
+import { resolveDesignerLocation, type DesignerLocation } from "./template-location";
 
 /** Targets, tool visibility and unapplied configuration move together, independently of rendering. */
 export function useDesignerNavigation(editor: ReturnType<typeof useTemplateEditor>, workspace: ReturnType<typeof useTemplateWorkspace>, inspector: ReturnType<typeof useTemplateInspector>, host: { id: string; readonly(): boolean; capabilities?(): Partial<Record<string, boolean>> | undefined }) {
@@ -67,6 +68,28 @@ export function useDesignerNavigation(editor: ReturnType<typeof useTemplateEdito
           : m.value.ready,
   );
   let targetRevision = 0;
+  const diagnosticTarget = workspace.diagnosticTarget;
+  const locationNotice = ref("");
+  const returnToReview = shallowRef<{ focus?: HTMLElement; scroll: Array<{ element: HTMLElement; top: number; left: number }> }>();
+  watch([() => editor.draft.value.id, editor.toolEpoch], () => { diagnosticTarget.value = undefined; returnToReview.value = undefined; locationNotice.value = ""; });
+  function captureReview(): void {
+    if (section.value !== "tools" || tool.value !== "review" || returnToReview.value) return;
+    const focus = typeof document === "undefined" ? undefined : document.activeElement as HTMLElement | null;
+    const scroll: Array<{ element: HTMLElement; top: number; left: number }> = [];
+    for (let element = focus?.parentElement; element && !element.classList.contains("mr-designer"); element = element.parentElement)
+      scroll.push({ element, top: element.scrollTop, left: element.scrollLeft });
+    returnToReview.value = { focus: focus ?? undefined, scroll };
+  }
+  async function backToReview(): Promise<void> {
+    const revision = ++targetRevision;
+    const previous = returnToReview.value;
+    section.value = "tools"; tool.value = "review"; diagnosticTarget.value = undefined;
+    await nextTick();
+    if (revision !== targetRevision) return;
+    previous?.scroll.forEach(({ element, top, left }) => { if (element.isConnected) { element.scrollTop = top; element.scrollLeft = left; } });
+    if (previous?.focus?.isConnected) previous.focus.focus({ preventScroll: true });
+    returnToReview.value = undefined;
+  }
   async function chooseCanvas(selection: Parameters<typeof chooseCanvasUnchecked>[0]): Promise<void> {
     const revision = ++targetRevision;
     const keepTool = section.value === "tools";
@@ -76,16 +99,23 @@ export function useDesignerNavigation(editor: ReturnType<typeof useTemplateEdito
     chooseCanvasUnchecked(selection);
     if (keepTool) section.value = "tools";
   }
-  async function locateReview(location: Parameters<typeof locateReviewUnchecked>[0]): Promise<void> {
+  async function locateReview(location: DesignerLocation): Promise<void> {
     const revision = ++targetRevision;
     const keepTool = section.value === "tools" && tool.value === "outline";
-    const path = /\.pages\[(\d+)\]\.components\[(\d+)\]/.exec(location.path ?? "");
-    const pageIndex = location.pageIndex ?? (path ? Number(path[1]) : undefined), componentIndex = location.componentIndex ?? (path ? Number(path[2]) : undefined);
+    const resolved = resolveDesignerLocation(editor.draft.value, location, false, host.capabilities?.());
+    if (!resolved.target) { locationNotice.value = m.value[`location${resolved.reason === "removed" ? "Removed" : resolved.reason === "external" ? "External" : "Unavailable"}`]; return; }
+    const destination = resolved.target;
+    const { pageIndex, componentIndex } = destination;
     const target = lists.value.findIndex(item => item.pageIndex === pageIndex && item.componentIndex === componentIndex);
     if (target >= 0 && target !== selected.value && editor.isToolPending("rules") && !await editor.guardChanges()) return;
     if (revision !== targetRevision) return;
-    locateReviewUnchecked(location);
-    if (keepTool) section.value = "tools";
+    captureReview();
+    locateReviewUnchecked({ ...location, ...destination });
+    if (destination.columnIndex !== undefined) inspector.activate(destination.columnIndex);
+    section.value = keepTool && !destination.tool ? "tools" : destination.section;
+    if (destination.tool) tool.value = destination.tool;
+    diagnosticTarget.value = { ...destination };
+    locationNotice.value = "";
   }
   async function chooseRuleList(event: Event): Promise<void> {
     const revision = ++targetRevision;
@@ -118,5 +148,5 @@ export function useDesignerNavigation(editor: ReturnType<typeof useTemplateEdito
       ?.querySelector<HTMLButtonElement>(`#${id}-tab-${section.value}`)
       ?.focus();
   }
-  return { sections, toolPreview, setMode, toggleToolPreview, chooseToolComponent, openBinding, pendingConfigurations, saveReason, openPending, headingStatus, chooseCanvas, locateReview, chooseRuleList, navigateSection };
+  return { sections, toolPreview, setMode, toggleToolPreview, chooseToolComponent, openBinding, pendingConfigurations, saveReason, openPending, headingStatus, chooseCanvas, locateReview, chooseRuleList, navigateSection, diagnosticTarget, locationNotice, returnToReview, backToReview };
 }

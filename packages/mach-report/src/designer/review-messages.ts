@@ -1,4 +1,7 @@
 export const TEMPLATE_REVIEW_MESSAGES = {
+  locationRemoved: "已删除，仅保留变更记录",
+  locationExternal: "请核对样例或来源契约",
+  locationUnavailable: "请核对问题路径",
   cancel: "取消检查",
   cancelled: "本次检查已取消，没有替换上次结果。",
   progress: "组样例已检查",
@@ -63,4 +66,4 @@ export const TEMPLATE_REVIEW_MESSAGES = {
   },
   kinds: { added: "新增", removed: "删除", modified: "修改", moved: "调序" },
 };
-export type TemplateReviewMessages = typeof TEMPLATE_REVIEW_MESSAGES;
+export type TemplateReviewMessages = Omit<typeof TEMPLATE_REVIEW_MESSAGES, "locationRemoved" | "locationExternal" | "locationUnavailable"> & Partial<Pick<typeof TEMPLATE_REVIEW_MESSAGES, "locationRemoved" | "locationExternal" | "locationUnavailable">>;

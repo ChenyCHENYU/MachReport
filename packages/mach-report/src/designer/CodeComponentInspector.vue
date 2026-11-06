@@ -16,7 +16,7 @@ function symbology(event: Event): void {
 <template>
   <div class="mr-code-properties">
     <h3>{{ m.codeSettings }}</h3>
-    <label v-if="!component.binding">{{ m.codeValue }}<textarea rows="2" :value="component.code?.value ?? component.fallbackText ?? component.text ?? ''" :disabled="disabled" @change="patch({ value: input($event) })" /></label>
+    <label v-if="!component.binding">{{ m.codeValue }}<textarea rows="2" data-mr-control="code-value" :value="component.code?.value ?? component.fallbackText ?? component.text ?? ''" :disabled="disabled" @change="patch({ value: input($event) })" /></label>
     <label v-if="component.kind === 'barcode'">{{ m.codeSymbology }}<select :value="component.code?.symbology ?? 'code128'" :disabled="disabled" @change="symbology"><option value="code128">Code 128</option><option value="code39">Code 39</option><option value="ean13">EAN-13</option><option value="ean8">EAN-8</option></select></label>
     <label v-if="component.kind === 'barcode'" class="mr-code-checkbox"><input type="checkbox" :checked="component.code?.showText === true" :disabled="disabled" @change="patch({ showText: ($event.target as HTMLInputElement).checked })" />{{ m.codeShowText }}</label>
     <details class="mr-code-advanced">

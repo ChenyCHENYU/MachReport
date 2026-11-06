@@ -3,8 +3,11 @@ import { computed, ref, watch } from "vue";
 import { validateReportParamDefinitions, type ReportParamDef, type ReportTemplateDocument } from "@agile-team/mach-report";
 import { useTemplateToolDraft } from "./useTemplateToolDrafts";
 import { PARAM_EDITOR_MESSAGES, type ParamEditorMessages } from "./param-messages";
+import type { DesignerTarget } from "./template-location";
 
 export interface ParamEditorOptions {
+  /** Advanced navigation supplied by the template workspace; optional for standalone forms. */
+  location?: Pick<DesignerTarget, "paramField" | "control">;
   document: ReportTemplateDocument;
   readonly?: boolean;
   messages?: Partial<ParamEditorMessages>;

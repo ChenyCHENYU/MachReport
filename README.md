@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.23.1-2563eb" alt="Source version 2.23.1" />
+  <img src="https://img.shields.io/badge/source-2.24.0-2563eb" alt="Source version 2.24.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -84,6 +84,8 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 大文件编码、压缩期硬取消 | [自动执行策略](./docs/guides/automatic-export.md)：浏览器一个Worker工厂，Node自动定位线程入口 |
 | 持续回归与设备交接 | [深层测试](./docs/DEEP_VALIDATION.md) · [Office与设备验收](./docs/EXTERNAL_ACCEPTANCE.md) · [迭代安排](./docs/NEXT_ITERATION.md) |
 
+同次预览发布复用来源与几何索引。内置来源会话中，普通列表的纯字符串编辑在证明所有镜像换行数不变时复用未修改布局，计算、分组、格式化与复杂绑定沿用完整重排。输出诊断默认展示有界定位样本并保留准确总数，显式完整诊断接口继续可用。
+
 稳定业务键的数据源自动维护编辑重算会话，独立报表默认隔离；镜像来源显式声明共享。保存前准备重算，成功后更新派生结果与修订，导出等待在途编辑。工作簿公式继续只显示缓存结果。严格输出拒绝已知缺字或损坏图片，宽松策略返回明确诊断。
 
 设计工具按需加载，设计与成品预览分别保留视角；多选移动、复制、删除和批量添加字段都复用一笔撤销事务。绑定图表在画布使用有界真实样本，标明样本范围。大列目录窗口化，连续 Excel 按工作量让出执行并响应取消。可选自动执行同时估算主表与附加表，隔离编码并覆盖最终压缩期硬取消；已准备结果原样交付，无需再次取数。
@@ -99,6 +101,10 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 工作台统一主题 | 应用 `defaults.theme` 同时控制预览、设计器与独立工具面板；编辑器和标签工作台沿用 `preview.theme` 做局部覆盖 |
 | 明确的只读原因 | `toolbar.unavailableReasons` 解释宿主约束，选中单元格显示公式、汇总、保护或权限原因；`editable.readOnlyReason` 可补充业务说明 |
 | 长会话修改审阅 | 净差异增量维护，明细按业务字段、行键和数据集检索，每批显示100项；`editable.history` 可选调整撤销预算 |
+| 保存上下文自动绑定 | `createProviderEditing(provider)` 绑定当前成功查询的参数、修订和来源令牌，字段权限仍由宿主声明 |
+| 冲突核对与恢复 | 包内保留整批修改，对照原值、本地值与最新值，选择后重新校验、计算并原子提交 |
+| 检查结果可追溯 | 搜索、级别与数据集筛选，每页100项，设计器定位具体属性后可返回原问题列表 |
+| 可选设计位置恢复 | `draftStorage.rememberView: true` 记住同一模板的设计任务、缩放与滚动，沿用已有存储适配器 |
 | 轻量模板工作流 | `/designer` 的 `useTemplateWorkbench` 复用草稿保护、操作去重与可等待套用，项目提供业务回调 |
 | 单次 Excel 编码 | `additionalSheets` 在编码前追加说明表，`sheetNames` 可跨 Worker 传递，继续修改工作簿可用 `renderPlanToWorkbook` |
 
@@ -719,7 +725,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.23.1`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.24.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准，npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

@@ -7,19 +7,21 @@ import {
   type RenderPlan, type ReportCellAddress, type ReportCellContext, type ReportCellEdit, type ReportCellInput, type ReportEditBatch, type ReportPreparedEdit,
   type ReportEditConflict, type ReportEditResult
 } from "@agile-team/mach-report";
-import type { ReportEditOperation, ReportEditingOptions } from "../editing";
+import type { ReportEditOperation, ReportEditingOptions, ReportEditQueryContext } from "../editing";
 import { cloneReportSnapshot } from "../snapshot";
 import { resolveCellField } from "../cell-field";
-import { assertRecalculationReady, createEditAddressResolver, prepareCurrentTransaction, prepareHistoryTransaction, type EditTransaction, type HistoryEditTarget } from "./edit-recalculation";
+import { assertRecalculationReady, createEditAddressResolver, prepareCurrentTransaction, prepareHistoryTransaction, type EditTransaction, type HistoryEditTarget, type EditAddressResolver } from "./edit-recalculation";
 import { createBoundedEditHistory, editHistoryLimits, mergeEditDifferences } from "./edit-history-state";
 
 export interface EditHistoryHost {
   plan: Ref<RenderPlan | null>;
   options: Readonly<Ref<boolean | ReportEditingOptions>>;
+  query?(): Readonly<ReportEditQueryContext> | null;
   blocked(): boolean;
   onChange(edit: ReportCellEdit): void;
   onError(message: string, cause: unknown): void;
   errorMessage?(cause: unknown): string;
+  addressResolver?(plan: RenderPlan): EditAddressResolver;
 }
 export class ReportEditConflictError extends Error {
   constructor(public readonly conflicts: readonly ReportEditConflict[]) { super(conflicts.map((item) => item.message).join("；")); this.name = "ReportEditConflictError"; }
@@ -48,11 +50,14 @@ export function useEditHistory(host: EditHistoryHost) {
   const validationIssues = shallowRef<readonly ReportValidationIssue[]>([]);
   const lastError = shallowRef<string | null>(null);
   const localDifferences = shallowRef<ReportCellEdit[]>([]);
+  const pendingEdits = shallowRef<readonly ReportCellEdit[]>([]);
+  const pendingRevision = shallowRef(0);
+  const hasPendingEdits = computed(() => pendingEdits.value.length > 0);
   const hasLocalDrafts = computed(() => localDifferences.value.length > 0);
   const differences = computed(() => {
     const items = netDifferences.value, plan = host.plan.value;
     if (!plan || !items.length) return items;
-    const resolve = createEditAddressResolver(plan);
+    const resolve = (host.addressResolver ?? createEditAddressResolver)(plan);
     return items.map((edit) => { const address = resolve(edit); return address ? { ...edit, address } : edit; });
   });
   const historyLimited = computed(() => historyState.value.limited);
@@ -64,13 +69,26 @@ export function useEditHistory(host: EditHistoryHost) {
   let retry: { plan: RenderPlan; signature: string; requestId: string } | null = null;
 
   function cancel(): void { controller?.abort(); controller = null; saving.value = false; pending = null; }
-  function reset(): void { generation++; cancel(); retry = null; changes.value = []; retained.clear(); triggerRef(historyState); net.clear(); local.clear(); netDifferences.value = []; conflicts.value = []; validationIssues.value = []; localDifferences.value = []; lastError.value = null; }
+  function reset(): void { generation++; pendingRevision.value++; cancel(); retry = null; changes.value = []; retained.clear(); triggerRef(historyState); net.clear(); local.clear(); netDifferences.value = []; conflicts.value = []; pendingEdits.value = []; validationIssues.value = []; localDifferences.value = []; lastError.value = null; }
+  function getPendingEdits(): ReportCellEdit[] {
+    const intentions = new Map<string, ReportCellEdit>();
+    mergeEditDifferences(intentions, localDifferences.value);
+    mergeEditDifferences(intentions, pendingEdits.value);
+    return cloneReportSnapshot([...intentions.values()]);
+  }
+  function retainPending(edits: readonly ReportCellEdit[], issues: readonly ReportEditConflict[] = []): void {
+    if (edits.length > 10_000) throw new ReportCellEditError("limit");
+    pendingEdits.value = cloneReportSnapshot(edits);
+    pendingRevision.value++;
+    conflicts.value = cloneReportSnapshot(issues);
+  }
   function options(): ReportEditingOptions | null {
     const option = host.options.value;
     return option ? typeof option === "object" ? option : {} : null;
   }
   function allowed(plan: RenderPlan, batch: ReportEditBatch, option: ReportEditingOptions, contexts?: readonly ReportCellContext[]): void {
     if (!host.options.value || host.blocked()) throw new ReportCellEditError("readonly");
+    if (new Set([...pendingEdits.value, ...batch.edits].map(reportCellEditKey)).size > 10_000) throw new ReportCellEditError("limit");
     assertRecalculationReady(plan, batch.edits.every((edit) => !!edit.source));
     const resolve = createReportCellResolver(plan), retained = new Map(contexts?.map((context) => [reportCellEditKey(context), context]));
     for (const edit of batch.edits) {
@@ -103,7 +121,7 @@ export function useEditHistory(host: EditHistoryHost) {
     } else mergeEditDifferences(local, batch.edits);
     localDifferences.value = [...local.values()];
     if (action === "edit") { retained.append(batch.edits, limits); triggerRef(historyState); }
-    conflicts.value = [];
+    clearPending(batch.edits);
     retry = null;
     const currentGeneration = generation;
     for (const edit of batch.edits) {
@@ -119,6 +137,28 @@ export function useEditHistory(host: EditHistoryHost) {
   function reportFailure(cause: unknown): void {
     lastError.value = host.errorMessage?.(cause) ?? (cause instanceof Error ? cause.message : "Cell edit failed");
     host.onError(lastError.value, cause);
+  }
+  function clearPending(edits: readonly ReportCellEdit[]): void {
+    const saved = new Set(edits.map(reportCellEditKey));
+    pendingEdits.value = pendingEdits.value.filter(edit => !saved.has(reportCellEditKey(edit)));
+    pendingRevision.value++;
+    if (!pendingEdits.value.length) conflicts.value = [];
+  }
+  function rememberPending(batch: ReportEditBatch, issues: readonly ReportEditConflict[]): void {
+    const intentions = new Map(pendingEdits.value.map(edit => [reportCellEditKey(edit), edit]));
+    mergeEditDifferences(intentions, batch.edits);
+    retainPending([...intentions.values()], issues);
+  }
+  function assertSaveResult(batch: ReportEditBatch, result: void | ReportEditResult): void {
+    if (!result?.conflicts?.length) return;
+    rememberPending(batch, result.conflicts);
+    throw new ReportEditConflictError(result.conflicts);
+  }
+  function retainFailure(cause: unknown, batch: ReportEditBatch | null): unknown {
+    if (!batch || !(cause instanceof ReportCellEditError) || cause.code !== "conflict") return cause;
+    const issues = batch.edits.map(edit => ({ source: edit.source, address: edit.address, message: host.errorMessage?.(cause) ?? cause.message }));
+    rememberPending(batch, issues);
+    return new ReportEditConflictError(issues);
   }
   watch(() => {
     const option = options();
@@ -152,18 +192,23 @@ export function useEditHistory(host: EditHistoryHost) {
     lastError.value = null;
     validationIssues.value = [];
     const isCurrent = () => controller === current && !current.signal.aborted && host.plan.value === plan && host.options.value !== false;
+    let attempted: ReportEditBatch | null = null;
     try {
       historyLimits = editHistoryLimits(option.history);
       const building = buildTransaction(plan, inputs, newRequestId(), current.signal);
       const transaction = building instanceof Promise ? await building : building;
       if (!isCurrent()) return false;
       const { batch, contexts } = transaction;
+      attempted = batch;
       allowed(plan, batch, option, contexts);
+      const requested = batch.edits;
       batch.edits = batch.edits.filter((edit) => !Object.is(edit.previousValue, edit.value));
-      if (!batch.edits.length) return true;
+      if (!batch.edits.length) { clearPending(requested); return true; }
       retainRequestId(plan, batch, action);
       allowed(plan, batch, option, contexts);
-      const operation: ReportEditOperation = { signal: current.signal, requestId: batch.requestId, action };
+      const query = host.query?.();
+      const operation: ReportEditOperation = { signal: current.signal, requestId: batch.requestId, action,
+        ...(query ? { query: cloneReportSnapshot(query) } : {}) };
       await validate(batch, option, operation);
       if (!isCurrent()) return false;
       allowed(plan, batch, option, contexts);
@@ -175,13 +220,13 @@ export function useEditHistory(host: EditHistoryHost) {
       if (!isCurrent()) return false;
       const result = await persist(batch, option, operation);
       if (!isCurrent()) return false;
-      if (result?.conflicts?.length) { conflicts.value = cloneReportSnapshot(result.conflicts); throw new ReportEditConflictError(result.conflicts); }
+      assertSaveResult(batch, result);
       allowed(plan, batch, option, contexts);
       publish(plan, batch, result, action, !!(option.save || option.saveBatch), historyLimits, transaction.prepared);
       return currentGeneration === generation;
     } catch (cause) {
       if (!isCurrent()) return false;
-      reportFailure(cause);
+      reportFailure(retainFailure(cause, attempted));
       return false;
     } finally { if (controller === current) { controller = null; saving.value = false; } }
   }
@@ -220,12 +265,12 @@ export function useEditHistory(host: EditHistoryHost) {
     return true;
   }
   function settle(): boolean | Promise<boolean> {
-    if (!pending) return !saving.value;
+    if (!pending) return !saving.value && !hasPendingEdits.value;
     const currentGeneration = generation;
-    return pending.then((success) => success && currentGeneration === generation && !saving.value);
+    return pending.then((success) => success && currentGeneration === generation && !saving.value && !hasPendingEdits.value);
   }
   function resolveAddress(edit: ReportCellEdit): ReportCellAddress | null {
-    return host.plan.value ? createEditAddressResolver(host.plan.value)(edit) : null;
+    return host.plan.value ? (host.addressResolver ?? createEditAddressResolver)(host.plan.value)(edit) : null;
   }
-  return { settle, resolveAddress, validationIssues, changes, differences, localDifferences, hasLocalDrafts, lastError, conflicts, saving, canUndo, canRedo, historyLimited, apply, undo, redo, restore, cancel, reset };
+  return { settle, resolveAddress, validationIssues, changes, differences, localDifferences, hasLocalDrafts, pendingEdits, pendingRevision, hasPendingEdits, getPendingEdits, retainPending, lastError, conflicts, saving, canUndo, canRedo, historyLimited, apply, undo, redo, restore, cancel, reset };
 }

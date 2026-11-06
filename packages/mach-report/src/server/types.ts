@@ -1,10 +1,11 @@
 import type { ReportTaskMonitoring, ReportTaskObserver } from "../source/task-events";
 import type { ReportRegistry } from "../source/report-source";
-import type { ReportDiagnostic } from "../source/provider";
+import type { ReportDiagnostic, ReportQuerySource } from "../source/provider";
 import type { RenderPlan } from "../schema/render-plan";
 import type { ReportParamValidation } from "../source/param-validation";
 import type { PaginateOptions, ReportParamDef } from "../layout/paginate";
 import type { ImageMediaOptions } from "../output/media";
+import type { DiagnosticSummary } from "../output/diagnostic-collector";
 import type { AssetRenderOptions } from "../output/assets";
 
 /** Licensed local font bytes; never downloaded implicitly by the runtime. */
@@ -15,6 +16,8 @@ export interface ReportPdfFontOptions {
 }
 export interface ReportRuntimeInput extends ReportTaskMonitoring {
   reportIds: string[]; params?: Record<string, string>; signal?: AbortSignal;
+  /** Explicit bounded diagnostic detail window (0–1000); default retains all details. */
+  diagnosticLimit?: number;
   /** Prepare using the same licensed font bytes later supplied to PDF output. */
   pdf?: ReportPdfFontOptions;
 }
@@ -31,16 +34,15 @@ export interface ReportRuntimeBudget {
 }
 export interface ReportRuntimeStats { rows: number; pages: number; cells: number; durationMs: number; outputBytes?: number }
 /** One query occurrence; repeated report IDs retain independent provenance. */
-export interface ReportRuntimeSource {
-  reportId: string;
-  reportIndex: number;
-  reportScope: string;
-  revision?: string;
-  sourceToken?: string;
+export interface ReportRuntimeSource extends ReportQuerySource {
+  /** Runtime provenance uses the same ordered occurrence scope as the query session. */
+  reportScope: ReportQuerySource["reportScope"];
 }
 export interface PreparedReport {
   plan: RenderPlan;
   diagnostics: ReportDiagnostic[];
+  /** Present when an explicit diagnosticLimit bounds the detail array. Totals include omitted locations. */
+  diagnosticSummary?: DiagnosticSummary<ReportDiagnostic>;
   stats: ReportRuntimeStats;
   revisions: Record<string, { revision?: string; sourceToken?: string }>;
   /** Ordered occurrences; legacy revisions remains last-value-by-ID for compatibility. */
@@ -61,6 +63,7 @@ export interface ReportRuntimePreparedExportInput extends ReportTaskMonitoring {
   layoutPolicy?: "verify" | "preserve";
   format: ReportRuntimeExportInput["format"];
   fidelity?: ReportRuntimeExportInput["fidelity"];
+  diagnosticLimit?: number;
   pdf?: ReportPdfFontOptions;
   xlsx?: ReportRuntimeExportInput["xlsx"];
   signal?: AbortSignal;

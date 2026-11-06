@@ -1,5 +1,5 @@
 import { onScopeDispose, ref, shallowRef, type Ref } from "vue";
-import type { AssetRenderOptions, RenderPlan } from "@agile-team/mach-report";
+import type { AssetRenderOptions, RenderPlan, ReportQueryContext } from "@agile-team/mach-report";
 import type { ReportRefreshOptions } from "../tools";
 import type { PlanFetcher } from "../adapters";
 import type { ExcelImportOptions, ExcelImportResult } from "../../xlsx/import-types";
@@ -9,10 +9,17 @@ import { MachReportError, normalizeReportLoadError, toErrorDetail } from "../err
 import { forwardOutputAbort } from "../../output/progress";
 import { scopeQueryDiagnostics } from "../query-diagnostics";
 import { cloneReportSnapshot } from "../snapshot";
-import { loadPreviewPlan, importPreviewPlan } from "../preview-plan";
+import { importPreviewPlan } from "../preview-plan";
+import { queryPreviewPlan } from "../preview-query";
 import { useLoadTiming } from "./useReportSearch";
 import type { usePreviewTask } from "./usePreviewTask";
-import type { usePreviewDiagnostics } from "./usePreviewDiagnostics";
+import { usePreviewDiagnostics } from "./usePreviewDiagnostics";
+
+export interface PreviewQueryCandidate {
+  plan: RenderPlan;
+  context: Readonly<ReportQueryContext>;
+  accept(beforeEvents?: () => void): boolean;
+}
 
 export type PreviewNotice = { kind: "error" | "warning" | "progress"; message: string };
 /** A query or import owns a generation and a captured source context, never the live form. */
@@ -28,10 +35,12 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
   const plan = shallowRef<RenderPlan | null>(null);
   const loading = ref(false), importing = ref(false), stale = ref(false);
   let loadedKey: string | undefined;
-  const loadedContext = shallowRef<{ reportIds: readonly string[]; params: Readonly<Record<string, string>> } | null>(null);
+  const loadedContext = shallowRef<Readonly<ReportQueryContext> | null>(null);
+  let loadedFetcher: PlanFetcher | null = null;
   const importedResult = shallowRef<Pick<ExcelImportResult, "sheets" | "warnings"> | null>(null);
   const { errorMessage, lastError, notice: exportNotice, reportError } = feedback;
   const timing = useLoadTiming();
+  const preparedDiagnostics = usePreviewDiagnostics(() => {});
   let destroyed = false;
   function invalidate(): void {
     view.invalidate();
@@ -41,6 +50,7 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
     importedResult.value = null;
     plan.value = null;
     loadedContext.value = null;
+    loadedFetcher = null;
     diagnostics.reset();
 
   }
@@ -48,6 +58,9 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
   /** 代际令牌：报表 ID 快速切换时，旧请求即使后返回也不得覆盖新数据 */
   let reloadSeq = 0;
   let loadController: AbortController | null = null;
+  let preparationController: AbortController | null = null;
+  let preparationSequence = 0;
+  function cancelPreparation(): void { preparationSequence++; preparationController?.abort(); preparationController = null; }
   function isCurrentLoad(seq: number, controller: AbortController): boolean {
     return seq === reloadSeq && !controller.signal.aborted && !destroyed;
   }
@@ -88,6 +101,7 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
     if (!(typeof ready === "boolean" ? ready : await ready)) return;
     if (destroyed) return;
     const seq = ++reloadSeq;
+    cancelPreparation();
     importing.value = false;
     loadController?.abort();
     loadController = null;
@@ -112,7 +126,7 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
     loading.value = true;
     errorMessage.value = "";
     exportNotice.value = null;
-    const previousDiagnostics = [...diagnostics.entries.value];
+    const previousDiagnostics = diagnostics.capture();
     const { retained, requestedKey, preservePosition } = beginRefresh(params);
     const t0 = timing.start();
     const controller = new AbortController();
@@ -120,10 +134,9 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
     const operation = task.start("query", "query", () => {
       if (loadController !== controller) return;
       controller.abort(); reloadSeq++; loadController = null; loading.value = false;
-      if (retained) { diagnostics.reset(); diagnostics.addMany(previousDiagnostics); }
+      if (retained) diagnostics.restore(previousDiagnostics);
     });
     const requestedIds = [...source.ids()];
-    const requestedParams = Object.freeze({ ...params });
     const reportedWarnings = new Set<string>();
     function reportWarning(message: string): void {
       if (seq !== reloadSeq || controller.signal.aborted || reportedWarnings.has(message)) return;
@@ -133,7 +146,7 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
       events.warning(message);
     }
     try {
-      const next = await loadPreviewPlan(fetcher, {
+      const next = await queryPreviewPlan(fetcher, {
         reportIds: requestedIds,
         params,
         taskId: operation.taskId,
@@ -145,21 +158,22 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
       if (!isCurrentLoad(seq, controller)) return;
       view.invalidate(preservePosition);
       importedResult.value = null;
-      plan.value = next;
+      plan.value = next.plan;
       stale.value = false;
       loadedKey = requestedKey;
-      loadedContext.value = Object.freeze({ reportIds: Object.freeze(requestedIds), params: requestedParams });
-      diagnostics.inspect(next, "dom");
+      loadedContext.value = next.context;
+      loadedFetcher = fetcher;
+      diagnostics.inspectSummary(next.plan, "dom");
       if (!isCurrentLoad(seq, controller)) return;
       operation.finish();
       timing.end(t0);
       view.accepted("query", preservePosition);
-      events.loaded(next.pages.length);
+      events.loaded(next.plan.pages.length);
     } catch (error) {
       if (seq !== reloadSeq) return;
       if (controller.signal.aborted) { operation.finish("cancelled"); return; }
       operation.finish("failed");
-      if (retained) { diagnostics.reset(); diagnostics.addMany(previousDiagnostics); }
+      if (retained) diagnostics.restore(previousDiagnostics);
       const normalized = normalizeReportLoadError(error);
       errorMessage.value = normalized.message;
       const detail = toErrorDetail(normalized);
@@ -168,6 +182,53 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
       if (seq === reloadSeq) loading.value = false;
       if (loadController === controller) loadController = null;
     }
+  }
+
+  /** Read a fresh candidate without replacing a report or discarding rejected edits. */
+  async function prepareLatest(signal: AbortSignal): Promise<PreviewQueryCandidate> {
+    const previousPlan = plan.value, previousContext = loadedContext.value, fetcher = loadedFetcher;
+    if (!previousPlan || !previousContext || !fetcher || fetcher !== source.fetcher() || destroyed || loading.value || importing.value) throw new MachReportError("edit", "当前报表缺少可重新查询的成功会话");
+    cancelPreparation();
+    const sequence = preparationSequence, querySequence = reloadSeq;
+    const controller = new AbortController(); preparationController = controller;
+    const disconnect = forwardOutputAbort(signal, controller);
+    const currentGeneration = () => !signal.aborted && !controller.signal.aborted && !destroyed && sequence === preparationSequence && querySequence === reloadSeq
+      && fetcher === loadedFetcher && fetcher === source.fetcher();
+    const current = () => currentGeneration() && previousPlan === plan.value && previousContext === loadedContext.value;
+    preparedDiagnostics.reset();
+    try {
+      const candidate = await queryPreviewPlan(fetcher, {
+        reportIds: [...previousContext.reportIds], params: { ...previousContext.params }, signal: controller.signal,
+        taskId: `${previousContext.queryId ?? "query"}:conflict:${sequence}`,
+        onQueryResult: (id, result, index) => { if (current()) preparedDiagnostics.addMany(scopeQueryDiagnostics(previousContext.reportIds, id, result.diagnostics ?? [], index)); },
+        onWarning: message => { if (current()) preparedDiagnostics.add({ code: "layout", severity: "warning", message }); },
+      }, policy.assets());
+      if (!current()) throw new DOMException("The report query was replaced", "AbortError");
+      preparedDiagnostics.inspectSummary(candidate.plan, "dom");
+      const captured = preparedDiagnostics.capture();
+      let accepted = false;
+      return { ...candidate, accept(beforeEvents) {
+        if (accepted || !current()) return false;
+        accepted = true; preparationController = null;
+        const previousDiagnostics = diagnostics.capture();
+        view.invalidate(true);
+        if (!current()) return false;
+        importedResult.value = null; errorMessage.value = ""; lastError.value = null; exportNotice.value = null;
+        loadedContext.value = candidate.context; plan.value = candidate.plan; stale.value = false;
+        try { beforeEvents?.(); }
+        catch (cause) {
+          if (currentGeneration() && plan.value === candidate.plan && loadedContext.value === candidate.context) {
+            loadedContext.value = previousContext; plan.value = previousPlan; diagnostics.restore(previousDiagnostics);
+          }
+          throw cause;
+        }
+        diagnostics.restore(captured, true);
+        if (!currentGeneration() || plan.value !== candidate.plan || loadedContext.value !== candidate.context) return false;
+        view.accepted("query", true);
+        events.loaded(candidate.plan.pages.length);
+        return currentGeneration() && plan.value === candidate.plan && loadedContext.value === candidate.context;
+      } };
+    } finally { disconnect(); }
   }
 
   function mergeExcelImportOptions(options?: ExcelImportOptions): ExcelImportOptions {
@@ -182,13 +243,14 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
     loadedKey = undefined;
     plan.value = next;
     loadedContext.value = null;
+    loadedFetcher = null;
     diagnostics.reset();
     importedResult.value = { sheets: cloneReportSnapshot(result.sheets), warnings: [...result.warnings] };
     errorMessage.value = "";
     exportNotice.value = result.warnings.length ? { kind: "warning", message: result.warnings.join("；") } : null;
     view.accepted("import");
     diagnostics.addMany(result.warnings.map((message) => ({ code: "excel-import", severity: "warning" as const, message })));
-    if (plan.value === next) diagnostics.inspect(next, "dom");
+    if (plan.value === next) diagnostics.inspectSummary(next, "dom");
   }
 
   /** Import is an explicit local replacement; business mapping/storage remains in the host. */
@@ -198,6 +260,7 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
     if (!(typeof ready === "boolean" ? ready : await ready)) return null;
     if (destroyed) return null;
     const seq = ++reloadSeq;
+    cancelPreparation();
     loadController?.abort();
     loadController = null;
     loading.value = false;
@@ -243,22 +306,25 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
 
   /** Manual-load hosts can change the next source without admitting an obsolete in-flight result. */
   function retainPrevious(): void {
+    cancelPreparation();
     if (loadController) task.cancel();
     reloadSeq++; loadController?.abort(); loadController = null;
     loading.value = false; importing.value = false;
     stale.value = !!plan.value;
   }
   function clear(): void {
+    cancelPreparation();
     reloadSeq++; loadController?.abort(); loadController = null;
     loading.value = false; errorMessage.value = ""; lastError.value = null; exportNotice.value = null;
     invalidate();
   }
   function dispose(): void {
+    cancelPreparation();
     destroyed = true; reloadSeq++; loadController?.abort(); loadController = null;
     loading.value = false; importing.value = false;
   }
   onScopeDispose(dispose);
-  return { plan, loading, importing, stale, loadedContext, importedResult, timing, reload, importExcel, invalidate, clear, retainPrevious };
+  return { plan, loading, importing, stale, loadedContext, importedResult, timing, reload, prepareLatest, importExcel, invalidate, clear, retainPrevious };
 }
 
 function sameContext(ids: readonly string[], params: Readonly<Record<string, string>>, previous: { reportIds: readonly string[]; params: Readonly<Record<string, string>> }): boolean {

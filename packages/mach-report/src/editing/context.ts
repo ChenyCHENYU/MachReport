@@ -1,4 +1,4 @@
-import { resolveGridLayout } from "../render/grid-geometry";
+import { resolveGridLayout, type GridLayout } from "../render/grid-geometry";
 import type { GridCell, PlanComponent, PlanTableFragment, RenderPlan, ReportCellSource } from "../schema/render-plan";
 
 export type ReportCellValue = string | number | boolean | null;
@@ -122,26 +122,50 @@ export function getReportCellContext(plan: RenderPlan, address: ReportCellAddres
   return located ? cellContext(component, address, located.cell) : null;
 }
 
-/** Operation-scoped index: avoids repeated geometry work without caching mutable plans globally. */
-export function createReportCellResolver(plan: RenderPlan): (address: ReportCellAddress) => ReportCellContext | null {
-  const components = new Map<PlanComponent, Map<string, GridCell>>();
-  return (address) => {
-    if (!validAddress(address)) return null;
-    const component = plan.pages[address.pageIndex]?.components[address.componentIndex];
-    if (!component?.grid) return null;
-    let index = components.get(component);
-    if (!index) {
+/** Internal owned index. Not re-exported by the public editing entry. */
+export function createReportCellIndex(plan: RenderPlan, retainGeometry = true) {
+  const components = new Map<PlanComponent, { layout?: GridLayout; cells: Map<string, GridCell> }>();
+  function grid(component: PlanComponent) {
+    if (!component.grid) return undefined;
+    let indexed = components.get(component);
+    if (!indexed) {
+      const layout = resolveGridLayout(component.grid, component.widthMm, component.heightMm);
       const sourceColumns = new Map<number, number>();
-      index = new Map();
-      for (const box of resolveGridLayout(component.grid, component.widthMm, component.heightMm).cells) {
+      const cells = new Map<string, GridCell>();
+      for (const box of layout.cells) {
         const sourceColumn = sourceColumns.get(box.ri) ?? 0;
         sourceColumns.set(box.ri, sourceColumn + 1);
         const cell = component.grid.cells[box.ri]?.[sourceColumn];
-        if (cell) index.set(`${box.ri}:${box.ci}`, cell);
+        if (cell) cells.set(`${box.ri}:${box.ci}`, cell);
       }
-      components.set(component, index);
+      indexed = { layout: retainGeometry ? layout : undefined, cells }; components.set(component, indexed);
     }
-    const cell = index.get(`${address.rowIndex}:${address.columnIndex}`);
+    return indexed;
+  }
+  function resolve(address: ReportCellAddress): ReportCellContext | null {
+    if (!validAddress(address)) return null;
+    const component = plan.pages[address.pageIndex]?.components[address.componentIndex];
+    if (!component) return null;
+    const cell = grid(component)?.cells.get(`${address.rowIndex}:${address.columnIndex}`);
     return cell ? cellContext(component, address, cell) : null;
-  };
+  }
+  function* entries(pageIndex: number, componentIndex: number): Generator<ReportCellContext> {
+    const component = plan.pages[pageIndex]?.components[componentIndex];
+    const indexed = component && grid(component);
+    if (!indexed) return;
+    for (const box of layout(component!)!.cells) {
+      const cell = indexed.cells.get(`${box.ri}:${box.ci}`);
+      if (cell) yield cellContext(component!, { pageIndex, componentIndex, rowIndex: box.ri, columnIndex: box.ci }, cell);
+    }
+  }
+  function layout(component: PlanComponent): GridLayout | undefined {
+    const indexed = grid(component);
+    return indexed && (indexed.layout ?? resolveGridLayout(component.grid!, component.widthMm, component.heightMm));
+  }
+  return { resolve, entries, layout };
+}
+
+/** Operation-scoped index: avoids repeated geometry work without caching mutable plans globally. */
+export function createReportCellResolver(plan: RenderPlan): (address: ReportCellAddress) => ReportCellContext | null {
+  return createReportCellIndex(plan, false).resolve;
 }

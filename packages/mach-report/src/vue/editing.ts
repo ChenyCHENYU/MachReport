@@ -1,10 +1,15 @@
 import type { ReportCandidateValidationOptions, ReportValidationIssue, ReportCellContext, ReportCellEdit, ReportCellFieldOptions, ReportEditBatch, ReportEditResult } from "../editing";
+import type { ReportQueryContext } from "../source/provider";
+
+export type ReportEditQueryContext = ReportQueryContext;
 
 export interface ReportEditOperation {
   /** Reload, another import or unmount aborts the operation. Save adapters should forward this signal. */
   signal: AbortSignal;
   requestId?: string;
   action?: "edit" | "undo" | "redo" | "restore";
+  /** Immutable context of the report being edited. */
+  query?: Readonly<ReportEditQueryContext>;
 }
 
 export interface ReportEditHistoryOptions {

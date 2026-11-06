@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { useDesignerTheme } from "./useDesignerTheme";
+import { useDesignerCursor } from "./workspace-view";
+import { focusDesignerControl } from "./designer-focus";
 const shellStyle = useDesignerTheme();
 import {
   getComputationMetadata,
@@ -43,10 +45,31 @@ defineExpose({ get pendingLocalChanges() { return pending.value; } });
 const explanation = useRuleExplanation(props, editor.formula, m);
 const { query: fieldQuery, matches: fieldMatches, fieldWindow, expression: expressionText, sources } = explanation;
 const metadata = getComputationMetadata();
+const workspaceCursor = useDesignerCursor();
+if (workspaceCursor) watch([tab, selectedComputed, groupIndex, column, conditionIndex, effect], () => {
+  const target = { tab: tab.value, field: tab.value === "computations" ? selectedComputed.value : column.value, index: tab.value === "groups" ? groupIndex.value : conditionIndex.value, effect: effect.value };
+  workspaceCursor.value = { ...workspaceCursor.value, rule: { key: props.recoveryKey ?? "rules:0:0", target } };
+}, { immediate: true });
+const root = ref<HTMLElement>();
+watch(() => props.location, async location => {
+  if (!location) return;
+  tab.value = location.tab;
+  if (location.tab === "computations" && location.field) editor.loadComputed(location.field);
+  if (location.tab === "groups") groupIndex.value = Math.max(0, Math.min(location.index ?? 0, groups.value.length - 1));
+  if (location.tab === "conditions") {
+    if (location.field) column.value = location.field;
+    effect.value = location.effect ?? "style";
+    editor.loadCondition(location.index ?? -1);
+  }
+  await nextTick();
+  if (props.location !== location) return;
+  const panel = root.value?.querySelector<HTMLElement>(".mr-rule-editor__panel");
+  focusDesignerControl(panel);
+}, { immediate: true });
 </script>
 
 <template>
-  <section class="mr-rule-editor" :style="shellStyle" :aria-label="m.settings">
+  <section ref="root" class="mr-rule-editor" :style="shellStyle" :aria-label="m.settings">
     <aside class="mr-rule-editor__directory">
 <div class="mr-rule-editor__tabs" role="tablist" :aria-label="m.settings">
       <button

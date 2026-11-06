@@ -2,6 +2,8 @@ import { validDataBar } from "../schema/data-bar";
 import { resolveGridLayout } from "../render/grid-geometry";
 import { assertBoundedRenderTree } from "../schema/component-tree";
 import { assertOutputActive, type OutputTaskOptions } from "./progress";
+import { createDiagnosticCollector, DEFAULT_DIAGNOSTIC_LIMIT, type DiagnosticSummary } from "./diagnostic-collector";
+export type { DiagnosticSummary } from "./diagnostic-collector";
 import { notifyOutputDiagnostic } from "./diagnostic-notification";
 import type { ComponentStyle, GridCell, PlanComponent, RenderPlan } from "../schema/render-plan";
 import { isImageBackedComponent } from "../schema/render-plan";
@@ -28,15 +30,19 @@ export interface OutputDiagnosticOptions extends OutputTaskOptions {
   onDiagnostic?: (diagnostic: OutputDiagnostic) => void;
   /** Reject known unsupported content before creating an incomplete file. Default warn. */
   fidelity?: "warn" | "strict";
+  /** Explicit bounded detail window (0–1000); omitted retains the complete diagnostic array. */
+  diagnosticLimit?: number;
 }
 
 export class OutputFidelityError extends Error {
   readonly code = "output-fidelity";
-  constructor(public readonly diagnostics: readonly OutputDiagnostic[]) {
-    super(`Output contains ${diagnostics.length} known fidelity issue(s): ${diagnostics[0]?.code}`);
+  constructor(public readonly diagnostics: readonly OutputDiagnostic[], public readonly diagnosticSummary?: DiagnosticSummary<OutputDiagnostic>) {
+    super(`Output contains ${diagnosticSummary?.total ?? diagnostics.length} known fidelity issue(s): ${diagnostics[0]?.code ?? Object.keys(diagnosticSummary?.counts ?? {})[0] ?? "unknown"}`);
     this.name = "OutputFidelityError";
   }
 }
+
+type DiagnosticSink = Pick<ReturnType<typeof createDiagnosticCollector<OutputDiagnostic>>, "push">;
 
 const VECTOR_KINDS = new Set(["text", "rect", "line", "ellipse"]);
 const IMAGE_KINDS = new Set(["image", "chart", "barcode", "qrcode"]);
@@ -84,7 +90,7 @@ function nestedExcelTextIssue(child: PlanComponent): Pick<OutputDiagnostic, "cod
   if (child.leftMm || child.topMm || style) return { code: "unsupported-style", message: `Nested XLSX text is retained as rich text in component order; absolute child offsets and independent paragraph styles are not retained.${style ? ` ${style}` : ""}` };
 }
 
-function collectRichStyleDiagnostics(comp: PlanComponent, format: OutputFormat, pageIndex: number, componentIndex: number, diagnostics: OutputDiagnostic[], componentPath: readonly number[]): void {
+function collectRichStyleDiagnostics(comp: PlanComponent, format: OutputFormat, pageIndex: number, componentIndex: number, diagnostics: DiagnosticSink, componentPath: readonly number[]): void {
     const add = (message: string): void => { diagnostics.push({ ...diagnostic(comp, format, pageIndex, componentIndex, { code: "unsupported-style", message }), componentPath }); };
     for (const paragraph of comp.richParagraphs ?? []) {
       if (format === "xlsx" && (paragraph.spaceBeforeMm || paragraph.spaceAfterMm || paragraph.indentMm || paragraph.align || paragraph.lineHeight)) add("XLSX rich text preserves fonts and paragraph newlines; paragraph spacing, indentation and alignment are not retained.");
@@ -98,7 +104,7 @@ function collectRichStyleDiagnostics(comp: PlanComponent, format: OutputFormat, 
 }
 
 /** Pure preflight shared by browser and server; no DOM, fonts or output libraries are loaded. */
-function collectComponentDiagnostics(comp: PlanComponent, format: OutputFormat, pageIndex: number, componentIndex: number, componentPath: readonly number[], diagnostics: OutputDiagnostic[], ancestors: ReadonlySet<PlanComponent>): void {
+function collectComponentDiagnostics(comp: PlanComponent, format: OutputFormat, pageIndex: number, componentIndex: number, componentPath: readonly number[], diagnostics: DiagnosticSink, ancestors: ReadonlySet<PlanComponent>): void {
     if (ancestors.has(comp)) return;
     const visited = new Set(ancestors).add(comp);
     const issue = componentIssue(comp, format);
@@ -123,7 +129,7 @@ function nestedExcelInspector(comp: PlanComponent): (child: PlanComponent, row: 
     return nestedExcelIssue(child, (box?.widthMm ?? 0) - padding - (cell?.indentMm ?? 0), (box?.heightMm ?? 0) - padding);
   };
 }
-function collectGridDiagnostics(comp: PlanComponent, format: OutputFormat, pageIndex: number, componentIndex: number, componentPath: readonly number[], diagnostics: OutputDiagnostic[], visited: ReadonlySet<PlanComponent>): void {
+function collectGridDiagnostics(comp: PlanComponent, format: OutputFormat, pageIndex: number, componentIndex: number, componentPath: readonly number[], diagnostics: DiagnosticSink, visited: ReadonlySet<PlanComponent>): void {
     const inspectNestedExcel = nestedExcelInspector(comp);
     for (const [rowIndex, row] of (comp.grid?.cells ?? []).entries()) for (const [columnIndex, cell] of row.entries()) {
       if (cell?.dataBar !== undefined && !validDataBar(cell.dataBar)) diagnostics.push({ ...diagnostic(comp, format, pageIndex, componentIndex, { code: "unsupported-style", message: "Invalid resolved data-bar geometry or color; visual data bars require ordered 0–1 ratios and #RRGGBB colors." }), componentPath: [...componentPath, rowIndex, columnIndex] });
@@ -142,17 +148,43 @@ function collectGridDiagnostics(comp: PlanComponent, format: OutputFormat, pageI
     }
 }
 
-export function inspectOutputCapabilities(plan: RenderPlan, format: OutputFormat): OutputDiagnostic[] {
+function visitOutputCapabilities(plan: RenderPlan, format: OutputFormat, diagnostics: DiagnosticSink): void {
   assertBoundedRenderTree(plan);
-  const diagnostics: OutputDiagnostic[] = [];
   plan.pages.forEach((page, pageIndex) => page.components.forEach((comp, componentIndex) => collectComponentDiagnostics(comp, format, pageIndex, componentIndex, [], diagnostics, new Set())));
+}
+
+/** Complete enumeration retained for callers that explicitly need every issue location. */
+export function inspectOutputCapabilities(plan: RenderPlan, format: OutputFormat): OutputDiagnostic[] {
+  const diagnostics: OutputDiagnostic[] = [];
+  visitOutputCapabilities(plan, format, diagnostics);
   return diagnostics;
 }
 
-export function reportOutputDiagnostics(plan: RenderPlan, format: OutputFormat, options: OutputDiagnosticOptions): OutputDiagnostic[] {
+/** Exact issue totals and a bounded location window, without materializing every issue. */
+export function inspectOutputCapabilitiesSummary(plan: RenderPlan, format: OutputFormat, limit = DEFAULT_DIAGNOSTIC_LIMIT): DiagnosticSummary<OutputDiagnostic> {
+  const collector = createDiagnosticCollector<OutputDiagnostic>(limit);
+  visitOutputCapabilities(plan, format, collector);
+  return collector.snapshot();
+}
+
+/** Shared codec sink; default detail semantics remain complete unless explicitly bounded. */
+export function collectOutputDiagnostics(plan: RenderPlan, format: OutputFormat, options: OutputDiagnosticOptions, initial?: { diagnostics: readonly OutputDiagnostic[]; diagnosticSummary?: DiagnosticSummary<OutputDiagnostic> }) {
   assertOutputActive(options.signal);
-  const diagnostics = inspectOutputCapabilities(plan, format);
-  diagnostics.forEach((entry) => notifyOutputDiagnostic(entry, options));
-  if (options.fidelity === "strict" && diagnostics.length) throw new OutputFidelityError(diagnostics);
-  return diagnostics;
+  const collector = createDiagnosticCollector<OutputDiagnostic>(options.diagnosticLimit);
+  if (initial?.diagnosticSummary) collector.merge(initial.diagnosticSummary);
+  else initial?.diagnostics.forEach(entry => collector.push(entry));
+  const initialCount = collector.entries.length;
+  const initialEntries = options.diagnosticLimit === undefined ? undefined : new Set(collector.entries);
+  visitOutputCapabilities(plan, format, { push: entry => {
+    assertOutputActive(options.signal);
+    collector.push(entry);
+  } });
+  const added = initialEntries ? collector.entries.filter(entry => !initialEntries.has(entry)) : collector.entries.slice(initialCount);
+  added.forEach(entry => notifyOutputDiagnostic(entry, options));
+  if (options.fidelity === "strict" && collector.total) throw new OutputFidelityError(collector.entries, options.diagnosticLimit === undefined ? undefined : collector.snapshot());
+  return collector;
+}
+
+export function reportOutputDiagnostics(plan: RenderPlan, format: OutputFormat, options: OutputDiagnosticOptions): OutputDiagnostic[] {
+  return collectOutputDiagnostics(plan, format, options).entries;
 }

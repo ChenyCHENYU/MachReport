@@ -19,6 +19,8 @@ import TemplateTotalsEditor from "./TemplateTotalsEditor.vue";
 import { useDesignerInsert } from "./useDesignerInsert";
 import { useDesignerShortcuts } from "./useDesignerShortcuts";
 import { useDesignerViews } from "./useDesignerViews";
+import { resolveDesignerLocation } from "./template-location";
+import { focusDesignerControl } from "./designer-focus";
 import type { TemplateEditorPanel } from "./useTemplateEditor";
 import TemplateDesignCanvas from "./TemplateDesignCanvas.vue";
 import CanvasComponentInspector from "./CanvasComponentInspector.vue";
@@ -94,7 +96,7 @@ const workspace = useTemplateWorkspace(
   editor,
   inspector,
   () => props.dataSchemas,
-  { mode: () => props.mode, onModeChange: value => emit("update:mode", value) },
+  { mode: () => props.mode, onModeChange: value => emit("update:mode", value), storage: () => props.draftStorage, capabilities: () => props.capabilities },
 );
 const {
   mode,
@@ -115,7 +117,16 @@ const { canvasVisited, previewVisited, visibleFetcher } = useDesignerViews(draft
 
 const { sections, toolPreview, setMode: navigateMode, toggleToolPreview, chooseToolComponent, openBinding,
   pendingConfigurations, saveReason: navigationSaveReason, openPending, headingStatus, chooseCanvas, locateReview,
-  chooseRuleList, navigateSection } = useDesignerNavigation(editor, workspace, inspector, { id, readonly: () => props.readonly === true, capabilities: () => props.capabilities });
+  chooseRuleList, navigateSection, diagnosticTarget, locationNotice, returnToReview, backToReview } = useDesignerNavigation(editor, workspace, inspector, { id, readonly: () => props.readonly === true, capabilities: () => props.capabilities });
+const editorRoot = ref<HTMLElement>();
+watch(diagnosticTarget, async target => {
+  if (!target || target.tool) return;
+  await nextTick();
+  if (diagnosticTarget.value !== target) return;
+  const panel = editorRoot.value?.querySelector<HTMLElement>(`#${id}-panel-${target.section}`);
+  if (!panel || section.value !== target.section) return;
+  if (!focusDesignerControl(panel, target.control)) locationNotice.value = m.value.locationScope;
+});
 
 const insertion = useDesignerInsert(editor, workspace, inspector, () => props.dataSchemas, () => props.datasets, () => props.insertionMessages);
 const shortcuts = useDesignerShortcuts(() => ({ undo: editor.undo, redo: editor.redo, canUndo: canUndo.value, canRedo: canRedo.value, blocked: blocked.value || props.readonly }));
@@ -275,7 +286,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
 </script>
 
 <template>
-  <section class="mr-designer" :style="shellStyle" :aria-label="m.title" :aria-busy="saving" @keydown="shortcuts.keydown">
+  <section ref="editorRoot" class="mr-designer" :style="shellStyle" :aria-label="m.title" :aria-busy="saving" @keydown="shortcuts.keydown">
     <header class="mr-designer-bar">
       <div class="mr-designer-heading">
         <ReportIcon name="columns" :size="15" />
@@ -371,9 +382,13 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
         <span v-if="save && showSave !== false && saveReason && !pendingConfigurations.length" :id="`${id}-save-reason`" class="mr-designer-save-reason">{{ saveReason }}</span>
       </div>
     </header>
+    <div v-if="returnToReview || locationNotice" class="mr-designer-location" role="status"><span v-if="locationNotice">{{ locationNotice }}</span><button v-if="returnToReview" type="button" @click="backToReview">← {{ m.backToReview }}</button></div>
     <p v-if="insertion.notice.value" class="mr-designer-insert-notice" role="status">{{ insertion.notice.value }}</p>
     <DesignerInsertionConfirm v-if="insertion.confirmation.value" v-bind="insertion.confirmation.value" @confirm="insertion.confirmInsertion" @cancel="insertion.cancelInsertion" />
     <TemplateRecoveryPanel :recovery="editor.recovery" :conflict="editor.conflict" :readonly="readonly" :can-load="!!loadLatest" :can-copy="!!keepCopy" :messages="recoveryMessages" />
+    <div v-if="workspace.position.available.value && !editor.recovery.available.value" class="mr-designer-location" role="status"><span>{{ m.viewAvailable }}</span><button type="button" :disabled="blocked" @click="workspace.position.resume">{{ m.viewResume }}</button><button type="button" @click="workspace.position.dismiss">{{ m.viewDismiss }}</button></div>
+    <p v-if="workspace.position.adjusted.value" class="mr-designer-location" role="status">{{ m.viewAdjusted }}</p>
+    <p v-if="workspace.position.error.value" class="mr-designer-location" role="status">{{ m.viewStorageError }} · {{ workspace.position.error.value }}</p>
     <TemplateFieldImpactPanel :messages="productMessages" :change="editor.fieldChange.value" :disabled="editDisabled" @confirm="editor.confirmFieldChange" @cancel="editor.cancelFieldChange" @locate="locateReview" />
     <div v-if="pendingConfigurations.length" :id="`${id}-pending`" class="mr-designer-pending" role="status">
       <span>{{ m.pendingToolsLabel }}</span>
@@ -442,6 +457,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
             :readonly="editDisabled"
             :accept="acceptParams"
             :load-options="preview?.loadParamOptions"
+            :location="diagnosticTarget?.tool === 'params' ? diagnosticTarget : undefined"
             @dirty="editor.setToolPending('params', $event)"
           />
           <ExcelBindingWizard
@@ -463,6 +479,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
             :messages="reviewMessages"
             :datasets="datasets"
             :data-schemas="dataSchemas"
+            :capabilities="capabilities"
             @locate="locateReview"
           />
           <div
@@ -486,6 +503,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
               :datasets="datasets"
               :dataset-schema="dataSchema"
               :dataset-schemas="dataSchemas"
+              :location="diagnosticTarget?.tool === 'rules' ? diagnosticTarget.rule : undefined"
               :readonly="editDisabled"
               @change="changeList"
               @dirty="editor.setToolPending('rules', $event)"
@@ -560,7 +578,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
                   </button>
                 </div>
               </div>
-              <TemplateTotalsEditor :list="activeList" :schema="dataSchema" :readonly="editDisabled || fieldFlow" @change="changeList" />
+              <TemplateTotalsEditor data-mr-control="list-totals" :list="activeList" :schema="dataSchema" :readonly="editDisabled || fieldFlow" @change="changeList" />
               <fieldset
                 v-if="activeColumn"
                 class="mr-designer-properties"
@@ -571,6 +589,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
                   <h3>{{ m.contentGroup }}</h3>
                   <label>{{ m.header
                     }}<input
+                      data-mr-control="column-header"
                       :value="activeColumn.column.header"
                       @input="
                         editor.setColumn(
@@ -582,6 +601,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
                   /></label>
                   <label>{{ m.field
                     }}<input
+                      data-mr-control="column-field"
                       :value="activeColumn.column.field"
                       :list="dataSchema ? `${id}-fields` : undefined"
                       @change="
@@ -609,7 +629,8 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
                         type="number"
                         min="0.1"
                         step="0.5"
-                        :value="activeColumn.column.widthMm"
+                        data-mr-control="column-widthMm"
+                      :value="activeColumn.column.widthMm"
                         :disabled="fieldFlow"
                         @change="
                           editor.setColumn(
@@ -621,7 +642,8 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
                     /></label>
                     <label class="mr-designer-stacked">{{ m.semantic
                       }}<select
-                        :value="activeColumn.column.semanticRole || 'text'"
+                        data-mr-control="column-semanticRole"
+                      :value="activeColumn.column.semanticRole || 'text'"
                         @change="
                           editor.setColumn(
                             activeColumn.index,
@@ -968,6 +990,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
             <h3>{{ m.templateDetails }}</h3>
             <label class="mr-designer-stacked">{{ m.name
               }}<input
+                data-mr-control="document-name"
                 :value="draft.name"
                 :disabled="readonly || blocked || jsonPending"
                 @input="editor.setName(value($event))"
@@ -975,6 +998,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
             <label class="mr-designer-stacked">{{ m.description
               }}<textarea
                 rows="2"
+                data-mr-control="document-description"
                 :value="draft.description"
                 :disabled="readonly || blocked || jsonPending"
                 @input="editor.setDescription(value($event))"
@@ -1031,7 +1055,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
         </div>
         <ul v-if="!validation.ok" role="alert" class="mr-designer-error">
           <li v-for="issue in validation.errors" :key="issue.path">
-            {{ issue.path }}：{{ issue.message }}
+            {{ issue.path }}：{{ issue.message }} <button v-if="resolveDesignerLocation(draft, issue, false, capabilities).target" type="button" @click="locateReview(issue)">{{ m.previewFieldDirectory }}</button>
           </li>
         </ul>
         <TemplateDesignCanvas

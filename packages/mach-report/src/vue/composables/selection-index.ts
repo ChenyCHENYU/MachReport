@@ -1,5 +1,6 @@
-import { createReportCellResolver, type PlanComponent, type RenderPlan, type ReportCellAddress, type ReportCellContext, type ReportCellEdit } from "@agile-team/mach-report";
-import { resolveGridLayout } from "../../render/grid-geometry";
+import { type RenderPlan, type ReportCellAddress, type ReportCellContext, type ReportCellEdit } from "@agile-team/mach-report";
+import { type GridLayout } from "../../render/grid-geometry";
+import { createReportCellIndex } from "../../editing/context";
 import { createEditAddressResolver } from "./edit-recalculation";
 import type { ReportFieldTarget } from "./useCellSelection";
 
@@ -20,9 +21,9 @@ function matchesField(context: ReportCellContext, target: ReportFieldTarget): bo
 function append(map: Map<number, ReportCellAddress[]>, axis: number, address: ReportCellAddress): number {
   const list = map.get(axis) ?? []; const offset = list.length; list.push(address); map.set(axis, list); return offset;
 }
-function gridAddresses(component: PlanComponent, origin: ReportCellAddress): GridAddresses {
+function gridAddresses(layout: GridLayout, origin: ReportCellAddress): GridAddresses {
   const result: GridAddresses = { all: [], rows: new Map(), columns: new Map(), positions: new Map() };
-  for (const box of resolveGridLayout(component.grid!, component.widthMm, component.heightMm).cells) {
+  for (const box of layout.cells) {
     const address = { pageIndex: origin.pageIndex, componentIndex: origin.componentIndex, rowIndex: box.ri, columnIndex: box.ci };
     const position = { linear: result.all.length, row: append(result.rows, box.ri, address), column: append(result.columns, box.ci, address) };
     result.all.push(address); result.positions.set(key(address), position);
@@ -34,7 +35,7 @@ function gridAddresses(component: PlanComponent, origin: ReportCellAddress): Gri
 export function createSelectionIndex(plan: RenderPlan) {
   const grids = new Map<string, GridAddresses>();
   const fields = new Map<string, ReportCellAddress | null>();
-  const cellAt = createReportCellResolver(plan);
+  const cells = createReportCellIndex(plan), cellAt = cells.resolve;
   let edits: ReturnType<typeof createEditAddressResolver> | undefined;
   function cacheField(key: string, address: ReportCellAddress | null): ReportCellAddress | null {
     if (fields.size >= 512) fields.delete(fields.keys().next().value!);
@@ -45,7 +46,7 @@ export function createSelectionIndex(plan: RenderPlan) {
     if (!component?.grid) return;
     const identity = `${address.pageIndex}:${address.componentIndex}`;
     let index = grids.get(identity);
-    if (!index) { index = gridAddresses(component, address); grids.set(identity, index); }
+    if (!index) { index = gridAddresses(cells.layout(component)!, address); grids.set(identity, index); }
     return index;
   }
   function adjacent(address: ReportCellAddress, direction: string, backwards: boolean): ReportCellAddress | undefined {
@@ -64,7 +65,7 @@ export function createSelectionIndex(plan: RenderPlan) {
       for (let componentIndex = 0; componentIndex < page.components.length; componentIndex++) {
         const component = page.components[componentIndex]!;
         if (!component.grid) continue;
-        for (const box of resolveGridLayout(component.grid, component.widthMm, component.heightMm).cells) {
+        for (const box of cells.layout(component)!.cells) {
           const address = { pageIndex, componentIndex, rowIndex: box.ri, columnIndex: box.ci };
           const context = cellAt(address);
           if (context && matchesField(context, target)) return cacheField(cacheKey, address);
@@ -73,10 +74,12 @@ export function createSelectionIndex(plan: RenderPlan) {
     }
     return cacheField(cacheKey, null);
   }
+  function addressResolver() { return edits ??= createEditAddressResolver(plan, cells); }
   return {
     cellAt, adjacent, findField,
+    addressResolver,
     addresses: (address: ReportCellAddress) => grid(address)?.all ?? [],
-    editAddress: (edit: ReportCellEdit) => (edits ??= createEditAddressResolver(plan))(edit),
-    editAddresses: (edit: ReportCellEdit) => (edits ??= createEditAddressResolver(plan)).all(edit)
+    editAddress: (edit: ReportCellEdit) => addressResolver()(edit),
+    editAddresses: (edit: ReportCellEdit) => addressResolver().all(edit)
   };
 }

@@ -44,11 +44,11 @@ try {
   writeFileSync(resolve(scratch, "consumer.mts"), `
 import { ReportPreview, createProviderEditing, defineMachReportConfig, machReportPlugin, type ReportEditHistoryOptions, type ReportPreviewTask, type MachReportController, type MachReportTheme } from '@agile-team/mach-report/vue';
 import { createApp } from 'vue';
-import { ReportTemplateEditor, ExcelBindingWizard, RuleEditor, TemplateReviewPanel } from '@agile-team/mach-report/designer';
+import { ReportTemplateEditor, ExcelBindingWizard, RuleEditor, TemplateReviewPanel, type TemplateDraftStorage } from '@agile-team/mach-report/designer';
 import { createReportRuntime, type ReportRuntimeInput } from '@agile-team/mach-report/server';
 import { createNodeAutoReportExporter } from '@agile-team/mach-report/server/node';
 import type { ReportExportExecutionOptions } from '@agile-team/mach-report/worker';
-import type { ReportTaskEvent, ReportTemplateDocument } from '@agile-team/mach-report';
+import { inspectOutputCapabilitiesSummary, type DiagnosticSummary, type OutputDiagnostic, type RenderPlan, type ReportCellEdit, type ReportProvider, type ReportProviderConflict, type ReportQueryContext, type ReportQuerySource, type ReportTaskEvent, type ReportTemplateDocument } from '@agile-team/mach-report';
 type PreviewProps = InstanceType<typeof ReportPreview>['$props'];
 const existingTheme: MachReportTheme = {
   shellBg: '#ffffff', shellFg: '#334155', toolbarBg: '#ffffff', toolbarBorder: '#e2e8f0', toolbarFg: '#334155',
@@ -70,6 +70,12 @@ preview.reload(); preview.getChanges?.(); preview.focusField?.({field:'name'});
 preview.gotoPage('2');
 declare const document: ReportTemplateDocument;
 const editorProps: InstanceType<typeof ReportTemplateEditor>['$props'] = { modelValue: document };
+const draftStorage: TemplateDraftStorage = {
+  scope: 'compat:account', rememberView: true,
+  adapter: { read: () => null, write: () => {}, remove: () => {} },
+};
+const legacyDraftStorage: TemplateDraftStorage = { scope: 'compat:legacy', adapter: draftStorage.adapter };
+const rememberedEditor: InstanceType<typeof ReportTemplateEditor>['$props'] = { modelValue: document, draftStorage };
 const wizard: InstanceType<typeof ExcelBindingWizard>['$props'] = { datasets: [{id:'detail',fields:[{field:'id',type:'text'}],rowKey:'id'}] };
 const review: InstanceType<typeof TemplateReviewPanel>['$props'] = { document };
 type RuleProps = InstanceType<typeof RuleEditor>['$props'];
@@ -80,7 +86,9 @@ const invalidEditor: InstanceType<typeof ReportTemplateEditor>['$props'] = { mod
 declare const editor: InstanceType<typeof ReportTemplateEditor>;
 editor.reset(); editor.guardChanges('reset');
 void [invalidParams, invalidLoaded, invalidEditor, editorProps];
-const input: ReportRuntimeInput = { reportIds: ['sample'], onEvent(event: ReportTaskEvent) { void event.stage; } };
+const input: ReportRuntimeInput = { reportIds: ['sample'], diagnosticLimit: 200, onEvent(event: ReportTaskEvent) { void event.stage; } };
+// @ts-expect-error 诊断窗口必须为数字，范围由运行时校验
+const invalidDiagnosticLimit: ReportRuntimeInput = { reportIds: ['sample'], diagnosticLimit: '200' };
 const task: ReportPreviewTask | null = null;
 const controller: MachReportController | null = null;
 const execution: ReportExportExecutionOptions = { mode: 'worker', onDecision(decision) { void decision.hardCancellation; } };
@@ -91,9 +99,38 @@ const editing = createProviderEditing({ query: () => ({ datasets: {} }), save: a
   canEdit: context => context.source?.field === 'quantity', readOnlyReason: () => 'Read-only business field',
 });
 const editingProps: PreviewProps = { reportId: 'sample', editable: editing };
+const source: ReportQuerySource = { reportId: 'sample', reportIndex: 0, reportScope: '[0,"sample"]', revision: 'query-v1', sourceToken: 'query-token' };
+const queryContext: ReportQueryContext = { queryId: 'query-1', reportIds: Object.freeze(['sample']), params: Object.freeze({ date: '2026-11-07' }), sources: Object.freeze([source]) };
+const zeroConflict: ReportProviderConflict = { editIndex: 0, code: 'changed', message: 'Changed remotely', currentValue: 0, revision: 0 };
+const nullConflict: ReportProviderConflict = { ...zeroConflict, currentValue: null, revision: 'remote-v2' };
+const provider: ReportProvider = {
+  query: context => ({ datasets: { detail: [{ quantity: 0 }] }, revision: context.reportId + '-v1', sourceToken: 'query-token' }),
+  save: async request => { void request.expectedRevision; return { revision: 'saved-v2', conflicts: [zeroConflict, nullConflict] }; },
+};
+const automaticEditing = createProviderEditing(provider);
+const automaticEditingProps: PreviewProps = { reportId: 'sample', editable: automaticEditing };
+declare const edit: ReportCellEdit;
+automaticEditing.save?.(edit, { signal: new AbortController().signal, query: queryContext });
+// @ts-expect-error 已执行查询参数继续保持字符串字典
+const invalidQueryParams: ReportQueryContext = { ...queryContext, params: { date: 20261107 } };
+// @ts-expect-error 查询来源的修订号是字符串，数值修订仅用于明确支持的冲突/单元格协议
+const invalidQueryRevision: ReportQuerySource = { ...source, revision: 1 };
+// @ts-expect-error 冲突修订号只接受字符串或数字
+const invalidConflictRevision: ReportProviderConflict = { ...zeroConflict, revision: false };
+declare const plan: RenderPlan;
+const outputIssue: OutputDiagnostic = { code: 'missing-image', severity: 'warning', format: 'xlsx', pageIndex: 0, componentIndex: 0, kind: 'image', message: 'Missing image' };
+const summary: DiagnosticSummary<OutputDiagnostic> = { total: 3, counts: { 'missing-image': 3 }, entries: [outputIssue], omitted: 2 };
+const inspected = inspectOutputCapabilitiesSummary(plan, 'xlsx', 200);
+const sampledEntries: readonly OutputDiagnostic[] = inspected.entries;
+// @ts-expect-error 诊断总数必须为数字
+const invalidSummary: DiagnosticSummary<OutputDiagnostic> = { ...summary, total: '3' };
+// @ts-expect-error 显式样本窗口必须为数字
+inspectOutputCapabilitiesSummary(plan, 'xlsx', '200');
+// @ts-expect-error 核心预检输出格式使用明确枚举
+inspectOutputCapabilitiesSummary(plan, 'word', 200);
 // @ts-expect-error 撤销步骤预算必须为数字
 const invalidHistory: ReportEditHistoryOptions = { maxSteps: '100' };
-void [props, input, task, controller, createReportRuntime, ReportTemplateEditor, isolatedProps, createNodeAutoReportExporter, editingProps, invalidHistory];
+void [props, input, task, controller, createReportRuntime, ReportTemplateEditor, isolatedProps, createNodeAutoReportExporter, editingProps, invalidHistory, draftStorage, legacyDraftStorage, rememberedEditor, automaticEditingProps, queryContext, zeroConflict, nullConflict, summary, sampledEntries, invalidDiagnosticLimit, invalidQueryParams, invalidQueryRevision, invalidConflictRevision, invalidSummary];
 `);
   writeFileSync(resolve(scratch, "consumer.cts"), readFileSync(resolve(scratch, "consumer.mts"), "utf8"));
   writeFileSync(resolve(scratch, "tsconfig.json"), JSON.stringify({ compilerOptions: { module: "NodeNext", moduleResolution: "NodeNext", target: "ES2022", lib: ["ES2022", "DOM", "DOM.Iterable"], strict: true, skipLibCheck: false, noEmit: true, types: [] }, files: ["consumer.mts", "consumer.cts"] }));

@@ -52,7 +52,15 @@ export function usePreviewDataReview(host: PreviewDataReviewHost) {
     opened.value = tool;
   }
   const title = computed(() => opened.value === "prefill" ? messages.value.prefillTitle : opened.value === "comparison" ? messages.value.comparisonTitle : host.messages.value.validationTitle ?? "数据校验");
-  const validationMessages = computed(() => ({ title: host.messages.value.validationTitle, error: host.messages.value.validationError, warning: host.messages.value.validationWarning, locate: messages.value.reviewLocate, dataset: host.messages.value.validationDataset, row: host.messages.value.validationRow, more: host.messages.value.validationMore }));
+  const validationMessages = computed(() => {
+    const m = host.messages.value;
+    return { title: m.validationTitle, error: m.validationError, warning: m.validationWarning, locate: messages.value.reviewLocate,
+      dataset: m.validationDataset, row: m.validationRow, more: m.validationMore,
+      search: m.validationSearch, searchPlaceholder: m.validationSearchPlaceholder, severity: m.validationSeverity,
+      allSeverities: m.validationAllSeverities, datasetFilter: m.validationDatasetFilter, allDatasets: m.validationAllDatasets,
+      results: m.validationResults, range: m.validationRange, previous: m.prevPage, next: m.nextPage, page: m.validationPage,
+      empty: m.validationEmpty, noMatches: m.validationNoMatches, clear: m.validationClear, loading: m.validationLoading, unavailable: m.validationUnavailable };
+  });
   function locateIssue(issue: ReportValidationIssue): void {
     const plan = host.plan.value;
     if (!plan || issue.rowKey === undefined || !issue.dataset || !issue.field) { host.missing(); return; }

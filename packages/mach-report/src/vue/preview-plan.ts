@@ -13,6 +13,7 @@ function validatePreviewPlan(plan: RenderPlan, warning: (message: string) => voi
   check.warnings.forEach((item) => warning(`${item.path}: ${item.message}`));
 }
 export async function loadPreviewPlan(fetcher: PlanFetcher, input: ReportFetchInput, assets: AssetRenderOptions | undefined, update: (stage: ReportPreviewTaskStage) => void): Promise<RenderPlan> {
+  assertOutputActive(input.signal);
   const plan = await waitForOutput(fetcher(input), input.signal);
   assertOutputActive(input.signal);
   update("validate");

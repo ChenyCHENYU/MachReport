@@ -323,7 +323,7 @@ pnpm test:e2e
 | `state.task / @task` | taskId、kind、stage、status、可选真实completed/total与cancellable |
 | `cancelTask()` | 取消当前查询/导入/导出/打印准备，屏蔽迟到结果；不回滚业务保存 |
 | `output.fidelity` | warn为默认；strict拒绝已识别的内容/样式降级 |
-| `state.diagnostics / @diagnostic` | 去重的结构化提示；含稳定code及可用的格式、页、组件/单元格位置 |
+| `state.diagnostics / state.diagnosticSummary / @diagnostic` | 200条定位样本及完整分类计数，业务值说明独立统计，源查询事件继续交付，详见[有界诊断](./DELIVERY.md#有界输出诊断) |
 | `getOutputDiagnostics(format)` | 对当前计划预检dom/canvas/pdf/xlsx，不加载导出库 |
 | `editable.fields` | 字段配置record或resolver，text/number/boolean/enum/date；保持模板只读与服务端授权 |
 | `focusField({ tableId?, datasetId?, field })` | 支持跨表同名字段精确定位 |

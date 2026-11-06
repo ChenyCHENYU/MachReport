@@ -1,4 +1,5 @@
 import type { ReportEditSessionPart } from "./session-data";
+import type { RenderPlan } from "../schema/render-plan";
 import { ReportCellEditError } from "./value";
 import { registerComputedDataset } from "../processing/computation-workspace";
 
@@ -23,18 +24,20 @@ function checkObject(value: object): void {
     if (value instanceof Date || Array.isArray(value) && !/^(0|[1-9]\d*)$/.test(key)) throw new ReportCellEditError("conflict");
   }
 }
-function collect(value: unknown, stamps: ObjectStamp[], active: Set<object>, budget: Budget, depth: number): void {
+function collect(value: unknown, stamps: ObjectStamp[], active: Set<object>, budget: Budget, depth: number, seen?: Set<object>): void {
   checkBudget(budget, depth);
   if (typeof value === "function" || typeof value === "symbol") throw new ReportCellEditError("conflict");
   if (value === null || typeof value !== "object") return;
   checkObject(value);
   if (active.has(value)) throw new ReportCellEditError("conflict");
+  if (seen?.has(value)) return;
+  seen?.add(value);
   active.add(value);
   const keys = Object.keys(value), values = keys.map((key) => ownValue(value, key));
   stamps.push({ object: value, prototype: Object.getPrototypeOf(value), keys, values,
     ...(value instanceof Date ? { date: Date.prototype.getTime.call(value) } : {}),
     ...(Array.isArray(value) ? { length: value.length } : {}) });
-  for (const item of values) collect(item, stamps, active, budget, depth + 1);
+  for (const item of values) collect(item, stamps, active, budget, depth + 1, seen);
   active.delete(value);
 }
 function matches(stamp: ObjectStamp): boolean {
@@ -48,8 +51,15 @@ function matches(stamp: ObjectStamp): boolean {
 }
 /** Exact structural/primitive comparison avoids hashing every byte of unused large strings. */
 export function captureSessionGuard(parts: readonly ReportEditSessionPart[]): () => boolean {
+  return captureStructureGuard(parts);
+}
+/** Internal exact fence for structurally shared edit candidates. */
+export function capturePlanGuard(plan: RenderPlan): () => boolean {
+  return captureStructureGuard(plan, new Set());
+}
+function captureStructureGuard(value: unknown, seen?: Set<object>): () => boolean {
   const stamps: ObjectStamp[] = [];
-  collect(parts, stamps, new Set(), { nodes: 0 }, 0);
+  collect(value, stamps, new Set(), { nodes: 0 }, 0, seen);
   return () => { try { return stamps.every(matches); } catch { return false; } };
 }
 function clone(value: unknown, budget: Budget, depth: number, validate = false): unknown {
