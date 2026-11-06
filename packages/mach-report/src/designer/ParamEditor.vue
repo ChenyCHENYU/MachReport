@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, getCurrentInstance, nextTick, ref, watch } from "vue";
+import { useDesignerTheme } from "./useDesignerTheme";
+const shellStyle = useDesignerTheme();
 import ReportParamPanel from "../vue/ReportParamPanel.vue";
 import { DEFAULT_MESSAGES, resolveConfig, useMachReportConfig } from "../vue/config";
 import ParamTreeOptionsEditor from "./ParamTreeOptionsEditor.vue";
@@ -28,6 +30,13 @@ watch(pending, value => emit("dirty", value), { immediate: true });
 function typeLabel(type: ParamDraft["type"]): string {
   const labels = { text: m.value.paramText, number: m.value.paramNumber, date: m.value.paramDate, month: m.value.paramMonth, year: m.value.paramYear, dateRange: m.value.paramDateRange, select: m.value.paramSelect, multiSelect: m.value.paramMultiSelect, cascader: m.value.paramCascader, numberRange: m.value.paramNumberRange };
   return labels[type];
+}
+function directoryLabel(row: ParamDraft, index: number): string {
+  const title = row.label || row.field || m.value.paramUnnamed;
+  const detail = `${row.field} · ${typeLabel(row.type)}${row.required ? " *" : ""}`;
+  const count = issuesByRow.value.get(index)?.length;
+  const status = count ? ` · ${m.value.paramIssueCount} ${count}` : "";
+  return `${title} ${detail}${status}`;
 }
 function addOption(): void { if (current.value && !props.readonly) current.value.options.push({ value: "", label: "" }); }
 function removeOption(index: number): void { if (!props.readonly) current.value?.options.splice(index, 1); }
@@ -63,11 +72,11 @@ defineExpose({ pending, reset: editor.reset, apply: editor.apply, locateIssue })
 </script>
 
 <template>
-  <section class="mr-param-editor" :aria-label="m.paramsTool">
+  <section class="mr-param-editor" :style="shellStyle" :aria-label="m.paramsTool">
     <aside class="mr-param-editor__directory">
       <header><strong>{{ m.paramsDirectory }}</strong><span>{{ rows.length }}</span></header>
       <nav :aria-label="m.paramsDirectory">
-        <button v-for="(row, index) in rows" :key="index" type="button" :aria-pressed="selected === index" :aria-label="`${row.label || row.field || m.paramUnnamed}${issuesByRow.get(index)?.length ? ` · ${m.paramIssueCount} ${issuesByRow.get(index)?.length}` : ''}`" :class="{ 'has-errors': issuesByRow.has(index) }" @click="selected = index">
+        <button v-for="(row, index) in rows" :key="index" type="button" :aria-pressed="selected === index" :aria-label="directoryLabel(row, index)" :class="{ 'has-errors': issuesByRow.has(index) }" @click="selected = index">
           <span class="mr-param-editor__directory-title"><strong>{{ row.label || row.field || m.paramUnnamed }}</strong><span v-if="issuesByRow.has(index)" class="mr-param-editor__error-count" aria-hidden="true">{{ issuesByRow.get(index)?.length }}</span></span><small>{{ row.field }} · {{ typeLabel(row.type) }}<span v-if="row.required"> *</span></small>
         </button>
       </nav>

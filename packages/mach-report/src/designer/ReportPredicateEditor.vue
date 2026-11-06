@@ -61,5 +61,67 @@ function setRightMode(value: string): void { patch(value === "field" ? { value: 
   </div>
 </template>
 <style scoped>
-.mr-predicate{display:grid;gap:8px;font:inherit;color:inherit;min-width:0}.mr-predicate.is-nested{border-left:2px solid var(--mr-color-border,#dce5f0);padding-left:10px}.mr-predicate label{display:grid;gap:4px;font-size:11px;color:var(--mr-color-muted,#5e718a)}.mr-predicate__pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}.mr-predicate__child{display:flex;align-items:flex-start;gap:6px}.mr-predicate__child>.mr-predicate{flex:1}.mr-predicate select,.mr-predicate input,.mr-predicate button{font:inherit;color:var(--mr-color-text,#253951);border:1px solid var(--mr-color-border,#dce5f0);border-radius:6px;background:var(--mr-color-surface,#fff);height:30px;padding:4px 7px;min-width:0;box-sizing:border-box}.mr-predicate input,.mr-predicate select{width:100%}.mr-predicate button{cursor:pointer}.mr-predicate :disabled{opacity:.55;cursor:default}.mr-predicate :focus-visible{outline:2px solid var(--mr-color-primary,#2563eb);outline-offset:2px}
+.mr-predicate {
+  display: grid;
+  gap: 8px;
+  font: inherit;
+  color: inherit;
+  min-width: 0;
+}
+.mr-predicate.is-nested {
+  border-left: 2px solid var(--mrp-toolbar-border, #dce5f0);
+  padding-left: 10px;
+}
+.mr-predicate label {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--mrp-btn-fg, #5e718a);
+}
+.mr-predicate__pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.mr-predicate__child {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.mr-predicate__child > .mr-predicate {
+  flex: 1;
+}
+.mr-predicate select,
+.mr-predicate input,
+.mr-predicate button {
+  font: inherit;
+  color: var(--mrp-toolbar-fg, #253951);
+  border: 1px solid var(--mrp-toolbar-border, #dce5f0);
+  border-radius: 6px;
+  background: var(--mrp-toolbar-bg, #fff);
+  height: 30px;
+  padding: 4px 7px;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.mr-predicate input,
+.mr-predicate select {
+  width: 100%;
+}
+.mr-predicate button {
+  cursor: pointer;
+  color: var(--mrp-btn-fg, #475569);
+}
+.mr-predicate button:hover:not(:disabled) {
+  color: var(--mrp-btn-hover-fg, #1d4ed8);
+  background: var(--mrp-btn-hover-bg, #eff6ff);
+}
+.mr-predicate :disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.mr-predicate :focus-visible {
+  outline: 2px solid var(--mrp-btn-active-bg, #2563eb);
+  outline-offset: 2px;
+}
 </style>

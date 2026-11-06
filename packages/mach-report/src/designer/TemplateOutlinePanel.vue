@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { useDesignerTheme } from "./useDesignerTheme";
 import type { ReportTemplateDocument } from "@agile-team/mach-report";
 import {
   collectTemplateOutline,
@@ -10,6 +11,7 @@ import {
   TEMPLATE_PRODUCT_MESSAGES,
   type TemplateProductMessages,
 } from "./product-messages";
+const themeStyle = useDesignerTheme();
 const props = defineProps<{
   document: ReportTemplateDocument;
   selection?: { pageIndex: number; componentIndex: number };
@@ -53,7 +55,7 @@ function choose(location: (typeof outline.value)[number]): void {
 }
 </script>
 <template>
-  <section class="mr-product-panel mr-outline" :aria-label="m.outline">
+  <section class="mr-product-panel mr-outline" :style="themeStyle" :aria-label="m.outline">
     <header>
       <div>
         <strong>{{ m.outline }}</strong><small>{{ filtered.length }} {{ m.count }}</small>

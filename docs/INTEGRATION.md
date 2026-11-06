@@ -197,6 +197,37 @@ defineMachReportConfig({ defaults: {
 
 `renderQrDataUrl` 为应用选择的编码库适配函数，返回图片 data URL；PDF 兼容的 PNG/JPEG 最便于跨端共用。包内在加载计划后准备一次，后续预览、Canvas、PDF、PNG 使用同一份 `imageData`，不用页面包装每种导出。可配置 `assetBudget` 和 `onDiagnostic`，准备任务随报表切换取消。无配置时保留原来的占位与诊断；适配器失败默认阻止本次新计划，可显式选择 `assetFailure: "placeholder"` 并通过 `warning` 观察降级。Excel 数据出口仍有图片与几何边界，以输出支持矩阵为准。
 
+## 一次配置工作台主题
+
+预览、模板设计器、标签工作台和独立工具面板共用 `config.defaults.theme`。常规品牌色只需应用级配置，页面继续使用报表 ID 与参数。
+
+```ts
+import { defineMachReportConfig, machReportPlugin } from "@agile-team/mach-report/vue";
+
+app.use(machReportPlugin, {
+  reports,
+  config: defineMachReportConfig({
+    defaults: {
+      theme: { btnActiveBg: "#1d4ed8", btnActiveFg: "#ffffff" }
+    }
+  })
+});
+```
+
+配置按应用默认值、默认预设与路由叠加逐字段继承。`ReportTemplateEditor`、`ReportLabelStudio` 的 `preview.theme` 为当前工作台提供局部覆盖，覆盖范围包括外层属性面板和内嵌预览。模板库、批量生成、参数、规则等独立组件自动读取当前应用配置。
+
+| 配置 | 控制范围 |
+| --- | --- |
+| `shellBg / shellFg` | 阅读区域与外壳前景 |
+| `toolbarBg / toolbarFg / toolbarBorder` | 工具栏、面板与普通表单 |
+| `btnFg / btnBorder / btnHoverBg / btnHoverFg` | 常规控件及交互状态 |
+| `btnActiveBg / btnActiveFg` | 主操作背景与前景 |
+| `errorFg / warningFg / successFg` | 错误、待处理与成功状态，底色和边框按主题派生 |
+| `colorScheme` | `light` 或 `dark`，原生日期、下拉等控件外观 |
+| `emptyAccent` | 空态插图强调色 |
+
+新增字段均为可选项。深色配色同时声明背景、前景、按钮前景和状态色，可复用[完整示例配色](../examples/minimal/src/demo-theme.ts)。界面主题通过组件局部变量生效，模板纸面与输出使用模板自身样式。切换主题继续保留草稿与撤销状态。
+
 ## 不使用 Vue：同一数据源
 
 ```ts

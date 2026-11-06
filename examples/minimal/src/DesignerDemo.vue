@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
+import { provideMachReportConfig } from "@agile-team/mach-report/vue";
+import { darkDemoTheme } from "./demo-theme";
 import {
   columnsFromContract,
   captureTemplateFragment,
@@ -20,6 +22,9 @@ import {
   type TemplateCopyContext,
   type TemplateEditorSaveContext,
 } from "@agile-team/mach-report/designer";
+
+const dark = ref(false);
+provideMachReportConfig({ get defaults() { return { theme: dark.value ? darkDemoTheme : {} }; } });
 
 const contract: DatasetContract = {
   rowKey: "heat",
@@ -121,6 +126,7 @@ async function save(
         <span>在画布设计、绑定
           Excel、配置计算与检查发布之间流畅切换。保存通过统一模板管理契约。</span>
       </div>
+      <button class="workbench-theme" type="button" :aria-pressed="dark" @click="dark = !dark">深色界面</button>
       <a href="/">返回预览示例 ↗</a>
     </header>
     <div class="workbench-status">
@@ -207,12 +213,14 @@ body {
   font-size: 12px;
 }
 .workbench-heading a {
-  margin-left: auto;
   color: #245485;
   text-decoration: none;
   white-space: nowrap;
   font-size: 12px;
 }
+.workbench-theme { margin-left: auto; flex-shrink: 0; border: 1px solid #cbd5e1; border-radius: 6px; padding: 7px 10px; background: #fff; color: #334155; font: inherit; font-size: 12px; cursor: pointer; }
+.workbench-theme[aria-pressed="true"] { background: #172235; color: #e2e8f0; border-color: #64748b; }
+.workbench-theme:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
 .workbench-status {
   display: flex;
   gap: 12px;

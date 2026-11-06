@@ -11,12 +11,18 @@
   --mrp-btn-hover-fg: #315fba;
   --mrp-btn-active-bg: #3569d4;
   --mrp-empty-accent: #79a7e8;
+  --mrp-btn-active-fg: #ffffff;
+  --mrp-error-fg: #b91c1c;
+  --mrp-warning-fg: #92400e;
+  --mrp-success-fg: #047857;
+  --mrp-color-scheme: light;
 
   position: relative;
   display: flex;
   flex-direction: column;
   background: var(--mrp-shell-bg);
   color: var(--mrp-shell-fg);
+  color-scheme: var(--mrp-color-scheme);
   overflow: hidden;
 }
 .mrp-main { display: flex; flex: 1; min-height: 0; }
@@ -42,6 +48,8 @@
 .mrp-scale-inner { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; }
 .mrp-page-holder {
   background: #fff;
+  color: #000;
+  color-scheme: light;
   box-shadow: 0 3px 18px rgba(32, 54, 86, 0.08);
   margin-bottom: var(--mrp-page-gap);
   flex: none;
@@ -51,10 +59,10 @@
 .mrp-state {
   padding: 40px;
   text-align: center;
-  color: #bfbfbf;
+  color: var(--mrp-btn-fg);
   font-size: 13px;
 }
-.mrp-error { color: #ff9d9d; }
+.mrp-error { color: var(--mrp-error-fg); }
 .mrp-edit-hint { display: flex; align-items: center; gap: 7px; min-height: 26px; box-sizing: border-box; padding: 4px 12px; font-size: 12px; color: var(--mrp-shell-fg); }
 .mrp-cell-access { flex: none; padding: 1px 5px; border: 1px solid var(--mrp-toolbar-border); border-radius: 4px; font-size: 11px; color: var(--mrp-btn-fg); }
 .mrp-cell-access-message { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -65,14 +73,14 @@
 /* Cells carry inline all:unset. A separate opaque backing preserves their tint, selection,
    and content while preventing scrolling text from shining through transparent cells. */
 .mrp-body :deep(.mrp-cell-frozen)::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: linear-gradient(var(--mrp-frozen-fill,transparent),var(--mrp-frozen-fill,transparent)),#fff; box-shadow: inset -1px 0 0 #d4dfed, inset 0 -1px 0 #d4dfed; }
-.mrp-export-notice { padding: 7px 12px; font-size: 12px; background: #fff0c2; color: #613c00; }
-.mrp-export-error { background: #ffe0df; color: #8e1f1f; }
-.mrp-export-progress { background: #e7f0ff; color: #1a4d86; }
+.mrp-export-notice { padding: 7px 12px; font-size: 12px; background: var(--mrp-toolbar-bg); background: color-mix(in srgb, var(--mrp-warning-fg) 10%, var(--mrp-toolbar-bg)); color: var(--mrp-warning-fg); }
+.mrp-export-error { background: var(--mrp-toolbar-bg); background: color-mix(in srgb, var(--mrp-error-fg) 9%, var(--mrp-toolbar-bg)); color: var(--mrp-error-fg); }
+.mrp-export-progress { background: var(--mrp-btn-hover-bg); color: var(--mrp-btn-hover-fg); }
 .mrp-retry {
   margin-left: 12px;
   background: transparent;
-  color: #8fb7ff;
-  border: 1px solid #5a7fbf;
+  color: inherit;
+  border: 1px solid currentColor;
   border-radius: 4px;
   padding: 1px 10px;
   cursor: pointer;

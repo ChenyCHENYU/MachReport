@@ -370,6 +370,8 @@ export const DEFAULT_MESSAGES: MachReportMessages = {
 
 /** 主题变量（组件外壳注入的 --mrp-* CSS 自定义属性） */
 export interface MachReportTheme {
+  /** Native controls follow the host's declared light/dark palette. */
+  colorScheme?: "light" | "dark";
   /** 空态插图强调色，不随正文颜色变灰。 */
   emptyAccent?: string;
   shellBg: string;
@@ -382,9 +384,15 @@ export interface MachReportTheme {
   btnHoverBg: string;
   btnHoverFg: string;
   btnActiveBg: string;
+  /** Foreground on solid primary actions. Optional for existing complete themes. */
+  btnActiveFg?: string;
+  errorFg?: string;
+  warningFg?: string;
+  successFg?: string;
 }
 
 export const DEFAULT_THEME: MachReportTheme = {
+  colorScheme: "light",
   emptyAccent: "#79a7e8",
   shellBg: "#f4f7fc",
   shellFg: "#334155",
@@ -395,7 +403,11 @@ export const DEFAULT_THEME: MachReportTheme = {
   btnBorder: "#dbe3ef",
   btnHoverBg: "#edf3ff",
   btnHoverFg: "#315fba",
-  btnActiveBg: "#3569d4"
+  btnActiveBg: "#3569d4",
+  btnActiveFg: "#ffffff",
+  errorFg: "#b91c1c",
+  warningFg: "#92400e",
+  successFg: "#047857"
 };
 
 /** 日志通道（默认 console；可注入 noop 静默或上报 collector） */
@@ -617,6 +629,7 @@ function boundedNumber(value: number | undefined, fallback: number, max: number,
 /** theme 对象 → CSS 自定义属性 style 对象（注入组件外壳） */
 export function themeToCssVars(theme: Partial<MachReportTheme>): CSSProperties {
   const out: Record<string, string> = {};
+  if (theme.colorScheme != null) out["--mrp-color-scheme"] = theme.colorScheme;
   if (theme.emptyAccent != null) out["--mrp-empty-accent"] = theme.emptyAccent;
   if (theme.shellBg != null) out["--mrp-shell-bg"] = theme.shellBg;
   if (theme.shellFg != null) out["--mrp-shell-fg"] = theme.shellFg;
@@ -628,6 +641,10 @@ export function themeToCssVars(theme: Partial<MachReportTheme>): CSSProperties {
   if (theme.btnHoverBg != null) out["--mrp-btn-hover-bg"] = theme.btnHoverBg;
   if (theme.btnHoverFg != null) out["--mrp-btn-hover-fg"] = theme.btnHoverFg;
   if (theme.btnActiveBg != null) out["--mrp-btn-active-bg"] = theme.btnActiveBg;
+  if (theme.btnActiveFg != null) out["--mrp-btn-active-fg"] = theme.btnActiveFg;
+  if (theme.errorFg != null) out["--mrp-error-fg"] = theme.errorFg;
+  if (theme.warningFg != null) out["--mrp-warning-fg"] = theme.warningFg;
+  if (theme.successFg != null) out["--mrp-success-fg"] = theme.successFg;
   return out as CSSProperties;
 }
 

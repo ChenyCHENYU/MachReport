@@ -133,44 +133,50 @@ const m = computed(() => ({ ...TEMPLATE_RECOVERY_MESSAGES, ...props.messages }))
   justify-content: space-between;
   gap: 16px;
   padding: 12px 16px;
-  background: #eff6ff;
-  border-bottom: 1px solid #dbeafe;
-  color: #1e3a5f;
+  background: var(--mrp-btn-hover-bg, #eff6ff);
+  border-bottom: 1px solid var(--mrp-btn-border, #dbeafe);
+  color: var(--mrp-toolbar-fg, #1e3a5f);
   font-size: 12px;
 }
 .mr-recovery-banner small {
   display: block;
   margin-top: 3px;
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
 }
 .mr-recovery-banner p { margin: 6px 0 0; }
-.is-error { background: #fff7ed; color: #9a3412; }
+.is-error {
+  background: var(--mrp-toolbar-bg, #fff);
+  background: color-mix(in srgb, var(--mrp-error-fg, #b91c1c) 7%, var(--mrp-toolbar-bg, #fff));
+  color: var(--mrp-error-fg, #9a3412);
+}
 .mr-recovery-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .mr-recovery-actions button,
 .mr-recovery-confirm button {
-  border: 1px solid #cbd5e1;
-  background: white;
+  border: 1px solid var(--mrp-toolbar-border, #cbd5e1);
+  background: var(--mrp-toolbar-bg, white);
   border-radius: 6px;
   padding: 7px 11px;
   font: inherit;
-  color: #1e40af;
+  color: var(--mrp-btn-hover-fg, #1e40af);
   cursor: pointer;
 }
 .mr-recovery-actions button:disabled { opacity: .45; cursor: default; }
 .mr-recovery-status {
   display: block;
   padding: 4px 16px;
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
   font-size: 11px;
 }
 .mr-recovery-conflict {
   padding: 12px 16px;
-  border-bottom: 1px solid #fed7aa;
-  background: #fffaf5;
+  border-bottom: 1px solid var(--mrp-toolbar-border, #e2e8f0);
+  border-bottom: 1px solid color-mix(in srgb, var(--mrp-warning-fg, #92400e) 25%, var(--mrp-toolbar-bg, #fff));
+  background: var(--mrp-toolbar-bg, #fff);
+  background: color-mix(in srgb, var(--mrp-warning-fg, #92400e) 7%, var(--mrp-toolbar-bg, #fff));
   font-size: 12px;
-  color: #475569;
+  color: var(--mrp-toolbar-fg, #475569);
 }
-.mr-recovery-conflict summary { cursor: pointer; font-weight: 600; color: #92400e; }
+.mr-recovery-conflict summary { cursor: pointer; font-weight: 600; color: var(--mrp-warning-fg, #92400e); }
 .mr-recovery-conflict p { margin: 8px 0; }
 .mr-recovery-columns {
   display: grid;
@@ -182,12 +188,12 @@ const m = computed(() => ({ ...TEMPLATE_RECOVERY_MESSAGES, ...props.messages }))
   min-width: 0;
   max-height: 240px;
   overflow: auto;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--mrp-toolbar-border, #e2e8f0);
   border-radius: 7px;
-  background: #fff;
+  background: var(--mrp-toolbar-bg, #fff);
 }
-.mr-recovery-columns h4 { margin: 0; padding: 9px 12px; border-bottom: 1px solid #e2e8f0; }
-.mr-recovery-columns h4 small { float: right; color: #64748b; }
+.mr-recovery-columns h4 { margin: 0; padding: 9px 12px; border-bottom: 1px solid var(--mrp-toolbar-border, #e2e8f0); }
+.mr-recovery-columns h4 small { float: right; color: var(--mrp-btn-fg, #64748b); }
 .mr-recovery-columns table {
   border-collapse: collapse;
   width: 100%;
@@ -197,7 +203,7 @@ const m = computed(() => ({ ...TEMPLATE_RECOVERY_MESSAGES, ...props.messages }))
 .mr-recovery-columns td,
 .mr-recovery-columns th {
   text-align: left;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--mrp-toolbar-border, #f1f5f9);
   padding: 6px 8px;
   overflow-wrap: anywhere;
   vertical-align: top;
@@ -206,12 +212,13 @@ const m = computed(() => ({ ...TEMPLATE_RECOVERY_MESSAGES, ...props.messages }))
 .mr-recovery-confirm {
   margin-top: 10px;
   padding: 10px;
-  border: 1px solid #fdba74;
+  border: 1px solid var(--mrp-toolbar-border, #e2e8f0);
+  border: 1px solid color-mix(in srgb, var(--mrp-warning-fg, #92400e) 25%, var(--mrp-toolbar-bg, #fff));
   border-radius: 7px;
 }
 .mr-recovery-actions button:focus-visible,
 .mr-recovery-conflict summary:focus-visible {
-  outline: 2px solid #2563eb;
+  outline: 2px solid var(--mrp-btn-active-bg, #2563eb);
   outline-offset: 2px;
 }
 @media (max-width: 700px) {

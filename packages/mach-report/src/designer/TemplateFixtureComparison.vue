@@ -95,7 +95,7 @@ const prepared = computed(() => {
   margin: 0 0 12px;
 }
 .mr-fixture-comparison dt {
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
 }
 .mr-fixture-comparison dd {
   margin: 0;
@@ -108,17 +108,18 @@ const prepared = computed(() => {
 }
 .mr-fixture-previews article {
   min-width: 0;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--mrp-toolbar-border, #e2e8f0);
   border-radius: 8px;
   overflow: hidden;
 }
 .mr-fixture-previews h4 {
   margin: 0;
   padding: 8px 12px;
-  background: #f8fafc;
+  background: var(--mrp-toolbar-bg, #f8fafc);
+  color: var(--mrp-toolbar-fg, #334155);
   font-weight: 600;
 }
 .mr-fixture-comparison p {
-  color: #b91c1c;
+  color: var(--mrp-error-fg, #b91c1c);
 }
 </style>

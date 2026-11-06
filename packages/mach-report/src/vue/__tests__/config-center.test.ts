@@ -28,6 +28,16 @@ const tpl: ReportTemplate = {
 };
 
 describe("defineMachReportConfig 配置中心", () => {
+  it("原生控件、主按钮和反馈语义通过同一主题映射，局部配置保留默认值", () => {
+    const theme = { colorScheme: "dark", btnActiveFg: "#102030", errorFg: "#fca5a5", warningFg: "#fcd34d", successFg: "#6ee7b7" } as const;
+    expect(themeToCssVars(theme)).toEqual({
+      "--mrp-color-scheme": "dark", "--mrp-btn-active-fg": "#102030",
+      "--mrp-error-fg": "#fca5a5", "--mrp-warning-fg": "#fcd34d", "--mrp-success-fg": "#6ee7b7",
+    });
+    const resolved = resolveConfig(defineMachReportConfig({ defaults: { theme: { btnActiveBg: "#93c5fd" } } }));
+    expect(resolved.theme).toMatchObject({ colorScheme: "light", btnActiveFg: "#ffffff", btnActiveBg: "#93c5fd", errorFg: "#b91c1c" });
+  });
+
   it("只声明需要的配置层，省略 defaults/presets 由包内补齐", () => {
     expect(defineMachReportConfig()).toEqual({ defaults: {}, presets: {} });
     const config = defineMachReportConfig({ defaults: { pdfFontUrl: "/fonts/report.ttf" } });

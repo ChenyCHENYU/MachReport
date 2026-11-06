@@ -40,5 +40,5 @@ watchEffect(() => {
   </div>
 </template>
 <style scoped>
-.mr-canvas-primitive,.mr-canvas-primitive-content{position:absolute;inset:0;pointer-events:none}.mr-canvas-primitive-content{overflow:hidden}.mr-canvas-primitive-sample{position:absolute;right:0;top:-16px;padding:1px 4px;background:#f1f5f9;color:#64748b;font-size:9px;border-radius:3px;white-space:nowrap}.mr-canvas-primitive-error{display:block;padding:6px;color:#a45b35;background:#fff9f2;font-size:10px;overflow-wrap:anywhere}
+.mr-canvas-primitive,.mr-canvas-primitive-content{position:absolute;inset:0;pointer-events:none}.mr-canvas-primitive-content{overflow:hidden}.mr-canvas-primitive-sample{position:absolute;right:0;top:-16px;padding:1px 4px;background:var(--mrp-shell-bg, #f1f5f9);color:var(--mrp-btn-fg, #64748b);font-size:9px;border-radius:3px;white-space:nowrap}.mr-canvas-primitive-error{display:block;padding:6px;color:var(--mrp-error-fg, #a45b35);background:var(--mrp-toolbar-bg, #fff);background:color-mix(in srgb, var(--mrp-error-fg, #b91c1c) 7%, var(--mrp-toolbar-bg, #fff));font-size:10px;overflow-wrap:anywhere}
 </style>

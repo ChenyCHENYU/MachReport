@@ -215,12 +215,12 @@
   background: transparent;
 }
 .mr-designer .mr-designer-save {
-  color: #fff;
+  color: var(--mrp-btn-active-fg, #fff);
   background: var(--mrp-btn-active-bg, #2563eb);
   border-color: var(--mrp-btn-active-bg, #2563eb);
 }
 .mr-designer .mr-designer-save:hover:not(:disabled) {
-  color: #fff;
+  color: var(--mrp-btn-active-fg, #fff);
   filter: brightness(0.95);
   background: var(--mrp-btn-active-bg, #2563eb);
 }
@@ -393,7 +393,8 @@
   margin: 0;
   border: 0;
   border-radius: 20px;
-  background: #cbd5e1;
+  background: var(--mrp-btn-border, #cbd5e1);
+  background: color-mix(in srgb, var(--mrp-btn-fg, #64748b) 35%, var(--mrp-toolbar-bg, #fff));
   cursor: pointer;
 }
 .mr-designer input[role="switch"]::after {
@@ -403,15 +404,16 @@
   top: 2px;
   width: 12px;
   height: 12px;
-  background: #fff;
+  background: var(--mrp-toolbar-bg, #fff);
   border-radius: 50%;
-  box-shadow: 0 1px 2px #0002;
+  box-shadow: 0 1px 2px var(--mrp-shadow-color, #0002);
   transition: transform 0.15s;
 }
 .mr-designer input[role="switch"]:checked {
   background: var(--mrp-btn-active-bg, #2563eb);
 }
 .mr-designer input[role="switch"]:checked::after {
+  background: var(--mrp-btn-active-fg, #fff);
   transform: translateX(12px);
 }
 .mr-designer-directory {
@@ -426,7 +428,7 @@
   background: var(--mrp-toolbar-bg, #fff);
   border: 1px solid var(--mrp-toolbar-border, #dbe3ec);
   border-radius: 7px;
-  box-shadow: 0 5px 22px #0f172a14;
+  box-shadow: 0 5px 22px var(--mrp-shadow-color, #0f172a14);
 }
 .mr-designer-directory-heading {
   display: flex;
@@ -458,6 +460,8 @@
 }
 .mr-designer-search:focus-within {
   border-color: var(--mrp-btn-active-bg, #2563eb);
+  box-shadow: 0 0 0 2px
+    var(--mrp-btn-border, #dbe3ef);
   box-shadow: 0 0 0 2px
     color-mix(in srgb, var(--mrp-btn-active-bg, #2563eb) 8%, transparent);
 }
@@ -604,8 +608,9 @@
   overflow: auto;
   margin: 0;
   padding: 10px 16px;
-  color: #b91c1c;
-  background: #fef2f2;
+  color: var(--mrp-error-fg, #b91c1c);
+  background: var(--mrp-toolbar-bg, #fff);
+  background: color-mix(in srgb, var(--mrp-error-fg, #b91c1c) 8%, var(--mrp-toolbar-bg, #fff));
   flex-shrink: 0;
   word-break: break-word;
 }
@@ -748,8 +753,8 @@
   gap: 1px;
   padding: 2px;
   margin-left: auto;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
+  background: var(--mrp-shell-bg, #f1f5f9);
+  border: 1px solid var(--mrp-toolbar-border, #e2e8f0);
   border-radius: 6px;
 }
 .mr-designer-mode button {
@@ -757,12 +762,12 @@
   padding: 3px 8px;
   background: transparent;
   font-size: 11px;
-  color: #52647b;
+  color: var(--mrp-btn-fg, #52647b);
 }
 .mr-designer-mode button[aria-pressed="true"] {
-  color: #245aa4;
-  background: #fff;
-  box-shadow: 0 1px 3px #203b5c12;
+  color: var(--mrp-btn-hover-fg, #245aa4);
+  background: var(--mrp-toolbar-bg, #fff);
+  box-shadow: 0 1px 3px var(--mrp-shadow-color, #203b5c12);
 }
 .mr-designer-mode + .mr-designer-actions {
   margin-left: 0;
@@ -802,7 +807,7 @@
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--mrp-toolbar-border, #e2e8f0);
   flex-shrink: 0;
   flex-wrap: wrap;
 }
@@ -810,13 +815,13 @@
   font-size: 11px;
 }
 .mr-designer-tool-tabs button[aria-pressed="true"] {
-  color: #1d4ed8;
-  background: #eff6ff;
-  border-color: #bfdbfe;
+  color: var(--mrp-btn-hover-fg, #1d4ed8);
+  background: var(--mrp-btn-hover-bg, #eff6ff);
+  border-color: var(--mrp-btn-active-bg, #bfdbfe);
 }
 .mr-designer-tool-tabs span {
   margin-left: auto;
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
   font-size: 11px;
 }
 .mr-designer-tool-content {
@@ -857,7 +862,7 @@
   gap: 6px;
   padding-bottom: 10px;
   margin-bottom: 12px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--mrp-toolbar-border, #e2e8f0);
 }
 .mr-designer-layer-tools button {
   font-size: 10px;
@@ -870,12 +875,12 @@
   gap: 3px;
   margin-top: 10px;
   padding-top: 9px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--mrp-toolbar-border, #e2e8f0);
   font-size: 11px;
 }
 .mr-designer-column-structure > span {
   margin-right: auto;
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
 }
 .mr-designer-column-structure button {
   width: 24px;
@@ -938,9 +943,9 @@
   max-width: 440px;
 }
 
-.mr-designer-arrange { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:9px 0; border-bottom:1px solid #e2e8f0; font-size:11px; }.mr-designer-arrange strong { flex-basis:100%; font-weight:500; color:#64748b; }.mr-designer-arrange small { flex-basis:100%; color:#64748b; }.mr-designer-arrange select { width:100%; }
+.mr-designer-arrange { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:9px 0; border-bottom:1px solid var(--mrp-toolbar-border, #e2e8f0); font-size:11px; }.mr-designer-arrange strong { flex-basis:100%; font-weight:500; color:var(--mrp-btn-fg, #64748b); }.mr-designer-arrange small { flex-basis:100%; color:var(--mrp-btn-fg, #64748b); }.mr-designer-arrange select { width:100%; }
 
-.mr-designer-flow-note{display:grid;gap:7px;padding:10px;margin-bottom:12px;border:1px solid #d6e6fa;border-radius:7px;background:#f2f7fe;color:#5d7b9f}.mr-designer-flow-note button{justify-self:start;font-size:12px}
+.mr-designer-flow-note{display:grid;gap:7px;padding:10px;margin-bottom:12px;border:1px solid var(--mrp-toolbar-border, #d6e6fa);border-radius:7px;background:var(--mrp-btn-hover-bg, #f2f7fe);color:var(--mrp-btn-fg, #5d7b9f)}.mr-designer-flow-note button{justify-self:start;font-size:12px}
 
 /* 主操作保持文字可辨，窄工作区只换行一次，不裁切插入菜单。 */
 .mr-designer-bar {
@@ -951,7 +956,7 @@
   gap: 0 12px;
 }
 .mr-designer-history .mr-designer-icon-button{width:auto;min-width:52px;padding:4px 8px}
-.mr-designer-insert-notice{margin:0;padding:7px 12px;border-bottom:1px solid #dae6f3;background:#f0f6fe;color:#35618f;font-size:11px}
+.mr-designer-insert-notice{margin:0;padding:7px 12px;border-bottom:1px solid var(--mrp-toolbar-border, #dae6f3);background:var(--mrp-btn-hover-bg, #f0f6fe);color:var(--mrp-btn-fg, #35618f);font-size:11px}
 .mr-designer-field-actions{display:flex;justify-content:flex-end;margin:0 0 8px}
-.mr-designer-field-actions button{font-size:10px;color:#64748b;padding:2px 6px}
+.mr-designer-field-actions button{font-size:10px;color:var(--mrp-btn-fg, #64748b);padding:2px 6px}
 @media(max-width:1100px){.mr-designer-heading span{display:none}.mr-designer-tabs>button{padding:0 8px}.mr-designer-bar{gap:6px 8px}.mr-designer-actions{flex-wrap:wrap;justify-content:flex-end;gap:4px}.mr-designer-guide>button{font-size:11px}.mr-designer-save-reason{display:none}}

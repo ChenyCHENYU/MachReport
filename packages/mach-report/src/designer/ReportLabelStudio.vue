@@ -3,9 +3,11 @@ import { markRaw, nextTick, onScopeDispose, ref, shallowRef, watch, type Compone
 import { ReportPreview } from "@agile-team/mach-report/vue";
 import type { ReportTemplateDocument } from "@agile-team/mach-report";
 import ReportIcon from "../vue/ReportIcon.vue";
+import { useDesignerTheme } from "./useDesignerTheme";
 import { useLabelStudio, type LabelStudioOptions } from "./useLabelStudio";
 import { useDesignerViews } from "./useDesignerViews";
 const props = withDefaults(defineProps<LabelStudioOptions>(), { showSave: true });
+const shellStyle = useDesignerTheme(() => props.preview?.theme);
 const emit = defineEmits<{ (event: "update:modelValue", document: ReportTemplateDocument): void }>();
 const studio = useLabelStudio(props, document => emit("update:modelValue", document));
 const { m, notice, title, document, mode, record, recordIndex, sheet, busy, editor, rows, designDatasets, schemas, bindings, paper, labelCount, fetcher, preset, presets, brandName, brandTagline, fields, fieldQuery, selectedFields, availableFields, fieldCount, configurationDirty, pendingLocalChanges, custom, confirmation, editorVisited, editorInitialDocument, sheetLayout, sheetHint, rebuilding, layoutChanged } = studio;
@@ -35,7 +37,7 @@ watch(confirmation, async value => {
 defineExpose({ guardChanges: studio.guardChanges, prepare: studio.prepare, preview: studio.showPreview, print: studio.print, get mode() { return mode.value; }, get canPrint() { return studio.canPrint.value; }, get busy() { return busy.value; }, get pendingLocalChanges() { return pendingLocalChanges.value; } });
 </script>
 <template>
-  <section class="mr-label-studio" :class="{ 'is-design': mode === 'design' }" :aria-label="title">
+  <section class="mr-label-studio" :style="shellStyle" :class="{ 'is-design': mode === 'design' }" :aria-label="title">
     <aside class="mr-label-context">
       <div class="mr-label-identity"><ReportIcon name="file" :size="18" /><strong>{{ title }}</strong><small>{{ custom ? m.customTemplate : m.readyTemplate }}</small></div>
       <div class="mr-label-spec"><strong>{{ paper?.widthMm }} <i>×</i> {{ paper?.heightMm }}</strong><span>mm · {{ document.template.pages.length }} {{ m.faces }}</span></div>

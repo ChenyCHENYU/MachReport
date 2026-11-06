@@ -4,6 +4,8 @@ import {
   type TemplateReuseOptions,
 } from "./useTemplateReuse";
 import type { CanvasSelection } from "./canvas-commands";
+import { useDesignerTheme } from "./useDesignerTheme";
+const themeStyle = useDesignerTheme();
 const props = defineProps<TemplateReuseOptions>();
 const emit = defineEmits<{
   (event: "select", location: CanvasSelection): void;
@@ -31,7 +33,7 @@ const {
 } = useTemplateReuse(props, (location) => emit("select", location));
 </script>
 <template>
-  <section class="mr-product-panel" :aria-label="m.reuse">
+  <section class="mr-product-panel" :style="themeStyle" :aria-label="m.reuse">
     <header>
       <strong>{{ m.reuse }}</strong><small>{{ m.preserve }}</small>
     </header>

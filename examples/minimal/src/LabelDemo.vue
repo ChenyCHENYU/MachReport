@@ -4,14 +4,17 @@ import type { ReportTemplateDocument } from "@agile-team/mach-report";
 import { ReportLabelStudio } from "@agile-team/mach-report/designer";
 import { provideMachReportConfig } from "@agile-team/mach-report/vue";
 import { labelContract, labelRows } from "./label-template";
+import { darkDemoTheme } from "./demo-theme";
 const document = ref<ReportTemplateDocument>();
-provideMachReportConfig({ defaults: { pdfFontUrl: "/fonts/mach-report-demo.otf", printOptions: { fonts: [{ family: "Microsoft YaHei", source: "/fonts/mach-report-demo.otf" }] } } });
+const dark = ref(false);
+provideMachReportConfig({ get defaults() { return { theme: dark.value ? darkDemoTheme : {}, pdfFontUrl: "/fonts/mach-report-demo.otf", printOptions: { fonts: [{ family: "Microsoft YaHei", source: "/fonts/mach-report-demo.otf" }] } }; } });
 </script>
 <template>
   <main class="label-demo">
     <header class="label-heading">
       <a class="label-brand" href="/" aria-label="MR · MachReport 首页">M<span>R</span></a>
       <div><p>MACHREPORT / LABEL STUDIO</p><h1>材料标识工作台</h1><span>从字段到实物，让信息清晰可追溯</span></div>
+      <button class="label-theme" type="button" :aria-pressed="dark" @click="dark = !dark">深色界面</button>
       <a class="label-guide" href="https://github.com/ChenyCHENYU/MachReport/blob/main/docs/LABELS.md" target="_blank" rel="noreferrer">接入指南 <span aria-hidden="true">↗</span></a>
     </header>
     <div class="label-workspace"><ReportLabelStudio v-model="document" :rows="labelRows" :schema="labelContract" identity-field="serial" title="工业材料标签" preset="paired" :brand="{ name: 'MACH STEEL', tagline: 'MATERIAL TRACE · 材料追溯' }" :fields="['grade', 'condition', 'size', 'weight', 'heat']" /></div>

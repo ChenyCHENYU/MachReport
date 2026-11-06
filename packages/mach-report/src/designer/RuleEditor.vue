@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { useDesignerTheme } from "./useDesignerTheme";
+const shellStyle = useDesignerTheme();
 import {
   getComputationMetadata,
   type ReportExpression,
@@ -44,7 +46,7 @@ const metadata = getComputationMetadata();
 </script>
 
 <template>
-  <section class="mr-rule-editor" :aria-label="m.settings">
+  <section class="mr-rule-editor" :style="shellStyle" :aria-label="m.settings">
     <aside class="mr-rule-editor__directory">
 <div class="mr-rule-editor__tabs" role="tablist" :aria-label="m.settings">
       <button
@@ -452,11 +454,12 @@ const metadata = getComputationMetadata();
   min-height: 0;
   gap: 16px;
   font: inherit;
-  color: inherit;
+  color: var(--mrp-toolbar-fg, #334155);
+  background: var(--mrp-toolbar-bg, #fff);
 }
 .mr-rule-editor__tabs {
   display: grid;
-  background: #f4f7fb;
+  background: var(--mrp-shell-bg, #f4f7fb);
   padding: 3px;
   border-radius: 7px;
   gap: 3px;
@@ -468,9 +471,9 @@ const metadata = getComputationMetadata();
   font-weight: 500;
 }
 .mr-rule-editor__tabs button.is-active {
-  background: #fff;
-  color: #1d4ed8;
-  box-shadow: 0 1px 3px #0f172a12;
+  background: var(--mrp-toolbar-bg, #fff);
+  color: var(--mrp-btn-hover-fg, #1d4ed8);
+  box-shadow: 0 1px 3px var(--mrp-shadow-color, #0f172a12);
 }
 .mr-rule-editor__tabs span {
   font-size: 11px;
@@ -488,7 +491,7 @@ const metadata = getComputationMetadata();
   gap: 5px;
   font-size: 12px;
   font-weight: 500;
-  color: #475569;
+  color: var(--mrp-toolbar-fg, #475569);
   min-width: 0;
 }
 .mr-rule-editor select,
@@ -499,9 +502,9 @@ const metadata = getComputationMetadata();
   box-sizing: border-box;
   min-width: 0;
   max-width: 100%;
-  border: 1px solid #dce5f0;
-  border-radius: 5px;
-  background: #fff;
+  border: 1px solid var(--mrp-toolbar-border, #dce5f0);
+  border-radius: 6px;
+  background: var(--mrp-toolbar-bg, #fff);
   height: 31px;
   padding: 5px 8px;
 }
@@ -509,7 +512,7 @@ const metadata = getComputationMetadata();
 .mr-rule-editor input {
   width: 100%;
   font-weight: 400;
-  color: #172b4d;
+  color: var(--mrp-toolbar-fg, #172b4d);
 }
 .mr-rule-editor button {
   font-size: 12px;
@@ -521,7 +524,7 @@ const metadata = getComputationMetadata();
   cursor: default;
 }
 .mr-rule-editor :focus-visible {
-  outline: 2px solid #2563eb;
+  outline: 2px solid var(--mrp-btn-active-bg, #2563eb);
   outline-offset: 2px;
 }
 .mr-rule-editor__pair {
@@ -540,7 +543,7 @@ const metadata = getComputationMetadata();
 .mr-rule-editor__checks legend {
   font-size: 12px;
   margin-bottom: 6px;
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
 }
 .mr-rule-editor__checks label,
 .mr-rule-editor__check {
@@ -552,7 +555,7 @@ const metadata = getComputationMetadata();
   width: 14px;
   height: 14px;
   margin: 0;
-  accent-color: #2563eb;
+  accent-color: var(--mrp-btn-active-bg, #2563eb);
 }
 .mr-rule-editor input[type="color"] {
   padding: 3px;
@@ -563,13 +566,13 @@ const metadata = getComputationMetadata();
   gap: 6px;
 }
 .mr-rule-editor .mr-rule-editor__primary {
-  background: #2563eb;
-  border-color: #2563eb;
-  color: #fff;
+  background: var(--mrp-btn-active-bg, #2563eb);
+  border-color: var(--mrp-btn-active-bg, #2563eb);
+  color: var(--mrp-btn-active-fg, #fff);
 }
 .mr-rule-editor summary {
   font-size: 12px;
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
   cursor: pointer;
 }
 .mr-rule-editor__advanced {
@@ -581,20 +584,20 @@ const metadata = getComputationMetadata();
 .mr-rule-editor__results p {
   font-size: 11px;
   line-height: 1.6;
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
   margin: 0;
 }
 .mr-rule-editor__diagnostic {
   display: grid;
   gap: 4px;
-  background: #f1f6fd;
+  background: var(--mrp-shell-bg, #f1f6fd);
   border-radius: 6px;
   padding: 9px;
   font-size: 11px;
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
 }
 .mr-rule-editor__diagnostic strong {
-  color: #1e40af;
+  color: var(--mrp-btn-hover-fg, #1e40af);
   font-weight: 500;
   overflow-wrap: anywhere;
 }
@@ -602,8 +605,9 @@ const metadata = getComputationMetadata();
   margin: 0;
   padding: 9px;
   border-radius: 6px;
-  background: #fff1f2;
-  color: #be123c;
+  background: var(--mrp-toolbar-bg, #fff1f2);
+  background: color-mix(in srgb, var(--mrp-error-fg, #be123c) 9%, var(--mrp-toolbar-bg, #fff));
+  color: var(--mrp-error-fg, #be123c);
   font-size: 12px;
   line-height: 1.6;
   overflow-wrap: anywhere;
@@ -611,12 +615,12 @@ const metadata = getComputationMetadata();
 .mr-rule-editor__aggregate {
   display: grid;
   gap: 8px;
-  border: 1px solid #e4ebf4;
+  border: 1px solid var(--mrp-toolbar-border, #e4ebf4);
   border-radius: 7px;
   padding: 10px;
 }
 .mr-rule-editor__results {
-  border: 1px solid #dce5f0;
+  border: 1px solid var(--mrp-toolbar-border, #dce5f0);
   border-radius: 6px;
   padding: 8px;
 }
@@ -631,14 +635,14 @@ const metadata = getComputationMetadata();
 .mr-rule-editor__results dd {
   padding: 5px 0;
   margin: 0;
-  border-top: 1px solid #eef2f7;
+  border-top: 1px solid var(--mrp-toolbar-border, #eef2f7);
   overflow-wrap: anywhere;
 }
 .mr-rule-editor__results dt {
-  color: #94a3b8;
+  color: var(--mrp-btn-fg, #94a3b8);
 }
 .mr-rule-editor__directory { min-width:0; display:grid; gap:16px; grid-column:1; grid-row:1; }
-.mr-rule-editor__catalog { display:grid; gap:8px; font-size:11px; }.mr-rule-editor__catalog>strong { font-size:12px; }.mr-rule-editor__field-list { max-height:340px; overflow:auto; display:grid; gap:4px; }.mr-rule-editor__field-list button { height:auto; display:grid; text-align:left; gap:2px; padding:7px 9px; white-space:normal; border-color:transparent; background:#f8fafc; }.mr-rule-editor__field-list button:hover { background:#eff6ff; }.mr-rule-editor__field-list strong { font-weight:500; }.mr-rule-editor__field-list :is(code,small) { font-size:10px; color:#64748b; overflow-wrap:anywhere; }.mr-rule-editor__explanation { grid-column:3; grid-row:1; min-width:0; background:#f7faff; border:1px solid #dce8f7; border-radius:8px; padding:13px; font-size:11px; }.mr-rule-editor__explanation header { display:flex; justify-content:space-between; gap:6px; }.mr-rule-editor__explanation header span { color:#92400e; }.mr-rule-editor__explanation h4 { margin:14px 0 6px; font-size:11px; font-weight:500; }.mr-rule-editor__explanation p { color:#64748b; line-height:1.6; margin:7px 0; }.mr-rule-editor__explanation code { display:block; white-space:pre-wrap; overflow-wrap:anywhere; color:#334155; font-size:11px; }.mr-rule-editor__trace { display:grid; gap:5px; margin-top:7px; padding:8px; background:#fff; border:1px solid #e5edf8; border-radius:5px; }.mr-rule-editor__trace small { color:#64748b; }.mr-rule-editor__trace strong { color:#1d4ed8; font-weight:500; }.mr-rule-editor>.mr-data-layout { grid-column:2; grid-row:1; }
+.mr-rule-editor__catalog { display:grid; gap:8px; font-size:11px; }.mr-rule-editor__catalog>strong { font-size:12px; }.mr-rule-editor__field-list { max-height:340px; overflow:auto; display:grid; gap:4px; }.mr-rule-editor__field-list button { height:auto; display:grid; text-align:left; gap:2px; padding:7px 9px; white-space:normal; border-color:transparent; background:var(--mrp-shell-bg, #f8fafc); }.mr-rule-editor__field-list button:hover { background:var(--mrp-btn-hover-bg, #eff6ff); }.mr-rule-editor__field-list strong { font-weight:500; }.mr-rule-editor__field-list :is(code,small) { font-size:10px; color:var(--mrp-btn-fg, #64748b); overflow-wrap:anywhere; }.mr-rule-editor__explanation { grid-column:3; grid-row:1; min-width:0; background:var(--mrp-shell-bg, #f7faff); border:1px solid var(--mrp-toolbar-border, #dce8f7); border-radius:8px; padding:13px; font-size:11px; }.mr-rule-editor__explanation header { display:flex; justify-content:space-between; gap:6px; }.mr-rule-editor__explanation header span { color:var(--mrp-warning-fg, #92400e); }.mr-rule-editor__explanation h4 { margin:14px 0 6px; font-size:11px; font-weight:500; }.mr-rule-editor__explanation p { color:var(--mrp-btn-fg, #64748b); line-height:1.6; margin:7px 0; }.mr-rule-editor__explanation code { display:block; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--mrp-toolbar-fg, #334155); font-size:11px; }.mr-rule-editor__trace { display:grid; gap:5px; margin-top:7px; padding:8px; background:var(--mrp-toolbar-bg, #fff); border:1px solid var(--mrp-toolbar-border, #e5edf8); border-radius:5px; }.mr-rule-editor__trace small { color:var(--mrp-btn-fg, #64748b); }.mr-rule-editor__trace strong { color:var(--mrp-btn-hover-fg, #1d4ed8); font-weight:500; }.mr-rule-editor>.mr-data-layout { grid-column:2; grid-row:1; }
 @media(max-width:1000px) { .mr-rule-editor { grid-template-columns:150px minmax(0,1fr); }.mr-rule-editor__explanation { grid-column:2; grid-row:2; } }
 @media(max-width:620px) { .mr-rule-editor { grid-template-columns:minmax(0,1fr); }.mr-rule-editor__directory { grid-column:1; grid-row:auto; }.mr-rule-editor__tabs { display:flex; flex-wrap:wrap; }.mr-rule-editor__catalog { display:none; }.mr-rule-editor__panel,.mr-rule-editor>.mr-data-layout,.mr-rule-editor__explanation { grid-column:1; grid-row:auto; } }
 </style>

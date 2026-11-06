@@ -42,13 +42,23 @@ try {
     symlinkSync(dirname(createRequire(nodeTypes).resolve("undici-types/package.json")), resolve(scratch, "node_modules/undici-types"), "dir");
   }
   writeFileSync(resolve(scratch, "consumer.mts"), `
-import { ReportPreview, createProviderEditing, type ReportEditHistoryOptions, type ReportPreviewTask, type MachReportController } from '@agile-team/mach-report/vue';
+import { ReportPreview, createProviderEditing, defineMachReportConfig, machReportPlugin, type ReportEditHistoryOptions, type ReportPreviewTask, type MachReportController, type MachReportTheme } from '@agile-team/mach-report/vue';
+import { createApp } from 'vue';
 import { ReportTemplateEditor, ExcelBindingWizard, RuleEditor, TemplateReviewPanel } from '@agile-team/mach-report/designer';
 import { createReportRuntime, type ReportRuntimeInput } from '@agile-team/mach-report/server';
 import { createNodeAutoReportExporter } from '@agile-team/mach-report/server/node';
 import type { ReportExportExecutionOptions } from '@agile-team/mach-report/worker';
 import type { ReportTaskEvent, ReportTemplateDocument } from '@agile-team/mach-report';
 type PreviewProps = InstanceType<typeof ReportPreview>['$props'];
+const existingTheme: MachReportTheme = {
+  shellBg: '#ffffff', shellFg: '#334155', toolbarBg: '#ffffff', toolbarBorder: '#e2e8f0', toolbarFg: '#334155',
+  btnFg: '#475569', btnBorder: '#cbd5e1', btnHoverBg: '#eff6ff', btnHoverFg: '#1d4ed8', btnActiveBg: '#2563eb'
+};
+const themeOverrides: Partial<MachReportTheme> = { colorScheme: 'dark', btnActiveFg: '#102030', errorFg: '#fca5a5', warningFg: '#fcd34d', successFg: '#6ee7b7' };
+// @ts-expect-error 原生控件主题使用明确的浅色或深色模式
+const invalidTheme: Partial<MachReportTheme> = { colorScheme: 'automatic' };
+void [existingTheme, themeOverrides, invalidTheme];
+createApp({}).use(machReportPlugin, { config: defineMachReportConfig({ defaults: { theme: themeOverrides } }) });
 const props: PreviewProps = { reportId: 'sample', onLoaded: (count: number) => { void count; } };
 // @ts-expect-error 参数必须为字符串字典
 const invalidParams: PreviewProps = { params: 12 };

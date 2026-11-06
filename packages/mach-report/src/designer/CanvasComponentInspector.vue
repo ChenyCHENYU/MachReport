@@ -221,7 +221,7 @@ async function upload(event: Event): Promise<void> {
 .mr-component-position[open] summary { margin-bottom: 10px; }
 .mr-component-properties h3 {
   font-size: 11px;
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
   margin: 0 0 8px;
 }
 .mr-component-properties label {
@@ -242,24 +242,24 @@ async function upload(event: Event): Promise<void> {
   min-width: 0;
   width: 100%;
   box-sizing: border-box;
-  border: 1px solid #dbe3ec;
+  border: 1px solid var(--mrp-toolbar-border, #dbe3ec);
   border-radius: 5px;
   font: inherit;
   padding: 5px 7px;
   color: inherit;
-  background: #fff;
+  background: var(--mrp-toolbar-bg, #fff);
 }
 .mr-component-properties :disabled {
   opacity: 0.45;
 }
 .mr-component-properties :focus-visible {
-  outline: 2px solid #2563eb;
+  outline: 2px solid var(--mrp-btn-active-bg, #2563eb);
   outline-offset: 2px;
 }
 .mr-component-properties input[type="checkbox"] {
   width: 16px;
   height: 16px;
-  accent-color: #2563eb;
+  accent-color: var(--mrp-btn-active-bg, #2563eb);
 }
 .mr-component-type {
   margin-top: 12px;
@@ -275,7 +275,7 @@ async function upload(event: Event): Promise<void> {
   font-size: 10px;
 }
 .mr-component-properties [role="alert"] {
-  color: #b91c1c;
+  color: var(--mrp-error-fg, #b91c1c);
   font-size: 11px;
 }
 </style>

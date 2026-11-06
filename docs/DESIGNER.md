@@ -46,7 +46,7 @@ const save: TemplateEditorOptions["save"] = (draft, { expectedRevision, signal }
 | `capabilities` | 按项目能力隐藏 `params / excel / rules / review / advanced / outline / reuse`，保留共用控制器 |
 | `insertionMessages` | 覆盖内容添加、落点及待配置提示 |
 | `messages` | 覆盖 `TEMPLATE_EDITOR_MESSAGES` 文案 |
-| `preview` | 可选预览theme / toolbar / assets / pdfFontUrl和输出开关；默认浅色阅读预览，关闭导出 / 打印 / PDF窗口 |
+| `preview` | 可选theme / toolbar / assets / pdfFontUrl和输出开关；theme同时作用于外层工作台和内嵌预览，默认继承应用配置，关闭导出 / 打印 / PDF窗口 |
 | `saved` | 保存成功后返回新文档，包括服务端修订号 |
 | `draftStorage` / `loadLatest` / `keepCopy` | 可选草稿暂存与 CAS 冲突处理，见[恢复与冲突](DRAFT_RECOVERY.md) |
 | `fragments` / `documentStyles` / `reviewFixtures` | 可选共享片段、内容角色与命名样例，见[结构、复用与验收](DESIGNER_PRODUCTIVITY.md) |
@@ -79,6 +79,14 @@ async function canLeave() { return await editor.value?.guardChanges() ?? true; }
 ```
 
 新外部版本、卸载会取消旧保存；即使接口忽略取消，旧响应也不会覆盖当前文档。取消前已完成的服务端提交仍需通过重新读取确认，前端不把取消等同于数据库回滚。
+
+## 主题与内容样式
+
+设计器、标签工作台以及独立使用的模板库、批量生成、参数、规则和检查面板自动读取应用和路由的主题配置。编辑器与标签工作台通过已有的 `preview.theme` 按字段覆盖，外层工具和内嵌预览共享同一结果。主题响应式更新时保留当前草稿、选区和撤销记录。
+
+颜色复用预览的 `theme` 与 `--mrp-*` 变量。`btnActiveFg` 配对主按钮前景，`errorFg / warningFg / successFg` 分别表达反馈语义，`colorScheme` 控制原生表单控件外观。默认浅色可直接使用，深色配置示例见[项目主题接入](./INTEGRATION.md#一次配置工作台主题)。
+
+界面主题控制外壳、属性面板、菜单和控件。模板的 `style` 控制报表纸面、文字、图表和输出，白纸与真实码图保留内容配色。运行 `/designer.html` 或 `/labels.html`，可用“深色界面”切换验证交互与纸面效果。
 
 ## 版本与持久化
 

@@ -3,6 +3,8 @@ import { computed, nextTick, ref, watch } from "vue";
 import ReportParamPanel from "../vue/ReportParamPanel.vue";
 import { DEFAULT_MESSAGES } from "../vue/config";
 import { useReportBatch, type ReportBatchPanelOptions, type ReportBatchReceipt, type ReportBatchRow } from "./useReportBatch";
+import { useDesignerTheme } from "./useDesignerTheme";
+const shellStyle = useDesignerTheme();
 const props = defineProps<ReportBatchPanelOptions>();
 const emit = defineEmits<{ (event: "open-instance", receipt: ReportBatchReceipt): void }>();
 const editor = useReportBatch(props);
@@ -61,7 +63,7 @@ async function run(retry = false): Promise<void> {
 </script>
 
 <template>
-  <section ref="root" class="mr-batch" :aria-label="m.batchTitle" :aria-busy="running">
+  <section ref="root" class="mr-batch" :style="shellStyle" :aria-label="m.batchTitle" :aria-busy="running">
     <header class="mr-batch__heading"><div><strong>{{ m.batchTitle }}</strong><p>{{ m.batchDescription }}</p></div><button type="button" :disabled="readonly || running || rows.length >= maximum" @click="add()">+ {{ m.batchAdd }}</button></header>
     <div v-if="rows.length" class="mr-batch__toolbar"><div class="mr-batch__filters" role="group" :aria-label="m.batchFilter"><button v-for="item in filters" :key="item.value" type="button" :aria-pressed="filter === item.value" @click="filter = item.value">{{ item.label }} <span>{{ item.count }}</span></button></div><button v-if="failures" type="button" class="mr-batch__next-failure" :disabled="running" @click="nextFailure">{{ m.batchNextFailure }} ↓</button></div>
     <div v-if="!rows.length" class="mr-batch__empty">{{ m.batchEmpty }}</div>

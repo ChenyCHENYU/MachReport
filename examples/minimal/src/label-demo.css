@@ -7,7 +7,10 @@ body{background:#f2f6fa;color:#263e59}
 .label-heading p{font-size:9px;letter-spacing:2.1px;color:#6a83a0;margin:0 0 5px}
 .label-heading h1{font-size:22px;letter-spacing:.3px;margin:0 0 5px;color:#183652;font-weight:650}
 .label-heading>div>span{font-size:11px;color:#74869a}
-.label-guide{margin-left:auto;color:#4f7194;text-decoration:none;font-size:12px;padding:8px 0 8px 12px}
+.label-guide{color:#4f7194;text-decoration:none;font-size:12px;padding:8px 0 8px 12px}
+.label-theme{margin-left:auto;flex-shrink:0;border:1px solid #cbd5e1;border-radius:6px;padding:7px 10px;background:#fff;color:#334155;font:inherit;font-size:12px;cursor:pointer}
+.label-theme[aria-pressed="true"]{background:#172235;color:#e2e8f0;border-color:#64748b}
+.label-theme:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
 .label-guide span{margin-left:8px}
 
 .label-workspace{height:clamp(540px,calc(100dvh - 200px),1000px);box-shadow:0 12px 36px #17375607;border-radius:12px;overflow:hidden}

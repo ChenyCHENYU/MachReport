@@ -1,6 +1,7 @@
 .mr-product-panel {
   padding: 18px;
   color: var(--mrp-toolbar-fg, #334155);
+  background: var(--mrp-toolbar-bg, #fff);
   font:
     12px/1.5 system-ui,
     sans-serif;
@@ -18,7 +19,7 @@
 }
 .mr-product-panel header small {
   margin-left: 10px;
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
 }
 .mr-product-panel input,
 .mr-product-panel select {
@@ -27,7 +28,7 @@
   border: 1px solid var(--mrp-toolbar-border, #dbe3ee);
   border-radius: 7px;
   padding: 5px 9px;
-  background: #fff;
+  background: var(--mrp-toolbar-bg, #fff);
   color: inherit;
   font: inherit;
 }
@@ -35,13 +36,13 @@
   border: 1px solid var(--mrp-toolbar-border, #dbe3ee);
   border-radius: 7px;
   padding: 6px 10px;
-  background: #fff;
+  background: var(--mrp-toolbar-bg, #fff);
   color: inherit;
   font: inherit;
   cursor: pointer;
 }
 .mr-product-panel :is(input, select, button):focus-visible {
-  outline: 2px solid #93c5fd;
+  outline: 2px solid var(--mrp-btn-active-bg, #93c5fd);
   outline-offset: 2px;
 }
 .mr-product-panel button:disabled {
@@ -49,7 +50,7 @@
   cursor: default;
 }
 .mr-product-note {
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
   margin: 8px 0;
 }
 .mr-product-panel h3 {
@@ -81,16 +82,16 @@
   align-items: center;
   gap: 9px;
   border: 0;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--mrp-toolbar-border, #f1f5f9);
   border-radius: 5px;
 }
 .mr-outline-tree button:hover,
 .mr-outline-reference:hover {
-  background: #eff6ff;
+  background: var(--mrp-btn-hover-bg, #eff6ff);
 }
 .mr-outline-kind {
   font-size: 10px;
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
   min-width: 28px;
 }
 .mr-outline-tree strong {
@@ -101,11 +102,11 @@
 }
 .mr-outline-tree small {
   margin-left: auto;
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
 }
 .mr-outline aside {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--mrp-shell-bg, #f8fafc);
+  border: 1px solid var(--mrp-toolbar-border, #e2e8f0);
   border-radius: 10px;
   padding: 14px;
   min-width: 0;
@@ -122,7 +123,7 @@
   display: block;
   overflow-wrap: anywhere;
   font-size: 10px;
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
 }
 .mr-product-more {
   margin-top: 12px;
@@ -140,7 +141,7 @@
   gap: 20px;
 }
 .mr-reuse-layout section {
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--mrp-toolbar-border, #e2e8f0);
   border-radius: 10px;
   padding: 16px;
   min-width: 0;
@@ -162,28 +163,31 @@
   margin-top: 12px;
 }
 .mr-reuse-primary {
-  background: #2563eb !important;
-  color: #fff !important;
-  border-color: #2563eb !important;
+  background: var(--mrp-btn-active-bg, #2563eb) !important;
+  color: var(--mrp-btn-active-fg, #fff) !important;
+  border-color: var(--mrp-btn-active-bg, #2563eb) !important;
 }
 .mr-reuse-bindings {
   margin-top: 12px;
   padding-top: 10px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--mrp-toolbar-border, #e2e8f0);
 }
 .mr-reuse-error {
-  color: #b91c1c;
+  color: var(--mrp-error-fg, #b91c1c);
 }
 .mr-reuse-swatch {
   margin: 12px 0;
   padding: 15px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--mrp-toolbar-border, #e2e8f0);
   border-radius: 6px;
 }
 .mr-impact {
   padding: 12px;
-  border: 1px solid #fcd34d;
-  background: #fffbeb;
+  color: var(--mrp-toolbar-fg, #334155);
+  border: 1px solid var(--mrp-toolbar-border, #e2e8f0);
+  border: 1px solid color-mix(in srgb, var(--mrp-warning-fg, #92400e) 25%, var(--mrp-toolbar-bg, #fff));
+  background: var(--mrp-toolbar-bg, #fff);
+  background: color-mix(in srgb, var(--mrp-warning-fg, #92400e) 8%, var(--mrp-toolbar-bg, #fff));
   border-radius: 8px;
   font:
     12px/1.5 system-ui,
@@ -194,7 +198,7 @@
 }
 .mr-impact p {
   margin: 5px 0;
-  color: #92400e;
+  color: var(--mrp-warning-fg, #92400e);
 }
 .mr-impact ol {
   list-style: none;
@@ -203,8 +207,10 @@
   overflow: auto;
 }
 .mr-impact button {
-  border: 1px solid #e2e8f0;
-  background: #fff;
+  color: var(--mrp-toolbar-fg, #334155);
+  border: 1px solid var(--mrp-toolbar-border, #e2e8f0);
+  border: 1px solid color-mix(in srgb, var(--mrp-warning-fg, #92400e) 25%, var(--mrp-toolbar-bg, #fff));
+  background: var(--mrp-toolbar-bg, #fff);
   border-radius: 5px;
   padding: 4px 7px;
   cursor: pointer;

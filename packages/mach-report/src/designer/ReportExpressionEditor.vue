@@ -287,7 +287,7 @@ function setAggregate(
   color: inherit;
 }
 .mr-expression--nested {
-  border-left: 2px solid var(--mr-color-border, #dce5f0);
+  border-left: 2px solid var(--mrp-toolbar-border, #dce5f0);
   padding-left: 8px;
 }
 .mr-expression__row {
@@ -307,13 +307,13 @@ select,
 input,
 button {
   font: inherit;
-  color: inherit;
+  color: var(--mrp-toolbar-fg, #334155);
   box-sizing: border-box;
   min-width: 0;
   max-width: 100%;
-  border: 1px solid var(--mr-color-border, #dce5f0);
+  border: 1px solid var(--mrp-toolbar-border, #dce5f0);
   border-radius: 5px;
-  background: #fff;
+  background: var(--mrp-toolbar-bg, #fff);
   height: 30px;
   padding: 4px 7px;
 }
@@ -324,6 +324,11 @@ input {
 button {
   cursor: pointer;
   white-space: nowrap;
+  color: var(--mrp-btn-fg, #475569);
+}
+button:hover:not(:disabled) {
+  color: var(--mrp-btn-hover-fg, #1d4ed8);
+  background: var(--mrp-btn-hover-bg, #eff6ff);
 }
 button:disabled,
 input:disabled,
@@ -332,7 +337,7 @@ select:disabled {
   cursor: default;
 }
 :focus-visible {
-  outline: 2px solid #2563eb;
+  outline: 2px solid var(--mrp-btn-active-bg, #2563eb);
   outline-offset: 2px;
 }
 </style>

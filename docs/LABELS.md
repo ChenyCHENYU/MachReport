@@ -41,6 +41,8 @@ const schema = {
 
 可选 `data-contract` 声明业务来源及 `records` 字段语义，初次生成与确认重建时随模板保留。导入其他模板前，宿主使用 `inspectReportTemplateCompatibility()` 对照当前契约，明确处理缺少来源或字段语义不兼容的情况。相同列名或 Excel 坐标不能证明两个业务字段可互换。
 
+工作台与内嵌设计器自动继承应用 `defaults.theme`。需要当前标签独立配色时使用已有 `preview.theme`，工作台外壳和预览同步生效。原生控件支持 `colorScheme`，主操作使用 `btnActiveBg / btnActiveFg` 配对；报表纸面与码图使用模板内容配色。完整配置见[项目主题接入](./INTEGRATION.md#一次配置工作台主题)。
+
 ## 最少接入
 
 ```ts

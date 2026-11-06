@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.23.0-2563eb" alt="Source version 2.23.0" />
+  <img src="https://img.shields.io/badge/source-2.23.1-2563eb" alt="Source version 2.23.1" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -96,6 +96,7 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 模板安全复用 | `dataContract` 声明来源和字段语义，`inspectReportTemplateCompatibility` 在套用前返回兼容问题 |
 | 查询说明随数据更新 | `bindReportTemplateContext` 按稳定 `meta.contextKey` 绑定，移动位置后仍可刷新 |
 | 设置与缩放隔离 | `preferences.key + adapter` 统一记忆工具和标准页／宽表缩放，支持恢复默认 |
+| 工作台统一主题 | 应用 `defaults.theme` 同时控制预览、设计器与独立工具面板；编辑器和标签工作台沿用 `preview.theme` 做局部覆盖 |
 | 明确的只读原因 | `toolbar.unavailableReasons` 解释宿主约束，选中单元格显示公式、汇总、保护或权限原因；`editable.readOnlyReason` 可补充业务说明 |
 | 长会话修改审阅 | 净差异增量维护，明细按业务字段、行键和数据集检索，每批显示100项；`editable.history` 可选调整撤销预算 |
 | 轻量模板工作流 | `/designer` 的 `useTemplateWorkbench` 复用草稿保护、操作去重与可等待套用，项目提供业务回调 |
@@ -718,7 +719,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.23.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.23.1`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

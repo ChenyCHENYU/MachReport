@@ -85,13 +85,13 @@ watch(
 </template>
 <style scoped>
 .mr-header-editor {
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--mrp-toolbar-border, #e2e8f0);
   margin-top: 12px;
   padding-top: 10px;
   font:
     12px/1.5 system-ui,
     sans-serif;
-  color: #334155;
+  color: var(--mrp-toolbar-fg, #334155);
 }
 .mr-header-editor summary {
   display: flex;
@@ -102,7 +102,7 @@ watch(
 .mr-header-editor summary span {
   font-size: 10px;
   font-weight: 400;
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
 }
 .mr-header-editor fieldset {
   border: 0;
@@ -123,8 +123,8 @@ watch(
   max-width: 100%;
   font: inherit;
   color: inherit;
-  background: #fff;
-  border: 1px solid #dbe3ec;
+  background: var(--mrp-toolbar-bg, #fff);
+  border: 1px solid var(--mrp-toolbar-border, #dbe3ec);
   border-radius: 5px;
   padding: 4px 6px;
 }
@@ -143,7 +143,7 @@ watch(
   cursor: default;
 }
 .mr-header-editor :focus-visible {
-  outline: 2px solid #2563eb;
+  outline: 2px solid var(--mrp-btn-active-bg, #2563eb);
   outline-offset: 2px;
 }
 </style>

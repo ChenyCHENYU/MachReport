@@ -11,6 +11,7 @@ import {
 } from "vue";
 import type { ExcelBindingWizardApply } from "./useExcelBindingWizard";
 import ReportIcon from "../vue/ReportIcon.vue";
+import { useDesignerTheme } from "./useDesignerTheme";
 import DesignerTaskGuide from "./DesignerTaskGuide.vue";
 import DesignerInsertMenu from "./DesignerInsertMenu.vue";
 import DesignerInsertionConfirm from "./DesignerInsertionConfirm.vue";
@@ -51,6 +52,7 @@ const TemplateReviewPanel = defineAsyncComponent(
   () => import("./TemplateReviewPanel.vue"),
 );
 const props = withDefaults(defineProps<TemplateEditorOptions>(), { showSave: true, showModeSwitch: true });
+const shellStyle = useDesignerTheme(() => props.preview?.theme);
 const emit = defineEmits<{
   (event: "update:modelValue", document: ReportTemplateDocument): void;
   (event: "saved", document: ReportTemplateDocument): void;
@@ -273,7 +275,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
 </script>
 
 <template>
-  <section class="mr-designer" :aria-label="m.title" :aria-busy="saving" @keydown="shortcuts.keydown">
+  <section class="mr-designer" :style="shellStyle" :aria-label="m.title" :aria-busy="saving" @keydown="shortcuts.keydown">
     <header class="mr-designer-bar">
       <div class="mr-designer-heading">
         <ReportIcon name="columns" :size="15" />

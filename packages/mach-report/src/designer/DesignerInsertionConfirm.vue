@@ -56,7 +56,7 @@ onBeforeUnmount(() => { if (previousFocus?.isConnected) previousFocus.focus(); }
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: #17324d2b;
+  background: var(--mrp-overlay-bg, rgba(15, 23, 42, .22));
 }
 .mr-insert-confirm section {
   box-sizing: border-box;
@@ -68,7 +68,7 @@ onBeforeUnmount(() => { if (previousFocus?.isConnected) previousFocus.focus(); }
   border: 1px solid var(--mrp-toolbar-border, #dbe3ec);
   border-radius: 12px;
   background: var(--mrp-toolbar-bg, #fff);
-  box-shadow: 0 18px 50px #17324d26;
+  box-shadow: 0 18px 50px var(--mrp-shadow-color, #17324d26);
 }
 .mr-insert-confirm-icon {
   display: inline-flex;
@@ -81,6 +81,6 @@ onBeforeUnmount(() => { if (previousFocus?.isConnected) previousFocus.focus(); }
 .mr-insert-confirm p { margin: 0; color: var(--mrp-btn-fg, #64748b); line-height: 1.7; }
 .mr-insert-confirm ul { padding: 10px 12px 10px 28px; margin: 12px 0 18px; border-radius: 7px; background: var(--mrp-btn-hover-bg, #eff6ff); line-height: 1.8; }
 .mr-insert-confirm footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-.mr-insert-confirm .mr-insert-confirm-action { border-color: var(--mrp-btn-active-bg, #2563eb); background: var(--mrp-btn-active-bg, #2563eb); color: #fff; }
+.mr-insert-confirm .mr-insert-confirm-action { border-color: var(--mrp-btn-active-bg, #2563eb); background: var(--mrp-btn-active-bg, #2563eb); color: var(--mrp-btn-active-fg, #fff); }
 .mr-insert-confirm .mr-insert-confirm-action:hover { filter: brightness(0.94); }
 </style>

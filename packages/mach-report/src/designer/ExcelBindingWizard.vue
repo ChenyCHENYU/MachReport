@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
+import { useDesignerTheme } from "./useDesignerTheme";
+const shellStyle = useDesignerTheme();
 import { bindingTargetRange } from "./excel-binding-guidance";
 import ExcelRegionBindingPanel from "./ExcelRegionBindingPanel.vue";
 import ReportIcon from "../vue/ReportIcon.vue";
@@ -161,6 +163,7 @@ defineExpose({
   <section
     ref="element"
     class="mr-binding"
+    :style="shellStyle"
     :aria-label="m.title"
     :aria-busy="loading"
     @pointerup="dragging = false"

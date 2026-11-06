@@ -40,5 +40,46 @@ function edit(path: readonly number[], operation: "value" | "label" | "add" | "r
   </div>
 </template>
 <style scoped>
-.mr-param-tree{display:grid;gap:7px}.mr-param-tree__row{display:flex;align-items:center;gap:5px;min-width:0}.mr-param-tree__row input{min-width:0;flex:1;padding:6px 8px;border:1px solid #d8e1ed;border-radius:5px;color:var(--mrp-toolbar-fg,#334155);background:var(--mrp-toolbar-bg,#fff)}button{padding:5px 8px;background:var(--mrp-toolbar-bg,#fff);border:1px solid var(--mrp-btn-border,#d8e1ed);border-radius:5px;cursor:pointer;color:var(--mrp-toolbar-fg,#334155)}button:disabled{opacity:.5;cursor:default}input:focus-visible,button:focus-visible{outline:2px solid var(--mrp-btn-active-bg,#2563eb);outline-offset:2px}
+.mr-param-tree {
+  display: grid;
+  gap: 7px;
+}
+.mr-param-tree__row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.mr-param-tree__row input {
+  min-width: 0;
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--mrp-toolbar-border, #d8e1ed);
+  border-radius: 5px;
+  color: var(--mrp-toolbar-fg, #334155);
+  background: var(--mrp-toolbar-bg, #fff);
+  font: inherit;
+}
+button {
+  padding: 5px 8px;
+  background: var(--mrp-toolbar-bg, #fff);
+  border: 1px solid var(--mrp-toolbar-border, #d8e1ed);
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--mrp-btn-fg, #475569);
+  font: inherit;
+}
+button:hover:not(:disabled) {
+  background: var(--mrp-btn-hover-bg, #eff6ff);
+  color: var(--mrp-btn-hover-fg, #1d4ed8);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+input:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--mrp-btn-active-bg, #2563eb);
+  outline-offset: 2px;
+}
 </style>

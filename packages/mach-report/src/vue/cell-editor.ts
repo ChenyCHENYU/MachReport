@@ -10,7 +10,7 @@ export interface CellEditor {
   feedback(message?: string): void;
 }
 let editorId = 0;
-const style = "position:absolute;inset:0;width:100%;height:100%;min-height:20px;box-sizing:border-box;z-index:10;resize:none;margin:0;padding:2px 4px;border:2px solid var(--mrp-btn-active-bg,#2563eb);outline:none;background:var(--mrp-toolbar-bg,#fff);color:var(--mrp-toolbar-fg,#111);font:inherit;line-height:1.25;white-space:pre-wrap;";
+const style = "position:absolute;inset:0;width:100%;height:100%;min-height:20px;box-sizing:border-box;z-index:10;resize:none;margin:0;padding:2px 4px;border:2px solid var(--mrp-btn-active-bg,#2563eb);outline:none;background:var(--mrp-toolbar-bg,#fff);color:var(--mrp-toolbar-fg,#111);color-scheme:var(--mrp-color-scheme,light);font:inherit;line-height:1.25;white-space:pre-wrap;";
 
 function choices(field: ReportCellFieldOptions): Array<{ value: ReportCellValue; label: string }> {
   if (field.type === "boolean") return [{ value: true, label: field.trueLabel ?? "是" }, { value: false, label: field.falseLabel ?? "否" }];

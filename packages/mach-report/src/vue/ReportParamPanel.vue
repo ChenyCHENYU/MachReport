@@ -235,7 +235,7 @@ defineExpose({ focusInvalid });
 .mrp-param-input:focus { border-color: var(--mrp-btn-active-bg, #2d5fb8); }
 .mrp-param-range { display: flex; gap: 6px; }
 .mrp-param-range .mrp-param-input { min-width: 120px; }
-.mrp-param-missing .mrp-param-input { border-color: #ff7b72; }
+.mrp-param-missing .mrp-param-input { border-color: var(--mrp-error-fg, #ff7b72); }
 select.mrp-param-input option { background: var(--mrp-toolbar-bg, #323639); color: var(--mrp-toolbar-fg, #e8e8e8); }
 .mrp-param-error { max-width: 260px; color: var(--mrp-error-fg, #e35d59); font-size: 11px; }
 .mrp-params-actions { display: flex; gap: 6px; padding-bottom: 1px; }
@@ -253,6 +253,6 @@ select.mrp-param-input option { background: var(--mrp-toolbar-bg, #323639); colo
 .mrp-param-query {
   background: var(--mrp-btn-active-bg, #2d5fb8);
   border-color: var(--mrp-btn-active-bg, #2d5fb8);
-  color: #fff;
+  color: var(--mrp-btn-active-fg, #fff);
 }
 </style>

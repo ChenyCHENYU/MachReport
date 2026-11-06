@@ -2,6 +2,8 @@
 import { computed, ref, watch } from "vue";
 import { validColumnVisual, type ColumnVisual } from "../layout/column-visual";
 import { COLUMN_VISUAL_MESSAGES, type ColumnVisualMessages } from "./column-visual-messages";
+import { useDesignerTheme } from "./useDesignerTheme";
+const themeStyle = useDesignerTheme();
 const props = defineProps<{ modelValue?: ColumnVisual; fields?: ReadonlyArray<{ field: string; label?: string }>; readonly?: boolean; messages?: Partial<ColumnVisualMessages> }>();
 const emit = defineEmits<{ (event: "update:modelValue", visual: ColumnVisual | undefined): void }>();
 const m = computed(() => ({ ...COLUMN_VISUAL_MESSAGES, ...props.messages }));
@@ -30,7 +32,7 @@ watch([enabled, candidate], () => {
 }, { flush: "post" });
 </script>
 <template>
-  <details class="mr-column-visual-disclosure">
+  <details class="mr-column-visual-disclosure" :style="themeStyle">
     <summary>{{ m.title }}<span v-if="enabled" class="mr-column-visual-badge">{{ kind === 'colorScale' ? m.colorScale : m.dataBar }}</span></summary>
     <fieldset class="mr-column-visual">
     <legend>{{ m.title }}</legend>
@@ -48,6 +50,6 @@ watch([enabled, candidate], () => {
   </details>
 </template>
 <style scoped>
-.mr-column-visual{margin:0;padding:12px;border:1px solid var(--mrp-toolbar-border,#dbe5f1);border-radius:9px;color:var(--mrp-toolbar-fg,#334155)}legend{padding:0 5px;font-weight:600;font-size:12px}.mr-column-visual__toggle{display:flex;align-items:center;gap:6px;font-size:12px}.mr-column-visual__grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}.mr-column-visual__grid label{display:grid;gap:5px;font-size:11px}select,input[type=number]{min-width:0;width:100%;box-sizing:border-box;padding:6px;border:1px solid var(--mrp-btn-border,#cbd5e1);border-radius:5px;color:inherit;background:var(--mrp-toolbar-bg,#fff)}input[type=color]{width:100%;height:30px;padding:2px;border:1px solid var(--mrp-btn-border,#cbd5e1);border-radius:5px}p,small{display:block;font-size:11px;line-height:1.6;margin:8px 0 0;opacity:.8}p span{display:block}.is-error{color:var(--mrp-error-fg,#b45353)}input:focus-visible,select:focus-visible{outline:2px solid var(--mrp-btn-active-bg,#2563eb);outline-offset:2px}
-.mr-column-visual-disclosure{margin:4px 0;color:var(--mrp-toolbar-fg,#334155)}summary{display:flex;align-items:center;gap:7px;padding:6px 0;cursor:pointer;font-size:11px;font-weight:600}summary::before{content:'›';font-size:15px;line-height:1;transition:transform .15s}details[open]>summary::before{transform:rotate(90deg)}summary:focus-visible{outline:2px solid var(--mrp-btn-active-bg,#2563eb);outline-offset:2px}.mr-column-visual-badge{margin-left:auto;font-size:10px;font-weight:400;color:var(--mrp-btn-fg,#64748b)}
+.mr-column-visual{margin:0;padding:12px;border:1px solid var(--mrp-toolbar-border,#dbe5f1);border-radius:9px;color:var(--mrp-toolbar-fg,#334155)}legend{padding:0 5px;font-weight:600;font-size:12px}.mr-column-visual__toggle{display:flex;align-items:center;gap:6px;font-size:12px}.mr-column-visual__grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}.mr-column-visual__grid label{display:grid;gap:5px;font-size:11px}select,input[type=number]{min-width:0;width:100%;box-sizing:border-box;padding:6px;border:1px solid var(--mrp-btn-border,#cbd5e1);border-radius:5px;color:inherit;background:var(--mrp-toolbar-bg,#fff)}input[type=color]{width:100%;height:30px;padding:2px;border:1px solid var(--mrp-btn-border,#cbd5e1);border-radius:5px}p,small{display:block;font-size:11px;line-height:1.6;margin:8px 0 0;opacity:.8}p span{display:block}.is-error{color:var(--mrp-error-fg,#b91c1c)}input:focus-visible,select:focus-visible{outline:2px solid var(--mrp-btn-active-bg,#2563eb);outline-offset:2px}
+.mr-column-visual-disclosure{margin:4px 0;color:var(--mrp-toolbar-fg,#334155);background:var(--mrp-toolbar-bg,#fff)}summary{display:flex;align-items:center;gap:7px;padding:6px 0;cursor:pointer;font-size:11px;font-weight:600}summary::before{content:'›';font-size:15px;line-height:1;transition:transform .15s}details[open]>summary::before{transform:rotate(90deg)}summary:focus-visible{outline:2px solid var(--mrp-btn-active-bg,#2563eb);outline-offset:2px}.mr-column-visual-badge{margin-left:auto;font-size:10px;font-weight:400;color:var(--mrp-btn-fg,#64748b)}
 </style>

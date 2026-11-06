@@ -11,6 +11,8 @@ import {
 } from "./review-messages";
 import { useReviewFixtures } from "./useReviewFixtures";
 import TemplateFixtureComparison from "./TemplateFixtureComparison.vue";
+import { useDesignerTheme } from "./useDesignerTheme";
+const themeStyle = useDesignerTheme();
 const props = defineProps<
   TemplateReviewOptions & { messages?: Partial<TemplateReviewMessages> }
 >();
@@ -69,6 +71,7 @@ function locate(path: string): void {
 <template>
   <section
     class="mr-template-review"
+    :style="themeStyle"
     :aria-label="m.title"
     :aria-busy="running"
   >
@@ -271,6 +274,7 @@ function locate(path: string): void {
   min-width: 0;
   padding: 16px;
   color: var(--mrp-toolbar-fg, #334155);
+  background: var(--mrp-toolbar-bg, #fff);
   font:
     12px/1.5 system-ui,
     sans-serif;
@@ -281,10 +285,10 @@ function locate(path: string): void {
 }
 .mr-review-fixtures {
   grid-column: 1/-1;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--mrp-toolbar-border, #e2e8f0);
   border-radius: 8px;
   padding: 10px 12px;
-  background: #f8fafc;
+  background: var(--mrp-shell-bg, #f8fafc);
 }
 .mr-review-fixtures summary {
   cursor: pointer;
@@ -292,7 +296,7 @@ function locate(path: string): void {
 }
 .mr-review-fixtures summary small {
   font-weight: 400;
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
   margin-left: 8px;
 }
 .mr-review-fixtures ul {
@@ -304,7 +308,7 @@ function locate(path: string): void {
   gap: 12px;
   align-items: center;
   padding: 6px 0;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--mrp-toolbar-border, #e2e8f0);
 }
 .mr-review-fixtures li button {
   margin-left: auto;
@@ -322,9 +326,9 @@ function locate(path: string): void {
   width: min(100%, 420px);
   min-width: 0;
   padding: 7px 9px;
-  border: 1px solid #dbe3ee;
+  border: 1px solid var(--mrp-toolbar-border, #dbe3ee);
   border-radius: 6px;
-  background: #fff;
+  background: var(--mrp-toolbar-bg, #fff);
   font: inherit;
 }
 .mr-review-fixture-form > button {
@@ -335,30 +339,32 @@ function locate(path: string): void {
 }
 .mr-review-consent {
   font-size: 11px;
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
 }
 .mr-review-sample {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--mrp-toolbar-border, #f1f5f9);
   padding: 5px 0;
 }
 .mr-review-stale {
   grid-column: 1/-1;
   margin: 0;
   padding: 9px 12px;
-  color: #92400e;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
+  color: var(--mrp-warning-fg, #92400e);
+  background: var(--mrp-toolbar-bg, #fff);
+  background: color-mix(in srgb, var(--mrp-warning-fg, #92400e) 7%, var(--mrp-toolbar-bg, #fff));
+  border: 1px solid var(--mrp-toolbar-border, #e2e8f0);
+  border: 1px solid color-mix(in srgb, var(--mrp-warning-fg, #92400e) 25%, var(--mrp-toolbar-bg, #fff));
   border-radius: 6px;
 }
 .is-stale {
   opacity: 0.65;
 }
 .mr-review-scope {
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
   font-size: 11px;
 }
 .mr-template-review > header,
@@ -381,16 +387,16 @@ function locate(path: string): void {
   font-size: 14px;
 }
 .mr-template-review header button {
-  background: #2563eb;
-  border-color: #2563eb;
-  color: #fff;
+  background: var(--mrp-btn-active-bg, #2563eb);
+  border-color: var(--mrp-btn-active-bg, #2563eb);
+  color: var(--mrp-btn-active-fg, #fff);
 }
 .mr-template-review button,
 .mr-template-review select {
   min-height: 28px;
   border: 1px solid var(--mrp-toolbar-border, #e2e8f0);
   border-radius: 5px;
-  background: #fff;
+  background: var(--mrp-toolbar-bg, #fff);
   color: inherit;
   font: inherit;
 }
@@ -403,7 +409,7 @@ function locate(path: string): void {
   opacity: 0.55;
 }
 .mr-template-review :is(button, select, input):focus-visible {
-  outline: 2px solid #93c5fd;
+  outline: 2px solid var(--mrp-btn-active-bg, #93c5fd);
   outline-offset: 2px;
 }
 .mr-review-controls label {
@@ -419,20 +425,22 @@ function locate(path: string): void {
 .mr-review-summary {
   display: flex;
   gap: 8px;
-  color: #1d4ed8;
+  color: var(--mrp-btn-hover-fg, #1d4ed8);
 }
 .mr-review-summary > span {
-  border: 1px solid #dbeafe;
-  background: #eff6ff;
+  border: 1px solid var(--mrp-btn-border, #dbeafe);
+  background: var(--mrp-btn-hover-bg, #eff6ff);
   border-radius: 20px;
   padding: 3px 10px;
 }
 .mr-review-summary > .is-error {
-  border-color: #fecaca;
-  background: #fef2f2;
+  border-color: var(--mrp-toolbar-border, #e2e8f0);
+  border-color: color-mix(in srgb, var(--mrp-error-fg, #b91c1c) 25%, var(--mrp-toolbar-bg, #fff));
+  background: var(--mrp-toolbar-bg, #fff);
+  background: color-mix(in srgb, var(--mrp-error-fg, #b91c1c) 7%, var(--mrp-toolbar-bg, #fff));
 }
 .is-error {
-  color: #b91c1c;
+  color: var(--mrp-error-fg, #b91c1c);
 }
 .mr-template-review > section {
   margin: 0;
@@ -440,7 +448,7 @@ function locate(path: string): void {
   border: 1px solid var(--mrp-toolbar-border, #e2e8f0);
   border-radius: 8px;
   min-width: 0;
-  background: #fff;
+  background: var(--mrp-toolbar-bg, #fff);
 }
 .mr-template-review > section:nth-of-type(3) {
   grid-column: 1/-1;
@@ -452,11 +460,11 @@ function locate(path: string): void {
     sans-serif;
 }
 .mr-template-review h3 small {
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
   font-weight: 400;
 }
 .mr-review-note {
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
 }
 .mr-review-list {
   margin: 0;
@@ -471,14 +479,14 @@ function locate(path: string): void {
   margin-left: auto;
 }
 .mr-review-list b {
-  color: #a16207;
+  color: var(--mrp-warning-fg, #a16207);
   font-size: 11px;
   font-weight: 500;
 }
 .mr-review-list code {
   display: block;
   overflow-wrap: anywhere;
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
   font-size: 10px;
 }
 .mr-review-list dl {
@@ -488,7 +496,7 @@ function locate(path: string): void {
   margin: 6px 0 0;
 }
 .mr-review-list dt {
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
 }
 .mr-review-list dd {
   margin: 0;

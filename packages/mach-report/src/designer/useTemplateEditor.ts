@@ -141,19 +141,6 @@ export function useTemplateEditor(
     showPrint: false,
     showPdfWindow: false,
     ...props.preview,
-    theme: {
-      shellBg: "#f1f5f9",
-      shellFg: "#334155",
-      toolbarBg: "#ffffff",
-      toolbarBorder: "#e2e8f0",
-      toolbarFg: "#334155",
-      btnFg: "#475569",
-      btnBorder: "#cbd5e1",
-      btnHoverBg: "#eff6ff",
-      btnHoverFg: "#1d4ed8",
-      btnActiveBg: "#2563eb",
-      ...props.preview?.theme,
-    },
   }));
   provideMachReportConfig({
     get defaults() {

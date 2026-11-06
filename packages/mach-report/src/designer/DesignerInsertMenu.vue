@@ -196,9 +196,9 @@ onBeforeUnmount(() => { if (focusFrame !== undefined) cancelAnimationFrame(focus
   align-items: center;
   gap: 5px;
   padding: 6px 11px !important;
-  border-color: #c8d9ee !important;
-  background: #eef5ff !important;
-  color: #255c95 !important;
+  border-color: var(--mrp-btn-border, #c8d9ee) !important;
+  background: var(--mrp-btn-hover-bg, #eef5ff) !important;
+  color: var(--mrp-btn-hover-fg, #255c95) !important;
   font-weight: 600;
 }
 .mr-insert-trigger span {
@@ -213,11 +213,11 @@ onBeforeUnmount(() => { if (focusFrame !== undefined) cancelAnimationFrame(focus
   width: 340px;
   max-width: calc(100vw - 40px);
   padding: 12px;
-  border: 1px solid #dce6f2;
+  border: 1px solid var(--mrp-toolbar-border, #dce6f2);
   border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 14px 40px #17324d24;
-  color: #334155;
+  background: var(--mrp-toolbar-bg, #fff);
+  box-shadow: 0 14px 40px var(--mrp-shadow-color, #17324d24);
+  color: var(--mrp-toolbar-fg, #334155);
 }
 .mr-insert-panel header {
   display: flex;
@@ -229,7 +229,7 @@ onBeforeUnmount(() => { if (focusFrame !== undefined) cancelAnimationFrame(focus
   border: 0;
   background: transparent;
   font-size: 20px;
-  color: #64748b;
+  color: var(--mrp-btn-fg, #64748b);
   cursor: pointer;
 }
 .mr-insert-grid {
@@ -244,9 +244,9 @@ onBeforeUnmount(() => { if (focusFrame !== undefined) cancelAnimationFrame(focus
   align-items: flex-start;
   gap: 4px;
   min-width: 0;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--mrp-toolbar-border, #e2e8f0);
   border-radius: 7px;
-  background: #fff;
+  background: var(--mrp-toolbar-bg, #fff);
   padding: 10px;
   text-align: left;
   cursor: pointer;
@@ -255,29 +255,29 @@ onBeforeUnmount(() => { if (focusFrame !== undefined) cancelAnimationFrame(focus
 .mr-insert-field-row{display:flex;align-items:center;gap:5px}.mr-insert-field-row>input{width:15px;flex:none;accent-color:var(--mrp-btn-active-bg,#2563eb)}.mr-insert-field-row>button{flex:1}.mr-insert-batch{display:flex;align-items:center;gap:8px;border-top:1px solid var(--mrp-toolbar-border,#e2e8f0);padding-top:9px;margin-top:8px}.mr-insert-batch small{flex:1;color:var(--mrp-btn-fg,#64748b);font-size:10px}.mr-insert-batch button{flex:none}
 .mr-insert-grid button:hover,
 .mr-insert-fields button:hover {
-  background: #f1f7ff;
-  border-color: #a9c5e8;
+  background: var(--mrp-btn-hover-bg, #f1f7ff);
+  border-color: var(--mrp-btn-border, #a9c5e8);
 }
 .mr-insert-fields button:disabled {
   cursor: default;
-  background: #f8fafc;
-  border-color: #e2e8f0;
+  background: var(--mrp-shell-bg, #f8fafc);
+  border-color: var(--mrp-toolbar-border, #e2e8f0);
 }
 .mr-insert-grid small,
 .mr-insert-fields small {
   font-size: 10px;
-  color: #75869c;
+  color: var(--mrp-btn-fg, #75869c);
   line-height: 1.5;
 }
 .mr-insert-field {
   grid-column: 1/-1;
-  background: #f5f9ff !important;
+  background: var(--mrp-btn-hover-bg, #f5f9ff) !important;
 }
 .mr-insert-panel input {
   box-sizing: border-box;
   width: 100%;
   padding: 7px 9px;
-  border: 1px solid #cfdaea;
+  border: 1px solid var(--mrp-toolbar-border, #cfdaea);
   border-radius: 6px;
   font: inherit;
 }
@@ -285,7 +285,7 @@ onBeforeUnmount(() => { if (focusFrame !== undefined) cancelAnimationFrame(focus
   margin: 0 0 8px;
   border: 0;
   background: transparent;
-  color: #356da8;
+  color: var(--mrp-btn-hover-fg, #356da8);
   cursor: pointer;
 }
 .mr-insert-fields {
@@ -296,7 +296,7 @@ onBeforeUnmount(() => { if (focusFrame !== undefined) cancelAnimationFrame(focus
   margin-top: 8px;
 }
 .mr-insert-panel :focus-visible {
-  outline: 2px solid #2563eb;
+  outline: 2px solid var(--mrp-btn-active-bg, #2563eb);
   outline-offset: 2px;
 }
 </style>

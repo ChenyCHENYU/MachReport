@@ -324,7 +324,7 @@ test("添加字段与说明文字、表尾汇总在同一工作区预览并保�
   await expect(totals.getByRole("combobox", { name: "计算方式", exact: true })).toHaveCSS("border-top-style", "solid");
   await expect(totals.getByRole("combobox", { name: "计算方式", exact: true })).toHaveCSS("border-radius", "6px");
   await expect(totals.getByRole("combobox", { name: "计算方式", exact: true })).toHaveCSS("appearance", "none");
-  await expect(totals.getByRole("combobox", { name: "计算方式", exact: true })).toHaveCSS("background-image", /data:image\/svg\+xml/);
+  await expect(totals.getByRole("combobox", { name: "计算方式", exact: true })).toHaveCSS("background-image", /linear-gradient/);
   await totals.getByRole("combobox", { name: "显示位置", exact: true }).selectOption("total");
   await totals.getByRole("combobox", { name: "汇总字段", exact: true }).selectOption("weight");
   await totals.getByRole("combobox", { name: "计算方式", exact: true }).selectOption("sum");

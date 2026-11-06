@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import type { ReportTemplateDocument, ReportTemplateCatalogOpenContext } from "@agile-team/mach-report";
 import { useTemplateLibrary, type TemplateLibraryOptions } from "./useTemplateLibrary";
+import { useDesignerTheme } from "./useDesignerTheme";
+const shellStyle = useDesignerTheme();
 const props = defineProps<TemplateLibraryOptions>();
 const emit = defineEmits<{ (event: "open", document: ReportTemplateDocument, context?: ReportTemplateCatalogOpenContext): void }>();
 const { m, cursors, query, category, entries, categories, next, loading, busy, error, copying, newId, newName, search, load, beginCopy, cancelCopy, retry, retryLabel, loadingTarget } = useTemplateLibrary(props, (document, context) => emit("open", document, context));
 </script>
 <template>
-  <section class="mr-library" :aria-label="m.title" :aria-busy="loading || busy">
+  <section class="mr-library" :style="shellStyle" :aria-label="m.title" :aria-busy="loading || busy">
     <header><div><h2>{{ m.title }}</h2><p>{{ m.subtitle }}</p></div><button type="button" :disabled="loading || busy" @click="search()">{{ m.refresh }}</button></header>
     <div class="mr-library-search"><input v-model="query" type="search" :placeholder="m.search" :aria-label="m.search" @keydown.enter="search()"><select v-model="category" :aria-label="m.all"><option value="">{{ m.all }}</option><option v-for="item in categories" :key="item.id" :value="item.id">{{ item.label }}{{ item.count === undefined ? '' : ` (${item.count})` }}</option></select></div>
     <div v-if="loadingTarget" class="mr-library-progress" role="status">{{ loadingTarget }}</div>

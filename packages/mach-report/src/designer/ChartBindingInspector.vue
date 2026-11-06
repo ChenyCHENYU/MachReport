@@ -2,6 +2,8 @@
 import { computed } from "vue";
 import type { DatasetContract, DatasetRows, PlanComponent, ReportChartBinding, ReportChartMeasure } from "@agile-team/mach-report";
 import { TEMPLATE_EDITOR_MESSAGES, type TemplateEditorMessages } from "./messages";
+import { useDesignerTheme } from "./useDesignerTheme";
+const themeStyle = useDesignerTheme();
 const props = defineProps<{ component: PlanComponent; schemas?: Record<string, DatasetContract>; datasets?: DatasetRows; disabled?: boolean; messages?: Partial<TemplateEditorMessages> }>();
 const emit = defineEmits<{ (event: "change", binding: ReportChartBinding): void }>();
 const m = computed(() => ({ ...TEMPLATE_EDITOR_MESSAGES, ...props.messages }));
@@ -32,7 +34,7 @@ function remove(index: number): void { if (binding.value.measures.length > 1) ch
 const input = (event: Event) => (event.target as HTMLInputElement).value;
 </script>
 <template>
-  <fieldset class="mr-chart-binding" :disabled="disabled">
+  <fieldset class="mr-chart-binding" :style="themeStyle" :disabled="disabled">
     <label>{{ m.chartDataset }}<select :aria-label="m.chartDataset" :value="binding.dataset" @change="change({ dataset: input($event) })"><option v-for="dataset in datasets" :key="dataset" :value="dataset">{{ dataset }}</option></select></label>
     <label>{{ m.chartCategory }}<select :aria-label="m.chartCategory" :value="binding.categoryField" @change="change({ categoryField: input($event) })"><option v-for="field in fields" :key="field.field" :value="field.field">{{ field.label }}</option></select></label>
     <div class="mr-chart-series-heading"><strong>{{ m.chartMeasure }}</strong><button type="button" :disabled="disabled || binding.measures.length >= 12" @click="add">+ {{ m.chartAddSeries }}</button></div>
@@ -49,18 +51,18 @@ const input = (event: Event) => (event.target as HTMLInputElement).value;
   </fieldset>
 </template>
 <style scoped>
-.mr-chart-binding { border: 0; padding: 0; margin: 0; min-width: 0; font: inherit; }
+.mr-chart-binding { border: 0; padding: 0; margin: 0; min-width: 0; font: inherit; color: var(--mrp-toolbar-fg, #334155); background: var(--mrp-toolbar-bg, #fff); }
 .mr-chart-series-heading,.mr-chart-series-row { display: flex; gap: 7px; align-items: center; min-width: 0; }
 .mr-chart-series-heading { justify-content: space-between; margin: 10px 0 7px; font-size: 11px; }
 .mr-chart-series { border: 1px solid var(--mrp-toolbar-border,#e2e8f0); border-radius: 7px; background: var(--mrp-shell-bg,#f8fafc); padding: 8px; margin: 0 0 7px; }
 .mr-chart-series-row { margin: 5px 0; }
 .mr-chart-series-row>select,.mr-chart-series-row>input,.mr-chart-series-row>label { flex: 1; width: 0; min-width: 0; }
 .mr-chart-binding label { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; font-size: 11px; }
-.mr-chart-binding input,.mr-chart-binding select,.mr-chart-binding button { box-sizing: border-box; min-width: 0; border: 1px solid var(--mrp-toolbar-border,#dbe3ec); border-radius: 5px; background: #fff; padding: 5px 7px; color: inherit; font: inherit; }
+.mr-chart-binding input,.mr-chart-binding select,.mr-chart-binding button { box-sizing: border-box; min-width: 0; border: 1px solid var(--mrp-toolbar-border,#dbe3ec); border-radius: 5px; background: var(--mrp-toolbar-bg, #fff); padding: 5px 7px; color: inherit; font: inherit; }
 .mr-chart-binding button { cursor: pointer; }
 .mr-chart-binding :focus-visible { outline: 2px solid var(--mrp-btn-active-bg,#2563eb); outline-offset: 2px; }
 .mr-chart-binding :disabled { opacity: .5; cursor: default; }
 .mr-chart-binding .mr-chart-check { flex-direction: row; align-items: center; }
-.mr-chart-check input { accent-color: #2563eb; width: 14px; }
+.mr-chart-check input { accent-color: var(--mrp-btn-active-bg, #2563eb); width: 14px; }
 .mr-chart-binding p { margin: 8px 0 0; font-size: 10px; line-height: 1.6; color: var(--mrp-btn-fg,#64748b); }
 </style>
