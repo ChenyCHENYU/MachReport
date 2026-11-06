@@ -22,6 +22,7 @@ export interface TextMeasurer {
 }
 
 const CJK_RE = /[\u3000-\u9fff\uff00-\uffef]/;
+const TOKEN_BOUNDARY_RE = /[ \n\u3000-\u9fff\uff00-\uffef]/;
 
 /** Latin 快速分类：0=默认 0.54em，1=窄字符 0.26，2=宽字符 0.95，3=数字 0.59，4=大写 0.67，5=空格 0.3 */
 const LATIN_CLASS = new Uint8Array(128);
@@ -53,12 +54,13 @@ export const heuristicMeasurer: TextMeasurer = {
   measureMm(text: string, options: TextMeasureOptions): number {
     const { fontSizePt, bold = false, letterSpacingPt = 0 } = options;
     const ptToMm = 25.4 / 72;
-    let units = 0;
+    let units = 0, characters = 0;
     for (const ch of text) {
       units += charWidthEm(ch);
+      characters++;
     }
     if (bold) units *= 1.04;
-    return (units * fontSizePt + letterSpacingPt * Math.max(0, Array.from(text).length - 1)) * ptToMm;
+    return (units * fontSizePt + letterSpacingPt * Math.max(0, characters - 1)) * ptToMm;
   }
 };
 
@@ -104,6 +106,8 @@ interface Atom {
 }
 
 function tokenize(text: string, options: TextMeasureOptions, measurer: TextMeasurer): Atom[] {
+  // A boundary-free value is the same single word that the general scanner would flush.
+  if (!TOKEN_BOUNDARY_RE.test(text)) return [{ text, widthMm: measurer.measureMm(text, options), cjk: false }];
   const atoms: Atom[] = [];
   let word = "";
   const flush = () => {
