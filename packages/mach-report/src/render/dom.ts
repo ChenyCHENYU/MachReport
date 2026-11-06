@@ -1,4 +1,5 @@
 import { dataBarBox } from "./data-bar";
+import { setDomCellAddress } from "./dom-cell-address";
 import type {
   ComponentStyle,
   PlanComponent,
@@ -11,7 +12,7 @@ import { isImageBackedComponent, isRichText } from "../schema/render-plan";
 import { mmToPx, round } from "../units";
 import { resolveGridLayout, type GridCellBox, type GridLayout } from "./grid-geometry";
 import { resolveGridStrokes, type GridStroke } from "./grid-strokes";
-import { createDomViewportContext } from "./dom-viewport";
+import { createDomViewportContext, type PreviewFrozenPanes } from "./dom-viewport";
 import type { ReportViewport } from "./viewport-index";
 export type { ReportViewport } from "./viewport-index";
 
@@ -123,7 +124,8 @@ function applyTypography(bag: StyleBag, s: ComponentStyle, dpi: number): void {
 function applyComponentStyle(bag: StyleBag, comp: PlanComponent, dpi: number): void {
   const s = comp.style ?? {};
   applyTypography(bag, s, dpi);
-  bag.add("background-color", s.backgroundColor)
+  const shapeOwnsFill = !comp.grid && (comp.kind === "ellipse" || comp.kind === "line");
+  bag.add("background-color", shapeOwnsFill ? undefined : s.backgroundColor)
     .add("opacity", s.opacity != null ? String(s.opacity) : undefined)
     .add("transform", s.rotateDeg ? `rotate(${s.rotateDeg}deg)` : undefined);
 }
@@ -139,8 +141,7 @@ function renderGridCell(
   const cell = box.cell;
   const cellEl = doc.createElement("td");
   cellEl.className = classOf("cell", options);
-  cellEl.dataset.mrRowIndex = String(box.ri);
-  cellEl.dataset.mrColumnIndex = String(box.ci);
+  setDomCellAddress(cellEl, box.ri, box.ci);
   cellEl.setAttribute("role", comp.table?.role === "header" ? "columnheader" : "cell");
   if (cell.colSpan) cellEl.colSpan = cell.colSpan;
   if (cell.rowSpan) cellEl.rowSpan = cell.rowSpan;
@@ -180,6 +181,22 @@ function renderGridCell(
 
 function renderGridEdges(layout: GridLayout, comp: PlanComponent, dpi: number, doc: Document): HTMLElement[] {
   return renderGridStrokeElements(resolveGridStrokes(layout, comp), dpi, doc);
+}
+function gridCellReuseKey(box: GridCellBox): string | undefined {
+  const cell = box.cell;
+  if (cell.children?.length || cell.richParagraphs?.length || cell.dataBar || (cell.colSpan ?? 1) !== 1 || (cell.rowSpan ?? 1) !== 1) return;
+  return JSON.stringify([cell.style, cell.indentMm]);
+}
+function reuseGridCell(cell: HTMLElement, box: GridCellBox, dpi: number): boolean {
+  // Sticky cells and active/custom editors keep their native identity and are never recycled.
+  if (cell.style.position !== "absolute" || cell.style.zIndex || cell.style.transform || cell.children.length !== 1) return false;
+  const payload = cell.firstElementChild;
+  if (!(payload instanceof HTMLElement) || payload.className !== "mr-cell-content") return false;
+  setDomCellAddress(cell, box.ri, box.ci);
+  cell.style.left = `${round(mmToPx(box.xMm, dpi), 2)}px`; cell.style.top = `${round(mmToPx(box.yMm, dpi), 2)}px`;
+  cell.style.width = `${round(mmToPx(box.widthMm, dpi), 2)}px`; cell.style.height = `${round(mmToPx(box.heightMm, dpi), 2)}px`;
+  payload.textContent = box.cell.text ?? "";
+  return true;
 }
 function renderGridStrokeElements(strokes: GridStroke[], dpi: number, doc: Document): HTMLElement[] {
   return strokes.map((edge) => {
@@ -223,6 +240,7 @@ function renderGrid(
     elementStyle("contents").applyTo(edgeHost); edgeHost.setAttribute("aria-hidden", "true");
     viewport.mount({ grid, component: comp, table, rowClass: classOf("row", options), body, edgeHost,
       drawCell: box => renderGridCell(box, comp, grid.paddingMm ?? 0.5, dpi, { ...options }, doc),
+      reuseKey: gridCellReuseKey, reuseCell: (cell, box) => reuseGridCell(cell, box, dpi),
       drawEdges: strokes => renderGridStrokeElements(strokes, dpi, doc) });
     content.append(table, edgeHost);
     return content;
@@ -365,7 +383,8 @@ function renderShape(
     if (borders.bottom) bag.add("border-bottom", border);
     if (borders.left) bag.add("border-left", border);
   } else if (comp.kind === "ellipse") {
-    if (borders.inner) bag.add("border", border).add("border-radius", "50%");
+    bag.add("border-radius", "50%");
+    if (borders.inner) bag.add("border", border);
     if (s.backgroundColor) bag.add("background-color", s.backgroundColor);
   } else if (comp.kind === "line") {
     bag.add("height", "0").add("border-top", border);
@@ -498,7 +517,7 @@ export function createPageViewportRenderer(page: PlanPage, dpi: number, options:
   const settings = { ...options }, context = createDomViewportContext();
   viewportContexts.set(settings, context);
   const element = renderPage(page, dpi, settings, doc);
-  return { element, update(viewport: ReportViewport, retained?: { componentIndex: number; rowIndex: number; columnIndex: number }): boolean {
-    return context.update(viewport, retained && page.components[retained.componentIndex], retained);
+  return { element, update(viewport: ReportViewport, retained?: { componentIndex: number; rowIndex: number; columnIndex: number }, frozen?: PreviewFrozenPanes): boolean {
+    return context.update(viewport, retained && page.components[retained.componentIndex], retained, frozen);
   } };
 }

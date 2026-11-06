@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderPlan, renderPage } from "../render/dom";
+import { renderComponent, renderPlan, renderPage } from "../render/dom";
 import { paginateTemplate } from "../layout/paginate";
 import { RENDER_PLAN_SCHEMA_VERSION, type PlanPage, type RenderPlan } from "../schema/render-plan";
 
@@ -12,6 +12,21 @@ function makePlan(pages: PlanPage[]): RenderPlan {
 }
 
 describe("dom renderer", () => {
+  it("keeps ellipse corners and line bounds transparent while retaining rectangle fills", () => {
+    const style = { backgroundColor: "#123456", borderTop: false, borderRight: false, borderBottom: false, borderLeft: false };
+    const base = { leftMm: 0, topMm: 0, widthMm: 40, heightMm: 20, style };
+    const ellipse = renderComponent({ ...base, kind: "ellipse" }, 96, {}, dom());
+    const shape = ellipse.querySelector<HTMLElement>(".mr-shape")!;
+    expect(ellipse.style.backgroundColor).toBe("");
+    expect(shape.style.borderRadius).toBe("50%");
+    expect(shape.style.backgroundColor).toBe("#123456");
+    expect(shape.style.border).toBe("");
+    const line = renderComponent({ ...base, kind: "line", lineDirection: "down" }, 96, {}, dom());
+    expect(line.style.backgroundColor).toBe("");
+    expect(line.querySelector("svg line")).not.toBeNull();
+    const rectangle = renderComponent({ ...base, kind: "rect" }, 96, {}, dom());
+    expect(rectangle.style.backgroundColor).toBe("#123456");
+  });
   it("渲染页面尺寸 mm→px 正确", () => {
     const page: PlanPage = { pageWidthMm: 210, pageHeightMm: 297, components: [] };
     const el = renderPage(page, 96, {}, dom());

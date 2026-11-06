@@ -3,6 +3,7 @@ import { assertBudget, throwIfAborted } from "./control";
 import { createReportTaskReporter } from "../source/task-events";
 import type { OutputDiagnostic } from "../output/capabilities";
 import { ReportSourceError } from "../source/report-source";
+import { assertPreparedOutputBudget } from "./prepared";
 
 export function outputDiagnostics(entries: readonly OutputDiagnostic[] = []): PreparedReport["diagnostics"] {
   return entries.map(({ code, message, severity, pageIndex, componentIndex }) => ({ code, message, severity, path: componentIndex < 0 ? `$.pages.${pageIndex}` : `$.pages.${pageIndex}.components.${componentIndex}` }));
@@ -10,6 +11,7 @@ export function outputDiagnostics(entries: readonly OutputDiagnostic[] = []): Pr
 /** Shared codec path; caller owns a validated snapshot and has resolved local assets. */
 export async function encodePreparedReport(input: ReportRuntimePreparedExportInput, budget: ReportRuntimeBudget, started = Date.now()): Promise<ReportRuntimeExportResult> {
   const prepared = input.prepared;
+  assertPreparedOutputBudget(input, budget);
   if (input.fidelity === "strict" && prepared.diagnostics.some(diagnostic => diagnostic.code === "asset-render-failed" || diagnostic.code === "asset-budget-exceeded")) throw new ReportSourceError("validate", "严格输出拒绝已有资产渲染降级，请修复组件后重新准备报表。");
   const pdf = input.format === "pdf" ? await import("@agile-team/mach-report/pdf") : undefined;
   throwIfAborted(input.signal);

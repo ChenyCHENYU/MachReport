@@ -42,7 +42,7 @@ try {
     symlinkSync(dirname(createRequire(nodeTypes).resolve("undici-types/package.json")), resolve(scratch, "node_modules/undici-types"), "dir");
   }
   writeFileSync(resolve(scratch, "consumer.mts"), `
-import { ReportPreview, type ReportPreviewTask, type MachReportController } from '@agile-team/mach-report/vue';
+import { ReportPreview, createProviderEditing, type ReportEditHistoryOptions, type ReportPreviewTask, type MachReportController } from '@agile-team/mach-report/vue';
 import { ReportTemplateEditor, ExcelBindingWizard, RuleEditor, TemplateReviewPanel } from '@agile-team/mach-report/designer';
 import { createReportRuntime, type ReportRuntimeInput } from '@agile-team/mach-report/server';
 import { createNodeAutoReportExporter } from '@agile-team/mach-report/server/node';
@@ -75,7 +75,15 @@ const task: ReportPreviewTask | null = null;
 const controller: MachReportController | null = null;
 const execution: ReportExportExecutionOptions = { mode: 'worker', onDecision(decision) { void decision.hardCancellation; } };
 const isolatedProps: PreviewProps = { reportId: 'sample', exportExecution: execution };
-void [props, input, task, controller, createReportRuntime, ReportTemplateEditor, isolatedProps, createNodeAutoReportExporter];
+const history: ReportEditHistoryOptions = { maxSteps: 100, maxBytes: 8388608 };
+const editing = createProviderEditing({ query: () => ({ datasets: {} }), save: async () => ({ revision: 'v2' }) }, {
+  reportId: 'sample', history, fields: { quantity: { type: 'number', min: 0 } },
+  canEdit: context => context.source?.field === 'quantity', readOnlyReason: () => 'Read-only business field',
+});
+const editingProps: PreviewProps = { reportId: 'sample', editable: editing };
+// @ts-expect-error 撤销步骤预算必须为数字
+const invalidHistory: ReportEditHistoryOptions = { maxSteps: '100' };
+void [props, input, task, controller, createReportRuntime, ReportTemplateEditor, isolatedProps, createNodeAutoReportExporter, editingProps, invalidHistory];
 `);
   writeFileSync(resolve(scratch, "consumer.cts"), readFileSync(resolve(scratch, "consumer.mts"), "utf8"));
   writeFileSync(resolve(scratch, "tsconfig.json"), JSON.stringify({ compilerOptions: { module: "NodeNext", moduleResolution: "NodeNext", target: "ES2022", lib: ["ES2022", "DOM", "DOM.Iterable"], strict: true, skipLibCheck: false, noEmit: true, types: [] }, files: ["consumer.mts", "consumer.cts"] }));

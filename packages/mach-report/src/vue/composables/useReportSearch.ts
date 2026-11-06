@@ -1,7 +1,7 @@
 import { computed, onScopeDispose, ref, shallowRef, unref, watch, type Ref } from "vue";
 import { createPageWindowIndex } from "../../render/page-window-index";
 import type { RenderPlan } from "@agile-team/mach-report";
-import { pageTexts } from "./plan-texts";
+import { pageTexts, type PlanTextTarget } from "./plan-texts";
 
 /**
  * 预览交互 composables 集合（本文件包含四件）：
@@ -12,13 +12,14 @@ import { pageTexts } from "./plan-texts";
  * - useLoadTiming：加载耗时计时（performance 不可用时降级为 0）
  */
 
+export interface ReportSearchTarget extends PlanTextTarget { occurrence: number }
 export interface ReportSearchState {
   visible: Ref<boolean>;
   query: Ref<string>;
   matchIndex: Ref<number>;
   matchCount: Ref<number>;
   /** 当前页内命中序号，用于宽表将远右列的搜索结果滚动到可见位置。 */
-  activeMatch: Ref<{ pageIndex: number; occurrence: number } | null>;
+  activeMatch: Ref<{ pageIndex: number; occurrence: number; target?: ReportSearchTarget } | null>;
   /** 分片搜索期间不阻塞预览滚动，输入/换单据会取消旧搜索。 */
   searching: Ref<boolean>;
   toggle(): void;
@@ -46,6 +47,20 @@ function countOccurrences(text: string, q: string): number {
   return count;
 }
 
+/** Only the active page is revisited. Repeated text hits remain compressed into page counts. */
+function matchTarget(plan: RenderPlan, pageIndex: number, occurrence: number, query: string): ReportSearchTarget | undefined {
+  let previous = "", local = 0;
+  for (const item of pageTexts(plan, pageIndex, pageIndex + 1)) {
+    if (!item.target) continue;
+    const key = `${item.target.componentIndex}:${item.target.rowIndex}:${item.target.columnIndex}`;
+    if (key !== previous) { previous = key; local = 0; }
+    const count = countOccurrences(item.text, query);
+    if (occurrence < count) return { ...item.target, occurrence: local + occurrence };
+    occurrence -= count;
+    local += count;
+  }
+}
+
 export function useReportSearch(options: ReportSearchOptions): ReportSearchState {
   const { plan, gotoPage, highlight, clearHighlights } = options;
   const visible = ref(false);
@@ -66,7 +81,9 @@ export function useReportSearch(options: ReportSearchOptions): ReportSearchState
       else hi = mid;
     }
     const match = matches[lo];
-    return match ? { pageIndex: match.pageIndex, occurrence: target - (matches[lo - 1]?.cumulative ?? 0) } : null;
+    if (!match) return null;
+    const occurrence = target - (matches[lo - 1]?.cumulative ?? 0);
+    return { pageIndex: match.pageIndex, occurrence, target: plan.value ? matchTarget(plan.value, match.pageIndex, occurrence, query.value.trim().toLowerCase()) : undefined };
   });
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let scanTimer: ReturnType<typeof setTimeout> | null = null;

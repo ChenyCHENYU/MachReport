@@ -1,4 +1,5 @@
 import { computed, getCurrentScope, onScopeDispose, ref, shallowRef } from "vue";
+import type { ComputedRef, Ref, ShallowRef } from "vue";
 import { parseReportTemplate, type ReportTemplateDocument } from "@agile-team/mach-report";
 
 export interface TemplateWorkbenchTaskContext { signal: AbortSignal }
@@ -13,7 +14,15 @@ export interface TemplateWorkbenchOptions {
 }
 
 /** Optional task orchestration shared by workbench shells, using their existing editor and manager. */
-export function useTemplateWorkbench(options: TemplateWorkbenchOptions) {
+export function useTemplateWorkbench(options: TemplateWorkbenchOptions): {
+  operating: Ref<boolean>;
+  busy: ComputedRef<boolean>;
+  error: ShallowRef<unknown>;
+  run: <T>(action: (context: TemplateWorkbenchTaskContext) => T | Promise<T>) => Promise<T | undefined>;
+  guardChanges: () => Promise<boolean>;
+  apply: () => Promise<boolean>;
+  dispose: () => void;
+} {
   const operating = ref(false), error = shallowRef<unknown>();
   const busy = computed(() => operating.value || options.blocked?.() === true);
   let disposed = false, active: AbortController | undefined;

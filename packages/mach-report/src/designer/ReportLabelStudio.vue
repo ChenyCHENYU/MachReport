@@ -4,10 +4,12 @@ import { ReportPreview } from "@agile-team/mach-report/vue";
 import type { ReportTemplateDocument } from "@agile-team/mach-report";
 import ReportIcon from "../vue/ReportIcon.vue";
 import { useLabelStudio, type LabelStudioOptions } from "./useLabelStudio";
+import { useDesignerViews } from "./useDesignerViews";
 const props = withDefaults(defineProps<LabelStudioOptions>(), { showSave: true });
 const emit = defineEmits<{ (event: "update:modelValue", document: ReportTemplateDocument): void }>();
 const studio = useLabelStudio(props, document => emit("update:modelValue", document));
 const { m, notice, title, document, mode, record, recordIndex, sheet, busy, editor, rows, designDatasets, schemas, bindings, paper, labelCount, fetcher, preset, presets, brandName, brandTagline, fields, fieldQuery, selectedFields, availableFields, fieldCount, configurationDirty, pendingLocalChanges, custom, confirmation, editorVisited, editorInitialDocument, sheetLayout, sheetHint, rebuilding, layoutChanged } = studio;
+const { previewVisited, visibleFetcher } = useDesignerViews(document, mode, fetcher);
 const LabelEditor = shallowRef<Component>();
 let disposed = false;
 onScopeDispose(() => { disposed = true; });
@@ -77,7 +79,7 @@ defineExpose({ guardChanges: studio.guardChanges, prepare: studio.prepare, previ
       <header class="mr-label-bar"><nav :aria-label="title"><button type="button" :aria-pressed="mode === 'preview'" :disabled="busy" @click="studio.navigate('preview')"><ReportIcon name="file" :size="14" />{{ m.preview }}</button><button type="button" :aria-pressed="mode === 'design'" :disabled="busy" @click="studio.navigate('design')"><ReportIcon name="settings" :size="14" />{{ m.design }}</button></nav><span>{{ mode === 'design' ? m.designHint : m.flow }}</span></header>
       <p v-if="notice" class="mr-label-notice" role="status">{{ notice }}</p>
       <div v-if="confirmation" class="mr-label-confirm" role="alertdialog" :aria-label="m.discardTitle" @keydown.esc.prevent.stop="studio.decideDiscard(false)"><div><strong>{{ m.discardTitle }}</strong><p>{{ m.discardDescription }}</p></div><button ref="keepEditingButton" type="button" @click="studio.decideDiscard(false)">{{ m.keepEditing }}</button><button type="button" @click="studio.decideDiscard(true)">{{ m.discard }}</button></div>
-      <ReportPreview v-if="mode === 'preview'" :ref="studio.preview.ref" report-id="labels" :fetcher="fetcher" :show-params="false" height="100%" :toolbar="{ exportFormats: ['pdf','png','html'], editing: false, excelImport: false }" :messages="{ title, empty: m.empty }">
+      <ReportPreview v-if="previewVisited" v-show="mode === 'preview'" :key="document.id" :ref="studio.preview.ref" report-id="labels" :fetcher="visibleFetcher" :refresh="{ retainPrevious: true, key: document.id }" :show-params="false" height="100%" :toolbar="{ exportFormats: ['pdf','png','html'], editing: false, excelImport: false }" :messages="{ title, empty: m.empty }">
         <template #settings><label class="mr-label-imposition"><input v-model="sheet" type="checkbox" :disabled="!sheetLayout">{{ m.sheet }}<small>{{ sheetHint }}</small></label></template>
       </ReportPreview>
       <div v-if="editorVisited" v-show="mode === 'design'" class="mr-label-editor">

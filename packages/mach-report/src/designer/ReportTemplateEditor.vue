@@ -17,6 +17,7 @@ import DesignerInsertionConfirm from "./DesignerInsertionConfirm.vue";
 import TemplateTotalsEditor from "./TemplateTotalsEditor.vue";
 import { useDesignerInsert } from "./useDesignerInsert";
 import { useDesignerShortcuts } from "./useDesignerShortcuts";
+import { useDesignerViews } from "./useDesignerViews";
 import type { TemplateEditorPanel } from "./useTemplateEditor";
 import TemplateDesignCanvas from "./TemplateDesignCanvas.vue";
 import CanvasComponentInspector from "./CanvasComponentInspector.vue";
@@ -108,6 +109,7 @@ const {
   headerCommand,
   canvas,
 } = workspace;
+const { canvasVisited, previewVisited, visibleFetcher } = useDesignerViews(draft, mode, fetcher);
 
 const { sections, toolPreview, setMode: navigateMode, toggleToolPreview, chooseToolComponent, openBinding,
   pendingConfigurations, saveReason: navigationSaveReason, openPending, headingStatus, chooseCanvas, locateReview,
@@ -317,7 +319,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
         </button>
       </div>
       <div class="mr-designer-actions">
-        <DesignerInsertMenu :disabled="editDisabled || canvasFlow" :repeat="!!draft.template.repeat" :fields="draft.template.repeat || activeList ? insertion.fields.value : []" :columns="!draft.template.repeat" :used-fields="draft.template.repeat ? [] : (activeList?.columns.map(column => column.field) ?? [])" :messages="insertionMessages" @insert="insertion.insert" @field="insertion.addField" />
+        <DesignerInsertMenu :disabled="editDisabled || canvasFlow" :repeat="!!draft.template.repeat" :fields="draft.template.repeat || activeList ? insertion.fields.value : []" :columns="!draft.template.repeat" :used-fields="draft.template.repeat ? [] : (activeList?.columns.map(column => column.field) ?? [])" :messages="insertionMessages" @insert="insertion.insert" @field="insertion.addField" @fields="insertion.addFields" />
         <DesignerTaskGuide :available="guideTasks" :fields="!!lists.length" :disabled="blocked" :messages="guideMessages" @choose="openPanel" />
         <div class="mr-designer-history">
           <button
@@ -1018,7 +1020,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
         </div>
       </aside>
       <div
-        v-if="section !== 'tools' || toolPreview"
+        v-show="section !== 'tools' || toolPreview"
         class="mr-designer-preview"
         :aria-label="m.previewTitle"
       >
@@ -1031,27 +1033,36 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
           </li>
         </ul>
         <TemplateDesignCanvas
-          v-if="mode === 'design' && validation.ok"
+          v-if="canvasVisited && validation.ok"
+          v-show="mode === 'design'"
+          :key="`canvas-${draft.id}`"
           :document="draft"
           :selection="canvasSelection"
           :selections="canvas.selections.value"
           :locked="canvas.locked"
           :active-column-index="activeIndex"
           :page-index="canvasPage"
+          :active="mode === 'design' && (section !== 'tools' || toolPreview)"
           :datasets="datasets"
           :disabled="editDisabled || canvasFlow || editor.isToolPending('rules')"
           :messages="m"
           @select="chooseCanvas"
           @geometry="canvas.geometry"
+          @move="canvas.move"
+          @delete="canvas.remove"
+          @duplicate="canvas.duplicate"
           @column="inspector.activate"
           @width="
             (index, width) => editor.setColumn(index, 'widthMm', String(width))
           "
         />
         <ReportPreview
-          v-else-if="fetcher && validation.ok"
+          v-if="previewVisited && visibleFetcher && validation.ok"
+          v-show="mode === 'preview'"
+          :key="`preview-${draft.id}`"
           report-id="draft"
-          :fetcher="fetcher"
+          :fetcher="visibleFetcher"
+          :refresh="{ retainPrevious: true, key: draft.id }"
           :messages="{
             title: m.previewTitle,
             columnDirectory: m.previewFieldDirectory,
@@ -1061,7 +1072,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
           :excel-import="false"
           height="100%"
         />
-        <p v-else class="mr-designer-note mr-designer-invalid">
+        <p v-if="!validation.ok" class="mr-designer-note mr-designer-invalid">
           {{ m.invalid }}
         </p>
       </div>

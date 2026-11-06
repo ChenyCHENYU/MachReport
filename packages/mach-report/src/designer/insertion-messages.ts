@@ -1,4 +1,4 @@
-export const DESIGNER_INSERT_MESSAGES = {
+const BASE_INSERT_MESSAGES = {
   add: "添加内容",
   title: "添加到当前版面",
   text: "说明文字",
@@ -40,6 +40,16 @@ export const DESIGNER_INSERT_MESSAGES = {
   assetPending: "请完成图片或编码内容配置，再预览或保存。",
   fieldsUnavailable: "当前模板尚无可绑定的数据字段。",
 } as const;
-export type DesignerInsertMessages = {
-  [K in keyof typeof DESIGNER_INSERT_MESSAGES]: string;
-};
+const BATCH_INSERT_MESSAGES = {
+  selectField: "选择字段",
+  addSelected: "添加选中项",
+  selectedCount: "已选 {count} 项",
+  batchHint: "可一次选择最多 100 个字段，确认版面影响后统一添加。",
+  batchTitle: "确认添加字段",
+  batchDescription: "将按选择顺序添加 {count} 个字段，本次操作可一次撤销。",
+  batchWidth: "表格宽度 {before} → {after} mm。",
+  batchFixedWidth: "保持表格宽度 {width} mm，所有列按比例分配宽度。",
+  batchConfirm: "确认添加",
+} as const;
+export const DESIGNER_INSERT_MESSAGES = { ...BASE_INSERT_MESSAGES, ...BATCH_INSERT_MESSAGES };
+export type DesignerInsertMessages = { [K in keyof typeof BASE_INSERT_MESSAGES]: string } & Partial<{ [K in keyof typeof BATCH_INSERT_MESSAGES]: string }>;

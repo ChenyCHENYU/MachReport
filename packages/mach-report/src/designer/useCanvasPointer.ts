@@ -11,6 +11,7 @@ interface PointerOptions {
   scale: Ref<number>;
   page: () => TemplatePage;
   disabled: () => boolean;
+  selection?: () => readonly TemplateComponent[];
   commit: (geometry: CanvasGeometry) => void;
 }
 function resizedGeometry(initial: CanvasGeometry, x: number, y: number, square: boolean): CanvasGeometry {
@@ -42,6 +43,27 @@ export function useCanvasPointer(options: PointerOptions) {
       frame = 0;
     const scale = options.scale.value;
     const paper = target.parentElement!;
+    const selection = options.selection?.() ?? [];
+    const members = !resize && selection.includes(component) ? selection : [component];
+    const memberSet = new Set(members);
+    const indices = new Map(options.page().components.map((item, index) => [item, index]));
+    const peers = members.filter(item => item !== component).flatMap(item => {
+      const element = paper.querySelector<HTMLElement>(`[data-canvas-component="${indices.get(item)}"]`);
+      return element ? [{ element, box: componentGeometry(item) }] : [];
+    });
+    const limits = members.reduce((bounds, item) => {
+      const box = componentGeometry(item), page = options.page();
+      return {
+        left: Math.max(bounds.left, -box.leftMm),
+        right: Math.min(bounds.right, page.widthMm - box.leftMm - box.widthMm),
+        top: Math.max(bounds.top, -box.topMm),
+        bottom: Math.min(bounds.bottom, page.heightMm - box.topMm - (item.kind === "list" ? 2 : box.heightMm)),
+      };
+    }, { left: -Infinity, right: Infinity, top: -Infinity, bottom: Infinity });
+    const boundDelta = (x: number, y: number) => ({
+      x: Math.max(limits.left, Math.min(limits.right, x)),
+      y: Math.max(limits.top, Math.min(limits.bottom, y)),
+    });
     let guideX: number | undefined, guideY: number | undefined;
     const guides = () => {
       for (const [axis, guide] of [
@@ -66,10 +88,14 @@ export function useCanvasPointer(options: PointerOptions) {
       target.style.top = `${next.topMm * scale}px`;
       target.style.width = `${next.widthMm * scale}px`;
       target.style.height = `${next.heightMm * scale}px`;
+      for (const peer of peers) {
+        peer.element.style.left = `${(peer.box.leftMm + next.leftMm - initial.leftMm) * scale}px`;
+        peer.element.style.top = `${(peer.box.topMm + next.topMm - initial.topMm) * scale}px`;
+      }
     };
     const marks = {
-      leftMm: canvasSnapMarks(options.page().components, component, "leftMm"),
-      topMm: canvasSnapMarks(options.page().components, component, "topMm"),
+      leftMm: canvasSnapMarks(options.page().components.filter(item => !memberSet.has(item)), component, "leftMm"),
+      topMm: canvasSnapMarks(options.page().components.filter(item => !memberSet.has(item)), component, "topMm"),
     };
     const move = (moveEvent: PointerEvent) => {
       const x = (moveEvent.clientX - startX) / scale,
@@ -95,6 +121,12 @@ export function useCanvasPointer(options: PointerOptions) {
         options.page(),
         component.kind === "list",
       );
+      if (!resize && peers.length) {
+        const delta = boundDelta(next.leftMm - initial.leftMm, next.topMm - initial.topMm);
+        next.leftMm = initial.leftMm + delta.x; next.topMm = initial.topMm + delta.y;
+        if (delta.x !== horizontal.value - initial.leftMm) guideX = undefined;
+        if (delta.y !== vertical.value - initial.topMm) guideY = undefined;
+      }
       if (resize && component.kind === "qrcode") next.widthMm = next.heightMm = Math.min(next.widthMm, next.heightMm);
       if (!frame) frame = requestAnimationFrame(render);
     };

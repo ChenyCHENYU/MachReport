@@ -19,6 +19,33 @@ async function create(provider: ReportProvider, params: () => Record<string, str
   return { wrapper, report };
 }
 describe("explicit provider editing bridge", () => {
+  it("accepts cell controls, read-only explanations and undo budgets at the same flat provider entry", async () => {
+    const save = vi.fn().mockResolvedValue({ revision: "v2" });
+    const validateBatch = vi.fn();
+    const editing = createProviderEditing({ query: () => ({ datasets: {} }), save }, {
+      reportId: "production", fields: { quantity: { type: "number", min: 0 } },
+      canEdit: context => context.source?.field !== "code", readOnlyReason: () => "业务编号由来源维护",
+      history: { maxSteps: 1 }, validateBatch
+    });
+    const wrapper = mount(ReportPreview, { attachTo: document.body, props: { reportId: "production", fetcher: async () => plan, editable: editing, showExport: false } });
+    mounted.add(wrapper);
+    await vi.waitFor(() => expect(wrapper.find("td").exists()).toBe(true));
+    const report = wrapper.vm as unknown as MachReportController;
+    const address = { pageIndex: 0, componentIndex: 0, rowIndex: 0, columnIndex: 0 };
+    await report.focusCell!(address);
+    expect(await report.pasteSelection!("-1")).toBe(false);
+    expect(save).not.toHaveBeenCalled();
+    expect(await report.pasteSelection!("3")).toBe(true);
+    expect(await report.pasteSelection!("4")).toBe(true);
+    expect(validateBatch).toHaveBeenCalledTimes(2);
+    expect(await report.undo!()).toBe(true);
+    expect(await report.undo!()).toBe(false);
+    expect(report.getDifferences!()[0]).toMatchObject({ previousValue: 2, value: 3 });
+    await report.focusCell!({ ...address, columnIndex: 1 });
+    expect(wrapper.find(".mrp-edit-hint").text()).toContain("业务编号由来源维护");
+    expect(await report.pasteSelection!("new-code")).toBe(false);
+    expect(save).toHaveBeenCalledTimes(3);
+  });
   it.each([false, true])("does not turn a committed save into failure when a diagnostic observer throws (async=%s)", async asynchronous => {
     const save = vi.fn().mockResolvedValue({ revision: "v2", diagnostics: [{ code: "info", message: "saved", severity: "info" }] });
     const observer = () => { if (asynchronous) return Promise.reject(new Error("observer")); throw new Error("observer"); };

@@ -112,6 +112,20 @@ export interface MachReportMessages extends Partial<ReportCalculationMessages>, 
   importing?: string;
   editCell?: string;
   editingHint?: string;
+  editCellEditable?: string;
+  editCellReadOnly?: string;
+  editCellFormula?: string;
+  editCellProtected?: string;
+  editCellComplex?: string;
+  editCellStructure?: string;
+  editCellDerived?: string;
+  editCellPermission?: string;
+  editCellBusy?: string;
+  editHistoryLimited?: string;
+  changesSearch?: string;
+  changesAllDatasets?: string;
+  changesNoMatches?: string;
+  changesRange?: string;
   saving?: string;
   editInvalidNumber?: string;
   editInvalidBoolean?: string;
@@ -297,6 +311,17 @@ export const DEFAULT_MESSAGES: MachReportMessages = {
   importing: "正在导入 Excel…",
   editCell: "编辑单元格",
   editingHint: "双击单元格编辑 · Enter 确认 · Esc 取消",
+  editCellEditable: "可编辑", editCellReadOnly: "只读",
+  editCellFormula: "公式结果由计算生成，不能直接修改。",
+  editCellProtected: "此单元格已受保护。",
+  editCellComplex: "此单元格包含复合内容，请在模板设计中调整。",
+  editCellStructure: "表头与结构单元格由模板控制。",
+  editCellDerived: "汇总或派生值随来源数据计算。",
+  editCellPermission: "当前业务权限不允许修改此单元格。",
+  editCellBusy: "报表处理中，当前单元格暂时只读。",
+  editHistoryLimited: "较早的撤销记录已释放，当前修改与来源差异仍完整保留。",
+  changesSearch: "搜索字段、行键或数据集", changesAllDatasets: "全部数据集", changesNoMatches: "没有匹配的修改",
+  changesRange: "{start}–{end} / {total}",
   saving: "正在保存修改…",
   editInvalidNumber: "请输入有效数字；清空表示无值",
   editInvalidBoolean: "请输入 true / false、是 / 否或 1 / 0",

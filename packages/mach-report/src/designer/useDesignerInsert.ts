@@ -6,6 +6,7 @@ import type {
   TemplateComponent,
 } from "@agile-team/mach-report";
 import { insertionChart, insertionColumn } from "./insertion-binding";
+import { createBoundCanvasField, prepareCanvasFields } from "./canvas-field-insertion";
 import { inspectTemplateFieldUsage } from "../source/template-outline";
 import {
   canvasComponentFitsPage,
@@ -58,10 +59,12 @@ export function useDesignerInsert(
   const m = computed(() => ({ ...DESIGNER_INSERT_MESSAGES, ...messages() }));
   const notice = ref("");
   const pendingInsertion = shallowRef<{
-    component: TemplateComponent;
+    commit(): void;
     widthMm: number;
     heightMm: number;
     pageCount: number;
+    nextPageCount: number;
+    batch?: { count: number; widthBefore: number; widthAfter: number };
     copies?: number;
     repeat: boolean;
   }>();
@@ -73,19 +76,23 @@ export function useDesignerInsert(
       : m.value.reportPageImpact;
     const impacts = [pageImpact
       .replace("{before}", String(pending.pageCount))
-      .replace("{after}", String(pending.pageCount + 1))];
+      .replace("{after}", String(pending.nextPageCount))];
     if (pending.copies !== undefined) {
       impacts.push(m.value.labelCountImpact
         .replace("{before}", String(pending.copies * pending.pageCount))
-        .replace("{after}", String(pending.copies * (pending.pageCount + 1))));
+        .replace("{after}", String(pending.copies * pending.nextPageCount)));
     }
+    const batch = pending.batch;
+    if (batch?.widthBefore) impacts.unshift(batch.widthBefore === batch.widthAfter
+      ? m.value.batchFixedWidth.replace("{width}", String(Number(batch.widthBefore.toFixed(2))))
+      : m.value.batchWidth.replace("{before}", String(Number(batch.widthBefore.toFixed(2)))).replace("{after}", String(Number(batch.widthAfter.toFixed(2)))));
     return {
-      title: m.value.newPageTitle,
-      description: m.value.newPageDescription
+      title: batch ? m.value.batchTitle : m.value.newPageTitle,
+      description: batch ? m.value.batchDescription.replace("{count}", String(batch.count)) : m.value.newPageDescription
         .replace("{width}", String(pending.widthMm))
         .replace("{height}", String(pending.heightMm)),
       impacts,
-      confirm: m.value.newPageConfirm,
+      confirm: batch ? m.value.batchConfirm : m.value.newPageConfirm,
       cancel: m.value.newPageCancel,
     };
   });
@@ -110,10 +117,11 @@ export function useDesignerInsert(
     if (canvasComponentPlacement(page, component).newPage) {
       notice.value = "";
       pendingInsertion.value = {
-        component,
+        commit: () => commitInsertion(component),
         widthMm: page.widthMm,
         heightMm: page.heightMm,
         pageCount: document.template.pages.length,
+        nextPageCount: document.template.pages.length + 1,
         copies: labelCopies(document, datasets()),
         repeat: !!document.template.repeat,
       };
@@ -126,7 +134,7 @@ export function useDesignerInsert(
     const pending = pendingInsertion.value;
     if (!pending || workspace.editDisabled.value) return;
     pendingInsertion.value = undefined;
-    commitInsertion(pending.component);
+    pending.commit();
   }
   const dataset = computed(
     () =>
@@ -204,18 +212,7 @@ export function useDesignerInsert(
     const field = fields.value.find((item) => item.field === name);
     if (!field) return;
     if (editor.draft.value.template.repeat) {
-      const component = createCanvasComponent("text");
-      if (component.kind === "list") return;
-      component.widthMm = 42;
-      component.heightMm = 5;
-      component.text = "";
-      component.style = { fontSize: 8, lineHeight: 1.1, verticalAlign: "middle" };
-      component.binding = {
-        field: name,
-        prefix: `${field.label || name}  `,
-        ...(field.format ? { format: field.format } : {}),
-      };
-      requestInsertion(component);
+      requestInsertion(createBoundCanvasField(field));
       return;
     }
     const location = editor.lists.value[editor.selected.value];
@@ -244,6 +241,32 @@ export function useDesignerInsert(
       inspector.section.value = "fields";
       inspector.activate(editor.activeList.value!.columns.length - 1);
     }
+  }
+  function addFields(names: string[]): void {
+    if (workspace.editDisabled.value || pendingInsertion.value || !names.length || names.length > 100) return;
+    const selected = [...new Set(names)].flatMap(name => {
+      const field = fields.value.find(item => item.field === name);
+      return field ? [field] : [];
+    });
+    try {
+      const source = editor.draft.value, page = source.template.pages[workspace.canvasPage.value]!;
+      const proposal = prepareCanvasFields(source, workspace.canvasPage.value, selected, editor.lists.value[editor.selected.value], m.value.contentTooLarge);
+      if (!proposal?.count) return;
+      pendingInsertion.value = {
+        widthMm: page.widthMm, heightMm: page.heightMm,
+        pageCount: source.template.pages.length, nextPageCount: proposal.document.template.pages.length,
+        copies: labelCopies(source, datasets()), repeat: !!source.template.repeat, batch: proposal,
+        commit: () => {
+          if (!editor.transaction(document => { document.template = proposal.document.template; })) return;
+          workspace.canvasPage.value = proposal.pageIndex;
+          workspace.canvas.selections.value = proposal.selections.filter(item => item.pageIndex === proposal.pageIndex);
+          workspace.canvas.selection.value = proposal.selections.at(-1);
+          inspector.section.value = source.template.repeat ? "component" : "fields";
+          if (source.template.repeat) workspace.setMode("design");
+          else inspector.activate(editor.activeList.value!.columns.length - 1);
+        },
+      };
+    } catch (cause) { notice.value = cause instanceof Error ? cause.message : String(cause); }
   }
   function removeColumn(): void {
     if (workspace.editDisabled.value) return;
@@ -288,6 +311,7 @@ export function useDesignerInsert(
     schema,
     insert,
     addField,
+    addFields,
     removeColumn,
     notice,
     confirmation,

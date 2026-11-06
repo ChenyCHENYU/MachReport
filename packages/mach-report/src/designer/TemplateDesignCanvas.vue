@@ -3,6 +3,7 @@ import { resolveListSampleCell, resolveListHeaderStyle } from "../layout/list-ce
 import { designListSamples } from "./tree-samples";
 import { useCanvasViewport } from "./useCanvasViewport";
 import { createCanvasGridLayouts } from "./canvas-grid-layouts";
+import CanvasPrimitivePreview from "./CanvasPrimitivePreview.vue";
 import { resolveFontSize } from "../render/style";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { canvasContentSample, canvasRulerMarks } from "./canvas-samples";
@@ -13,7 +14,6 @@ import {
   type ReportTemplateDocument,
 } from "@agile-team/mach-report";
 import {
-  componentGeometry,
   componentHeight,
   type CanvasGeometry,
   type CanvasSelection,
@@ -23,7 +23,7 @@ import {
   TEMPLATE_EDITOR_MESSAGES,
   type TemplateEditorMessages,
 } from "./messages";
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   document: ReportTemplateDocument;
   selection?: CanvasSelection;
   selections?: readonly CanvasSelection[];
@@ -32,14 +32,19 @@ const props = defineProps<{
   pageIndex: number;
   datasets?: DatasetRows;
   disabled?: boolean;
+  /** A visited hidden viewport keeps its position without rendering inactive samples. */
+  active?: boolean;
   geometryDisabled?: boolean;
   messages?: Partial<TemplateEditorMessages>;
-}>();
+}>(), { active: true, selection: undefined, selections: undefined, locked: undefined, activeColumnIndex: undefined, datasets: undefined, messages: undefined });
 const emit = defineEmits<{
   (event: "select", value: CanvasSelection): void;
   (event: "geometry", value: CanvasGeometry): void;
   (event: "column", value: number): void;
   (event: "width", index: number, value: number): void;
+  (event: "move", x: number, y: number): void;
+  (event: "delete"): void;
+  (event: "duplicate"): void;
 }>();
 const m = computed(() => ({ ...TEMPLATE_EDITOR_MESSAGES, ...props.messages }));
 const { viewport, zoom, scale, page, wide, fraction, fit, setZoom, sync, navigate } = useCanvasViewport({ get document() { return props.document; }, get pageIndex() { return props.pageIndex; }, get selection() { return props.selection; }, get columnIndex() { return props.activeColumnIndex; } });
@@ -55,13 +60,14 @@ function sampleStyle(cell: ReturnType<typeof resolveListSampleCell>, width: numb
 }
 function isLocked(index: number): boolean { return props.locked?.({ pageIndex: props.pageIndex, componentIndex: index }) === true; }
 function selectPointer(event: PointerEvent, index: number): void {
-  emit("select", { pageIndex: props.pageIndex, componentIndex: index, additive: event.ctrlKey || event.metaKey || event.shiftKey });
+  emit("select", { pageIndex: props.pageIndex, componentIndex: index, additive: event.ctrlKey || event.metaKey || event.shiftKey, preserve: !event.ctrlKey && !event.metaKey && !event.shiftKey && selected(index) });
   if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !isLocked(index)) pointer.start(event, page.value.components[index]!);
 }
 const pointer = useCanvasPointer({
   scale,
   page: () => page.value,
   disabled: () => geometryDisabled.value,
+  selection: () => page.value.components.filter((_, index) => selected(index) && !isLocked(index)),
   commit: (value) => emit("geometry", value),
 });
 function selected(index: number): boolean {
@@ -82,8 +88,9 @@ function style(index: number) {
   };
 }
 function keyboard(event: KeyboardEvent, index: number): void {
-  const component = page.value.components[index]!;
-  if (geometryDisabled.value || isLocked(index) || !selected(index)) return;
+  if (event.isComposing || geometryDisabled.value || isLocked(index) || !selected(index)) return;
+  if (event.key === "Delete" || event.key === "Backspace") { event.preventDefault(); event.stopPropagation(); emit("delete"); return; }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "d") { event.preventDefault(); event.stopPropagation(); emit("duplicate"); return; }
   const directions: Record<string, [number, number]> = {
       ArrowLeft: [-1, 0],
       ArrowRight: [1, 0],
@@ -94,11 +101,8 @@ function keyboard(event: KeyboardEvent, index: number): void {
   if (!delta) return;
   event.preventDefault();
   event.stopPropagation();
-  const next = componentGeometry(component),
-    step = event.shiftKey ? 5 : 0.5;
-  next.leftMm += delta[0] * step;
-  next.topMm += delta[1] * step;
-  emit("geometry", next);
+  const step = event.shiftKey ? 5 : 0.5;
+  emit("move", delta[0] * step, delta[1] * step);
 }
 function columnEdges(list: ListComponent): number[] {
   let width = 0;
@@ -201,7 +205,7 @@ function resizeColumn(
         <svg v-if="rulers" class="mr-canvas-ruler is-horizontal" :width="page.widthMm * scale" height="17" :aria-label="m.rulerLabel" role="img"><g v-for="mark in horizontalMarks" :key="mark.mm" :transform="`translate(${mark.position}, 0)`"><line y1="12" y2="17" /><text x="3" y="9">{{ mark.mm }}</text></g></svg>
         <svg v-if="rulers" class="mr-canvas-ruler is-vertical" width="17" :height="page.heightMm * scale" aria-hidden="true"><g v-for="mark in verticalMarks" :key="mark.mm" :transform="`translate(0, ${mark.position})`"><line x1="12" x2="17" /><text x="3" y="10">{{ mark.mm }}</text></g></svg>
         <div
-          v-for="(component, index) in page.components"
+          v-for="(component, index) in active === false ? [] : page.components"
           :key="index"
           class="mr-canvas-component"
           :class="{ 'is-selected': selected(index), 'is-locked': isLocked(index) }"
@@ -211,7 +215,7 @@ function resizeColumn(
           :aria-label="`${m.component} ${index + 1} ${component.kind}`"
           :aria-pressed="selected(index)"
           :tabindex="selected(index) ? 0 : -1"
-          @focus="!selected(index) && emit('select', { pageIndex, componentIndex: index })"
+          @focus="emit('select', { pageIndex, componentIndex: index, preserve: selected(index) })"
           @pointerdown="selectPointer($event, index)"
           @click="($event.detail === 0 && !selected(index)) && emit('select', { pageIndex, componentIndex: index })"
           @keydown="keyboard($event, index)"
@@ -308,6 +312,7 @@ function resizeColumn(
               class="mr-canvas-grid-limit"
               >{{ m.canvasGridLimited }}</span>
           </div>
+          <CanvasPrimitivePreview v-else-if="['chart','line','rect','ellipse'].includes(component.kind) || component.kind === 'text' && !component.binding" :component="component" :datasets="datasets" :zoom="zoom" :sample-label="m.designSample" />
           <div v-else-if="(component.kind === 'barcode' || component.kind === 'qrcode') && !contentSamples[index]?.image" class="mr-canvas-code" :class="{ 'is-error': contentSamples[index]?.error }" :title="contentSamples[index]?.error ?? m.codePreviewHint">
             <svg viewBox="0 0 32 24" aria-hidden="true"><rect x="3" y="3" width="26" height="18" rx="2" /><path d="M10 8 6 12l4 4m12-8 4 4-4 4m-8 2 4-12" /></svg><strong>{{ component.kind === 'qrcode' ? m.insertQrcode : (component.code?.symbology ?? 'code128').toUpperCase() }}</strong><span>{{ contentSamples[index]?.text || m.codePlaceholder }}</span><small v-if="contentSamples[index]?.bound">{{ component.binding?.field }}</small>
           </div>

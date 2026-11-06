@@ -27,6 +27,25 @@ function planOf(count: number, text = (page: number) => `第 ${page + 1} 页`): 
 }
 
 describe("大计划预览的有界交互", () => {
+  it("搜索命中保留合并格的物理地址和单元格内富文本命中序号", async () => {
+    vi.useFakeTimers();
+    const scope = effectScope();
+    const source: RenderPlan = { schemaVersion: "search-address", pages: [{ layout: "wide", pageWidthMm: 100, pageHeightMm: 100, components: [{
+      kind: "rect", leftMm: 0, topMm: 0, widthMm: 100, heightMm: 100,
+      grid: { colWidthsMm: [25, 25, 25, 25], cells: [
+        [{ text: "merge", rowSpan: 2, colSpan: 2 }, { text: "ordinary" }, { text: "ordinary" }],
+        [{ text: "hidden", richParagraphs: [{ segments: [{ text: "钢" }, { text: "钢" }] }] }, { text: "last" }]
+      ] }
+    }] }] };
+    const search = scope.run(() => useReportSearch({ plan: shallowRef(source), gotoPage() {}, debounceMs: 0, highlight: () => 0, clearHighlights() {} }))!;
+    search.onInput("钢"); await vi.runAllTimersAsync();
+    expect(search.matchCount.value).toBe(2);
+    expect(search.activeMatch.value?.target).toEqual({ componentIndex: 0, rowIndex: 1, columnIndex: 2, occurrence: 0 });
+    search.onNav(1);
+    expect(search.activeMatch.value?.target).toEqual({ componentIndex: 0, rowIndex: 1, columnIndex: 2, occurrence: 1 });
+    search.onInput("hidden"); await vi.runAllTimersAsync(); expect(search.matchCount.value).toBe(0);
+    scope.stop();
+  });
   it("1000 页正文和缩略图都保持有界，跳到第 700 页实际渲染新内容", async () => {
     const wrapper = mount(ReportPreview, {
       props: { reportId: "large", fetcher: async () => planOf(1000), height: "800px", showExport: false, showPdfWindow: false }

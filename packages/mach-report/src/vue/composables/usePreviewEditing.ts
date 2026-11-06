@@ -1,4 +1,4 @@
-import { onMounted, onUnmounted, type Ref } from "vue";
+import { onMounted, onUnmounted, shallowRef, type Ref } from "vue";
 import { ReportCellEditError, type RenderPlan, type ReportCellEdit, type ReportCellAddress } from "@agile-team/mach-report";
 import type { ReportEditingOptions } from "../editing";
 import type { MachReportMessages } from "../config";
@@ -6,6 +6,7 @@ import type { ReportBeforeDiscard, ReportDiscardReason } from "../guards";
 import { useCellEditing } from "./useCellEditing";
 import { useCellSelection } from "./useCellSelection";
 import { useDiscardGuard } from "./useDiscardGuard";
+import { useCellEditingStatus } from "./useCellEditingStatus";
 
 /** The editor, selection and discard decision share one transaction boundary. */
 export function usePreviewEditing(host: {
@@ -20,7 +21,8 @@ export function usePreviewEditing(host: {
   ensureVisible?(address: ReportCellAddress): void;
   changed(edit: ReportCellEdit): void;
   failed(message: string, cause: unknown): void;
-}): { editing: ReturnType<typeof useCellEditing>; cells: ReturnType<typeof useCellSelection>; discard: ReturnType<typeof useDiscardGuard>; confirmDiscard(reason?: ReportDiscardReason): Promise<boolean> } {
+}): { editing: ReturnType<typeof useCellEditing>; cells: ReturnType<typeof useCellSelection>; cellStatus: ReturnType<typeof useCellEditingStatus>; discard: ReturnType<typeof useDiscardGuard>; confirmDiscard(reason?: ReportDiscardReason): Promise<boolean> } {
+  const attempted = shallowRef<ReportCellAddress | null>(null);
   function errorMessage(cause: unknown): string {
     if (!(cause instanceof ReportCellEditError)) return cause instanceof Error ? cause.message : "单元格保存失败";
     const m = host.messages();
@@ -38,6 +40,7 @@ export function usePreviewEditing(host: {
     label: () => host.messages().editCell ?? "编辑单元格", errorMessage,
     suspendBlur: () => discard.request.value !== null,
     onChange: host.changed, onError: host.failed,
+    onInspect: address => { attempted.value = address; },
     onNavigate: (address, key, backwards) => cells.navigate(address, key, backwards)
   });
   const cells = useCellSelection({
@@ -51,6 +54,7 @@ export function usePreviewEditing(host: {
     ...host.guard, pending: () => editing.pendingLocalChanges.value,
     snapshot: () => [host.plan.value, editing.active.value?.editor.input.value]
   });
+  const cellStatus = useCellEditingStatus({ ...host, selection: cells.selection, attempted, busy: () => host.busy() || editing.saving.value || discard.pending.value });
   function confirmDiscard(reason: ReportDiscardReason = "leave"): Promise<boolean> { return discard.check(reason); }
   function beforeUnload(event: BeforeUnloadEvent): void {
     if (!host.guard.enabled() || !editing.pendingLocalChanges.value) return;
@@ -58,5 +62,5 @@ export function usePreviewEditing(host: {
   }
   onMounted(() => window.addEventListener("beforeunload", beforeUnload));
   onUnmounted(() => { window.removeEventListener("beforeunload", beforeUnload); discard.cancel(); editing.reset(); });
-  return { editing, cells, discard, confirmDiscard };
+  return { editing, cells, cellStatus, discard, confirmDiscard };
 }

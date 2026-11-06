@@ -1,6 +1,7 @@
 import { computed, ref, watch, type Ref } from "vue";
 import { useCanvasSelection } from "./useCanvasSelection";
 import { placeCanvasComponent } from "./canvas-placement";
+import { canvasSelectionDelta, copyCanvasComponent, translateCanvasSelection } from "./canvas-selection-commands";
 import {
   parseReportTemplate,
   type ReportTemplateDocument,
@@ -41,6 +42,7 @@ export function useTemplateCanvas(
   watch(pageIndex, (page) => {
     if (selection.value?.pageIndex !== page) { selection.value = undefined; multi.selections.value = []; }
   });
+  watch(() => draft.value.id, () => { selection.value = undefined; multi.selections.value = []; pageIndex.value = 0; });
   watch(draft, () => {
     if (!active.value) selection.value = undefined;
     multi.selections.value = multi.selections.value.filter(item => !!selectedComponent(draft.value, item));
@@ -65,6 +67,12 @@ export function useTemplateCanvas(
   }
   function geometry(next: CanvasGeometry): void {
     if (geometryDisabled.value) return;
+    const current = active.value;
+    if (multi.locked(selection.value)) return;
+    if (current && multi.movable.value.length > 1 && next.widthMm === current.widthMm && next.heightMm === componentGeometry(current).heightMm) {
+      move(next.leftMm - current.leftMm, next.topMm - current.topMm);
+      return;
+    }
     mutate((component, document) => {
       const page = document.template.pages[selection.value!.pageIndex]!;
       setCanvasGeometry(
@@ -72,6 +80,13 @@ export function useTemplateCanvas(
         constrainGeometry(next, page, component.kind === "list"),
       );
     });
+  }
+  function move(x: number, y: number): void {
+    if (geometryDisabled.value || !multi.movable.value.length) return;
+    const selections = multi.movable.value.slice();
+    const delta = canvasSelectionDelta(draft.value, selections, x, y);
+    if (!delta.x && !delta.y) return;
+    transaction(document => translateCanvasSelection(document, selections, delta.x, delta.y));
   }
   const insertedOnNewPage = ref(false);
   function insert(kind: CanvasInsertKind): void {
@@ -109,46 +124,28 @@ export function useTemplateCanvas(
   }
   function remove(): void {
     if (geometryDisabled.value) return;
-    const selected = selection.value;
-    if (
-      selected && !multi.locked(selected) &&
-      transaction((document) => {
-        document.template.pages[selected.pageIndex]!.components.splice(
-          selected.componentIndex,
-          1,
-        );
-      })
-    ) {
-      multi.remap(selected.pageIndex, selected.componentIndex); selection.value = undefined;
-    }
+    const selected = multi.movable.value.slice().sort((a, b) => b.componentIndex - a.componentIndex);
+    if (!selected.length) return;
+    if (!transaction(document => { for (const item of selected) document.template.pages[item.pageIndex]!.components.splice(item.componentIndex, 1); })) return;
+    for (const item of selected) multi.remap(item.pageIndex, item.componentIndex);
+    selection.value = multi.selections.value.at(-1);
   }
   function duplicate(): void {
     if (geometryDisabled.value) return;
-    const selected = selection.value;
-    if (!selected) return;
-    let index = -1;
-    if (
-      transaction((document) => {
-        const page = document.template.pages[selected.pageIndex]!,
-          // 模板已通过纯JSON文档校验；兼容旧门户，且不把Vue响应式代理传给原生克隆API。
-          component = JSON.parse(JSON.stringify(selectedComponent(document, selected)!)) as TemplateComponent;
-        const next = componentGeometry(component);
-        next.leftMm += 4;
-        next.topMm += 4;
-        setCanvasGeometry(
-          component,
-          constrainGeometry(next, page, component.kind === "list"),
-        );
-        if (component.kind === "list") delete component.id;
-        else {
-          delete component.nid;
-          delete component.rkey;
-        }
+    const selected = multi.movable.value.slice().sort((a, b) => a.componentIndex - b.componentIndex);
+    if (!selected.length) return;
+    const delta = canvasSelectionDelta(draft.value, selected, 4, 4), copies: CanvasSelection[] = [];
+    if (!transaction(document => {
+      for (const item of selected) {
+        const page = document.template.pages[item.pageIndex]!;
+        const component = copyCanvasComponent(selectedComponent(document, item)!);
+        const box = componentGeometry(component);
+        setCanvasGeometry(component, { ...box, leftMm: box.leftMm + delta.x, topMm: box.topMm + delta.y });
         page.components.push(component);
-        index = page.components.length - 1;
-      })
-    )
-      select({ pageIndex: selected.pageIndex, componentIndex: index });
+        copies.push({ pageIndex: item.pageIndex, componentIndex: page.components.length - 1 });
+      }
+    })) return;
+    multi.selections.value = copies; selection.value = copies.at(-1);
   }
   function reorder(delta: -1 | 1): void {
     if (geometryDisabled.value) return;
@@ -177,6 +174,7 @@ export function useTemplateCanvas(
     select,
     mutate,
     geometry,
+    move,
     insert,
     insertPlaced,
     insertedOnNewPage,

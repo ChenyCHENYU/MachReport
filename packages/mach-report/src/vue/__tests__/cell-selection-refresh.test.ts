@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { shallowRef } from "vue";
 import { renderPage, type PlanComponent, type RenderPlan, type ReportCellAddress, type ReportCellEdit } from "../../index";
 import { useCellSelection } from "../composables/useCellSelection";
+import { setDomCellAddress } from "../../render/dom-cell-address";
 
 function component(role: "header" | "body", rowIndex: number, columnKeys: string[], values: string[]): PlanComponent {
   return { kind: "rect", leftMm: 0, topMm: role === "header" ? 0 : 15 + rowIndex * 10, widthMm: 80, heightMm: role === "header" ? 12 : 10,
@@ -34,6 +35,15 @@ const address = (pageIndex: number, componentIndex: number, columnIndex = 0): Re
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); });
 
 describe("selection refresh initializes semantics once and paints only changed state", () => {
+  it("reinitializes a recycled cell after its real row/column address changes", async () => {
+    const { root, selection } = fixture(); selection.refresh();
+    const original = cell(root, address(0, 1, 0));
+    await selection.focusCell(address(0, 1, 0)); expect(original.classList.contains("mrp-cell-focus")).toBe(true);
+    setDomCellAddress(original, 0, 1); original.textContent = "0";
+    selection.refresh();
+    expect(original.classList.contains("mrp-cell-focus")).toBe(false);
+    expect(original.getAttribute("aria-selected")).toBe("false"); expect(original.getAttribute("tabindex")).toBe("-1");
+  });
   it("preserves grid/header accessibility without selection and performs zero repeated attribute mutations", () => {
     const { root, selection } = fixture(); const observer = new MutationObserver(() => {}); observer.observe(root, { attributes: true, subtree: true });
     selection.refresh();

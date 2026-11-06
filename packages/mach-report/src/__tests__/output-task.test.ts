@@ -15,14 +15,14 @@ describe("output stages and cancellation", () => {
   });
   it.each(["pdf", "xlsx"] as const)("%s stops between completed units and never publishes a partial file", async (format) => {
     const controller = new AbortController(); const seen: number[] = [];
-    const options = { signal: controller.signal, onProgress: (completed: number, total: number) => { seen.push(completed); expect(total).toBe(3); controller.abort(); } };
+    const options = { signal: controller.signal, onProgress: (completed: number, total: number) => { seen.push(completed); expect(total).toBe(format === "xlsx" ? 4 : 3); controller.abort(); } };
     await expect(format === "pdf" ? renderPlanToPdf(plan, options) : renderPlanToXlsx(plan, options)).rejects.toMatchObject({ name: "AbortError" });
     expect(seen).toEqual([1]);
   });
   it("isolates progress observers and still produces a real complete workbook", async () => {
     const onProgress = vi.fn(() => { throw new Error("observer unavailable"); });
     const result = await renderPlanToXlsx(plan, { onProgress });
-    expect(onProgress).toHaveBeenCalledTimes(3); expect(result.workbook.worksheets).toHaveLength(3); expect(result.buffer.byteLength).toBeGreaterThan(1000);
+    expect(onProgress).toHaveBeenCalledTimes(4); expect(result.workbook.worksheets).toHaveLength(3); expect(result.buffer.byteLength).toBeGreaterThan(1000);
   });
   it("settles cancellation even if an adapter never settles, and consumes late rejection", async () => {
     const controller = new AbortController(); let reject!: (cause: unknown) => void;

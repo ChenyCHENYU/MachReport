@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { effectScope, shallowRef } from "vue";
-import { renderPage, type RenderPlan } from "@agile-team/mach-report";
+import { createPageViewportRenderer, renderPage, type RenderPlan } from "@agile-team/mach-report";
 import { useFrozenPanes } from "../composables/useFrozenPanes";
 
 const box = (left: number, top: number) => ({ left, top, right: left + 500, bottom: top + 500, x: left, y: top, width: 500, height: 500, toJSON: () => ({}) });
@@ -52,4 +52,20 @@ it("clears stale decoration when the plan disappears and cancels queued work on 
   const f = fixture(); const cancel = vi.spyOn(globalThis, "cancelAnimationFrame"); f.frozen.refresh();
   f.planRef.value = null; f.frozen.refresh(); expect(f.root.querySelectorAll(".mrp-cell-frozen")).toHaveLength(0);
   f.frozen.schedule(); f.frozen.schedule(); f.scope.stop(); expect(cancel).toHaveBeenCalledTimes(1);
+});
+it("decorates newly windowed frozen cells synchronously without another per-page layout read", () => {
+  const f = fixture();
+  const input: RenderPlan = { schemaVersion: "windowed-freeze", pages: [{ layout: "wide", pageWidthMm: 600, pageHeightMm: 600, components: [{
+    kind: "rect", leftMm: 0, topMm: 0, widthMm: 600, heightMm: 600,
+    grid: { colWidthsMm: Array(60).fill(10), rowHeightsMm: Array(60).fill(10), cells: Array.from({ length: 60 }, (_, row) => Array.from({ length: 60 }, (_, column) => ({ text: `${row}:${column}` }))) }
+  }] }] };
+  const view = createPageViewportRenderer(input.pages[0]!, 96, {}, document);
+  view.update({ leftMm: 0, topMm: 0, widthMm: 60, heightMm: 60 }, undefined, f.options);
+  f.planRef.value = input; f.holder.replaceChildren(view.element); f.frozen.refresh();
+  view.update({ leftMm: 500, topMm: 500, widthMm: 60, heightMm: 60 }, undefined, f.options);
+  f.pageBox.mockClear(); f.frozen.mounted(f.holder);
+  const cell = f.root.querySelector<HTMLElement>('td[data-mr-row-index="50"][data-mr-column-index="0"]');
+  expect(cell?.style.position).toBe("sticky"); expect(cell?.classList.contains("mrp-cell-frozen")).toBe(true);
+  expect(f.pageBox).not.toHaveBeenCalled(); expect(f.root.querySelectorAll("td").length).toBeLessThan(250);
+  f.scope.stop(); expect(f.root.querySelectorAll(".mrp-cell-frozen")).toHaveLength(0);
 });

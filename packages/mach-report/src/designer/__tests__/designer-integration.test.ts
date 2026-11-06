@@ -221,7 +221,7 @@ describe("完整设计器工作流", () => {
     });
     await tab(wrapper, "工具");
     const mounted = wrapper.getComponent({ name: "ExcelBindingWizard" });
-    expect(wrapper.find(".mr-designer-preview").exists()).toBe(false);
+    expect(wrapper.find(".mr-designer-preview").attributes("style")).toContain("display: none");
     const preview = wrapper
       .findAll("button")
       .find((button) => button.text() === "预览")!;

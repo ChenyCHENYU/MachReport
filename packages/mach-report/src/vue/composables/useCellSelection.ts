@@ -1,26 +1,13 @@
 import { nextTick, shallowRef, watch, type Ref } from "vue";
-import { createReportCellResolver, formatReportClipboard, getReportCellContext, parseReportClipboard, ReportCellEditError, type PlanComponent, type RenderPlan, type ReportCellAddress, type ReportCellContext, type ReportCellEdit, type ReportCellInput } from "@agile-team/mach-report";
-import { resolveGridLayout } from "../../render/grid-geometry";
+import { createReportCellResolver, formatReportClipboard, parseReportClipboard, ReportCellEditError, type PlanComponent, type RenderPlan, type ReportCellAddress, type ReportCellEdit, type ReportCellInput } from "@agile-team/mach-report";
 import { reportCellAddress } from "./useCellEditing";
 import { selectionAddressResolver, selectionCoordinate } from "./selection-grid";
 import { focusAdjacentControl } from "./focus-order";
-import { createEditAddressResolver } from "./edit-recalculation";
+import { createSelectionIndex } from "./selection-index";
+import { getDomCellAddress, type DomCellAddress } from "../../render/dom-cell-address";
 
 export interface ReportCellSelection { anchor: ReportCellAddress; focus: ReportCellAddress }
 export interface ReportFieldTarget { field: string; datasetId?: string; rowKey?: string | number; tableId?: string; reportScope?: string }
-function matchesField(context: ReportCellContext | null | undefined, target: ReportFieldTarget): boolean {
-  const source = context?.source;
-  if (!containsField(context, target.field)) return false;
-  if (target.tableId !== undefined && context?.table?.id !== target.tableId) return false;
-  if (target.datasetId !== undefined && (source?.datasetId ?? context?.component.table?.source?.datasetId) !== target.datasetId) return false;
-  return target.rowKey === undefined || source?.rowKey === target.rowKey;
-}
-function containsField(context: ReportCellContext | null | undefined, field: string): boolean {
-  if ((context?.source?.field ?? context?.table?.columnKey) === field) return true;
-  if (!context || context.table?.role !== "header") return false;
-  const start = context.address.columnIndex;
-  return context.component.table?.columnKeys.slice(start, start + (context.cell.colSpan ?? 1)).includes(field) ?? false;
-}
 interface SelectionHost {
   plan: Ref<RenderPlan | null>;
   root: Ref<HTMLElement | null>;
@@ -38,15 +25,13 @@ interface SelectionHost {
   error(cause: unknown): void;
 }
 
-function sameGrid(a: ReportCellAddress, b: ReportCellAddress): boolean { return a.pageIndex === b.pageIndex && a.componentIndex === b.componentIndex; }
-function sameAddress(a: ReportCellAddress, b: ReportCellAddress): boolean { return sameGrid(a, b) && a.rowIndex === b.rowIndex && a.columnIndex === b.columnIndex; }
 function selector(address: ReportCellAddress): string {
   return `[data-page="${address.pageIndex + 1}"] [data-mr-component-index="${address.componentIndex}"] td[data-mr-row-index="${address.rowIndex}"][data-mr-column-index="${address.columnIndex}"]`;
 }
 interface SelectionBounds { grid: string; minRow: number; maxRow: number; minColumn: number; maxColumn: number; focusKey: string; origin?: PlanComponent["table"] }
 interface TableAddress { pageIndex: number; componentIndex: number }
 interface TableCoordinates { grid: string; rowOffset: number; columns?: readonly number[]; missingColumn: number }
-interface CellPaint { row: number; column: number; key: string; role?: string; selected?: boolean; focused?: boolean; modified?: boolean }
+interface CellPaint { row: number; column: number; key: string; token?: DomCellAddress; role?: string; selected?: boolean; focused?: boolean; modified?: boolean }
 function addressKey(address: ReportCellAddress): string {
   return `${address.pageIndex}:${address.componentIndex}:${address.rowIndex}:${address.columnIndex}`;
 }
@@ -96,17 +81,22 @@ export function useCellSelection(host: SelectionHost) {
   let previousDifferences: readonly ReportCellEdit[] | null = null;
   let previousPlan: RenderPlan | null = null;
   let modifiedKeys = new Set<string>();
+  let indexedPlan: RenderPlan | null = null, publication: ReturnType<typeof createSelectionIndex> | undefined;
+  function index(plan: RenderPlan): ReturnType<typeof createSelectionIndex> {
+    if (plan !== indexedPlan || !publication) { indexedPlan = plan; publication = createSelectionIndex(plan); }
+    return publication;
+  }
   function selectionEdit(plan: RenderPlan, address: ReportCellAddress): ReportCellEdit | null {
-    const context = getReportCellContext(plan, address);
+    const context = index(plan).cellAt(address);
     if (!context || plan.requiresRecalculation && !context.source) return null;
     return { address: context.address, source: context.source, table: context.table, value: context.value, previousValue: context.value, text: context.cell.text ?? "", previousText: context.cell.text ?? "" };
   }
   watch(host.plan, (next, previous) => {
     const current = selection.value;
-    if (!current) return;
-    if (!next || !previous) { selection.value = null; return; }
+    if (!current) { indexedPlan = null; publication = undefined; return; }
+    if (!next || !previous) { selection.value = null; indexedPlan = null; publication = undefined; return; }
     const anchorEdit = selectionEdit(previous, current.anchor), focusEdit = selectionEdit(previous, current.focus);
-    const resolve = createEditAddressResolver(next);
+    const resolve = index(next).editAddress;
     const anchor = anchorEdit && resolve(anchorEdit), focus = focusEdit && resolve(focusEdit);
     selection.value = anchor && focus ? { anchor, focus } : null;
   }, { flush: "sync" });
@@ -117,8 +107,8 @@ export function useCellSelection(host: SelectionHost) {
     const differences = host.differences();
     if (differences !== previousDifferences || plan !== previousPlan) {
       previousDifferences = differences; previousPlan = plan;
-      const locate = plan && differences.length ? createEditAddressResolver(plan) : null;
-      modifiedKeys = new Set(differences.flatMap((edit) => locate ? locate.all(edit).map(addressKey) : []));
+      const locate = plan && differences.length ? index(plan).editAddresses : null;
+      modifiedKeys = new Set(differences.flatMap((edit) => locate ? locate(edit).map(addressKey) : []));
     }
     const bounds = current && plan ? selectionBounds(plan, current) : null;
     if (scope instanceof HTMLTableElement) refreshTable(scope, plan, bounds);
@@ -135,10 +125,11 @@ export function useCellSelection(host: SelectionHost) {
   }
   function cellPaint(cell: HTMLTableCellElement, base: TableAddress): CellPaint | null {
     const existing = cellPaints.get(cell);
-    if (existing) return existing;
-    const rowIndex = Number(cell.dataset.mrRowIndex), columnIndex = Number(cell.dataset.mrColumnIndex);
+    const token = getDomCellAddress(cell);
+    if (existing && existing.token === token) return existing;
+    const rowIndex = token?.rowIndex ?? Number(cell.dataset.mrRowIndex), columnIndex = token?.columnIndex ?? Number(cell.dataset.mrColumnIndex);
     if (![rowIndex, columnIndex].every((value) => Number.isInteger(value) && value >= 0)) return null;
-    const state = { row: rowIndex, column: columnIndex, key: addressKey({ ...base, rowIndex, columnIndex }) };
+    const state = { row: rowIndex, column: columnIndex, token, key: addressKey({ ...base, rowIndex, columnIndex }) };
     cellPaints.set(cell, state); return state;
   }
   function refreshTable(table: HTMLTableElement, plan: RenderPlan | null, bounds: SelectionBounds | null): void {
@@ -155,7 +146,7 @@ export function useCellSelection(host: SelectionHost) {
     }
   }
   async function focusCell(address: ReportCellAddress, extend = false): Promise<boolean> {
-    if (!host.plan.value || !getReportCellContext(host.plan.value, address)) return false;
+    if (!host.plan.value || !index(host.plan.value).cellAt(address)) return false;
     const old = selection.value;
     const canExtend = extend && old && selectionCoordinate(host.plan.value, old.anchor).grid === selectionCoordinate(host.plan.value, address, old.anchor).grid;
     selection.value = { anchor: canExtend ? old.anchor : { ...address }, focus: { ...address } };
@@ -172,7 +163,7 @@ export function useCellSelection(host: SelectionHost) {
     if (!(target instanceof Element) || target.closest("textarea,input,button,select")) return;
     const cell = target.closest<HTMLElement>("td[data-mr-row-index]");
     const address = cell && reportCellAddress(cell);
-    if (!address || host.busy() || !host.plan.value || !getReportCellContext(host.plan.value, address)) return;
+    if (!address || host.busy() || !host.plan.value || !index(host.plan.value).cellAt(address)) return;
     const old = selection.value;
     const canExtend = event.shiftKey && old && selectionCoordinate(host.plan.value, old.anchor).grid === selectionCoordinate(host.plan.value, address, old.anchor).grid;
     selection.value = { anchor: canExtend ? old.anchor : { ...address }, focus: { ...address } };
@@ -182,18 +173,10 @@ export function useCellSelection(host: SelectionHost) {
     cell.focus({ preventScroll: true });
   }
   function addresses(address: ReportCellAddress): ReportCellAddress[] {
-    const component = host.plan.value?.pages[address.pageIndex]?.components[address.componentIndex];
-    if (!component?.grid) return [];
-    return resolveGridLayout(component.grid, component.widthMm, component.heightMm).cells.map((box) => ({ ...address, rowIndex: box.ri, columnIndex: box.ci }));
+    return host.plan.value ? index(host.plan.value).addresses(address) : [];
   }
   function adjacent(address: ReportCellAddress, key: string, backwards: boolean): ReportCellAddress | undefined {
-    const cells = addresses(address);
-    const step = backwards ? -1 : 1;
-    if (key === "Tab") return cells[cells.findIndex((cell) => sameAddress(cell, address)) + step];
-    const vertical = key === "ArrowUp" || key === "ArrowDown" || key === "Enter";
-    const direction = key === "ArrowUp" || key === "ArrowLeft" ? -1 : step;
-    return cells.filter((cell) => vertical ? cell.columnIndex === address.columnIndex && (cell.rowIndex - address.rowIndex) * direction > 0 : cell.rowIndex === address.rowIndex && (cell.columnIndex - address.columnIndex) * direction > 0)
-      .sort((a, b) => vertical ? (a.rowIndex - b.rowIndex) * direction : (a.columnIndex - b.columnIndex) * direction)[0];
+    return host.plan.value ? index(host.plan.value).adjacent(address, key, backwards) : undefined;
   }
   function nextFragment(address: ReportCellAddress, key: string, backwards: boolean): ReportCellAddress | undefined {
     if (key === "ArrowLeft" || key === "ArrowRight") return undefined;
@@ -256,7 +239,7 @@ export function useCellSelection(host: SelectionHost) {
   }
   function beginEditing(event: KeyboardEvent, address: ReportCellAddress): boolean {
     if (!canEdit() || !host.plan.value) return false;
-    if (event.key !== "F2" && !(event.key === "Enter" && getReportCellContext(host.plan.value, address)?.editable)) return false;
+    if (event.key !== "F2" && !(event.key === "Enter" && index(host.plan.value).cellAt(address)?.editable)) return false;
     const cell = host.root.value?.querySelector<HTMLElement>(selector(address));
     if (cell) { event.preventDefault(); void host.edit(cell); }
     return true;
@@ -322,19 +305,8 @@ export function useCellSelection(host: SelectionHost) {
   async function focusField(target: ReportFieldTarget): Promise<boolean> {
     const plan = host.plan.value;
     if (!plan) return false;
-    const cellAt = createReportCellResolver(plan);
-    for (let pageIndex = 0; pageIndex < plan.pages.length; pageIndex++) {
-      const page = plan.pages[pageIndex]!;
-      if (target.reportScope !== undefined && page.meta?.reportScope !== target.reportScope) continue;
-      for (let componentIndex = 0; componentIndex < page.components.length; componentIndex++) {
-        for (const address of addresses({ pageIndex, componentIndex, rowIndex: 0, columnIndex: 0 })) {
-          const context = cellAt(address);
-          if (!matchesField(context, target)) continue;
-          return focusCell(address);
-        }
-      }
-    }
-    return false;
+    const address = index(plan).findField(target);
+    return address ? focusCell(address) : false;
   }
   function reset(): void { selection.value = null; refresh(); }
   return { selection, refresh, reset, focusCell, focusField, navigate, onClick, onKeydown, onCopy, onPaste, copySelection, pasteSelection };

@@ -1,6 +1,6 @@
 import { assertXlsxDataBarBudget, createXlsxDataBarWriter } from "./data-bar-xlsx";
 import { cellRichText, excelRichText } from "./rich-text";
-import { assertOutputActive, outputCheckpoint, createOutputScheduler } from "../output/progress";
+import { assertOutputActive, outputCheckpoint, createOutputScheduler, notifyOutputProgress } from "../output/progress";
 import ExcelJSRuntime from "exceljs";
 import type * as ExcelJS from "exceljs";
 import type { RenderPlan } from "../schema/render-plan";
@@ -480,6 +480,7 @@ export async function renderPlanToWorkbook(plan: RenderPlan, options: XlsxRender
   const dataBars = createXlsxDataBarWriter(images, options.maxDataBars ?? 10_000, notes);
   const limits = dimensionLimits(warnings);
   const units = sheetUnits(plan, options.sheetMode, warnings);
+  const totalSheets = units.length + (additional?.length ?? 0);
   const usedNames = new Set<string>();
   const schedule = createOutputScheduler(options);
   for (const [sheetIndex, unit] of units.entries()) {
@@ -492,13 +493,13 @@ export async function renderPlanToWorkbook(plan: RenderPlan, options: XlsxRender
     const valueMode = options.valueMode ?? (isWidePage(page) || unit.continuous || unit.flow ? "raw" : "text");
     assertOutputActive(options.signal);
     await writeSheet({ sheet, warnings, limits, valueMode, schedule, images, dataBars }, contents, unit.continuous, images);
-    await outputCheckpoint(options, sheetIndex + 1, units.length);
+    await outputCheckpoint(options, sheetIndex + 1, totalSheets);
   }
-  await appendSheets(workbook, additional, options);
+  await appendSheets(workbook, additional, options, units.length, totalSheets);
   return { workbook, warnings, diagnostics, ...(notes.length ? { notes } : {}) };
 }
 
-async function appendSheets(workbook: ExcelJS.Workbook, sheets: readonly XlsxAdditionalSheet[] = [], options: XlsxRenderOptions): Promise<void> {
+async function appendSheets(workbook: ExcelJS.Workbook, sheets: readonly XlsxAdditionalSheet[] = [], options: XlsxRenderOptions, completed: number, total: number): Promise<void> {
   const schedule = createOutputScheduler(options);
   for (const source of sheets) {
     assertOutputActive(options.signal);
@@ -508,17 +509,25 @@ async function appendSheets(workbook: ExcelJS.Workbook, sheets: readonly XlsxAdd
     for (const row of source.rows) {
       const target = sheet.addRow([...row]);
       target.alignment = { vertical: "top", wrapText: true };
-      await schedule(row.length);
+      const pending = schedule(row.length);
+      if (pending) await pending;
     }
+    await outputCheckpoint(options, ++completed, total);
   }
   assertOutputActive(options.signal);
 }
 
 /** 默认出口保持原契约，全部工作表完成后只执行一次 ZIP 编码。 */
 export async function renderPlanToXlsx(plan: RenderPlan, options: XlsxRenderOptions = {}): Promise<XlsxRenderResult> {
-  const result = await renderPlanToWorkbook(plan, options);
+  let total = 1;
+  const onProgress = options.onProgress ? (completed: number, sheets: number) => {
+    total = sheets + 1;
+    notifyOutputProgress(options, completed, total);
+  } : undefined;
+  const result = await renderPlanToWorkbook(plan, { ...options, onProgress });
   assertOutputActive(options.signal);
   const buffer = await result.workbook.xlsx.writeBuffer();
   assertOutputActive(options.signal);
+  notifyOutputProgress(options, total, total);
   return { ...result, buffer };
 }

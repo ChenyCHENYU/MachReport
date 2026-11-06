@@ -1,7 +1,7 @@
-import { computed, shallowRef, type Ref } from "vue";
+import { computed, shallowRef, triggerRef, watch, type Ref } from "vue";
 import {
   applyReportCellEditBatch, applyReportEditResult, createReportCellEditBatch,
-  createReportCellResolver, ReportCellEditError, summarizeReportCellEdits,
+  createReportCellResolver, ReportCellEditError,
   parseReportCellFieldInput, reportCellEditKey, assertReportValidation,
   type ReportValidationIssue,
   type RenderPlan, type ReportCellAddress, type ReportCellContext, type ReportCellEdit, type ReportCellInput, type ReportEditBatch, type ReportPreparedEdit,
@@ -11,6 +11,7 @@ import type { ReportEditOperation, ReportEditingOptions } from "../editing";
 import { cloneReportSnapshot } from "../snapshot";
 import { resolveCellField } from "../cell-field";
 import { assertRecalculationReady, createEditAddressResolver, prepareCurrentTransaction, prepareHistoryTransaction, type EditTransaction, type HistoryEditTarget } from "./edit-recalculation";
+import { createBoundedEditHistory, editHistoryLimits, mergeEditDifferences } from "./edit-history-state";
 
 export interface EditHistoryHost {
   plan: Ref<RenderPlan | null>;
@@ -36,8 +37,12 @@ function buildTransaction(plan: RenderPlan, target: readonly ReportCellInput[] |
 /** Shared transaction path for single edits, paste, undo, redo and restore. */
 export function useEditHistory(host: EditHistoryHost) {
   const changes = shallowRef<ReportCellEdit[]>([]);
-  const undoStack = shallowRef<ReportCellEdit[][]>([]);
-  const redoStack = shallowRef<ReportCellEdit[][]>([]);
+  const historyState = shallowRef(createBoundedEditHistory());
+  const retained = historyState.value;
+  let historyLimits = editHistoryLimits();
+  const net = new Map<string, ReportCellEdit>();
+  const local = new Map<string, ReportCellEdit>();
+  const netDifferences = shallowRef<ReportCellEdit[]>([]);
   const conflicts = shallowRef<readonly ReportEditConflict[]>([]);
   const saving = shallowRef(false);
   const validationIssues = shallowRef<readonly ReportValidationIssue[]>([]);
@@ -45,20 +50,21 @@ export function useEditHistory(host: EditHistoryHost) {
   const localDifferences = shallowRef<ReportCellEdit[]>([]);
   const hasLocalDrafts = computed(() => localDifferences.value.length > 0);
   const differences = computed(() => {
-    const items = summarizeReportCellEdits(changes.value), plan = host.plan.value;
+    const items = netDifferences.value, plan = host.plan.value;
     if (!plan || !items.length) return items;
     const resolve = createEditAddressResolver(plan);
     return items.map((edit) => { const address = resolve(edit); return address ? { ...edit, address } : edit; });
   });
-  const canUndo = computed(() => !!host.options.value && !saving.value && !host.blocked() && undoStack.value.length > 0);
-  const canRedo = computed(() => !!host.options.value && !saving.value && !host.blocked() && redoStack.value.length > 0);
+  const historyLimited = computed(() => historyState.value.limited);
+  const canUndo = computed(() => !!host.options.value && !saving.value && !host.blocked() && !!historyState.value.undo);
+  const canRedo = computed(() => !!host.options.value && !saving.value && !host.blocked() && !!historyState.value.redo);
   let controller: AbortController | null = null;
   let pending: Promise<boolean> | null = null;
   let generation = 0;
   let retry: { plan: RenderPlan; signature: string; requestId: string } | null = null;
 
   function cancel(): void { controller?.abort(); controller = null; saving.value = false; pending = null; }
-  function reset(): void { generation++; cancel(); retry = null; changes.value = []; undoStack.value = []; redoStack.value = []; conflicts.value = []; validationIssues.value = []; localDifferences.value = []; lastError.value = null; }
+  function reset(): void { generation++; cancel(); retry = null; changes.value = []; retained.clear(); triggerRef(historyState); net.clear(); local.clear(); netDifferences.value = []; conflicts.value = []; validationIssues.value = []; localDifferences.value = []; lastError.value = null; }
   function options(): ReportEditingOptions | null {
     const option = host.options.value;
     return option ? typeof option === "object" ? option : {} : null;
@@ -87,14 +93,16 @@ export function useEditHistory(host: EditHistoryHost) {
       if (operation.signal.aborted) return;
     }
   }
-  function publish(plan: RenderPlan, batch: ReportEditBatch, result: void | ReportEditResult, action: NonNullable<ReportEditOperation["action"]>, persisted: boolean, prepared?: ReportPreparedEdit): void {
+  function publish(plan: RenderPlan, batch: ReportEditBatch, result: void | ReportEditResult, action: NonNullable<ReportEditOperation["action"]>, persisted: boolean, limits: ReturnType<typeof editHistoryLimits>, prepared?: ReportPreparedEdit): void {
     host.plan.value = prepared ? prepared.commit(result) : applyReportEditResult(applyReportCellEditBatch(plan, batch), batch, result);
-    changes.value = [...changes.value, ...batch.edits];
+    changes.value.push(...batch.edits); triggerRef(changes);
+    mergeEditDifferences(net, batch.edits);
+    netDifferences.value = [...net.values()];
     if (persisted) {
-      const committed = new Set(batch.edits.map(reportCellEditKey));
-      localDifferences.value = localDifferences.value.filter((edit) => !committed.has(reportCellEditKey(edit)));
-    } else localDifferences.value = summarizeReportCellEdits([...localDifferences.value, ...batch.edits]);
-    if (action === "edit") { undoStack.value = [...undoStack.value, batch.edits]; redoStack.value = []; }
+      for (const edit of batch.edits) local.delete(reportCellEditKey(edit));
+    } else mergeEditDifferences(local, batch.edits);
+    localDifferences.value = [...local.values()];
+    if (action === "edit") { retained.append(batch.edits, limits); triggerRef(historyState); }
     conflicts.value = [];
     retry = null;
     const currentGeneration = generation;
@@ -112,6 +120,15 @@ export function useEditHistory(host: EditHistoryHost) {
     lastError.value = host.errorMessage?.(cause) ?? (cause instanceof Error ? cause.message : "Cell edit failed");
     host.onError(lastError.value, cause);
   }
+  watch(() => {
+    const option = options();
+    return [option?.history?.maxSteps, option?.history?.maxBytes] as const;
+  }, ([maxSteps, maxBytes]) => {
+    try {
+      historyLimits = editHistoryLimits({ maxSteps, maxBytes });
+      retained.resize(historyLimits); triggerRef(historyState);
+    } catch (cause) { reportFailure(cause); }
+  }, { flush: "sync" });
   async function validateCandidate(transaction: EditTransaction, plan: RenderPlan, option: ReportEditingOptions, operation: ReportEditOperation): Promise<void> {
     if (option.validation) {
       if (!transaction.prepared) throw new Error("整批规则校验需要来源数据会话；请使用 createReportSource 或 createReportEditSession");
@@ -136,6 +153,7 @@ export function useEditHistory(host: EditHistoryHost) {
     validationIssues.value = [];
     const isCurrent = () => controller === current && !current.signal.aborted && host.plan.value === plan && host.options.value !== false;
     try {
+      historyLimits = editHistoryLimits(option.history);
       const building = buildTransaction(plan, inputs, newRequestId(), current.signal);
       const transaction = building instanceof Promise ? await building : building;
       if (!isCurrent()) return false;
@@ -159,7 +177,7 @@ export function useEditHistory(host: EditHistoryHost) {
       if (!isCurrent()) return false;
       if (result?.conflicts?.length) { conflicts.value = cloneReportSnapshot(result.conflicts); throw new ReportEditConflictError(result.conflicts); }
       allowed(plan, batch, option, contexts);
-      publish(plan, batch, result, action, !!(option.save || option.saveBatch), transaction.prepared);
+      publish(plan, batch, result, action, !!(option.save || option.saveBatch), historyLimits, transaction.prepared);
       return currentGeneration === generation;
     } catch (cause) {
       if (!isCurrent()) return false;
@@ -177,20 +195,20 @@ export function useEditHistory(host: EditHistoryHost) {
   }
   async function undo(): Promise<boolean> {
     const currentGeneration = generation;
-    const last = undoStack.value[undoStack.value.length - 1];
+    const last = retained.undo;
     if (!last || saving.value) return false;
     if (!await apply({ edits: last, value: "previousValue" }, "undo")) return false;
     if (currentGeneration !== generation) return false;
-    undoStack.value = undoStack.value.slice(0, -1); redoStack.value = [...redoStack.value, last];
+    retained.completeUndo(); triggerRef(historyState);
     return true;
   }
   async function redo(): Promise<boolean> {
     const currentGeneration = generation;
-    const last = redoStack.value[redoStack.value.length - 1];
+    const last = retained.redo;
     if (!last || saving.value) return false;
     if (!await apply({ edits: last, value: "value" }, "redo")) return false;
     if (currentGeneration !== generation) return false;
-    redoStack.value = redoStack.value.slice(0, -1); undoStack.value = [...undoStack.value, last];
+    retained.completeRedo(); triggerRef(historyState);
     return true;
   }
   async function restore(): Promise<boolean> {
@@ -198,7 +216,7 @@ export function useEditHistory(host: EditHistoryHost) {
     if (!differences.value.length || saving.value) return false;
     if (!await apply({ edits: differences.value, value: "previousValue" }, "restore")) return false;
     if (currentGeneration !== generation) return false;
-    undoStack.value = []; redoStack.value = [];
+    retained.clear(); triggerRef(historyState);
     return true;
   }
   function settle(): boolean | Promise<boolean> {
@@ -209,5 +227,5 @@ export function useEditHistory(host: EditHistoryHost) {
   function resolveAddress(edit: ReportCellEdit): ReportCellAddress | null {
     return host.plan.value ? createEditAddressResolver(host.plan.value)(edit) : null;
   }
-  return { settle, resolveAddress, validationIssues, changes, differences, localDifferences, hasLocalDrafts, lastError, conflicts, saving, canUndo, canRedo, apply, undo, redo, restore, cancel, reset };
+  return { settle, resolveAddress, validationIssues, changes, differences, localDifferences, hasLocalDrafts, lastError, conflicts, saving, canUndo, canRedo, historyLimited, apply, undo, redo, restore, cancel, reset };
 }

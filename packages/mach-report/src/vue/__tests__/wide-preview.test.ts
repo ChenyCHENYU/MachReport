@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mount, type VueWrapper } from "@vue/test-utils";
+import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { effectScope } from "vue";
 import type { RenderPlan } from "@agile-team/mach-report";
 import ReportPreview from "../ReportPreview.vue";
@@ -9,6 +9,7 @@ const wrappers: VueWrapper[] = [];
 afterEach(() => {
   for (const wrapper of wrappers.splice(0)) wrapper.unmount();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   localStorage.removeItem("mach-report:ui");
   localStorage.removeItem("mach-report:ui:wide");
 });
@@ -37,6 +38,38 @@ async function mountWide() {
 }
 
 describe("宽表预览", () => {
+  it("合并尺寸观察回调，在下一帧更新布局并在卸载时取消", async () => {
+    let notify!: () => void;
+    const disconnect = vi.fn();
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: () => void) { notify = callback; }
+      observe() {}
+      disconnect = disconnect;
+    });
+    let frame = 0;
+    const request = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(() => ++frame);
+    const cancel = vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(() => {});
+    const wrapper = await mountWide();
+    const readHeight = vi.fn(() => 400);
+    Object.defineProperty(wrapper.find(".mrp-body").element, "clientHeight", { get: readHeight });
+    const before = request.mock.calls.length;
+    notify(); notify();
+    expect(request.mock.calls.length).toBe(before + 1);
+    expect(readHeight).not.toHaveBeenCalled();
+    request.mock.calls[before]![0](0);
+    await flushPromises();
+    expect(readHeight).toHaveBeenCalled();
+    const next = request.mock.calls.length;
+    notify(); notify();
+    expect(request.mock.calls.length).toBe(next + 1);
+    const pendingId = request.mock.results[next]!.value;
+    wrapper.unmount(); wrappers.pop();
+    expect(cancel).toHaveBeenCalledWith(pendingId);
+    expect(disconnect).toHaveBeenCalledOnce();
+    const count = request.mock.calls.length;
+    notify();
+    expect(request.mock.calls.length).toBe(count);
+  });
   it("默认实际字号，纸张与宽表分别恢复缩放偏好", async () => {
     localStorage.setItem("mach-report:ui", JSON.stringify({ zoomMode: 150 }));
     const wrapper = await mountWide();
@@ -81,6 +114,23 @@ describe("宽表预览", () => {
     await vi.waitFor(() => expect(wrapper.find(".mrp-search-count").text()).toBe("2/2"));
     await vi.waitFor(() => expect(scroll).toHaveBeenCalledTimes(2));
     expect(scroll.mock.contexts[1]).toBe(wrapper.findAll("mark")[1]!.element);
+  });
+
+  it.each(["wide" as const, undefined])("完整页网格在 %s 版式下仍将搜索命中滚入视口", async (layout) => {
+    const source = widePlan();
+    source.pages[0]!.layout = layout;
+    source.pages[0]!.components = [{ kind: "rect", leftMm: 2400, topMm: 10, widthMm: 90, heightMm: 10,
+      grid: { cells: [[{ text: "远右单元格" }]] } }];
+    const scroll = vi.fn();
+    vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(scroll);
+    const wrapper = mount(ReportPreview, { attachTo: document.body, props: { reportId: "full-grid", fetcher: async () => source, showExport: false, showPdfWindow: false } });
+    wrappers.push(wrapper);
+    await vi.waitFor(() => expect(wrapper.find("td").exists()).toBe(true));
+    await wrapper.find('button[aria-label="内容搜索"]').trigger("click");
+    await wrapper.find("input.mrp-search-input").setValue("远右单元格");
+    await vi.waitFor(() => expect(wrapper.find(".mrp-search-count").text()).toBe("1/1"));
+    await vi.waitFor(() => expect(scroll).toHaveBeenCalledOnce());
+    expect(scroll.mock.contexts[0]).toBe(wrapper.find("mark").element);
   });
 });
 

@@ -16,6 +16,8 @@ export interface HeaderCommand {
 export interface CanvasSelection {
   /** Ctrl/Command/Shift toggles the selection without changing the report schema. */
   additive?: boolean;
+  /** Activate a member without collapsing the current multi-selection. */
+  preserve?: boolean;
   pageIndex: number;
   componentIndex: number;
 }
@@ -287,10 +289,14 @@ export function splitCanvasHeader(
 
 /** 字段增删同步可视表头和列宽，已有合并区域保持覆盖关系。 */
 export function appendCanvasColumn(list: ListComponent, column: ListComponent["columns"][number], grow = false): void {
+  appendCanvasColumns(list, [column], grow);
+}
+export function appendCanvasColumns(list: ListComponent, columns: ListComponent["columns"], grow = false): void {
+  if (!columns.length) return;
   const matrix = headerMatrix(list);
   const oldWidth = list.widthMm;
-  list.columns.push(column);
-  for (let row = 0; row < matrix.length; row++) matrix[row]!.push({ text: row === matrix.length - 1 ? column.header : "", style: { ...list.headerStyle, align: "center" } });
+  list.columns.push(...columns);
+  for (let row = 0; row < matrix.length; row++) matrix[row]!.push(...columns.map(column => ({ text: row === matrix.length - 1 ? column.header : "", style: { ...list.headerStyle, align: "center" as const } })));
   const total = list.columns.reduce((sum, item) => sum + item.widthMm, 0);
   if (grow) list.widthMm = total;
   else for (const item of list.columns) item.widthMm *= oldWidth / total;

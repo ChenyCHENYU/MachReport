@@ -27,6 +27,7 @@ interface CellEditingHost {
   onChange(edit: ReportCellEdit): void;
   onError(message: string, cause: unknown): void;
   onNavigate?(address: ReportCellAddress, key: "Enter" | "Tab", backwards: boolean): void;
+  onInspect?(address: ReportCellAddress): void;
 }
 
 export function reportCellAddress(cell: HTMLElement): ReportCellAddress | null {
@@ -126,6 +127,7 @@ export function useCellEditing(host: CellEditingHost) {
     const plan = host.plan.value;
     const address = reportCellAddress(cell);
     if (!plan || !address || !host.options.value || host.blocked()) return;
+    host.onInspect?.(address);
     const options = typeof host.options.value === "object" ? host.options.value : {};
     try {
       const context = getReportCellContext(plan, address);

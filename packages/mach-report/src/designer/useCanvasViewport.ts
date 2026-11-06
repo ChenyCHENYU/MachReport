@@ -7,8 +7,10 @@ export function useCanvasViewport(props: CanvasViewportOptions) {
   const viewport = ref<HTMLElement>(), zoom = ref(.8), fraction = ref(0), width = ref(0);
   const scale = computed(() => zoom.value * CANVAS_MM_TO_PX);
   const page = computed(() => props.document.template.pages[props.pageIndex]!);
-  const wide = computed(() => page.value.widthMm * scale.value > width.value - 40);
+  // Physical-unit arithmetic can exceed an exact fit by floating-point noise.
+  const wide = computed(() => page.value.widthMm * scale.value > width.value - 40 + .5);
   let observer: ResizeObserver | undefined;
+  let refreshFrame = 0;
   let automatic = !!props.document.template.repeat;
   function fitTo(mode: "width" | "page" | "selection"): void {
     const node = viewport.value; if (!node) return;
@@ -39,6 +41,10 @@ export function useCanvasViewport(props: CanvasViewportOptions) {
     sync();
     if (automatic && props.document.template.repeat) fitTo("page");
   }
+  function scheduleRefresh(): void {
+    if (refreshFrame) return;
+    refreshFrame = requestAnimationFrame(() => { refreshFrame = 0; refresh(); });
+  }
   async function reveal(): Promise<void> {
     await nextTick(); const node = viewport.value, selected = props.selection;
     if (!node || selected?.pageIndex !== props.pageIndex) return;
@@ -60,7 +66,7 @@ export function useCanvasViewport(props: CanvasViewportOptions) {
   watch(() => [props.selection, props.columnIndex, props.pageIndex], () => { void reveal(); });
   watch(() => props.document.id, () => { automatic = !!props.document.template.repeat; void nextTick(refresh); });
   watch(() => [!!props.document.template.repeat, props.pageIndex, page.value.widthMm, page.value.heightMm], () => { void nextTick(refresh); });
-  onMounted(() => { refresh(); if (typeof ResizeObserver !== "undefined" && viewport.value) { observer = new ResizeObserver(refresh); observer.observe(viewport.value); } });
-  onBeforeUnmount(() => observer?.disconnect());
+  onMounted(() => { refresh(); if (typeof ResizeObserver !== "undefined" && viewport.value) { observer = new ResizeObserver(scheduleRefresh); observer.observe(viewport.value); } });
+  onBeforeUnmount(() => { observer?.disconnect(); if (refreshFrame) cancelAnimationFrame(refreshFrame); });
   return { viewport, zoom, scale, page, wide, fraction, fit, setZoom, sync, navigate };
 }

@@ -30,13 +30,17 @@ export function useTemplateWorkspace(
     active: canvasActive,
   } = canvas;
   editor.connectHistoryView({
-    read: () => ({ pageIndex: canvasPage.value, componentIndex: canvasSelection.value?.pageIndex === canvasPage.value ? canvasSelection.value.componentIndex : undefined, listIndex: selected.value, fieldIndex: activeIndex.value, section: section.value }),
+    read: () => ({ pageIndex: canvasPage.value, componentIndex: canvasSelection.value?.pageIndex === canvasPage.value ? canvasSelection.value.componentIndex : undefined, ...(canvas.selections.value.length > 1 ? { componentIndices: canvas.selections.value.map(item => item.componentIndex) } : {}), listIndex: selected.value, fieldIndex: activeIndex.value, section: section.value }),
     restore: (context) => {
       canvasPage.value = Math.max(0, Math.min(draft.value.template.pages.length - 1, context.pageIndex));
       canvas.selection.value = undefined;
       canvas.selections.value = [];
+      canvas.clearLocks();
+      for (const componentIndex of context.componentIndices ?? []) {
+        if (draft.value.template.pages[canvasPage.value]?.components[componentIndex]) canvas.select({ pageIndex: canvasPage.value, componentIndex, additive: true });
+      }
       if (context.componentIndex !== undefined && draft.value.template.pages[canvasPage.value]?.components[context.componentIndex])
-        canvas.select({ pageIndex: canvasPage.value, componentIndex: context.componentIndex });
+        canvas.select({ pageIndex: canvasPage.value, componentIndex: context.componentIndex, preserve: true });
       if (context.listIndex !== undefined && lists.value[context.listIndex]) selected.value = context.listIndex;
       if (context.fieldIndex !== undefined) inspector.activate(context.fieldIndex);
       if (context.section) section.value = context.section;

@@ -10,19 +10,25 @@ function fixture(repeated = true): ReportTemplateDocument {
 }
 function harness(document = fixture()) {
   let notify: (() => void) | undefined;
+  let scheduled: FrameRequestCallback | undefined;
+  const request = vi.fn((callback: FrameRequestCallback) => { scheduled = callback; return 1; });
+  const cancel = vi.fn(() => { scheduled = undefined; });
+  vi.stubGlobal("requestAnimationFrame", request);
+  vi.stubGlobal("cancelAnimationFrame", cancel);
   const disconnect = vi.fn();
   vi.stubGlobal("ResizeObserver", class { constructor(callback: () => void) { notify = callback; } observe() {} disconnect = disconnect; });
   const props = reactive({ document, pageIndex: 0 });
   let viewport!: ReturnType<typeof useCanvasViewport>;
   const wrapper = mount(defineComponent({ setup() { viewport = useCanvasViewport(props); return () => h("div", { ref: viewport.viewport }); } }));
+  async function flushFrame() { const callback = scheduled; scheduled = undefined; callback?.(0); await flushPromises(); }
   async function measure(width: number, height: number) {
     Object.defineProperties(wrapper.element, {
       clientWidth: { configurable: true, value: width }, clientHeight: { configurable: true, value: height },
       scrollWidth: { configurable: true, value: width }, scrollHeight: { configurable: true, value: height },
     });
-    notify?.(); await flushPromises();
+    notify?.(); await flushFrame();
   }
-  return { props, wrapper, viewport, measure, disconnect };
+  return { props, wrapper, viewport, measure, disconnect, notify: () => notify?.(), request, cancel, flushFrame };
 }
 afterEach(() => vi.unstubAllGlobals());
 describe("label canvas viewport intent", () => {
@@ -52,5 +58,26 @@ describe("label canvas viewport intent", () => {
     props.document.template.pages[0]!.layout = "wide"; props.document.template.pages[0]!.widthMm = 1200;
     await measure(600, 400); expect(viewport.zoom.value).toBe(.8);
     viewport.fit("page"); expect(viewport.zoom.value).toBeLessThan(.8); wrapper.unmount();
+  });
+  it("coalesces resize notifications outside observer delivery and cancels an outstanding frame on unmount", async () => {
+    const { wrapper, viewport, request, cancel, notify, flushFrame } = harness();
+    Object.defineProperties(wrapper.element, {
+      clientWidth: { configurable: true, value: 1000 }, clientHeight: { configurable: true, value: 600 },
+    });
+    for (let index = 0; index < 20; index++) notify();
+    expect(request).toHaveBeenCalledOnce(); expect(viewport.zoom.value).toBe(.8);
+    await flushFrame(); expect(viewport.zoom.value).toBe(2);
+    notify(); wrapper.unmount(); expect(cancel).toHaveBeenCalledExactlyOnceWith(1);
+    await flushFrame(); expect(viewport.zoom.value).toBe(2);
+  });
+  it("keeps a physically exact fit stable across repeated resize frames without a floating-point navigator", async () => {
+    const { wrapper, viewport, measure, notify, flushFrame } = harness();
+    await measure(121, 400);
+    expect(80 * viewport.scale.value).toBeGreaterThan(81);
+    expect(viewport.wide.value).toBe(false);
+    const fitted = viewport.zoom.value;
+    for (let index = 0; index < 5; index++) { notify(); await flushFrame(); }
+    expect(viewport.zoom.value).toBe(fitted); expect(viewport.wide.value).toBe(false);
+    viewport.setZoom(fitted + .02); expect(viewport.wide.value).toBe(true); wrapper.unmount();
   });
 });

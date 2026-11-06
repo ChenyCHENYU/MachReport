@@ -33,6 +33,21 @@ function scanComponent(component: PlanComponent, scan: Scan, depth: number): voi
     }
   }
 }
+function scanAdditionalSheets(input: ReportRuntimePreparedExportInput, scan: Scan): void {
+  if (input.format !== "xlsx") return;
+  for (const sheet of input.xlsx?.additionalSheets ?? []) {
+    if (!visit(scan)) return;
+    scan.bytes += textBytes(sheet?.name);
+    for (const row of sheet?.rows ?? []) {
+      if (!visit(scan)) return;
+      for (const value of row ?? []) {
+        if (!visit(scan)) return;
+        scan.cells++;
+        scan.bytes += textBytes(value);
+      }
+    }
+  }
+}
 function thresholds(options: ReportExportExecutionOptions): Required<ReportExportThresholds> {
   const limits = { ...DEFAULT_THRESHOLDS, ...options.thresholds };
   for (const value of Object.values(limits)) if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError("导出隔离阈值应为正安全整数");
@@ -47,6 +62,7 @@ export function decideReportExport(input: ReportRuntimePreparedExportInput, opti
     if (exceeded(scan)) break;
     for (const component of page.components) { if (exceeded(scan)) break; scanComponent(component, scan, 0); }
   }
+  scanAdditionalSheets(input, scan);
   let mode: ReportExportDecision["mode"] = exceeded(scan) ? "worker" : "local";
   let reason: ReportExportDecision["reason"] = scan.capped ? "scan-limit" : mode === "worker" ? "threshold" : "small-task";
   if (options.mode === "local") { mode = "local"; reason = "explicit-local"; }

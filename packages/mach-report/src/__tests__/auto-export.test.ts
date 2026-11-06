@@ -9,6 +9,7 @@ import { runReportEncodingRequest, serveReportEncodingWorker } from "../worker/e
 import { checkPreparedFont } from "../server/prepared";
 import type { PreparedReport, ReportRuntimeExportResult, ReportRuntimePreparedExportInput } from "../server/types";
 import type { BrowserReportWorker, ReportWorkerScope } from "../worker/browser";
+import * as planValidation from "../schema/validate";
 
 const prepared = (): PreparedReport => ({ plan: { schemaVersion: "mach-report/1", pages: [{ pageWidthMm: 100, pageHeightMm: 100, components: [{ kind: "text", leftMm: 0, topMm: 0, widthMm: 90, heightMm: 10, grid: { cells: [[{ text: "A" }, { text: "0", value: 0 }]] } }] }] }, stats: { rows: 1, pages: 1, cells: 0, durationMs: 0 }, diagnostics: [], revisions: {}, layout: { textMetrics: "heuristic" } });
 const input = (): ReportRuntimePreparedExportInput => ({ prepared: prepared(), format: "xlsx" });
@@ -32,6 +33,59 @@ describe("自动编码执行策略", () => {
     expect(() => createAutoReportExporter({ mode: "bad" as never })).toThrow("模式");
     expect(() => createAutoReportExporter({ fallback: "bad" as never })).toThrow("策略");
     expect(() => createAutoReportExporter({ timeoutMs: -1 })).toThrow("正有限");
+  });
+  it("附加表和主表共同触发单元格及文本隔离阈值，扫描有界", () => {
+    const request = input();
+    request.xlsx = { additionalSheets: [{ name: "audit", rows: [[1, 2]] }] };
+    expect(decideReportExport(request, { thresholds: { cells: 4 } })).toMatchObject({ mode: "worker", estimate: { cells: 4 } });
+    request.xlsx.additionalSheets = [{ name: "audit", rows: [["x".repeat(1_000_000)]] }];
+    expect(decideReportExport(request, {})).toMatchObject({ mode: "worker", reason: "threshold" });
+    request.xlsx.additionalSheets = [{ name: "audit", rows: Array.from({ length: 50_000 }, () => [0]) }];
+    expect(decideReportExport(request, {})).toMatchObject({ mode: "worker", reason: "threshold", estimate: { cells: 20_000 } });
+    request.xlsx.additionalSheets = [{ name: "audit", rows: Array.from({ length: 100_001 }, () => []) }];
+    expect(decideReportExport(request, {})).toMatchObject({ mode: "worker", reason: "scan-limit" });
+    request.format = "pdf";
+    expect(decideReportExport(request, {}).mode).toBe("local");
+  });
+  it("决策观察者和调用后的附表修改不影响已捕获的Worker输出", async () => {
+    const request = input(); const sheets = [{ name: "audit", rows: [["original", 0, false, null]] }];
+    request.xlsx = { additionalSheets: sheets };
+    const worker = fakeWorker((message, emit) => { void runReportEncodingRequest(message).then(emit); });
+    const exporter = createAutoReportExporter({ thresholds: { cells: 3 }, workerFactory: () => worker.worker, onDecision: () => { sheets[0]!.rows[0]![0] = "observer"; } });
+    const pending = exporter.exportPrepared(request);
+    sheets[0]!.rows[0]![0] = "after invocation";
+    const output = await pending;
+    const { default: ExcelJS } = await import("exceljs");
+    const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(output.bytes as unknown as import("exceljs").Buffer);
+    const sheet = workbook.getWorksheet("audit")!;
+    expect([sheet.getCell("A1").value, sheet.getCell("B1").value, sheet.getCell("C1").value, sheet.getCell("D1").value]).toEqual(["original", 0, false, null]);
+    expect(output.execution.mode).toBe("worker");
+    expect(worker.terminate).toHaveBeenCalledOnce();
+  });
+  it.each(["local", "worker"] as const)("%s 几何仅在实际执行边界校验一次且附表不能绕过总单元格预算", async mode => {
+    const worker = fakeWorker((message, emit) => { void runReportEncodingRequest(message).then(emit); });
+    const exporter = createAutoReportExporter({ mode, workerFactory: () => worker.worker, budget: { maxCells: 4 } });
+    const request = input(); request.xlsx = { additionalSheets: [{ name: "audit", rows: [[0, false]] }] };
+    const validate = vi.spyOn(planValidation, "validateRenderPlan");
+    try {
+      const output = await exporter.exportPrepared(request);
+      expect(output.stats.cells).toBe(2);
+      expect(validate).toHaveBeenCalledOnce();
+    } finally { validate.mockRestore(); exporter.dispose(); }
+    const limited = createAutoReportExporter({ mode, workerFactory: () => worker.worker, budget: { maxCells: 3 } });
+    try { await expect(limited.exportPrepared(request)).rejects.toMatchObject({ code: "budget", path: "$.budget.maxCells" }); }
+    finally { limited.dispose(); }
+  });
+  it("本地覆盖编码器也必须遵守主表与附表合计预算", async () => {
+    const request = input(); request.xlsx = { additionalSheets: [{ name: "audit", rows: [[0, false]] }] };
+    const encode = vi.fn(async () => result());
+    await expect(createAutoReportExporter({ mode: "local", budget: { maxCells: 3 } }).exportPrepared(request, encode)).rejects.toMatchObject({ code: "budget", path: "$.budget.maxCells" });
+    expect(encode).not.toHaveBeenCalled();
+  });
+  it("隔离结果不能通过返回超预算统计绕过执行器边界", async () => {
+    const worker = fakeWorker((message, emit) => emit({ protocol: REPORT_WORKER_PROTOCOL, id: message.id, result: { ...result(), stats: { ...result().stats, rows: 2 } } }));
+    await expect(createAutoReportExporter({ mode: "worker", workerFactory: () => worker.worker, budget: { maxRows: 1 } }).exportPrepared(input())).rejects.toMatchObject({ code: "budget", path: "$.budget.maxRows" });
+    expect(worker.terminate).toHaveBeenCalledOnce();
   });
   it("小任务真实本地编码；无factory大任务可观察回退；显式worker缺factory拒绝", async () => {
     const observe = vi.fn(); const exporter = createAutoReportExporter({ onDecision: observe });

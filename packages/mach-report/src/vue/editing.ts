@@ -7,11 +7,22 @@ export interface ReportEditOperation {
   action?: "edit" | "undo" | "redo" | "restore";
 }
 
+export interface ReportEditHistoryOptions {
+  /** Retained undo/redo transactions. Default 100. Zero disables undo retention. */
+  maxSteps?: number;
+  /** Conservative retained transaction size in bytes. Default 8 MiB. */
+  maxBytes?: number;
+}
+
 /** Opt in with true for local drafts, or provide host validation and persistence. */
 export interface ReportEditingOptions {
   /** Optional field controls, keyed by source.field / table.columnKey; a resolver supports dataset-specific rules. */
   fields?: Readonly<Record<string, ReportCellFieldOptions>> | ((context: ReportCellContext) => ReportCellFieldOptions | undefined);
   canEdit?(context: ReportCellContext): boolean;
+  /** Optional explanation when canEdit rejects a cell. Does not grant editing access. */
+  readOnlyReason?(context: ReportCellContext): string | undefined;
+  /** Bounds undo/redo retention. Net differences and getChanges remain complete. */
+  history?: ReportEditHistoryOptions;
   /** Return an error message or throw to reject the edit. */
   validate?(edit: Readonly<ReportCellEdit>, operation: ReportEditOperation): void | string | Promise<void | string>;
   /** Same declarative rules can be run in Node via validateReportDataset. Requires a source-backed session. */

@@ -151,6 +151,8 @@ const file = await runtime.export({
 
 默认运行时预算为 100000 行、10000 页、2000000 个渲染单元格、100000000 输出字节、120000 毫秒，可通过 `budget` 显式调整。数量和字节预算须为正安全整数。分页前检查行数，并按明细行×列、表头和静态网格预检逻辑规模，避免明显的高列数内存放大；页预算在追加超限页前中止，多报表请求共用同一额度，之后再核对实际页面/单元格数。文件字节数在生成后检查；这些限制不是流式处理承诺。`dataValidation` 可收紧字段校验预算，不能绕过运行时的硬预算。
 
+Excel 附加工作表与主计划合计受 `maxCells` 约束，`prepared.stats.cells` 继续描述 RenderPlan 本身。自动导出在调用边界同步捕获独立输入，复用有界 JSON 校验与精确字节计数，省去完整 JSON 编解码临时副本。几何验证和计数在实际执行端完成，本地与 Worker 各自保持真实输入边界；同步安全捕获仍有随输入规模增长的成本。
+
 直接调用 `paginateTemplate` 可选传 `{ maxPages, maxCells, maxChartComponents }`，分别抛 `PaginatePageLimitError / PaginateCellLimitError / PaginateChartComponentLimitError`；`createReportSource` 对一次请求合并的全部报表及编辑重算共用预算。页数和网格预算未配置时保留原有行为；图表图元默认 50,000，可设 1..1,000,000，绑定图表在分配图元前预检，不改变 `maxCells` 语义。Runtime 的 `budget.maxChartComponents` 透传该总额度，统一将超限归为 `ReportRuntimeError`，`code="budget"`，路径为 `$.budget.maxPages / maxCells / maxChartComponents`。图表预算仅保护绑定图表展开，已生成计划不按该预算重新识别静态矩形。逐页网格预算包含重复表头、锚点和嵌套网格，大数据可使用[逐页生成](./COMPLEX_REPORTS.md)。
 
 跨重启任务见[持久任务](./DURABLE_JOBS.md)，模板上线前的真实PDF/XLSX校验见[发布验收](./PUBLICATION_REVIEW.md)。两者均通过注入适配器接入，不要求常规预览页面增加配置。

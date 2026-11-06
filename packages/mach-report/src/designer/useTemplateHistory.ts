@@ -5,13 +5,15 @@ import { applyHistoryFrame, createHistoryFrame, historyFrameBytes, type HistoryF
 export interface TemplateHistoryContext {
   pageIndex: number;
   componentIndex?: number;
+  componentIndices?: number[];
   listIndex?: number;
   fieldIndex?: number;
   section?: "fields" | "component" | "template" | "tools" | "advanced";
 }
 type ContextFrame = HistoryFrame & { view?: { before: TemplateHistoryContext; after: TemplateHistoryContext } };
-const frameBytes = (frame: ContextFrame) => historyFrameBytes(frame) + (frame.view ? 128 : 0);
-const withContext = (frame: HistoryFrame, context?: TemplateHistoryContext): ContextFrame => context ? { ...frame, view: { before: { ...context }, after: { ...context } } } : frame;
+const copyContext = (context: TemplateHistoryContext): TemplateHistoryContext => ({ ...context, ...(context.componentIndices ? { componentIndices: context.componentIndices.slice() } : {}) });
+const frameBytes = (frame: ContextFrame) => historyFrameBytes(frame) + (frame.view ? 128 + ((frame.view.before.componentIndices?.length ?? 0) + (frame.view.after.componentIndices?.length ?? 0)) * 8 : 0);
+const withContext = (frame: HistoryFrame, context?: TemplateHistoryContext): ContextFrame => context ? { ...frame, view: { before: copyContext(context), after: copyContext(context) } } : frame;
 
 /** Private reversible deltas retain invalid input too; checkpoints bound reconstruction work. */
 export function useTemplateHistory(initial: string, budget = { entries: 100, bytes: 16 * 1024 * 1024 }) {
@@ -54,7 +56,7 @@ export function useTemplateHistory(initial: string, budget = { entries: 100, byt
     if (!nextContext) return;
     const next = frames.value.slice();
     const current = next[cursor.value]!;
-    next[cursor.value] = current.view ? { ...current, view: { before: current.view.before, after: { ...nextContext } } } : withContext(current, nextContext);
+    next[cursor.value] = current.view ? { ...current, view: { before: current.view.before, after: copyContext(nextContext) } } : withContext(current, nextContext);
     frames.value = next;
   }
   function record(snapshot: string, nextContext?: TemplateHistoryContext, mergeGroup?: string): boolean {
@@ -66,7 +68,7 @@ export function useTemplateHistory(initial: string, budget = { entries: 100, byt
       const previous = next.pop()!;
       const base = groupBase ?? at(cursor.value - 1);
       const frame = withContext(createHistoryFrame(base, snapshot, next.length % 20 === 0), previous.view?.before ?? nextContext);
-      if (frame.view && nextContext) frame.view.after = { ...nextContext };
+      if (frame.view && nextContext) frame.view.after = copyContext(nextContext);
       next.push(frame);
     } else {
       groupBase = mergeGroup ? value.value : undefined;
@@ -94,7 +96,7 @@ export function useTemplateHistory(initial: string, budget = { entries: 100, byt
     const next = frames.value.slice();
     const previous = next.pop()!;
     const frame = withContext(createHistoryFrame(at(cursor.value - 1), snapshot, next.length % 20 === 0), previous.view?.before ?? nextContext);
-    if (frame.view && nextContext) frame.view.after = { ...nextContext };
+    if (frame.view && nextContext) frame.view.after = copyContext(nextContext);
     next.push(frame);
     frames.value = prune(next); cursor.value = frames.value.length - 1; value.value = snapshot;
     endGroup();

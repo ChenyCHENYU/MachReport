@@ -111,10 +111,12 @@ defineMachReportConfig({
 
 ## 日期、公式或额外业务数据表
 
-可以从业务原始数据建立额外的数据 Sheet，或修改返回的工作簿后重新序列化：
+附加原始数据或说明表可通过 `additionalSheets` 声明，在同一次编码中写入。自动执行会将主表和附加表一起估算，运行时也检查合计单元格预算。进度按实际工作表与最终归档计数，文件编码完成后才报告完成。
+
+需要自行修改 Workbook 时，先使用不编码的入口，调整后统一写出一次：
 
 ```ts
-const { workbook } = await renderPlanToXlsx(plan);
+const { workbook } = await renderPlanToWorkbook(plan);
 const dataSheet = workbook.addWorksheet("原始数据");
 dataSheet.addRow(["物料", "数量"]);
 dataSheet.addRow(["物料 A", 3]); // 由业务明确提供数值类型
@@ -124,7 +126,7 @@ const updatedBuffer = await workbook.xlsx.writeBuffer();
 await writeFile("report-with-data.xlsx", new Uint8Array(updatedBuffer));
 ```
 
-修改 `workbook` 后必须重新调用 `writeBuffer()`；原先返回的 `buffer` 是修改前的快照。默认导出文本不会自动变成公式。
+`renderPlanToXlsx` 保留既有 `workbook` 和 `buffer` 返回契约；修改其工作簿后再编码会产生另一份文件，原 `buffer` 仍是修改前快照。默认导出文本不会自动变成公式。
 
 ## 后续演进建议
 

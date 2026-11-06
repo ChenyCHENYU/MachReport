@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import type { DatasetContract } from "@agile-team/mach-report";
 import type { CanvasInsertKind } from "./canvas-commands";
 import {
@@ -17,6 +17,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: "insert", kind: CanvasInsertKind): void;
   (event: "field", field: string): void;
+  (event: "fields", fields: string[]): void;
 }>();
 const m = computed(() => ({ ...DESIGNER_INSERT_MESSAGES, ...props.messages }));
 const open = ref(false),
@@ -24,6 +25,15 @@ const open = ref(false),
   query = ref("");
 const trigger = ref<HTMLButtonElement>(),
   search = ref<HTMLInputElement>();
+const selectedFields = ref<string[]>([]);
+watch(() => [props.fields, props.usedFields], () => {
+  selectedFields.value = selectedFields.value.filter(field => props.fields?.some(item => item.field === field) && !(props.columns && props.usedFields?.includes(field)));
+});
+function toggleField(name: string, checked: boolean): void {
+  if (checked && selectedFields.value.length < 100) selectedFields.value = [...selectedFields.value, name];
+  else if (!checked) selectedFields.value = selectedFields.value.filter(field => field !== name);
+}
+function addSelected(): void { emit("fields", selectedFields.value.slice()); close(); }
 const items = computed(() =>
   (
     ["text", "qrcode", "barcode", "image", "list", "chart", "rect"] as const
@@ -51,6 +61,7 @@ function close(): void {
   open.value = false;
   choosingField.value = false;
   query.value = "";
+  selectedFields.value = [];
   trigger.value?.focus();
 }
 function insert(kind: CanvasInsertKind): void {
@@ -71,6 +82,20 @@ function dismiss(): void {
   open.value = false;
   choosingField.value = false;
   query.value = "";
+  selectedFields.value = [];
+}
+function focusControl(event: MouseEvent): void {
+  if (event.button !== 0 || !(event.target instanceof Element)) return;
+  const container = event.currentTarget as HTMLElement;
+  // An item can unmount this menu and focus a confirmation before click bubbles.
+  if (!container.contains(event.target)) return;
+  const control = event.target.closest<HTMLElement>("button,input,select,textarea,a[href],[tabindex]");
+  const target = !open.value ? trigger.value : control && container.contains(control) && !control.matches(":disabled")
+    ? control : container.querySelector<HTMLElement>(".mr-insert-panel") ?? trigger.value;
+  // Safari pointer activation does not consistently focus checkboxes/buttons.
+  // Native mousedown can blur it again, so the bubbled click restores ownership.
+  // Neither event cancels native click/change or text-input caret behaviour.
+  target?.focus({ preventScroll: true });
 }
 function focusOut(event: FocusEvent): void {
   const container = event.currentTarget as HTMLElement;
@@ -90,7 +115,7 @@ function focusOut(event: FocusEvent): void {
 onBeforeUnmount(() => { if (focusFrame !== undefined) cancelAnimationFrame(focusFrame); });
 </script>
 <template>
-  <div class="mr-insert mr-designer-controls" @keydown.esc.prevent.stop="close" @focusout="focusOut">
+  <div class="mr-insert mr-designer-controls" @keydown.esc.prevent.stop="close" @focusout="focusOut" @pointerdown="focusControl" @click="focusControl">
     <button
       ref="trigger"
       class="mr-insert-trigger"
@@ -106,6 +131,7 @@ onBeforeUnmount(() => { if (focusFrame !== undefined) cancelAnimationFrame(focus
       v-if="open"
       class="mr-insert-panel"
       role="dialog"
+      tabindex="-1"
       :aria-label="m.title"
     >
       <header>
@@ -127,16 +153,17 @@ onBeforeUnmount(() => { if (focusFrame !== undefined) cancelAnimationFrame(focus
           :placeholder="m.search"
         />
         <div class="mr-insert-fields">
-          <button
+          <div
             v-for="item in visibleFields"
             :key="item.field"
-            type="button"
-            :disabled="columns && usedFields?.includes(item.field)" @click="field(item.field)"
+            class="mr-insert-field-row"
           >
-            <strong>{{ item.label || item.field }}</strong><small>{{ item.field }}</small>
-          </button>
+            <input type="checkbox" :aria-label="`${m.selectField} ${item.label || item.field}`" :checked="selectedFields.includes(item.field)" :disabled="columns && usedFields?.includes(item.field) || !selectedFields.includes(item.field) && selectedFields.length >= 100" @change="toggleField(item.field, ($event.target as HTMLInputElement).checked)" />
+            <button type="button" :disabled="columns && usedFields?.includes(item.field)" @click="field(item.field)"><strong>{{ item.label || item.field }}</strong><small>{{ item.field }}</small></button>
+          </div>
           <p v-if="!visibleFields.length">{{ m.noFields }}</p>
         </div>
+        <footer class="mr-insert-batch"><small>{{ selectedFields.length ? m.selectedCount.replace('{count}', String(selectedFields.length)) : m.batchHint }}</small><button type="button" :disabled="!selectedFields.length" @click="addSelected">{{ m.addSelected }}</button></footer>
 </template>
       <div v-else class="mr-insert-grid">
         <button
@@ -225,6 +252,7 @@ onBeforeUnmount(() => { if (focusFrame !== undefined) cancelAnimationFrame(focus
   cursor: pointer;
   color: inherit;
 }
+.mr-insert-field-row{display:flex;align-items:center;gap:5px}.mr-insert-field-row>input{width:15px;flex:none;accent-color:var(--mrp-btn-active-bg,#2563eb)}.mr-insert-field-row>button{flex:1}.mr-insert-batch{display:flex;align-items:center;gap:8px;border-top:1px solid var(--mrp-toolbar-border,#e2e8f0);padding-top:9px;margin-top:8px}.mr-insert-batch small{flex:1;color:var(--mrp-btn-fg,#64748b);font-size:10px}.mr-insert-batch button{flex:none}
 .mr-insert-grid button:hover,
 .mr-insert-fields button:hover {
   background: #f1f7ff;

@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.22.0-2563eb" alt="Source version 2.22.0" />
+  <img src="https://img.shields.io/badge/source-2.23.0-2563eb" alt="Source version 2.23.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -86,7 +86,7 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 
 稳定业务键的数据源自动维护编辑重算会话，独立报表默认隔离；镜像来源显式声明共享。保存前准备重算，成功后更新派生结果与修订，导出等待在途编辑。工作簿公式继续只显示缓存结果。严格输出拒绝已知缺字或损坏图片，宽松策略返回明确诊断。
 
-设计工具按需加载；画布拖动只在松手时提交事务，修改模板名称不重复排版。大列目录窗口化，连续 Excel 按工作量让出执行并响应取消。可选自动执行按任务规模隔离编码，覆盖最终压缩期硬取消；已准备结果原样交付，无需再次取数。
+设计工具按需加载，设计与成品预览分别保留视角；多选移动、复制、删除和批量添加字段都复用一笔撤销事务。绑定图表在画布使用有界真实样本，标明样本范围。大列目录窗口化，连续 Excel 按工作量让出执行并响应取消。可选自动执行同时估算主表与附加表，隔离编码并覆盖最终压缩期硬取消；已准备结果原样交付，无需再次取数。
 
 ### 项目接入体验
 
@@ -96,13 +96,14 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 模板安全复用 | `dataContract` 声明来源和字段语义，`inspectReportTemplateCompatibility` 在套用前返回兼容问题 |
 | 查询说明随数据更新 | `bindReportTemplateContext` 按稳定 `meta.contextKey` 绑定，移动位置后仍可刷新 |
 | 设置与缩放隔离 | `preferences.key + adapter` 统一记忆工具和标准页／宽表缩放，支持恢复默认 |
-| 明确的只读原因 | `toolbar.unavailableReasons` 解释权限、封月等宿主约束 |
+| 明确的只读原因 | `toolbar.unavailableReasons` 解释宿主约束，选中单元格显示公式、汇总、保护或权限原因；`editable.readOnlyReason` 可补充业务说明 |
+| 长会话修改审阅 | 净差异增量维护，明细按业务字段、行键和数据集检索，每批显示100项；`editable.history` 可选调整撤销预算 |
 | 轻量模板工作流 | `/designer` 的 `useTemplateWorkbench` 复用草稿保护、操作去重与可等待套用，项目提供业务回调 |
 | 单次 Excel 编码 | `additionalSheets` 在编码前追加说明表，`sheetNames` 可跨 Worker 传递，继续修改工作簿可用 `renderPlanToWorkbook` |
 
 保留旧快照期间通过 `state.stale` 识别来源状态，编辑与输出同步暂停。刷新策略、导出菜单扩展和偏好作用域见 [交互指南](./docs/INTERACTION.md)。
 
-大宽表默认按视口挂载单元格并保留完整计划，使用侧无需维护窗口状态；搜索与冻结模式保留完整页以确保命中和冻结语义。编辑计算缓存只属于当前私有会话，简单行计算跳过未变化的依赖；分组、整表、受信任公式适配器和分页按安全路径重算，不宣称所有操作都是局部排版。
+大宽表默认按视口挂载单元格并保留完整计划，固定列、冻结表头、搜索与编辑共用真实单元格窗口，使用侧无需维护窗口状态。搜索按逻辑地址挂载命中位置，连续定位复用当前计划索引。编辑计算缓存只属于当前私有会话，简单行计算跳过未变化的依赖；分组、整表、受信任公式适配器和分页按安全路径重算。
 
 产品分层和暂缓的数据库连接、企业权限、调度与渠道见[产品能力](./docs/PRODUCT_PLATFORM.md)；还原边界、验证方式和上游依赖证据见[质量说明](./docs/QUALITY.md)、[可靠性与升级](./docs/RELIABILITY.md)、[依赖清单](./docs/DEPENDENCIES.md)。
 
@@ -460,7 +461,7 @@ const { bytes, contentType, diagnostics, stats } = await runtime.export({
 
 ## 大报表预览与性能
 
-正文和缩略图均按可见窗口渲染，离屏画布及时释放；页尺寸索引按计划建立一次，滚动和跳页通过二分定位。搜索按文本块分片，输入新查询、换单据或卸载会取消旧任务，命中计数按页保存，避免为每次重复文字创建一个记录。
+正文和缩略图均按可见窗口渲染，离屏画布及时释放；页尺寸索引按计划建立一次，滚动和跳页通过二分定位。宽表窗口同时保留冻结区和正在编辑的真实单元格。搜索按文本块分片，通过逻辑地址定位当前命中，仅高亮挂载内容；输入新查询、换单据或卸载会取消旧任务，命中计数按页保存，避免为每次重复文字创建一个记录。
 
 `createReportSource()` 首次排版与编辑重排共用异步分页，在页面之间按时间或页数让出执行，取消和后续查询可以及时生效。设计器共享每次有效修改的校验与序列化快照，静态网格缓存毫米几何，选择和缩放复用已计算结果。标签编码器在首次实际编码时加载，编辑器在首次进入设计时加载并保留撤销历史。
 
@@ -717,7 +718,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.22.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.23.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准；npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

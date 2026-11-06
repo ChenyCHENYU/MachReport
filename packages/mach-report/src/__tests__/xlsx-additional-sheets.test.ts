@@ -61,4 +61,54 @@ describe("Excel 附加工作表单次编码", () => {
     await read.xlsx.load(result.bytes as unknown as ExcelJS.Buffer);
     expect(read.getWorksheet("来源")!.getCell("B1").value).toBe("YTS0");
   });
+  it("附表不能绕过服务端的总单元格预算，来源行数和计划统计含义保持稳定", async () => {
+    const runtime = createReportRuntime({ reports: {}, budget: { maxCells: 7 } });
+    const prepared = { plan, params: {}, revisions: {}, diagnostics: [], stats: { rows: 0, pages: 1, cells: 0, durationMs: 0 } };
+    await expect(runtime.exportPrepared({ prepared, format: "xlsx", xlsx: { additionalSheets } })).rejects.toMatchObject({ code: "budget", path: "$.budget.maxCells" });
+    const output = await createReportRuntime({ reports: {}, budget: { maxRows: 1, maxCells: 8 } }).exportPrepared({ prepared, format: "xlsx", xlsx: { additionalSheets } });
+    expect(output.stats).toMatchObject({ rows: 0, cells: 0 });
+  });
+  it("进度包含附表，最终文件编码完成前不会报告100%", async () => {
+    const progress: [number, number][] = [];
+    const prototype = Object.getPrototypeOf(new ExcelJS.Workbook().xlsx) as ExcelJS.Workbook["xlsx"];
+    const original = prototype.writeBuffer;
+    vi.spyOn(prototype, "writeBuffer").mockImplementation(function (this: ExcelJS.Workbook["xlsx"], options) {
+      expect(progress).toEqual([[1, 3], [2, 3]]);
+      return original.call(this, options);
+    });
+    const result = await renderPlanToXlsx(plan, { additionalSheets, onProgress: (completed, total) => progress.push([completed, total]) });
+    expect(progress).toEqual([[1, 3], [2, 3], [3, 3]]);
+    const read = new ExcelJS.Workbook(); await read.xlsx.load(result.buffer);
+    expect(read.worksheets).toHaveLength(2);
+    expect(read.getWorksheet("来源")!.getCell("B2").value).toBe(1);
+  });
+  it("最后一张附表完成后仍可取消，不启动ZIP编码", async () => {
+    const controller = new AbortController(); const progress: [number, number][] = [];
+    const write = vi.spyOn(Object.getPrototypeOf(new ExcelJS.Workbook().xlsx) as ExcelJS.Workbook["xlsx"], "writeBuffer");
+    await expect(renderPlanToXlsx(plan, { additionalSheets, signal: controller.signal, onProgress: (completed, total) => {
+      progress.push([completed, total]); if (completed === total - 1) controller.abort();
+    } })).rejects.toMatchObject({ name: "AbortError" });
+    expect(write).not.toHaveBeenCalled();
+    expect(progress).toEqual([[1, 3], [2, 3]]);
+  });
+  it("附表写入过程中响应取消并释放，源声明不被修改", async () => {
+    const controller = new AbortController();
+    const prototype = Object.getPrototypeOf(new ExcelJS.Workbook().addWorksheet("probe")) as ExcelJS.Worksheet;
+    const original = prototype.addRow;
+    const add = vi.spyOn(prototype, "addRow").mockImplementation(function (this: ExcelJS.Worksheet, values, style) {
+      const row = original.call(this, values, style);
+      if (this.name === "large" && this.rowCount === 512) controller.abort();
+      return row;
+    });
+    const rows = Array.from({ length: 2000 }, (_, index) => [index]);
+    await expect(renderPlanToXlsx(plan, { additionalSheets: [{ name: "large", rows }], signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
+    expect(add).toHaveBeenCalledTimes(512);
+    expect(rows).toHaveLength(2000); expect(rows[511]).toEqual([511]);
+  });
+  it("工作簿构建的完成进度只统计实际工作表", async () => {
+    const progress: [number, number][] = [];
+    const result = await renderPlanToWorkbook(plan, { additionalSheets, onProgress: (completed, total) => progress.push([completed, total]) });
+    expect(progress).toEqual([[1, 2], [2, 2]]);
+    expect(result.workbook.worksheets).toHaveLength(2);
+  });
 });

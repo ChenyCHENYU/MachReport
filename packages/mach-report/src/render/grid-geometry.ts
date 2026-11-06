@@ -68,7 +68,7 @@ export function resolveGridLayout(
   const rowCount = Math.max(rowsRaw.length, 1);
   const colCount =
     grid.colWidthsMm?.length ??
-    Math.max(1, ...rowsRaw.map((r) => (Array.isArray(r) ? r.length : 0)));
+    rowsRaw.reduce((count, row) => Math.max(count, Array.isArray(row) ? row.length : 0), 1);
 
   const widths = resolveAxis(grid.colWidthsMm, compWidthMm, colCount);
   const colPos = (ci: number): number =>

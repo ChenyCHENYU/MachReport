@@ -7,6 +7,15 @@
 
 const HIT_CLASS = "mrp-hit";
 
+/** Resolve a mounted highlight within its logical component/cell, independent of clipped DOM order. */
+export function findSearchHighlight(holder: Element | null | undefined, target: { componentIndex: number; rowIndex?: number; columnIndex?: number; occurrence: number } | undefined, occurrence: number): HTMLElement | undefined {
+  const component = target && holder?.querySelector(`[data-mr-component-index="${target.componentIndex}"]`);
+  const scope = target?.rowIndex !== undefined && target.columnIndex !== undefined
+    ? component?.querySelector(`td[data-mr-row-index="${target.rowIndex}"][data-mr-column-index="${target.columnIndex}"]`)
+    : component ?? holder;
+  return scope?.querySelectorAll<HTMLElement>(`mark.${HIT_CLASS}`)[target?.occurrence ?? occurrence];
+}
+
 export function clearHighlights(root: HTMLElement): void {
   const marks = root.querySelectorAll(`mark.${HIT_CLASS}`);
   marks.forEach((mark) => {

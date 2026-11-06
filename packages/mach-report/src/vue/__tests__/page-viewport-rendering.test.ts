@@ -17,7 +17,7 @@ function tick(): void {
   frames.delete(next[0]); next[1](0);
 }
 
-it("retains a disabled, unfocused editor during scrolling and defers renderer-mode changes until it closes", async () => {
+it("retains a disabled, unfocused editor during scrolling and keeps search windowed after it closes", async () => {
   const root = ref<HTMLElement | null>(null), viewport = ref<HTMLElement | null>(null), query = ref("");
   const editorToken = ref(0), highlighted = vi.fn();
   const current = shallowRef<RenderPlan | null>({ schemaVersion: "1.0", pages: [{ layout: "wide", pageWidthMm: 2000, pageHeightMm: 100,
@@ -42,5 +42,5 @@ it("retains a disabled, unfocused editor during scrolling and defers renderer-mo
   query.value = "pending"; await nextTick();
   expect(editor.isConnected).toBe(true); expect(wrapper.findAll("td").length).toBeLessThan(200);
   editor.remove(); editorToken.value++; await nextTick();
-  expect(wrapper.findAll("td")).toHaveLength(1200); expect(highlighted).toHaveBeenCalled();
+  expect(wrapper.findAll("td").length).toBeLessThan(200); expect(highlighted).toHaveBeenCalled();
 });

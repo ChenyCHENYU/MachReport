@@ -7,7 +7,7 @@ import { assertProviderSaveResult } from "./provider-save-result";
 import { observeOutput } from "../output/progress";
 
 type Current<T> = T | (() => T);
-export interface ProviderEditingOptions extends Pick<ReportEditingOptions, "canEdit" | "validate" | "requireSource"> {
+export interface ProviderEditingOptions extends Pick<ReportEditingOptions, "canEdit" | "readOnlyReason" | "history" | "fields" | "validate" | "validation" | "validateBatch" | "requireSource"> {
   reportId: Current<string>;
   params?: Current<Record<string, string>>;
   /** Getters are useful when query metadata is held by the host. Otherwise stable cell sources are used. */
@@ -64,7 +64,8 @@ export function createProviderEditing(provider: ReportProvider, options: Provide
   }
   return {
     requireSource: options.requireSource ?? true,
-    canEdit: options.canEdit, validate: options.validate,
+    canEdit: options.canEdit, readOnlyReason: options.readOnlyReason, history: options.history,
+    fields: options.fields, validate: options.validate, validation: options.validation, validateBatch: options.validateBatch,
     saveBatch,
     save: (edit, operation) => saveBatch({ requestId: requestIdentity(operation), edits: [cloneReportSnapshot(edit)] }, operation)
   };

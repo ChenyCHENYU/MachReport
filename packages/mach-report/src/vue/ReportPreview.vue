@@ -31,7 +31,7 @@ import { usePageWindow } from "./composables/usePageWindow";
 import { usePageRendering } from "./composables/usePageRendering";
 import { useZoom } from "./composables/useZoom";
 import { usePreviewOutput } from "./composables/usePreviewOutput";
-import { clearHighlights, highlightTextNodes } from "./composables/useHighlight";
+import { clearHighlights, findSearchHighlight, highlightTextNodes } from "./composables/useHighlight";
 import {
   useDebugPanel,
   useReportSearch,
@@ -178,6 +178,7 @@ const settingsSection = ref<"general" | "tools" | "advanced">("general");
 const importInputRef = ref<HTMLInputElement | null>(null);
 const toolbarRef = ref<InstanceType<typeof ReportToolbar> | null>(null);
 let viewportObserver: ResizeObserver | null = null;
+let viewportResizeFrame = 0;
 let destroyed = false;
 const task = usePreviewTask((value) => emit("task", value));
 const diagnostics = usePreviewDiagnostics((value) => emit("diagnostic", value));
@@ -324,7 +325,7 @@ async function toggleSettings(section: "general" | "tools" | "advanced" = "gener
   settingsSection.value = section;
   settingsOpen.value = true;
 }
-const { editing, cells, discard, confirmDiscard } = usePreviewEditing({
+const { editing, cells, cellStatus, discard, confirmDiscard } = usePreviewEditing({
   plan, root: containerRef, options: effectiveEditable,
   selectionEnabled: () => !!effectiveEditable.value || calculationsEnabled.value || !!effectiveDataComparison.value || !!(props.drill ?? resolved.value.drill),
   busy: () => interactionBlocked.value || importing.value || exporting.value !== null || printing.value,
@@ -575,24 +576,28 @@ watch(interactionBlocked, blocked => { if (blocked) output.invalidatePending(); 
 let lastFocusedMatch = "";
 function revealSearchMatch(force = false): void {
   const activeMatch = search.activeMatch.value;
-  if (!wideReport.value || !activeMatch) return;
+  if (!activeMatch) return;
   const matchKey = `${search.query.value}:${search.matchIndex.value}:${activeMatch.pageIndex}`;
   if (!force && matchKey === lastFocusedMatch) return;
   const holder = containerRef.value?.querySelector(`[data-page="${activeMatch.pageIndex + 1}"]`);
-  const mark = holder?.querySelectorAll<HTMLElement>("mark.mrp-hit")[activeMatch.occurrence];
+  const target = activeMatch.target;
+  const address = target?.rowIndex !== undefined && target.columnIndex !== undefined
+    ? { pageIndex: activeMatch.pageIndex, componentIndex: target.componentIndex, rowIndex: target.rowIndex, columnIndex: target.columnIndex } : undefined;
+  const revealed = address ? pageRendering.reveal(address) : false;
+  const mark = findSearchHighlight(holder, target, activeMatch.occurrence);
   if (mark) {
-    mark.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    if (!revealed) mark.scrollIntoView?.({ block: "nearest", inline: "nearest" });
     lastFocusedMatch = matchKey;
   }
 }
 const pageRendering = usePageRendering({
   plan, root: containerRef, viewport: viewportRef, pages: () => visiblePages.value,
-  windowing: () => !effectiveInteraction.value.freezeHeaders && !(effectiveInteraction.value.frozenColumns ?? 0),
+  frozen: () => effectiveInteraction.value,
   priority: () => search.activeMatch.value?.pageIndex ?? currentPage.value - 1,
   focusToken: () => search.activeMatch.value, editorToken: () => editing.active.value,
   query: () => search.query.value, zoom: () => zoom.value, loading: () => resolvedMessages.value.loading,
   clear: search.clear, highlight: search.apply,
-  mounted: (holder) => { cells.refresh(holder); frozenPanes.schedule(); },
+  mounted: (holder) => { cells.refresh(holder); frozenPanes.mounted(holder); },
   ready: () => { if (!search.activeMatch.value) lastFocusedMatch = ""; revealSearchMatch(); },
   error: (cause) => { errorMessage.value = cause instanceof Error ? cause.message : String(cause); reportError(errorMessage.value, "render", cause); }
 });
@@ -648,6 +653,10 @@ function onResize(): void {
   if (zoomMode.value === "fit") applyFitZoom();
   revealSearchMatch(true);
 }
+function scheduleResize(): void {
+  if (destroyed || viewportResizeFrame) return;
+  viewportResizeFrame = requestAnimationFrame(() => { viewportResizeFrame = 0; if (!destroyed) onResize(); });
+}
 
 function loadZoomMemory(): void {
   const generation = ++zoomRestoreGeneration;
@@ -670,9 +679,9 @@ function loadZoomMemory(): void {
 watch([effectivePreferences, () => tools.getZoomMode(wideReport.value)], loadZoomMemory);
 
 onMounted(() => {
-  window.addEventListener("resize", onResize);
+  window.addEventListener("resize", scheduleResize);
   if (typeof ResizeObserver !== "undefined" && viewportRef.value) {
-    viewportObserver = new ResizeObserver(onResize);
+    viewportObserver = new ResizeObserver(scheduleResize);
     viewportObserver.observe(viewportRef.value);
   }
   refreshViewport(viewportRef.value);
@@ -685,7 +694,8 @@ onUnmounted(() => {
   task.cancel();
   importing.value = false;
   cancelFontCheck();
-  window.removeEventListener("resize", onResize);
+  window.removeEventListener("resize", scheduleResize);
+  if (viewportResizeFrame) cancelAnimationFrame(viewportResizeFrame);
   viewportObserver?.disconnect();
   viewportObserver = null;
   thumbs.destroy();
@@ -777,9 +787,9 @@ defineExpose({ ...controller, state });
     </ReportSettings>
     <ReportNavigation :plan="plan" @locate-target="locateTarget" v-if="sections.length > 1 && pageCount > 0 && effectiveInteraction.navigation !== false" :sections="sections" :current-page="currentPage" :messages="resolvedMessages" :busy="interactionBlocked || importing || editing.saving.value" @goto="gotoPage" @locate="locateField" />
     <ReportImportSummary v-if="importedResult" :result="importedResult" :messages="resolvedMessages" />
-    <ReportEditBar v-if="effectiveEditable && pageCount > 0" :differences="editing.differences.value" :conflicts="editing.conflicts.value" :messages="resolvedMessages" :saving="editing.saving.value" :can-undo="editing.canUndo.value" :can-redo="editing.canRedo.value" :persisted="persistedEditing" :busy="!!exporting || printing" @undo="editing.undo" @redo="editing.redo" @restore="editing.restore" @locate="locateEdit" />
+    <ReportEditBar v-if="effectiveEditable && pageCount > 0" :plan="plan" :history-limited="editing.historyLimited.value" :differences="editing.differences.value" :conflicts="editing.conflicts.value" :messages="resolvedMessages" :saving="editing.saving.value" :can-undo="editing.canUndo.value" :can-redo="editing.canRedo.value" :persisted="persistedEditing" :busy="!!exporting || printing" @undo="editing.undo" @redo="editing.redo" @restore="editing.restore" @locate="locateEdit" />
     <input v-if="effectiveExcelImport" ref="importInputRef" class="mrp-import-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden @change="onImportFile" />
-    <div v-if="effectiveEditable && pageCount > 0" class="mrp-edit-hint" role="status">{{ editing.saving.value ? resolvedMessages.saving : resolvedMessages.editingHint }}</div>
+    <div v-if="effectiveEditable && pageCount > 0" class="mrp-edit-hint" role="status" aria-live="polite"><template v-if="!editing.saving.value && cellStatus"><span class="mrp-cell-access" :class="{ 'is-editable': cellStatus.editable }">{{ cellStatus.label }}</span><span class="mrp-cell-access-message" :title="cellStatus.message">{{ cellStatus.message }}</span></template><template v-else>{{ editing.saving.value ? resolvedMessages.saving : resolvedMessages.editingHint }}</template></div>
     <div v-if="exportNotice" class="mrp-export-notice" :class="`mrp-export-${exportNotice.kind}`" role="alert">
       {{ exportNotice.message }}
     </div>

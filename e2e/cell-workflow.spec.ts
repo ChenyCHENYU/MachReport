@@ -1,14 +1,15 @@
 import { expect, test, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import type { MachReportHandle } from "../packages/mach-report/src/vue/controller";
 import type { RenderPlan, ReportEditBatch } from "../packages/mach-report/src/index";
 
 interface Fixture { report: MachReportHandle; original: RenderPlan; saves: Array<{ batch: ReportEditBatch; action: string | undefined }>; conflict: boolean; delayMs?: number }
 type FixtureWindow = Window & { __mrWorkflow: Fixture };
 
-async function mountWorkflow(page: Page, readonly = false, multiHeader = false, frozenColumns = 1): Promise<void> {
+async function mountWorkflow(page: Page, readonly = false, multiHeader = false, frozenColumns = 1, historySteps = 100): Promise<void> {
   await page.goto("http://localhost:8610");
   await expect(page.getByText("产品出库单")).toBeVisible();
-  await page.evaluate(async ({ readonly, multiHeader, frozenColumns }) => {
+  await page.evaluate(async ({ readonly, multiHeader, frozenColumns, historySteps }) => {
     const source = await fetch("/src/main.ts").then((response) => response.text());
     const vueUrl = source.match(/from ["']([^"']*\/vue\.js[^"']*)["']/)?.[1];
     const reportUrl = source.match(/from ["']([^"']*mach-report\/src\/vue\/index\.ts[^"']*)["']/)?.[1];
@@ -34,14 +35,14 @@ async function mountWorkflow(page: Page, readonly = false, multiHeader = false, 
       const report = useMachReport();
       const fixture: Fixture = { report, original: structuredClone(plan), saves: [], conflict: false };
       (window as FixtureWindow).__mrWorkflow = fixture;
-      const editing = { requireSource: true, saveBatch: async (batch: Readonly<ReportEditBatch>, operation: { action?: string }) => {
+      const editing = { requireSource: true, history: { maxSteps: historySteps }, saveBatch: async (batch: Readonly<ReportEditBatch>, operation: { action?: string }) => {
         fixture.saves.push({ batch: structuredClone(batch), action: operation.action });
         if (fixture.delayMs) await new Promise((resolve) => setTimeout(resolve, fixture.delayMs));
         return fixture.conflict ? { conflicts: [{ message: "模拟版本冲突，请刷新后重试" }] } : { revision: fixture.saves.length + 1 };
       } };
       return () => h(ReportPreview, { ref: report.ref, reportId: "fixture", fetcher: async () => plan, editable: readonly ? false : editing, interaction: { freezeHeaders: true, frozenColumns }, height: "100vh", showExport: false, showPdfWindow: false, showPrint: false, messages: { title: "隔离模拟验收 · 单元格交互" } });
     } }).mount(target);
-  }, { readonly, multiHeader, frozenColumns });
+  }, { readonly, multiHeader, frozenColumns, historySteps });
   await expect(page.locator('#workflow-fixture .mrp-page-holder[data-page="1"]').getByText("业务编号", { exact: true })).toBeVisible();
 }
 
@@ -235,4 +236,64 @@ test("冻结两列在scroll事件处理前已经原生固定，100%与150%连续
     });
     for (const position of positions) { expect(Math.abs(position.left), JSON.stringify({ zoom, positions })).toBeLessThan(2); expect(position.text).toBe("9"); expect(Math.abs(position.secondGap)).toBeLessThan(2); }
   }
+});
+
+test("选中或尝试编辑时说明公式与结构只读，差异面板可搜索业务字段并返回原行", async ({ page }, testInfo) => {
+  await mountWorkflow(page);
+  const root = page.locator("#workflow-fixture");
+  await page.evaluate(async () => {
+    await (window as FixtureWindow).__mrWorkflow.report.focusCell({ pageIndex: 0, componentIndex: 1, rowIndex: 0, columnIndex: 2 });
+  });
+  await page.keyboard.press("F2");
+  await expect(root.locator(".mrp-edit-hint")).toContainText("公式结果");
+  await expect(root.locator(".mrp-cell-editor")).toHaveCount(0);
+  await page.evaluate(async () => {
+    const report = (window as FixtureWindow).__mrWorkflow.report;
+    await report.focusCell({ pageIndex: 0, componentIndex: 0, rowIndex: 0, columnIndex: 0 });
+  });
+  await expect(root.locator(".mrp-edit-hint")).toContainText("结构单元格");
+  await page.evaluate(async () => {
+    const report = (window as FixtureWindow).__mrWorkflow.report;
+    await report.focusCell({ pageIndex: 0, componentIndex: 1, rowIndex: 0, columnIndex: 0 });
+    if (!await report.pasteSelection("25")) throw new Error("Fixture edit failed");
+  });
+  await expect(root.locator(".mrp-edit-hint")).toContainText("可编辑");
+  await root.locator(".mrp-changes-trigger").click();
+  const review = root.getByRole("dialog", { name: "修改明细", exact: true });
+  await expect(review).toBeVisible();
+  await review.getByRole("searchbox").fill("数量 R1");
+  await expect(review.locator("ol li")).toHaveCount(1);
+  const accessibility = await new AxeBuilder({ page }).include("#workflow-fixture").withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
+  expect(accessibility.violations.map(issue => ({ id: issue.id, impact: issue.impact, targets: issue.nodes.map(node => node.target) }))).toEqual([]);
+  await testInfo.attach("cell-review-accessibility.json", { body: JSON.stringify(accessibility, null, 2), contentType: "application/json" });
+  await page.screenshot({ path: testInfo.outputPath("cell-review-experience.png"), animations: "disabled" });
+  await review.getByRole("button", { name: "数量 · R1", exact: true }).click();
+  await expect(root.locator("td.mrp-cell-focus")).toHaveText("25");
+  await expect(review).toHaveCount(0);
+});
+
+test("撤销达到保留范围仍完整保留净差异和事件，恢复来源值继续原子保存", async ({ page }) => {
+  await mountWorkflow(page, false, false, 1, 3);
+  const result = await page.evaluate(async () => {
+    const fixture = (window as FixtureWindow).__mrWorkflow;
+    const report = fixture.report;
+    await report.focusCell({ pageIndex: 0, componentIndex: 1, rowIndex: 0, columnIndex: 0 });
+    for (const value of [5, 6, 7, 8]) if (!await report.pasteSelection(String(value))) throw new Error("Fixture edit failed");
+    const eventCount = report.getChanges().length;
+    const undo = [];
+    for (let index = 0; index < 4; index++) undo.push(await report.undo());
+    const difference = report.getDifferences()[0];
+    return { eventCount, undo, difference, action: fixture.saves.at(-1)?.action };
+  });
+  expect(result.eventCount).toBe(4);
+  expect(result.undo).toEqual([true, true, true, false]);
+  expect(result.difference).toMatchObject({ previousValue: 2, value: 5, source: { rowKey: "R1", field: "qty" } });
+  expect(result.action).toBe("undo");
+  await expect(page.locator("#workflow-fixture .mrp-history-limited")).toContainText("当前修改与来源差异仍完整保留");
+  const restored = await page.evaluate(async () => {
+    const fixture = (window as FixtureWindow).__mrWorkflow;
+    const success = await fixture.report.restoreChanges();
+    return { success, count: fixture.report.getDifferences().length, events: fixture.report.getChanges().length, action: fixture.saves.at(-1)?.action };
+  });
+  expect(restored).toEqual({ success: true, count: 0, events: 8, action: "restore" });
 });

@@ -151,11 +151,12 @@ async function resolveComponent(state: AssetState, component: PlanComponent, con
     const visited = new Set(ancestors).add(component);
     const cells: (GridCell | null)[][] = [];
     for (const [rowIndex, row] of grid.cells.entries()) {
+      if (!row.some(cell => cell?.children?.length)) { cells.push(row); continue; }
       const next: (GridCell | null)[] = [];
-      for (const [columnIndex, cell] of row.entries()) next.push(await resolveCell(state, cell, context, [...context.componentPath, rowIndex, columnIndex], visited));
-      cells.push(next);
+      for (const [columnIndex, cell] of row.entries()) next.push(cell?.children?.length ? await resolveCell(state, cell, context, [...context.componentPath, rowIndex, columnIndex], visited) : cell);
+      cells.push(next.some((cell, index) => cell !== row[index]) ? next : row);
     }
-    if (cells.some((row, ri) => row.some((cell, ci) => cell !== grid!.cells[ri]![ci]))) grid = { ...grid, cells };
+    if (cells.some((row, ri) => row !== grid!.cells[ri])) grid = { ...grid, cells };
   }
   return imageData !== component.imageData || grid !== component.grid ? { ...component, imageData, grid } : component;
 }

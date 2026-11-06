@@ -2,13 +2,36 @@
 import { describe, expect, it, vi } from "vitest";
 import { OutputAssetError, resolvePlanAssets, type ComponentImageContext } from "../output/assets";
 import { renderPlanToPdf } from "../pdf/render-pdf";
-import type { PlanComponent, RenderPlan } from "../schema/render-plan";
+import type { GridCell, PlanComponent, RenderPlan } from "../schema/render-plan";
 
 const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 const qr = (): PlanComponent => ({ kind: "qrcode", leftMm: 1, topMm: 1, widthMm: 10, heightMm: 10 });
 const makePlan = (...components: PlanComponent[]): RenderPlan => ({ schemaVersion: "assets", pages: [{ pageWidthMm: 50, pageHeightMm: 50, components }] });
 
 describe("optional image renderer adapters", () => {
+  it("reuses ordinary grid rows without scheduling a Promise for every scalar cell", async () => {
+    const grid = { cells: Array.from({ length: 100 }, () => Array.from({ length: 100 }, () => ({ text: "ordinary" }))) };
+    const input = makePlan({ kind: "rect", leftMm: 0, topMm: 0, widthMm: 20, heightMm: 20, grid });
+    const renderer = vi.fn(() => PNG);
+    let turns = 0, active = true;
+    const pulse = () => { if (active) { turns++; queueMicrotask(pulse); } };
+    queueMicrotask(pulse);
+    try {
+      const result = await resolvePlanAssets(input, { assetRenderers: { qrcode: renderer } });
+      expect(result.plan).toBe(input); expect(renderer).not.toHaveBeenCalled();
+      expect(turns).toBeLessThan(30);
+    } finally { active = false; }
+  });
+  it("preserves untouched grid rows and cells when only one nested asset changes", async () => {
+    const rows: (GridCell | null)[][] = [[{ text: "ordinary" }, null], [{ text: "kept" }, { children: [qr()] }]];
+    const input = makePlan({ kind: "rect", leftMm: 0, topMm: 0, widthMm: 20, heightMm: 20, grid: { cells: rows } });
+    const result = await resolvePlanAssets(input, { assetRenderers: { qrcode: () => PNG } });
+    const resolved = result.plan.pages[0]!.components[0]!.grid!.cells;
+    expect(resolved[0]).toBe(rows[0]);
+    expect(resolved[1]![0]).toBe(rows[1]![0]);
+    expect(resolved[1]![1]!.children![0]!.imageData).toBe(PNG);
+    expect(rows[1]![1]!.children![0]!.imageData).toBeUndefined();
+  });
   it("resolves nested grid assets immutably, deduplicates reused component objects and preserves existing images", async () => {
     const code = qr();
     const nested: PlanComponent = { kind: "rect", leftMm: 0, topMm: 0, widthMm: 20, heightMm: 20, grid: { cells: [[{ children: [code] }]] } };

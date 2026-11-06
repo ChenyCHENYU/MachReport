@@ -1,8 +1,8 @@
 import { observeOutput } from "../output/progress";
 import { createReportRuntime, enforcePrepared } from "../server/runtime";
 import { DEFAULT_REPORT_RUNTIME_BUDGET, assertBudget, controlled, ReportRuntimeError, throwIfAborted, validateBudget } from "../server/control";
-import { snapshotPdfFonts, capturePreparedHandoff, snapshotXlsxOptions } from "../server/prepared";
-import type { ReportRuntimeExecutor, ReportRuntimePreparedExportInput } from "../server/types";
+import { assertPreparedOutputBudget, snapshotPdfFonts, capturePreparedHandoff, snapshotXlsxOptions } from "../server/prepared";
+import type { ReportRuntimeBudget, ReportRuntimeExecutor, ReportRuntimeExportResult, ReportRuntimePreparedExportInput } from "../server/types";
 import { decideReportExport } from "./auto-policy";
 import { ReportWorkerStartError } from "./client";
 import type { ReportAutoExporter, ReportAutoExportResult, ReportExportDecision, ReportExportExecutionOptions, ReportLocalExport } from "./auto-types";
@@ -16,12 +16,16 @@ function notify(options: ReportExportExecutionOptions, decision: ReportExportDec
   observeOutput(() => options.onDecision?.({ ...decision, estimate: { ...decision.estimate } }));
 }
 function fallbackDecision(decision: ReportExportDecision, reason: ReportExportDecision["reason"]): ReportExportDecision { return { ...decision, mode: "local", reason, hardCancellation: false }; }
+function assertOutputResult(result: ReportRuntimeExportResult, input: ReportRuntimePreparedExportInput, budget: ReportRuntimeBudget): void {
+  assertBudget(budget, "maxRows", result.stats.rows);
+  assertBudget(budget, "maxPages", result.stats.pages);
+  assertBudget(budget, "maxCells", result.stats.cells);
+  assertBudget(budget, "maxOutputBytes", result.bytes.byteLength);
+  assertPreparedOutputBudget({ ...input, prepared: { ...input.prepared, stats: result.stats } }, budget);
+}
 function capture(input: ReportRuntimePreparedExportInput, options: ReportExportExecutionOptions): { request: ReportRuntimePreparedExportInput; forward(): ReportRuntimePreparedExportInput } {
   const budget = { ...DEFAULT_REPORT_RUNTIME_BUDGET, ...options.budget };
   const owned = capturePreparedHandoff(input.prepared, budget.maxPreparedBytes, input.signal);
-  const checked = enforcePrepared(owned.prepared, budget);
-  // Keep the private snapshot identity while retaining recomputed cell/page counts.
-  owned.prepared.stats = checked.stats;
   const request = { ...input, prepared: owned.prepared, pdf: snapshotPdfFonts(input.pdf), xlsx: snapshotXlsxOptions(input.xlsx) };
   return { request, forward: () => ({ ...request, prepared: owned.forward() }) };
 }
@@ -54,7 +58,7 @@ export function createAutoExporterController(options: ReportExportExecutionOptio
         const { signal, onEvent, ...serializable } = request;
         const result = await executor.exportPrepared(serializable, signal, onEvent);
         throwIfAborted(signal);
-        assertBudget(config.budget, "maxOutputBytes", result.bytes.byteLength);
+        assertOutputResult(result, request, config.budget);
         return { ...result, execution: decision };
       } catch (error) {
         if (!(error instanceof ReportWorkerStartError) || !fallbackAllowed) throw error;
@@ -62,9 +66,15 @@ export function createAutoExporterController(options: ReportExportExecutionOptio
         decision = fallbackDecision(decision, "worker-start-failed"); notify(config, decision);
       }
     }
+    // Geometry is checked once at its actual execution boundary. Large jobs validate in
+    // the Worker, while local Runtime consumes the private one-use snapshot handoff.
+    if (localOverride) {
+      request.prepared = enforcePrepared(request.prepared, config.budget);
+      assertPreparedOutputBudget(request, config.budget);
+    }
     const result = localOverride ? await controlled(input.signal, remaining(), signal => localOverride({ ...request, signal })) : await controlled(input.signal, remaining(), signal => local.exportPrepared({ ...captured.forward(), signal }));
     throwIfAborted(input.signal);
-    assertBudget(config.budget, "maxOutputBytes", result.bytes.byteLength);
+    assertOutputResult(result, request, config.budget);
     return { ...result, execution: decision };
   }
   return {

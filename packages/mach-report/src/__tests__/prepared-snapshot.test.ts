@@ -70,4 +70,40 @@ describe("Prepared geometry snapshot ownership and budgets", () => {
     expect(() => snapshot(0, 0)).toThrow("正安全整数");
     expect(snapshot({ x: undefined, y: [undefined] }, 12)).toEqual({ y: [null] });
   });
+  it.each(["plain", "中文", "😀", "\ud800", "\udfff", "a\ud800b", "\"\\\n\r\t\b\f\u0000\u001f", "\u2028\u2029", "é", "\u007f\u0080\u07ff\u0800"])("counts exact escaped UTF-8 bytes for keys and values %j", text => {
+    const input = { [text]: [text, -0, 1e-7, undefined], absent: undefined };
+    const encoded = JSON.stringify(input), bytes = new TextEncoder().encode(encoded).byteLength;
+    const snapshot = (maxBytes: number) => snapshotReportJson(input, { maxBytes, error: (_code, message) => new Error(message) });
+    expect(snapshot(bytes)).toEqual(JSON.parse(encoded));
+    expect(Object.is(snapshot(bytes)[text]![1], -0)).toBe(false);
+    expect(() => snapshot(bytes - 1)).toThrow("字节预算");
+  });
+  it("does not serialize or parse a second full document to capture an independent snapshot", () => {
+    const input = { nested: [{ text: "中文 😀", value: 0 }] };
+    const stringify = vi.spyOn(JSON, "stringify"), parse = vi.spyOn(JSON, "parse");
+    try {
+      const output = snapshotReportJson(input, { maxBytes, error: (_code, message) => new Error(message) });
+      expect(stringify).not.toHaveBeenCalled(); expect(parse).not.toHaveBeenCalled();
+      input.nested[0]!.text = "changed";
+      expect(output.nested[0]!.text).toBe("中文 😀");
+      expect(Object.getPrototypeOf(output)).toBe(Object.prototype);
+    } finally { stringify.mockRestore(); parse.mockRestore(); }
+  });
+  it("matches the serialized UTF-8 budget across every UTF-16 code unit", () => {
+    const text = Array.from({ length: 65_536 }, (_, index) => String.fromCharCode(index)).join("");
+    const input = { text }, bytes = new TextEncoder().encode(JSON.stringify(input)).byteLength;
+    const capture = (maxBytes: number) => snapshotReportJson(input, { maxBytes, error: (_code, message) => new Error(message) });
+    expect(capture(bytes)).toEqual(input);
+    expect(() => capture(bytes - 1)).toThrow("字节预算");
+  });
+  it("does not invoke inherited setters while defining captured own properties", () => {
+    const setter = vi.fn();
+    Object.defineProperty(Object.prototype, "snapshotInheritedSetter", { set: setter, configurable: true });
+    try {
+      const input = { snapshotInheritedSetter: "own value", toString: "ordinary data" };
+      const output = snapshotReportJson(input, { maxBytes, error: (_code, message) => new Error(message) });
+      expect(output).toEqual(input); expect(setter).not.toHaveBeenCalled();
+      expect(Object.prototype.hasOwnProperty.call(output, "snapshotInheritedSetter")).toBe(true);
+    } finally { Reflect.deleteProperty(Object.prototype, "snapshotInheritedSetter"); }
+  });
 });

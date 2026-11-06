@@ -21,11 +21,12 @@ export function usePageWindow(
     for (const page of plan.value?.pages ?? []) width = Math.max(width, page.pageWidthMm * pxPerMm);
     return { w: width, h: geometry.value.totalHeightPx };
   });
-  const windowRange = computed(() => geometry.value.window(
-    viewportHeight.value / zoom.value,
-    scrollTop.value / zoom.value,
-    unref(options.overscan) ?? 1
-  ));
+  let previousWindow: ReturnType<ReturnType<typeof createPageWindowIndex>["window"]> | undefined;
+  const windowRange = computed(() => {
+    const next = geometry.value.window(viewportHeight.value / zoom.value, scrollTop.value / zoom.value, unref(options.overscan) ?? 1);
+    if (previousWindow && previousWindow.start === next.start && previousWindow.end === next.end && previousWindow.padTopPx === next.padTopPx && previousWindow.padBottomPx === next.padBottomPx) return previousWindow;
+    previousWindow = next; return next;
+  });
   const visiblePages = computed(() => {
     const p = plan.value;
     if (!p) return [] as { page: PlanPage; index: number }[];

@@ -55,7 +55,10 @@
   font-size: 13px;
 }
 .mrp-error { color: #ff9d9d; }
-.mrp-edit-hint { padding: 5px 12px; font-size: 12px; color: var(--mrp-shell-fg); }
+.mrp-edit-hint { display: flex; align-items: center; gap: 7px; min-height: 26px; box-sizing: border-box; padding: 4px 12px; font-size: 12px; color: var(--mrp-shell-fg); }
+.mrp-cell-access { flex: none; padding: 1px 5px; border: 1px solid var(--mrp-toolbar-border); border-radius: 4px; font-size: 11px; color: var(--mrp-btn-fg); }
+.mrp-cell-access-message { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mrp-cell-access.is-editable { color: var(--mrp-btn-active-bg); border-color: color-mix(in srgb,var(--mrp-btn-active-bg) 25%,transparent); background: color-mix(in srgb,var(--mrp-btn-active-bg) 6%,transparent); }
 .mrp-body :deep(.mrp-cell-selected) { background-image: linear-gradient(#2563eb12, #2563eb12); }
 .mrp-body :deep(.mrp-cell-focus) { outline: 2px solid #2563eb; outline-offset: -2px; z-index: 8 !important; }
 .mrp-body :deep(.mrp-cell-modified)::after { content: ""; position: absolute; right: 0; top: 0; border-top: 6px solid #d58916; border-left: 6px solid transparent; }

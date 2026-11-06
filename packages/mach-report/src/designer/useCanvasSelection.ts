@@ -11,6 +11,7 @@ export function useCanvasSelection(draft: Ref<ReportTemplateDocument>, selection
   const locked = (item?: CanvasSelection) => !!item && locks.value.has(key(item));
   function select(next: CanvasSelection): void {
     const clean = { pageIndex: next.pageIndex, componentIndex: next.componentIndex };
+    if (next.preserve && selections.value.some(item => key(item) === key(next))) { selection.value = clean; return; }
     if (next.additive && selections.value.every((item) => item.pageIndex === next.pageIndex)) {
       const exists = selections.value.some((item) => key(item) === key(next));
       selections.value = exists ? selections.value.filter((item) => key(item) !== key(next)) : [...selections.value, clean];
@@ -61,5 +62,5 @@ export function useCanvasSelection(draft: Ref<ReportTemplateDocument>, selection
     locks.value = new Set([...locks.value].flatMap((value) => { const [pageIndex, componentIndex] = value.split(":").map(Number); const next = map({ pageIndex: pageIndex!, componentIndex: componentIndex! }); return next ? [key(next)] : []; }));
     selections.value = selections.value.flatMap((item) => { const next = map(item); return next ? [next] : []; });
   }
-  return { clearLocks: () => { locks.value = new Set(); }, selections, locked, allLocked: computed(() => !!selections.value.length && selections.value.every(locked)), toggleLock, align, distribute, select, remap };
+  return { clearLocks: () => { locks.value = new Set(); }, selections, movable, locked, allLocked: computed(() => !!selections.value.length && selections.value.every(locked)), toggleLock, align, distribute, select, remap };
 }

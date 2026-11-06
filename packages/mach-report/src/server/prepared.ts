@@ -1,14 +1,21 @@
 import { hasValidDataExplanation } from "../source/data-explanation";
 import { snapshotReportJson } from "../schema/json-snapshot";
-import type { PreparedReport, ReportPdfFontOptions, ReportRuntimeExportInput, ReportRuntimePreparedExportInput } from "./types";
+import type { PreparedReport, ReportPdfFontOptions, ReportRuntimeBudget, ReportRuntimeExportInput, ReportRuntimePreparedExportInput } from "./types";
 import { ReportSourceError } from "../source/report-source";
 import { portableSha256Hex } from "./sha256";
-import { ReportRuntimeError, throwIfAborted } from "./control";
+import { assertBudget, ReportRuntimeError, throwIfAborted } from "./control";
 import { snapshotAdditionalSheets, snapshotSheetNames } from "../output/workbook-sheets";
 
 /** Encoding settings are scalar declarations; capture them before any async boundary. */
 export function snapshotXlsxOptions(options: ReportRuntimeExportInput["xlsx"]): ReportRuntimeExportInput["xlsx"] {
   return options && { ...options, sheetNames: snapshotSheetNames(options.sheetNames), additionalSheets: snapshotAdditionalSheets(options.additionalSheets) };
+}
+
+/** Runtime cell work includes supplemental sheets; source-row and RenderPlan stats keep their meanings. */
+export function assertPreparedOutputBudget(input: ReportRuntimePreparedExportInput, budget: ReportRuntimeBudget): void {
+  if (input.format !== "xlsx") return;
+  const additionalCells = input.xlsx?.additionalSheets?.reduce((sum, sheet) => sum + sheet.rows.reduce((count, row) => count + row.length, 0), 0) ?? 0;
+  assertBudget(budget, "maxCells", input.prepared.stats.cells + additionalCells);
 }
 
 export function snapshotPdfFonts(pdf?: ReportPdfFontOptions): ReportPdfFontOptions | undefined {
