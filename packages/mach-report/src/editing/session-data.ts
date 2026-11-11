@@ -49,13 +49,20 @@ export function createSessionRowResolver(parts: readonly ReportEditSessionPart[]
 /** COW 只复制被修改的数据集和行；未修改大数据集保持同一快照。 */
 export function updateSessionRows(parts: readonly ReportEditSessionPart[], changes: readonly { row: SessionRow; field: string; value: unknown }[]): ReportEditSessionPart[] {
   const next = parts.map((part) => ({ ...part, datasets: { ...part.datasets } }));
-  const copied = new Set<string>();
+  const copied = new Map<string, Set<number>>();
   for (const { row, field, value } of changes) {
     const part = next[row.partIndex]!, key = JSON.stringify([row.partIndex, row.dataset]);
-    if (!copied.has(key)) { part.datasets[row.dataset] = [...part.datasets[row.dataset]!]; copied.add(key); }
-    part.datasets[row.dataset]![row.rowIndex] = { ...part.datasets[row.dataset]![row.rowIndex], [field]: value };
+    let rows = copied.get(key);
+    if (!rows) { part.datasets[row.dataset] = [...part.datasets[row.dataset]!]; copied.set(key, rows = new Set()); }
+    const target = part.datasets[row.dataset]!;
+    // Wide paste and revision updates copy each affected row once, rather than once per field.
+    if (!rows.has(row.rowIndex)) { target[row.rowIndex] = { ...target[row.rowIndex] }; rows.add(row.rowIndex); }
+    const updated = target[row.rowIndex]!;
+    if (Object.prototype.hasOwnProperty.call(updated, field)) updated[field] = value;
+    // New field names must not invoke inherited setters, including __proto__.
+    else Object.defineProperty(updated, field, { value, enumerable: true, writable: true, configurable: true });
   }
-  for (const key of copied) {
+  for (const key of copied.keys()) {
     const [partIndex, dataset] = JSON.parse(key) as [number, string];
     forkComputedDataset(parts[partIndex]!.datasets[dataset]!, next[partIndex]!.datasets[dataset]!);
   }

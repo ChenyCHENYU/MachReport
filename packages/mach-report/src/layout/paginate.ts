@@ -33,6 +33,7 @@ import { PaginateCellLimitError, PaginatePageLimitError } from "./pagination-err
 export { PaginateCellLimitError, PaginatePageLimitError, PaginateChartComponentLimitError } from "./pagination-errors";
 
 import { createColumnVisualResolvers, type ColumnVisualResolver } from "./column-visual";
+import { createGroupHeaderRows } from "./group-header-cache";
 import type { ListColumn, ListComponent, ListGroupBy } from "./list-model";
 import type { ReportTemplateDataContract } from "../source/template-compatibility";
 export type { ListAlignment, ListColumn, ListComponent, ListGroupBy, ListGrandTotal, ListDetail } from "./list-model";
@@ -720,6 +721,7 @@ function* paginateList(list: ListComponent, input: DataRow[], context: ListPageC
   const inter = { ...interList(scaled, context.measurer, rows, context.signal), rowHeightFloorMm: scaled.rowHeightMm ?? 0, matrix: prepared.matrix, ...(prepared.treeRows ? { tree: { list: scaled, rows: prepared.treeRows } } : {}) };
   ensureFlowListStart(scaled, inter, rows, context);
   const writer = createListPageWriter(scaled, inter, context), detail = detailContext(scaled, rows, context);
+  const groupHeaderRow = createGroupHeaderRows((label, style) => buildSpanRow(inter, context.measurer, label, new Map(), style ?? {}, scaled.columns.length));
   let nextRow: GridRow | undefined;
   for (const unit of listRowUnits(rows, groups)) {
     checkPaginationAbort(context.signal);
@@ -729,10 +731,16 @@ function* paginateList(list: ListComponent, input: DataRow[], context: ListPageC
       yield* context.takePages();
       yield* placeDetails(scaled, unit.row, detail, context, writer);
     } else if (unit.kind === "groupHeader") {
-      const row = buildSpanRow(inter, context.measurer, unit.label, new Map(), unit.group.headerStyle ?? {}, scaled.columns.length);
-      nextRow ??= buildRowGridFast(inter, unit.firstRow, context.measurer);
-      const followingHeaders = groups.slice(unit.depth + 1).reduce((height, group) => height + buildSpanRow(inter, context.measurer, (group.headerTemplate ?? "{value}").replace(/\{value\}/g, cellText(unit.firstRow[group.field])), new Map(), group.headerStyle ?? {}, scaled.columns.length).heightMm, 0);
-      if (unit.group.keepWithNext !== false) writer.keepTogether(row.heightMm + followingHeaders + nextRow.heightMm);
+      const row = groupHeaderRow(unit.depth, unit.firstRow, unit.label, unit.group.headerStyle);
+      if (unit.group.keepWithNext !== false) {
+        nextRow ??= buildRowGridFast(inter, unit.firstRow, context.measurer);
+        let followingHeaders = 0;
+        for (let depth = unit.depth + 1; depth < groups.length; depth++) {
+          const group = groups[depth]!, label = (group.headerTemplate ?? "{value}").replace(/\{value\}/g, cellText(unit.firstRow[group.field]));
+          followingHeaders += groupHeaderRow(depth, unit.firstRow, label, group.headerStyle).heightMm;
+        }
+        writer.keepTogether(row.heightMm + followingHeaders + nextRow.heightMm);
+      }
       writer.placeGridRow(row, "listg", "group-header");
       if (unit.group.repeatHeader) writer.setGroupHeader(unit.depth, row);
     } else if (unit.kind === "subtotal") {

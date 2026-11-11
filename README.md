@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.25.0-2563eb" alt="Source version 2.25.0" />
+  <img src="https://img.shields.io/badge/source-2.25.1-2563eb" alt="Source version 2.25.1" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -111,6 +111,8 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 保留旧快照期间通过 `state.stale` 识别来源状态，编辑与输出同步暂停。刷新策略、导出菜单扩展和偏好作用域见 [交互指南](./docs/INTERACTION.md)。
 
 大宽表默认按视口挂载单元格并保留完整计划，固定列、冻结表头、搜索与编辑共用真实单元格窗口，使用侧无需维护窗口状态。搜索按逻辑地址挂载命中位置，连续定位复用当前计划索引。编辑计算缓存只属于当前私有会话，简单行计算跳过未变化的依赖；分组、整表、受信任公式适配器和分页按安全路径重算。
+
+复杂排版内部减少重复工作：多区域按组件 ID 建立索引，深层分组在单次列表排版内复用最多 16 个预测表头，层级矩阵按唯一维度成员生成稳定键。整批编辑按受影响行复制数据，同一行修改多个字段只复制一次。无需额外开关；完整重排、预算、来源身份和原子保存规则继续生效，实测范围见[质量说明](./docs/QUALITY.md)。
 
 产品分层和暂缓的数据库连接、企业权限、调度与渠道见[产品能力](./docs/PRODUCT_PLATFORM.md)；还原边界、验证方式和上游依赖证据见[质量说明](./docs/QUALITY.md)、[可靠性与升级](./docs/RELIABILITY.md)、[依赖清单](./docs/DEPENDENCIES.md)。
 
@@ -725,7 +727,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.25.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准，npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.25.1`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准，npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 
