@@ -15,27 +15,27 @@ test("列搜索与批量对齐可一次撤销，默认恢复确认保留未应�
   await expect(page.getByLabel("表头", { exact: true })).toHaveValue("炉号");
   await expect(page.locator(".mr-designer-column-row")).toHaveCount(1);
   await page.getByRole("button", { name: "选择当前结果", exact: true }).click();
-  await page.getByLabel("批量正文对齐", { exact: true }).selectOption("center");
-  await expect(
-    page
-      .locator(".mr-designer-preview td")
-      .filter({ hasText: /^64200(?:\.0+)?$/ })
-      .first(),
-  ).toHaveCSS("text-align", "center");
-  await page.getByRole("button", { name: "撤销", exact: true }).click();
+  await page.getByLabel("批量正文对齐", { exact: true }).selectOption("right");
   await expect(
     page
       .locator(".mr-designer-preview td")
       .filter({ hasText: /^64200(?:\.0+)?$/ })
       .first(),
   ).toHaveCSS("text-align", "right");
-  await page.getByRole("button", { name: "重做", exact: true }).click();
+  await page.getByRole("button", { name: "撤销", exact: true }).click();
   await expect(
     page
       .locator(".mr-designer-preview td")
       .filter({ hasText: /^64200(?:\.0+)?$/ })
       .first(),
   ).toHaveCSS("text-align", "center");
+  await page.getByRole("button", { name: "重做", exact: true }).click();
+  await expect(
+    page
+      .locator(".mr-designer-preview td")
+      .filter({ hasText: /^64200(?:\.0+)?$/ })
+      .first(),
+  ).toHaveCSS("text-align", "right");
   await page.getByRole("tab", { name: "高级", exact: true }).click();
   await page.getByLabel("完整模板 JSON", { exact: true }).fill("{正在输入");
   await expect(
@@ -62,7 +62,7 @@ test("列搜索与批量对齐可一次撤销，默认恢复确认保留未应�
       .locator(".mr-designer-preview td")
       .filter({ hasText: /^64200(?:\.0+)?$/ })
       .first(),
-  ).toHaveCSS("text-align", "right");
+  ).toHaveCSS("text-align", "center");
 });
 
 async function openTools(page: Page, name: string) {

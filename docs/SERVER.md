@@ -221,7 +221,7 @@ const fetcher: ReportFetcher = async ({ reportIds, params, signal, taskId, corre
 
 ## 大批量数据 Excel
 
-当目标是连续数据导出时，可直接使用独立的 [`/xlsx/node` 流式适配器](../packages/mach-report/src/xlsx/node.ts)，消费 `AsyncIterable` 并处理背压、进度和取消，无需先生成完整 RenderPlan。它输出数据工作表；PDF 或固定版式继续走运行时布局出口。详细区别见 [Excel 文档](./EXCEL.md)。
+当目标是连续数据导出时，可直接使用独立的 [`/xlsx/node` 流式适配器](../packages/mach-report/src/xlsx/node.ts)，消费 `AsyncIterable` 并处理背压、进度和取消，无需先生成完整 RenderPlan。它输出数据工作表；PDF 或固定版式继续走运行时布局出口。列的可选 `align` 沿用自动数值居中规则，默认接入无需增加配置。详细区别见 [Excel 文档](./EXCEL.md)。
 
 权限始终由宿主校验：报表 ID、租户、数据范围、编辑字段、冻结状态、来源修订、幂等请求以及数据库事务，都不由模板、客户端或 Worker 的参数验证代替。
 

@@ -2,6 +2,7 @@ import { computed, onScopeDispose, ref, shallowRef, unref, watch, type Ref } fro
 import { createPageWindowIndex } from "../../render/page-window-index";
 import type { RenderPlan } from "@agile-team/mach-report";
 import { pageTexts, type PlanTextTarget } from "./plan-texts";
+import { scanTextMatches } from "./text-matches";
 
 /**
  * 预览交互 composables 集合（本文件包含四件）：
@@ -40,13 +41,6 @@ export interface ReportSearchOptions {
   clearHighlights: (pageEl: HTMLElement) => void;
 }
 
-function countOccurrences(text: string, q: string): number {
-  const lower = text.toLowerCase();
-  let count = 0;
-  for (let i = lower.indexOf(q); i >= 0; i = lower.indexOf(q, i + q.length)) count++;
-  return count;
-}
-
 /** Only the active page is revisited. Repeated text hits remain compressed into page counts. */
 function matchTarget(plan: RenderPlan, pageIndex: number, occurrence: number, query: string): ReportSearchTarget | undefined {
   let previous = "", local = 0;
@@ -54,7 +48,7 @@ function matchTarget(plan: RenderPlan, pageIndex: number, occurrence: number, qu
     if (!item.target) continue;
     const key = `${item.target.componentIndex}:${item.target.rowIndex}:${item.target.columnIndex}`;
     if (key !== previous) { previous = key; local = 0; }
-    const count = countOccurrences(item.text, query);
+    const count = scanTextMatches(item.text, query);
     if (occurrence < count) return { ...item.target, occurrence: local + occurrence };
     occurrence -= count;
     local += count;
@@ -126,7 +120,7 @@ export function useReportSearch(options: ReportSearchOptions): ReportSearchState
           if (matches[0]) gotoPage(matches[0].pageIndex + 1);
           return;
         }
-        const occurrences = countOccurrences(next.value.text, q);
+        const occurrences = scanTextMatches(next.value.text, q);
         if (occurrences > 0) {
           count += occurrences;
           const previous = nextMatches[nextMatches.length - 1];

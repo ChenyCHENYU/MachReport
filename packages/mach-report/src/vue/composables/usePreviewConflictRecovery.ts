@@ -6,6 +6,7 @@ import type { PreviewQueryCandidate } from "./usePreviewSession";
 
 interface ConflictRecoveryHost {
   plan: Ref<RenderPlan | null>;
+  query?(): unknown;
   busy(): boolean;
   canQuery(): boolean;
   pending(): readonly ReportCellEdit[];
@@ -28,12 +29,13 @@ export function usePreviewConflictRecovery(host: ConflictRecoveryHost) {
   const candidate = shallowRef<PreviewQueryCandidate | null>(null);
   let controller: AbortController | null = null;
   let generation = 0, publishing = false;
+  let publishingContext: unknown;
   let reviewedRevision = -1;
   function invalidate(): void { generation++; controller?.abort(); controller = null; candidate.value = null; reading.value = false; }
-  function close(): void {
-    if (applying.value) return;
-    invalidate(); opened.value = false; rows.value = []; error.value = null;
+  function reset(): void {
+    invalidate(); opened.value = false; applying.value = false; rows.value = []; error.value = null;
   }
+  function close(): void { if (!applying.value) reset(); }
   async function refresh(): Promise<void> {
     if (host.busy() || applying.value || !opened.value) return;
     invalidate(); rows.value = []; error.value = null;
@@ -63,26 +65,39 @@ export function usePreviewConflictRecovery(host: ConflictRecoveryHost) {
     if (!ready.value || host.busy() || reading.value || applying.value || !candidate.value) return false;
     if (reviewedRevision !== host.pendingRevision()) { candidate.value = null; error.value = host.stale(); return false; }
     const next = candidate.value, chosen = rows.value.filter(row => row.choice === "local");
+    const sequence = generation;
     const intentions = chosen.map(row => row.edit);
     const inputs = chosen.map(row => ({ address: row.address!, value: row.edit.value }));
     applying.value = true; error.value = null;
     try {
       publishing = true;
+      publishingContext = next.context;
       const accepted = next.accept(() => host.retain(intentions));
       publishing = false; candidate.value = null;
+      if (sequence !== generation) return false;
       if (!accepted) { error.value = host.stale(); return false; }
       if (!inputs.length) { opened.value = false; rows.value = []; return true; }
       const success = await host.apply(inputs);
+      if (sequence !== generation) return false;
       if (success) { opened.value = false; rows.value = []; }
       else error.value = host.failure();
       return success;
-    } catch (cause) { host.retain(intentions); error.value = host.error(cause); return false; }
-    finally { publishing = false; applying.value = false; }
+    } catch (cause) {
+      if (sequence === generation) { host.retain(intentions); error.value = host.error(cause); }
+      return false;
+    } finally {
+      publishing = false; publishingContext = undefined;
+      if (sequence === generation) applying.value = false;
+    }
   }
   watch(host.plan, () => {
     if (publishing || applying.value) return;
     close();
   }, { flush: "sync" });
-  onScopeDispose(() => { invalidate(); opened.value = false; rows.value = []; });
+  watch(() => host.query?.(), query => {
+    if (publishing && query === publishingContext) return;
+    reset();
+  }, { flush: "sync" });
+  onScopeDispose(reset);
   return { opened, reading, applying, rows, error, ready, open, close, refresh, choose, submit };
 }

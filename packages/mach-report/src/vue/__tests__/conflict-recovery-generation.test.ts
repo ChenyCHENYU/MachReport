@@ -14,7 +14,8 @@ function fixture(wait = Promise.resolve()) {
     { address: { pageIndex: 0, componentIndex: 0, rowIndex: 0, columnIndex: 0 }, value: 5 },
     { address: { pageIndex: 0, componentIndex: 0, rowIndex: 0, columnIndex: 1 }, value: "mine" }
   ], "intentions").edits;
-  const plan = shallowRef<RenderPlan | null>(initial), pending = shallowRef<readonly ReportCellEdit[]>([edits[0]!]), revision = shallowRef(1);
+  const plan = shallowRef<RenderPlan | null>(initial), query = shallowRef({ id: "A" });
+  const pending = shallowRef<readonly ReportCellEdit[]>([edits[0]!]), revision = shallowRef(1);
   const retain = vi.fn((next: readonly ReportCellEdit[]) => { pending.value = next; revision.value++; });
   const accept = vi.fn((beforeEvents?: () => void) => { beforeEvents?.(); plan.value = structuredClone(initial); return true; });
   const prepare = vi.fn(async (): Promise<PreviewQueryCandidate> => {
@@ -23,11 +24,11 @@ function fixture(wait = Promise.resolve()) {
   });
   const apply = vi.fn(async () => true), scope = effectScope(); scopes.push(scope);
   const recovery = scope.run(() => usePreviewConflictRecovery({
-    plan, pending: () => pending.value, pendingRevision: () => revision.value, pause: () => true, busy: () => false, canQuery: () => true,
+    plan, query: () => query.value, pending: () => pending.value, pendingRevision: () => revision.value, pause: () => true, busy: () => false, canQuery: () => true,
     retain, prepare, apply, failure: () => "Validation failed", error: cause => String(cause), stale: () => "Intentions changed, requery required"
   }))!;
   const addIntent = () => { pending.value = [...edits]; revision.value++; };
-  return { recovery, pending, edits, retain, accept, apply, addIntent };
+  return { recovery, query, pending, edits, retain, accept, apply, addIntent };
 }
 
 it("does not publish a review read against an earlier pending-intention generation", async () => {
@@ -56,4 +57,25 @@ it("keeps intent and exposes a stale notice when the latest-query candidate refu
   expect(await state.recovery.submit()).toBe(false);
   expect(state.recovery.error.value).toContain("Intentions changed"); expect(state.recovery.ready.value).toBe(false);
   expect(state.pending.value).toEqual([state.edits[0]]); expect(state.retain).not.toHaveBeenCalled(); expect(state.apply).not.toHaveBeenCalled();
+});
+
+it.each([false, true])("does not restore an obsolete recovery after a query switch (throw=%s)", async throws => {
+  const state = fixture();
+  let finish!: () => void;
+  state.apply.mockImplementationOnce(() => new Promise<boolean>((resolve, reject) => {
+    finish = () => throws ? reject(new Error("Old query failed")) : resolve(false);
+  }));
+  await state.recovery.open();
+  const submitted = state.recovery.submit();
+  expect(state.recovery.applying.value).toBe(true);
+  state.query.value = { id: "B" };
+  state.retain([]);
+  expect(state.recovery.opened.value).toBe(false);
+  const retained = state.retain.mock.calls.length;
+  finish();
+  expect(await submitted).toBe(false);
+  expect(state.retain).toHaveBeenCalledTimes(retained);
+  expect(state.pending.value).toEqual([]);
+  expect(state.recovery.rows.value).toEqual([]);
+  expect(state.recovery.error.value).toBeNull();
 });

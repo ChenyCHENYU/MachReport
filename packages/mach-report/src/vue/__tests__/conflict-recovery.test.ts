@@ -65,6 +65,24 @@ async function fixture() {
   return { wrapper, report, query, save, open, reviewButton };
 }
 describe("preview conflict recovery transaction", () => {
+  it("dismisses an in-flight recovery when an approved reload replaces its query", async () => {
+    const f = await fixture();
+    await f.wrapper.setProps({ beforeDiscard: () => true });
+    let finish!: (value: { revision: string }) => void;
+    f.save.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await f.open();
+    await f.wrapper.findAll(".mrp-conflict-rows li")[0]!.get('input[value="server"]').setValue();
+    await f.wrapper.get(".mrp-conflict-submit").trigger("click");
+    await vi.waitFor(() => expect(f.save).toHaveBeenCalledTimes(2));
+    await f.report.reload();
+    const latest = f.report.getPlan!();
+    expect(f.wrapper.find(".mrp-conflict-review").exists()).toBe(false);
+    expect(f.report.state!.pendingLocalChanges).toBe(false);
+    finish({ revision: "late" });
+    await vi.waitFor(() => expect(f.report.state!.saving).toBe(false));
+    expect(f.report.getPlan!()).toEqual(latest);
+    expect(f.wrapper.find(".mrp-conflict-review").exists()).toBe(false);
+  });
   it("keeps the old display until a choice, then validates and atomically saves fresh values with the accepted query", async () => {
     const f = await fixture(), original = f.report.getPlan!();
     expect(f.report.state!.pendingLocalChanges).toBe(true);

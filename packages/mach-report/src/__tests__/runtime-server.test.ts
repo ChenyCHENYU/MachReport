@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createTemplate } from "../builder/template-builder";
 import { createReportRuntime } from "../server/runtime";
-import type { ReportRuntimeExecutor } from "../server/types";
+import type { ReportRuntimeExecutor, ReportRuntimeExportResult } from "../server/types";
 import { paginateTemplate } from "../layout/paginate";
 
 function reports(count = 2) {
@@ -75,5 +75,42 @@ describe("无界面服务端运行时", () => {
     const runtime = createReportRuntime({ reports: reports(), executor });
     await runtime.prepare({ reportIds: ["sales"] });
     expect(executor.prepare).toHaveBeenCalledWith({ reportIds: ["sales"], taskId: expect.any(String) }, expect.any(AbortSignal), undefined);
+  });
+  it.each(["export", "exportPrepared"] as const)("%s rejects direct executor output in a different format before delivery", async operation => {
+    const definition = reports(), prepared = await createReportRuntime({ reports: definition }).prepare({ reportIds: ["sales"] });
+    const wrong: ReportRuntimeExportResult = { ...prepared, bytes: new Uint8Array([0x50, 0x4b]), format: "xlsx", contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" };
+    const execute = vi.fn(async () => wrong);
+    const runtime = createReportRuntime({ reports: definition, executor: { prepare: async () => prepared, export: execute, exportPrepared: execute } });
+    const pending = operation === "export" ? runtime.export({ reportIds: ["sales"], format: "pdf" }) : runtime.exportPrepared({ prepared, format: "pdf" });
+    await expect(pending).rejects.toMatchObject({ code: "validate", message: expect.stringContaining("请求格式") });
+    expect(execute).toHaveBeenCalledOnce();
+  });
+  it.each([
+    { bytes: [1, 2, 3] },
+    { contentType: "application/zip" },
+    { stats: { rows: 0, pages: 0, cells: 0, durationMs: NaN } },
+    { diagnostics: [{ code: "bad", message: "missing severity" }] },
+    { diagnosticSummary: { total: 2, counts: { bad: 2 }, entries: [], omitted: 2 } }
+  ])("rejects malformed direct executor delivery metadata %s through both output entries", async patch => {
+    const definition = reports(), prepared = await createReportRuntime({ reports: definition }).prepare({ reportIds: ["sales"] });
+    const result = { ...prepared, format: "pdf", contentType: "application/pdf", bytes: new Uint8Array([1]), ...patch } as unknown as ReportRuntimeExportResult;
+    const execute = vi.fn(async () => result);
+    const runtime = createReportRuntime({ reports: definition, executor: { prepare: async () => prepared, export: execute, exportPrepared: execute } });
+    await expect(runtime.export({ reportIds: ["sales"], format: "pdf" })).rejects.toMatchObject({ code: "validate" });
+    await expect(runtime.exportPrepared({ prepared, format: "pdf" })).rejects.toMatchObject({ code: "validate" });
+  });
+  it("accepts matching direct executor files, preserves cancellation and enforces the original byte budget", async () => {
+    const definition = reports(), prepared = await createReportRuntime({ reports: definition }).prepare({ reportIds: ["sales"] });
+    const result: ReportRuntimeExportResult = { ...prepared, format: "pdf", contentType: "application/pdf", bytes: new Uint8Array([1, 2, 3]) };
+    const execute = vi.fn(async () => result);
+    const runtime = createReportRuntime({ reports: definition, executor: { prepare: async () => prepared, export: execute, exportPrepared: execute } });
+    expect(await runtime.export({ reportIds: ["sales"], format: "pdf" })).toMatchObject({ format: "pdf", stats: { outputBytes: 3 } });
+    expect(await runtime.exportPrepared({ prepared, format: "pdf" })).toMatchObject({ format: "pdf", stats: { outputBytes: 3 } });
+    const bounded = createReportRuntime({ reports: definition, budget: { maxOutputBytes: 2 }, executor: { prepare: async () => prepared, export: execute, exportPrepared: execute } });
+    await expect(bounded.export({ reportIds: ["sales"], format: "pdf" })).rejects.toMatchObject({ code: "budget", path: "$.budget.maxOutputBytes" });
+    await expect(bounded.exportPrepared({ prepared, format: "pdf" })).rejects.toMatchObject({ code: "budget", path: "$.budget.maxOutputBytes" });
+    const controller = new AbortController(); controller.abort();
+    await expect(runtime.export({ reportIds: ["sales"], format: "pdf", signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
+    expect(execute).toHaveBeenCalledTimes(4);
   });
 });

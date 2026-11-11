@@ -43,7 +43,7 @@ describe("importExcelTemplate", () => {
     expect(sheet.getCell("A2").border.bottom).toBeUndefined();
   });
 
-  it("空白数字模板按格式右对齐且保留显式左对齐、文本格式与文本编号", async () => {
+  it("空白数字模板按新默认居中且保留显式左对齐、文本格式与文本编号", async () => {
     const bytes = await excel((workbook) => {
       const sheet = workbook.addWorksheet("空白对齐");
       sheet.addRow(["数量", "左对齐金额", "文本", "编号"]);
@@ -53,15 +53,34 @@ describe("importExcelTemplate", () => {
       sheet.getCell("D2").value = "000012"; sheet.getCell("D2").numFmt = "00000";
     });
     const result = await importExcelTemplate(bytes);
-    expect(importedCells(result).slice(4).map((cell) => [cell.value, cell.style?.align])).toEqual([[null, "right"], [null, "left"], [null, "left"], ["000012", "left"]]);
+    expect(importedCells(result).slice(4).map((cell) => [cell.value, cell.style?.align])).toEqual([[null, "center"], [null, "left"], [null, "left"], ["000012", "left"]]);
     const plan = paginateTemplate(result.template, {}).plan;
     const edit = createReportCellEdit(plan, { pageIndex: 0, componentIndex: 1, rowIndex: 0, columnIndex: 0 }, 12.5);
     const { buffer } = await renderPlanToXlsx(applyReportCellEdit(plan, edit));
     const reread = new ExcelJSRuntime.Workbook(); await reread.xlsx.load(buffer);
     const sheet = reread.worksheets[0]!;
     expect(sheet.getCell("A2").value).toBe(12.5);
-    expect(sheet.getCell("A2").alignment?.horizontal).toBe("right");
+    expect(sheet.getCell("A2").alignment?.horizontal).toBe("center");
     expect(sheet.getCell("D2").value).toBe("000012");
+  });
+
+  it("采用数值居中新默认，同时完整保留源模板中明确的水平对齐", async () => {
+    const bytes = await excel(workbook => {
+      const sheet = workbook.addWorksheet("显式样式");
+      sheet.addRow([0, 1.25, 2.5, 3.5, "001"]);
+      sheet.getCell("B1").alignment = { horizontal: "right" };
+      sheet.getCell("C1").alignment = { horizontal: "left" };
+      sheet.getCell("D1").alignment = { horizontal: "center" };
+      sheet.getCell("B1").numFmt = "0.000";
+    });
+    const imported = await importExcelTemplate(bytes);
+    expect(importedCells(imported).map(cell => cell.style?.align)).toEqual(["center", "right", "left", "center", "left"]);
+    const workbook = new ExcelJSRuntime.Workbook();
+    await workbook.xlsx.load((await renderPlanToXlsx(paginateTemplate(imported.template, {}).plan, { valueMode: "raw" })).buffer);
+    const row = workbook.worksheets[0]!.getRow(1);
+    expect([1, 2, 3, 4, 5].map(index => row.getCell(index).alignment.horizontal)).toEqual(["center", "right", "left", "center", "left"]);
+    expect([1, 2, 3, 4, 5].map(index => row.getCell(index).value)).toEqual([0, 1.25, 2.5, 3.5, "001"]);
+    expect(row.getCell(2).numFmt).toBe("0.000");
   });
 
   it("imports all visible worksheets, preserves merge geometry/styles and roundtrips a single continuous sheet", async () => {
@@ -114,7 +133,7 @@ describe("importExcelTemplate", () => {
     const cells = importedCells(await importExcelTemplate(bytes));
     expect(cells.slice(8).map((cell) => [cell.text, cell.value])).toEqual([["000012", "000012"], ["0.000", 0], ["12.5%", 0.125], ["", null], ["FALSE", false], ["-12.30", -12.3], ["1,234.50", 1234.5], ["00012", 12]]);
     expect(cells[8]!.style?.align).toBe("left");
-    expect(cells[9]!.style?.align).toBe("right");
+    expect(cells[9]!.style?.align).toBe("center");
     expect(cells[12]!.style?.align).toBe("center");
   });
 
@@ -148,7 +167,7 @@ describe("importExcelTemplate", () => {
     });
     const result = await importExcelTemplate(bytes);
     const cell = importedCells(result)[0]!;
-    expect(cell).toMatchObject({ text: "2026-10-15 08:09:10", numberFormat: "yyyy-mm-dd hh:mm:ss", editable: false });
+    expect(cell).toMatchObject({ text: "2026-10-15 08:09:10", numberFormat: "yyyy-mm-dd hh:mm:ss", editable: false, style: { align: "center" } });
     expect(cell.value).toBeCloseTo(date.getTime() / 86_400_000 + 25_569, 7);
     const output = await renderPlanToXlsx(paginateTemplate(result.template, {}).plan);
     const reread = new ExcelJSRuntime.Workbook();

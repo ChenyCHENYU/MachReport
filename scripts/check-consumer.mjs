@@ -80,9 +80,13 @@ const templates = core.createTemplateRegistry([core.parseReportTemplate(core.ser
 const managed = core.createReportSource({ managed: { template: () => templates.get("managed").template, load: () => ({ detail: [{ name: "00123", qty: 3 }] }) } });
 const managedPlan = await managed({ reportIds: ["managed"], params: {} });
 const managedGrids = managedPlan.pages[0].components.filter(c => c.grid).map(c => c.grid);
-if (managedGrids[0].cells[0][0].style.align !== "center" || managedGrids[1].cells[0][1].style.align !== "right") throw new Error("Missing independent automatic alignment");
+if (managedGrids[0].cells[0][0].style.align !== "center" || managedGrids[1].cells[0][1].style.align !== "center" || managedGrids[1].cells[0][0].style.align !== "left") throw new Error("Missing independent automatic alignment");
 const rawExcel = await xlsx.renderPlanToXlsx(managedPlan, { valueMode: "raw", paperSize: "auto" });
 if (rawExcel.workbook.worksheets[0].getCell("B3").value !== 3) throw new Error("Raw Excel number was lost");
+if (rawExcel.workbook.worksheets[0].getCell("B3").alignment.horizontal !== "center") throw new Error("Default numeric alignment was lost in Excel");
+const explicitAlignmentPlan = core.paginateTemplate(core.createTableTemplate({ columns: [{ header: "Qty", field: "qty", align: "right" }] }), { detail: [{ qty: 3 }] }).plan;
+const explicitBody = explicitAlignmentPlan.pages[0].components.find(component => component.table?.role === "body");
+if (explicitBody.grid.cells[0][0].style.align !== "right") throw new Error("Explicit alignment was lost");
 const wideColumns = Array.from({ length: 82 }, (_, index) => ({ header: "Column " + index, field: "c" + index }));
 const wideTemplate = core.createTableTemplate({ layout: "wide", title: "Wide Consumer", columns: wideColumns });
 const wideRows = Array.from({ length: 100 }, (_, row) => Object.fromEntries(wideColumns.map((column, col) => [column.field, row * 1000 + col])));

@@ -65,6 +65,20 @@ describe("two-dimensional preview window", () => {
       expect(cell.getAttribute("aria-colindex")).toBe(String(Number(cell.dataset.mrColumnIndex) + 1));
     }
   });
+  it("keeps inferred numeric and text alignment separate when plain cells are recycled", () => {
+    const source = page();
+    source.components[0]!.grid!.cells = Array.from({ length: 100 }, (_, row) => Array.from({ length: 200 }, (_, column) => {
+      const value = column < 100 ? row * 200 + column : `ID-${row}:${column}`;
+      return { text: String(value), value };
+    }));
+    const view = createPageViewportRenderer(source, 96, {}, document);
+    for (const leftMm of [100, 1500, 100]) {
+      view.update({ leftMm, topMm: 100, widthMm: 60, heightMm: 60 });
+      const cells = [...view.element.querySelectorAll<HTMLTableCellElement>("td")];
+      expect(cells.length).toBeGreaterThan(0); expect(cells.length).toBeLessThan(150);
+      for (const cell of cells) expect(cell.style.textAlign).toBe(leftMm < 1000 ? "center" : "left");
+    }
+  });
   it("does not recycle decorated frozen-row cells into ordinary data rows", () => {
     const view = createPageViewportRenderer(page(), 96, {}, document), frozen = { freezeHeaders: true };
     view.update({ leftMm: 100, topMm: 100, widthMm: 60, heightMm: 60 }, undefined, frozen);

@@ -1,4 +1,5 @@
 import type { ReportCellContext, ReportCellFieldOptions, ReportCellValue } from "../editing";
+import { resolveGridCellStyle } from "../render/cell-style";
 
 export type ReportCellEditorInput = HTMLTextAreaElement | HTMLInputElement | HTMLSelectElement;
 export interface CellEditor {
@@ -60,6 +61,7 @@ export function createCellEditor(cell: HTMLElement, label: string, context: Repo
   const input = editor.input;
   const root = doc.createElement("span"); root.className = "mrp-cell-editor-host"; root.style.cssText = "position:absolute;inset:0;z-index:10;";
   input.className = "mrp-cell-editor"; input.style.cssText = style;
+  input.style.textAlign = resolveGridCellStyle(context.component.style, context.cell).align ?? "left";
   input.setAttribute("aria-label", field?.label ?? label);
   if (field?.required) input.setAttribute("aria-required", "true");
   const note = doc.createElement("span"); note.id = `mrp-cell-hint-${++editorId}`; note.className = "mrp-cell-editor-hint";

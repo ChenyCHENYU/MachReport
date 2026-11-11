@@ -1,10 +1,8 @@
 import type { PreparedReport, ReportRuntime, ReportRuntimeExportInput, ReportRuntimeExportResult, ReportRuntimeInput, ReportRuntimePreparedExportInput, ReportRuntimeBudget } from "../server/types";
 import type { ReportTaskEvent, ReportTaskObserver } from "../source/task-events";
-import { matchingDiagnosticSummary, validReportDiagnosticLocation } from "../server/diagnostics";
-import { validPreparedSources } from "../server/prepared";
 import { hasValidDataExplanation } from "../source/data-explanation";
 import { createDiagnosticCollector, DEFAULT_DIAGNOSTIC_LIMIT, validDiagnosticSummary, type DiagnosticSummary } from "../output/diagnostic-collector";
-import { validateRenderPlan } from "../schema/validate";
+import { validReportExecutionResult } from "../server/execution-result";
 
 export const REPORT_WORKER_PROTOCOL = "mach-report-worker/1" as const;
 export type ReportWorkerInput = Omit<ReportRuntimeInput, "signal" | "onEvent"> | Omit<ReportRuntimeExportInput, "signal" | "onEvent"> | Omit<ReportRuntimePreparedExportInput, "signal" | "onEvent">;
@@ -29,29 +27,9 @@ export class ReportWorkerError extends Error {
   }
 }
 function object(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
-function stats(value: unknown): boolean {
-  if (!object(value)) return false;
-  return ["rows", "pages", "cells"].every((key) => typeof value[key] === "number" && Number.isSafeInteger(value[key]) && value[key] >= 0)
-    && typeof value.durationMs === "number" && Number.isFinite(value.durationMs) && value.durationMs >= 0;
-}
-function diagnostics(value: unknown): boolean {
-  return Array.isArray(value) && value.every((entry: unknown) => object(entry) && typeof entry.code === "string" && typeof entry.message === "string" && ["info", "warning", "error"].includes(entry.severity as string) && hasValidDataExplanation(entry) && validReportDiagnosticLocation(entry as unknown as PreparedReport["diagnostics"][number]));
-}
-function revisions(value: unknown): boolean {
-  return object(value) && Object.values(value).every((entry) => object(entry) && (entry.revision === undefined || typeof entry.revision === "string") && (entry.sourceToken === undefined || typeof entry.sourceToken === "string"));
-}
-function layoutMetrics(value: unknown): boolean {
-  if (value === undefined) return true;
-  return object(value) && ["heuristic", "provided", "font-bytes"].includes(value.textMetrics as string)
-    && (value.fontFingerprint === undefined || typeof value.fontFingerprint === "string" && /^[a-f0-9]{64}$/.test(value.fontFingerprint));
-}
-/** Worker 响应使用与运行时一致的值契约，不只相信 TypeScript 类型或返回的任务 ID。 */
+/** Worker responses use the same checked value contract as direct runtime executors. */
 export function validReportWorkerResult(value: unknown, operation: ReportWorkerRequest["operation"]): value is PreparedReport | ReportRuntimeExportResult {
-  if (!object(value) || !stats(value.stats) || !diagnostics(value.diagnostics) || !revisions(value.revisions) || !layoutMetrics(value.layout) || !validPreparedSources(value.sources)) return false;
-  if (value.diagnosticSummary !== undefined && !matchingDiagnosticSummary(value.diagnosticSummary, value.diagnostics as PreparedReport["diagnostics"])) return false;
-  if (operation === "prepare") return validateRenderPlan(value.plan).ok;
-  const contentType = value.format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-  return value.bytes instanceof Uint8Array && (value.format === "pdf" || value.format === "xlsx") && value.contentType === contentType;
+  return validReportExecutionResult(value, operation);
 }
 function serializeIssue(issue: unknown): Record<string, string> {
   if (!issue || typeof issue !== "object") return { message: String(issue).slice(0, 4096) };
@@ -77,11 +55,15 @@ function serializeDiagnostic(value: unknown): Record<string, unknown> {
   if (Array.isArray(value.componentPath) && value.componentPath.length <= 192 && value.componentPath.every((index) => Number.isSafeInteger(index) && index >= 0)) result.componentPath = value.componentPath;
   return result;
 }
+function diagnosticEnvelope(value: unknown): { code: string; value: unknown; valueState?: unknown } {
+  return { code: object(value) && typeof value.code === "string" ? value.code : "unknown", value,
+    ...(object(value) && value.valueState !== undefined && hasValidDataExplanation(value) ? { valueState: value.valueState } : {}) };
+}
 function errorDetails(values: readonly unknown[], serialize: (value: unknown) => Record<string, unknown>, previous?: unknown): DiagnosticSummary<Record<string, unknown>> {
-  const collector = createDiagnosticCollector<{ code: string; value: unknown }>(DEFAULT_DIAGNOSTIC_LIMIT);
+  const collector = createDiagnosticCollector<ReturnType<typeof diagnosticEnvelope>>(DEFAULT_DIAGNOSTIC_LIMIT);
   if (validDiagnosticSummary(previous)) {
-    collector.merge({ ...previous, entries: previous.entries.slice(0, DEFAULT_DIAGNOSTIC_LIMIT).map(value => ({ code: object(value) && typeof value.code === "string" ? value.code : "unknown", value })) });
-  } else for (const value of values) collector.push({ code: object(value) && typeof value.code === "string" ? value.code : "unknown", value });
+    collector.merge({ ...previous, entries: previous.entries.slice(0, DEFAULT_DIAGNOSTIC_LIMIT).map(diagnosticEnvelope) });
+  } else for (const value of values) collector.push(diagnosticEnvelope(value));
   const result = collector.snapshot();
   return { ...result, entries: result.entries.map(entry => serialize(entry.value)) };
 }

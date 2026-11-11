@@ -17,6 +17,9 @@ interface ConflictFixture {
   delayQuery: number;
   queryFailures: number;
   cancelledQueries: number;
+  holdSave: boolean;
+  releaseSave?: () => void;
+  approveDiscard: boolean;
 }
 declare global { interface Window { __conflictReview: ConflictFixture } }
 
@@ -39,7 +42,7 @@ async function mountFixture(page: Page, validation = false): Promise<void> {
     createApp({ setup() {
       if (validation) provideMachReportConfig({ theme: { colorScheme: "dark", toolbarBg: "#142237", toolbarFg: "#eef5ff", toolbarBorder: "#39516c", btnFg: "#c3d4ef", btnBorder: "#39516c", btnHoverBg: "#263a55", btnHoverFg: "#ffffff", btnActiveBg: "#9bbfff", btnActiveFg: "#102340", errorFg: "#ffb4c0", warningFg: "#ffda93" } });
       const report = useMachReport();
-      const fixture: ConflictFixture = { report, saves: [], queries: [], revision: 1, serverQty: 2, serverNote: "original", extraConflict: false, rejectValidation: false, delayQuery: 0, queryFailures: 0, cancelledQueries: 0 };
+      const fixture: ConflictFixture = { report, saves: [], queries: [], revision: 1, serverQty: 2, serverNote: "original", extraConflict: false, rejectValidation: false, delayQuery: 0, queryFailures: 0, cancelledQueries: 0, holdSave: false, approveDiscard: false };
       window.__conflictReview = fixture;
       const fetcher = createReportSource({ production: { template, provider: { async query(context) {
         fixture.queries.push({ ...context.params });
@@ -69,6 +72,7 @@ async function mountFixture(page: Page, validation = false): Promise<void> {
             fixture.extraConflict = false; fixture.revision++; fixture.serverQty = fixture.revision + 1; fixture.serverNote = `server-${fixture.revision}`;
             return { conflicts: [{ message: "模拟并发更新，请核对最新数据" }] };
           }
+          if (fixture.holdSave) await new Promise<void>(resolve => { fixture.releaseSave = resolve; });
           if (batch.edits.some(edit => edit.source?.revision !== String(fixture.revision) || edit.source?.sourceToken !== `v${fixture.revision}`)) throw new Error("Fresh source CAS was not used");
           if (operation.query?.sources[0]?.revision !== String(fixture.revision) || operation.query.params.plant !== "A") throw new Error("Fresh query context was not used");
           for (const edit of batch.edits) {
@@ -80,7 +84,7 @@ async function mountFixture(page: Page, validation = false): Promise<void> {
         }
       };
       return () => h(ReportPreview, { ref: report.ref, reportId: "production", fetcher, params: { plant: "A" }, editable: editing,
-        height: "100vh", showExport: false, showPrint: false, showPdfWindow: false });
+        height: "100vh", beforeDiscard: () => fixture.approveDiscard, showExport: false, showPrint: false, showPdfWindow: false });
     } }).mount(target);
   }, { coreUrl, validation });
   await expect(page.locator("#conflict-fixture").getByRole("gridcell", { name: "original", exact: true })).toBeVisible();
@@ -179,4 +183,25 @@ test("真实校验抽屉在深色主题下可检索筛选全部237项，跨页�
   await testInfo.attach("validation-panel-dark.png", { body: await page.screenshot(), contentType: "image/png" });
   await panel.locator("li").last().getByRole("button").click(); await expect(dialog).toHaveCount(0);
   await expect(root.locator(".mrp-cell-focus")).toHaveText("2");
+});
+
+
+test("确认重新查询会结束在途冲突核对，迟到保存不恢复旧对话框或旧数据", async ({ page }) => {
+  await mountFixture(page); await rejectBatch(page);
+  const root = page.locator("#conflict-fixture");
+  await root.getByRole("button", { name: "核对保存冲突 · 2", exact: true }).click();
+  const dialog = root.getByRole("dialog", { name: "核对保存冲突", exact: true });
+  await expect(dialog.locator("li")).toHaveCount(2);
+  for (const row of await dialog.locator("li").all()) await row.getByRole("radio").nth(0).check();
+  await page.evaluate(() => { window.__conflictReview.holdSave = true; window.__conflictReview.approveDiscard = true; });
+  await dialog.getByRole("button", { name: "校验并提交选择", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__conflictReview.saves.length)).toBe(2);
+  await page.evaluate(() => window.__conflictReview.report.reload());
+  await expect(dialog).toHaveCount(0);
+  const snapshot = await page.evaluate(() => JSON.stringify(window.__conflictReview.report.getPlan()));
+  await page.evaluate(() => window.__conflictReview.releaseSave?.());
+  await expect.poll(() => page.evaluate(() => window.__conflictReview.report.state.saving)).toBe(false);
+  expect(await page.evaluate(() => JSON.stringify(window.__conflictReview.report.getPlan()))).toBe(snapshot);
+  await expect(dialog).toHaveCount(0);
+  expect(await page.evaluate(() => window.__conflictReview.report.state.pendingLocalChanges)).toBe(false);
 });

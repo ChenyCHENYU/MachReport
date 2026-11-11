@@ -47,6 +47,7 @@ import { createApp } from 'vue';
 import { ReportTemplateEditor, ExcelBindingWizard, RuleEditor, TemplateReviewPanel, type TemplateDraftStorage } from '@agile-team/mach-report/designer';
 import { createReportRuntime, type ReportRuntimeInput } from '@agile-team/mach-report/server';
 import { createNodeAutoReportExporter } from '@agile-team/mach-report/server/node';
+import type { XlsxStreamColumn } from '@agile-team/mach-report/xlsx/node';
 import type { ReportExportExecutionOptions } from '@agile-team/mach-report/worker';
 import { inspectOutputCapabilitiesSummary, type DiagnosticSummary, type OutputDiagnostic, type RenderPlan, type ReportCellEdit, type ReportProvider, type ReportProviderConflict, type ReportQueryContext, type ReportQuerySource, type ReportTaskEvent, type ReportTemplateDocument } from '@agile-team/mach-report';
 type PreviewProps = InstanceType<typeof ReportPreview>['$props'];
@@ -87,6 +88,11 @@ declare const editor: InstanceType<typeof ReportTemplateEditor>;
 editor.reset(); editor.guardChanges('reset');
 void [invalidParams, invalidLoaded, invalidEditor, editorProps];
 const input: ReportRuntimeInput = { reportIds: ['sample'], diagnosticLimit: 200, onEvent(event: ReportTaskEvent) { void event.stage; } };
+const numericColumn: XlsxStreamColumn<{ qty: number }> = { key: 'qty', align: 'center' };
+const legacyColumn: XlsxStreamColumn<{ qty: number }> = { key: 'qty' };
+// @ts-expect-error 列对齐使用统一的明确枚举
+const invalidAlignment: XlsxStreamColumn<{ qty: number }> = { key: 'qty', align: 'middle' };
+void [numericColumn, legacyColumn, invalidAlignment];
 // @ts-expect-error 诊断窗口必须为数字，范围由运行时校验
 const invalidDiagnosticLimit: ReportRuntimeInput = { reportIds: ['sample'], diagnosticLimit: '200' };
 const task: ReportPreviewTask | null = null;

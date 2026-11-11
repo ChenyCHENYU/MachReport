@@ -16,6 +16,7 @@ import { templateDatasetRowCount, templateDatasetJsonSchema } from "../source/te
 import { TreeRowLimitError } from "../processing/tree";
 import { resolvePlanAssets } from "../output/assets";
 import { encodePreparedReport, outputDiagnostics } from "./runtime-output";
+import { assertReportExportResult } from "./execution-result";
 import { checkPreparedFont, reportFontFingerprint, snapshotPreparedReport, snapshotPdfFonts, snapshotXlsxOptions } from "./prepared";
 
 /** Capture IDs and flat parameters before font/Worker loading can yield. */
@@ -161,6 +162,7 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
       if (options.executor) {
         if (!options.executor.exportPrepared) throw new ReportSourceError("config", "执行器未实现 exportPrepared；请升级执行器或显式使用本地运行时");
         const result = await options.executor.exportPrepared(request, signal, observe);
+        assertReportExportResult(result, request.format);
         assertBudget(budget, "maxRows", result.stats.rows); assertBudget(budget, "maxPages", result.stats.pages); assertBudget(budget, "maxCells", result.stats.cells);
         assertBudget(budget, "maxOutputBytes", result.bytes.byteLength);
         return { ...result, stats: { ...result.stats, outputBytes: result.bytes.byteLength } };
@@ -182,6 +184,7 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
       createReportTaskReporter(monitoring).runSync("validate", () => assertInput(options, request));
       if (request.format !== "pdf" && request.format !== "xlsx") throw new ReportSourceError("config", "不支持的报表导出格式");
       const result = options.executor ? await options.executor.export(request, signal, observe) : await localExport(monitoring);
+      if (options.executor) assertReportExportResult(result, request.format);
       assertBudget(budget, "maxRows", result.stats.rows); assertBudget(budget, "maxPages", result.stats.pages); assertBudget(budget, "maxCells", result.stats.cells);
       assertBudget(budget, "maxOutputBytes", result.bytes.byteLength);
       return { ...result, stats: { ...result.stats, outputBytes: result.bytes.byteLength } };

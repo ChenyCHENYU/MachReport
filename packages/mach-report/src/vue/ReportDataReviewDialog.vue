@@ -1,20 +1,46 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, onUnmounted, ref } from "vue";
 import ReportIcon from "./ReportIcon.vue";
 defineProps<{ title: string; closeLabel: string }>();
 const emit = defineEmits<{ close: [] }>();
 const panel = ref<HTMLElement | null>(null), closeButton = ref<HTMLButtonElement | null>(null);
 let previous: HTMLElement | null = null;
+let heldFocusBeforeUnmount = false;
+const modalSelector = '[role="dialog"],[role="alertdialog"],dialog[open]';
+function ownsKeyboard(event: KeyboardEvent): boolean {
+  const own = panel.value;
+  if (!own) return false;
+  const target = event.target instanceof Element ? event.target : null;
+  const modal = target?.closest(modalSelector);
+  if (modal) return modal === own;
+  if (event.target instanceof Node && own.contains(event.target)) return true;
+  const active = document.activeElement;
+  if (active !== document.body && active instanceof Element && !own.contains(active)) return false;
+  // A browser can drop focus on body after a clicked or disabled control.
+  // Another modal keeps ownership until its own handler restores focus.
+  return ![...document.querySelectorAll('[aria-modal="true"],dialog[open]')].some(modal => modal !== own);
+}
+function focusableElements(): HTMLElement[] {
+  return [...(panel.value?.querySelectorAll<HTMLElement>("a[href],button,input,textarea,select,[tabindex]") ?? [])]
+    .filter(element => element.tabIndex >= 0 && !element.matches(":disabled") && !element.closest('[hidden],[inert],[aria-hidden="true"]'));
+}
 function keydown(event: KeyboardEvent): void {
-  if (event.defaultPrevented || event.isComposing) return;
+  if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || !ownsKeyboard(event)) return;
   if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); emit("close"); return; }
   if (event.key !== "Tab") return;
-  const elements = [...(panel.value?.querySelectorAll<HTMLElement>("button:not(:disabled),input:not(:disabled),select:not(:disabled),[tabindex='0']") ?? [])];
+  const elements = focusableElements();
   const first = elements[0], last = elements[elements.length - 1];
   if (!panel.value?.contains(document.activeElement) || event.shiftKey && document.activeElement === first || !event.shiftKey && document.activeElement === last) { event.preventDefault(); (event.shiftKey ? last : first)?.focus(); }
 }
 onMounted(() => { previous = document.activeElement instanceof HTMLElement ? document.activeElement : null; closeButton.value?.focus(); document.addEventListener("keydown", keydown); });
-onUnmounted(() => { document.removeEventListener("keydown", keydown); if (previous?.isConnected) previous.focus(); });
+onBeforeUnmount(() => { heldFocusBeforeUnmount = panel.value?.contains(document.activeElement) === true; });
+onUnmounted(() => {
+  document.removeEventListener("keydown", keydown);
+  if (!previous?.isConnected || document.activeElement !== document.body) return;
+  const modals = [...document.querySelectorAll('[aria-modal="true"],dialog[open]')];
+  if (!heldFocusBeforeUnmount && modals.some(modal => !modal.contains(previous))) return;
+  previous.focus({ preventScroll: true });
+});
 </script>
 <template>
   <div class="mrp-review-backdrop" @click.self="emit('close')"><section ref="panel" class="mrp-review-dialog" role="dialog" aria-modal="true" :aria-label="title"><header><div><span>MACH REPORT</span><strong>{{ title }}</strong></div><button ref="closeButton" type="button" :aria-label="closeLabel" @click="emit('close')"><ReportIcon name="close" /></button></header><div class="mrp-review-dialog-body"><slot /></div></section></div>

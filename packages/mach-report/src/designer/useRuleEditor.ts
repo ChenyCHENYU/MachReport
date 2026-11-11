@@ -167,7 +167,6 @@ export function useRuleEditor(
         header: formula.value.field,
         widthMm: 30,
         semanticRole: "measure",
-        align: "right",
         editable: false,
         format: {
           kind: "number",

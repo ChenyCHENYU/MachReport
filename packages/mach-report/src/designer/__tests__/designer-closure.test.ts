@@ -98,7 +98,7 @@ describe("designer review and local draft closure", () => {
     const wrapper = mount(TemplateDesignCanvas, { props: { document: doc, pageIndex: 0, datasets: { detail: [{ id: "0001", qty: 2 }, { id: "0002", qty: 0 }, { id: "0003", qty: null }, { id: "0004", qty: 5 }] } } });
     const rows = wrapper.findAll(".mr-canvas-table-row:not(.is-header)"); expect(rows).toHaveLength(3);
     expect(rows[0]!.findAll("div")[0]!.attributes("style")).toContain("text-align: center");
-    expect(rows[0]!.findAll("div")[1]!.text()).toBe("2.000"); expect(rows[0]!.findAll("div")[1]!.attributes("style")).toContain("text-align: right");
+    expect(rows[0]!.findAll("div")[1]!.text()).toBe("2.000"); expect(rows[0]!.findAll("div")[1]!.attributes("style")).toContain("text-align: center");
     expect(rows[1]!.text()).toContain("0.000"); expect(rows[2]!.findAll("div")[1]!.text()).toBe(""); wrapper.unmount();
   });
 });

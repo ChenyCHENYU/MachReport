@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import ExcelJS from "exceljs";
 import { describe, expect, it } from "vitest";
-import { writeRowsToXlsx } from "../node";
+import { writeRowsToXlsx, type XlsxStreamColumn } from "../node";
 
 function collectedStream() {
   const chunks: Buffer[] = [];
@@ -31,8 +31,36 @@ describe("Node streaming XLSX data writer", () => {
     expect(sheet.getCell("B2").value).toBe(0);
     expect(sheet.getCell("B1201").value).toBe(1199);
     expect(sheet.getCell("B2").numFmt).toBe("0.00");
+    expect(sheet.getCell("A1").alignment.horizontal).toBe("center");
+    expect(sheet.getCell("A2").alignment.horizontal).toBe("left");
+    expect(sheet.getCell("B2").alignment.horizontal).toBe("center");
     expect(sheet.getCell("C2").type).toBe(ExcelJS.ValueType.String);
     expect(sheet.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
+  });
+
+  it("keeps automatic per-row types and explicit column alignment in real streaming output", async () => {
+    const output = collectedStream(), date = new Date("2026-11-11T00:00:00Z");
+    const source = [{ value: 0, flag: false, date, right: 1, left: 2, blank: null }, { value: "001", flag: true, date, right: 3, left: 4, blank: 0 }];
+    await writeRowsToXlsx(source, { stream: output.stream, columns: [
+      { key: "value" }, { key: "flag", align: "auto" }, { key: "date", numberFormat: "yyyy-mm-dd" },
+      { key: "right", align: "right" }, { key: "left", align: "left" }, { key: "blank", numberFormat: "0.000" }
+    ] });
+    const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(Uint8Array.from(output.buffer()).buffer);
+    const sheet = workbook.worksheets[0]!;
+    expect([1, 2, 3, 4, 5, 6].map(index => sheet.getCell(2, index).alignment.horizontal)).toEqual(["center", "center", "center", "right", "left", "center"]);
+    expect(sheet.getCell("A3").alignment.horizontal).toBe("left"); expect(sheet.getCell("A3").value).toBe("001");
+    expect(sheet.getCell("A2").value).toBe(0); expect(sheet.getCell("B2").value).toBe(false);
+    expect((sheet.getCell("C2").value as Date).toISOString()).toBe(date.toISOString());
+    expect(sheet.getCell("F3").value).toBe(0); expect(sheet.getCell("F3").numFmt).toBe("0.000");
+  });
+
+  it.each(["bogus", null, 5])("rejects invalid alignment %s before taking a source row or writing bytes", async align => {
+    const output = collectedStream(); let reads = 0;
+    function* source() { reads++; yield { id: 1 }; }
+    const column = { key: "id", align } as unknown as XlsxStreamColumn<{ id: number }>;
+    await expect(writeRowsToXlsx(source(), { stream: output.stream, columns: [column] })).rejects.toThrow("align");
+    expect(reads).toBe(0); expect(output.buffer().length).toBe(0);
+    output.stream.destroy();
   });
 
   it("supports explicit file destinations and value projection without changing the source", async () => {

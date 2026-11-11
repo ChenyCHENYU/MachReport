@@ -1,5 +1,11 @@
 # @agile-team/mach-report
 
+## 2.25.0
+
+### Minor Changes
+
+- Center automatically aligned numeric data consistently in preview, Canvas, PDF, Excel imports and exports, while honoring explicit template alignment. Add optional column alignment to streaming Excel exports. Correct Unicode search ranges, isolate keyboard ownership across report dialogs, fence obsolete conflict recovery after query replacement, preserve diagnostic counts through bounded merges, and validate direct executor output contracts.
+
 ## 2.24.0
 
 ### Minor Changes

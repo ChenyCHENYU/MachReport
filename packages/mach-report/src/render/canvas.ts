@@ -1,3 +1,4 @@
+import { resolveGridCellStyle } from "./cell-style";
 import { dataBarBox } from "./data-bar";
 import { drawTextBlock } from "./canvas-text";
 import { drawCanvasRichText } from "./canvas-rich-text";
@@ -18,7 +19,6 @@ import {
   DEFAULT_TEXT_COLOR
 } from "../defaults";
 import {
-  mergeComponentStyles,
   resolveBoxBorders,
   resolveFontSize,
   resolveLineHeight,
@@ -157,7 +157,7 @@ function drawCanvasGridCell(ctx: CanvasRenderingContext2D, box: GridLayout["cell
   const paddingMm = comp.grid?.paddingMm ?? 0.5;
     const text = box.cell.text ?? "";
 
-    const style = mergeComponentStyles(comp.style, box.cell.style);
+    const style = resolveGridCellStyle(comp.style, box.cell);
     const font = resolveFontSize(style, dpi);
     const indentMm = box.cell.indentMm ?? 0;
     const contentWidthMm = Math.max(0, box.widthMm - 2 * paddingMm - indentMm);

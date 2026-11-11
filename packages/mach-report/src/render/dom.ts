@@ -17,10 +17,10 @@ import type { ReportViewport } from "./viewport-index";
 export type { ReportViewport } from "./viewport-index";
 
 const viewportContexts = new WeakMap<RenderOptions, ReturnType<typeof createDomViewportContext>>();
+import { gridCellAlignment, resolveGridCellStyle } from "./cell-style";
 import { DEFAULT_FONT_FAMILY, DEFAULT_TEXT_COLOR } from "../defaults";
 import { reportOutputDiagnostics, type OutputDiagnosticOptions } from "../output/capabilities";
 import {
-  mergeComponentStyles,
   resolveBoxBorders,
   resolveFontSize,
   resolveLineHeight,
@@ -145,7 +145,7 @@ function renderGridCell(
   cellEl.setAttribute("role", comp.table?.role === "header" ? "columnheader" : "cell");
   if (cell.colSpan) cellEl.colSpan = cell.colSpan;
   if (cell.rowSpan) cellEl.rowSpan = cell.rowSpan;
-  const style = mergeComponentStyles(comp.style, cell.style);
+  const style = resolveGridCellStyle(comp.style, cell);
   const cellBag = elementStyle("block")
     .add("position", "absolute")
     .mm("left", box.xMm, dpi).mm("top", box.yMm, dpi)
@@ -182,10 +182,10 @@ function renderGridCell(
 function renderGridEdges(layout: GridLayout, comp: PlanComponent, dpi: number, doc: Document): HTMLElement[] {
   return renderGridStrokeElements(resolveGridStrokes(layout, comp), dpi, doc);
 }
-function gridCellReuseKey(box: GridCellBox): string | undefined {
+function gridCellReuseKey(box: GridCellBox, base: ComponentStyle | undefined): string | undefined {
   const cell = box.cell;
   if (cell.children?.length || cell.richParagraphs?.length || cell.dataBar || (cell.colSpan ?? 1) !== 1 || (cell.rowSpan ?? 1) !== 1) return;
-  return JSON.stringify([cell.style, cell.indentMm]);
+  return JSON.stringify([cell.style, cell.indentMm, gridCellAlignment(base, cell)]);
 }
 function reuseGridCell(cell: HTMLElement, box: GridCellBox, dpi: number): boolean {
   // Sticky cells and active/custom editors keep their native identity and are never recycled.
@@ -240,7 +240,7 @@ function renderGrid(
     elementStyle("contents").applyTo(edgeHost); edgeHost.setAttribute("aria-hidden", "true");
     viewport.mount({ grid, component: comp, table, rowClass: classOf("row", options), body, edgeHost,
       drawCell: box => renderGridCell(box, comp, grid.paddingMm ?? 0.5, dpi, { ...options }, doc),
-      reuseKey: gridCellReuseKey, reuseCell: (cell, box) => reuseGridCell(cell, box, dpi),
+      reuseKey: box => gridCellReuseKey(box, comp.style), reuseCell: (cell, box) => reuseGridCell(cell, box, dpi),
       drawEdges: strokes => renderGridStrokeElements(strokes, dpi, doc) });
     content.append(table, edgeHost);
     return content;

@@ -157,12 +157,12 @@ button:focus-visible,input:focus-visible {
   outline-offset: 2px;
 }
 input[aria-invalid=true] {
-  border-color: #c05050;
+  border-color: var(--mrp-error-fg, #b91c1c);
 }
 .mrp-page-error {
   flex-basis: 100%;
   text-align: right;
-  color: #c05050;
+  color: var(--mrp-error-fg, #b91c1c);
   font-size: 11px;
 }
 .mrp-toolbar .mrp-pagination {

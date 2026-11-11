@@ -4,6 +4,7 @@ import { DEFAULT_FONT_PT } from "../defaults";
 import { evalStyleRule, formatValue, toExcelNumberFormat, type ColumnFormat } from "../format";
 import { mergeComponentStyles } from "../render/style";
 import type { TreeRow } from "../processing/tree";
+import { automaticCellAlignment } from "../render/cell-style";
 export function listTreeIndent(list: ListComponent, column: ListColumn, row: TreeRow, paddingMm = list.paddingMm ?? 1): number {
   if (column.field !== list.tree!.labelField) return 0;
   return Math.min(row.depth * (list.tree!.indentMm ?? 3), Math.max(0, column.widthMm - paddingMm * 2 - 4));
@@ -14,13 +15,11 @@ export function applyListTreeMetadata(cell: GridCell, column: ListColumn, row: T
   if (row.hasChildren && tree.parentValues === "leaf-aggregate" && tree.aggregates?.some(item => item.field === column.field)) { cell.derived = true; cell.editable = false; }
 }
 /** Shared semantic alignment for the paginator and bounded designer samples. */
-export function resolveListAutoAlignment(value: unknown, format?: ColumnFormat, role?: ListColumn["semanticRole"]): "left" | "center" | "right" {
+export function resolveListAutoAlignment(value: unknown, format?: ColumnFormat, role?: ListColumn["semanticRole"], valueType?: GridCell["valueType"]): "left" | "center" | "right" {
   if (role === "identifier" || role === "dimension" || role === "date") return "center";
-  if (role === "measure") return "right";
+  if (role === "measure") return "center";
   if (role === "text") return "left";
-  if (format?.kind === "number" || format?.kind === "percent") return "right";
-  if (format?.kind === "date" || value instanceof Date || typeof value === "boolean") return "center";
-  return typeof value === "number" && Number.isFinite(value) ? "right" : "left";
+  return automaticCellAlignment(value, format?.kind === "number" || format?.kind === "percent" || format?.kind === "date" || valueType === "number" || valueType === "boolean");
 }
 export function listCellText(value: unknown): string {
   if (value == null) return "";
@@ -49,9 +48,9 @@ function sampleValueMetadata(cell: GridCell, column: ListColumn, value: unknown)
 export function resolveListSampleCell(list: ListComponent, column: ListColumn, row: Record<string, unknown>): GridCell {
   const hidden = !!column.visibleWhen && !evalStyleRule(row, column.visibleWhen);
   const value = hidden ? null : row[column.field];
-  const alignment = column.align ?? column.style?.align ?? list.align ?? "left";
+  const alignment = column.align ?? column.style?.align ?? list.align ?? "auto";
   let style = mergeComponentStyles({ fontSize: list.fontSizePt ?? DEFAULT_FONT_PT, verticalAlign: "middle" }, column.style);
-  style.align = alignment === "auto" ? resolveListAutoAlignment(value, column.format, column.semanticRole) : alignment;
+  style.align = alignment === "auto" ? resolveListAutoAlignment(value, column.format, column.semanticRole, column.valueType) : alignment;
   const rule = column.rules?.find((item) => evalStyleRule(row, item.when));
   if (rule) style = mergeComponentStyles(style, rule.style);
   const cell: GridCell = { text: column.format ? formatValue(value, column.format) : listCellText(value), style };

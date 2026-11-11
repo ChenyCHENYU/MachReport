@@ -6,7 +6,7 @@ import type { ComputedField } from "../processing/computed";
 import type { MatrixTableOptions } from "../processing/matrix";
 import type { TreeTableOptions } from "../processing/tree";
 
-/** auto：真实数字/显式数值格式居右，日期与布尔居中，其他内容居左。 */
+/** auto：真实数字、显式数值格式、日期与布尔居中，其他内容居左。 */
 export type ListAlignment = NonNullable<ComponentStyle["align"]> | "auto";
 
 export interface ListColumn {
@@ -93,7 +93,7 @@ export interface ListComponent {
   paddingMm?: number;
   headerEveryPage?: boolean;
   headerBackgroundColor?: string;
-  /** 内容默认对齐，列配置可覆盖；低层模板缺省仍为 left。 */
+  /** 内容默认对齐，列配置可覆盖，缺省为 auto。 */
   align?: ListAlignment;
   /** 表头默认对齐，列配置可覆盖。 */
   headerAlign?: ComponentStyle["align"];

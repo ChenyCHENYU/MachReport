@@ -1,3 +1,4 @@
+import { resolveGridCellStyle } from "../render/cell-style";
 import { dataBarBox } from "../render/data-bar";
 import { outputCheckpoint, createOutputScheduler, type OutputTaskOptions } from "../output/progress";
 import { PDFDocument, StandardFonts, rgb, pushGraphicsState, popGraphicsState, rectangle, clip, endPath, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
@@ -14,7 +15,6 @@ import {
   heuristicMeasurer,
   isImageBackedComponent,
   isRichText,
-  mergeComponentStyles,
   resolveBoxBorders,
   resolveFontSize,
   resolveLineHeight,
@@ -290,7 +290,7 @@ async function drawGridCell(
   renderer: PdfRenderer, page: PDFPage, comp: PlanComponent,
   cell: ReturnType<typeof resolveGridLayout>["cells"][number], origin: TextBox, location: string
 ): Promise<void> {
-  const style = mergeComponentStyles(comp.style, cell.cell.style);
+  const style = resolveGridCellStyle(comp.style, cell.cell);
   const box = {
     x: origin.x + mmToPt(cell.xMm), yTop: origin.yTop - mmToPt(cell.yMm),
     width: mmToPt(cell.widthMm), height: mmToPt(cell.heightMm)

@@ -909,7 +909,7 @@
     "./xlsx/node": {
       "writeRowsToXlsx": "writeRowsToXlsx:3b0912f52c3268c3",
       "XlsxRowValue": "XlsxRowValue:ba01816cb0c85569",
-      "XlsxStreamColumn": "XlsxStreamColumn:bd73d35e9b74ba45",
+      "XlsxStreamColumn": "XlsxStreamColumn:8b7bd137904c39a8",
       "XlsxStreamOptions": "XlsxStreamOptions:2def033d01699008",
       "XlsxStreamProgress": "XlsxStreamProgress:b4f56a4dd3c7355d"
     },
@@ -1873,7 +1873,7 @@
     "XlsxRenderOptions:f8e485ac86c98f1a": "export declare interface XlsxRenderOptions extends AssetRenderOptions, XlsxImageOptions {\n    sheetName?: (sheetIndex: number) => string;\n    sheetNames?: readonly string[];\n    sheetMode?: \"auto\" | \"pages\" | \"continuous\";\n    valueMode?: \"text\" | \"raw\";\n    maxDataBars?: number;\n    paperSize?: \"auto\" | \"a3\" | \"a4\" | \"a5\";\n    additionalSheets?: readonly XlsxAdditionalSheet[];\n}",
     "XlsxRenderResult:f888f8e7d3d6ba5f": "export declare interface XlsxRenderResult extends XlsxWorkbookResult {\n    buffer: ExcelJS.Buffer;\n}",
     "XlsxRowValue:ba01816cb0c85569": "export declare type XlsxRowValue = string | number | boolean | Date | null | undefined;",
-    "XlsxStreamColumn:bd73d35e9b74ba45": "export declare interface XlsxStreamColumn<Row> {\n    key: keyof Row & string;\n    header?: string;\n    width?: number;\n    numberFormat?: string;\n    value?: (row: Row, rowIndex: number) => XlsxRowValue;\n}",
+    "XlsxStreamColumn:8b7bd137904c39a8": "export declare interface XlsxStreamColumn<Row> {\n    key: keyof Row & string;\n    header?: string;\n    width?: number;\n    numberFormat?: string;\n    align?: ListAlignment;\n    value?: (row: Row, rowIndex: number) => XlsxRowValue;\n}",
     "XlsxStreamOptions:2def033d01699008": "export declare type XlsxStreamOptions<Row> = XlsxStreamCommonOptions<Row> & ({\n    stream: Writable;\n    filename?: never;\n} | {\n    filename: string;\n    stream?: never;\n});",
     "XlsxStreamProgress:b4f56a4dd3c7355d": "export declare interface XlsxStreamProgress {\n    rowsWritten: number;\n    elapsedMs: number;\n}",
     "XlsxWorkbookResult:749871c9ad43437a": "export declare interface XlsxWorkbookResult {\n    workbook: ExcelJS.Workbook;\n    warnings: string[];\n    warningCount?: number;\n    diagnostics?: OutputDiagnostic[];\n    diagnosticSummary?: DiagnosticSummary<OutputDiagnostic>;\n    notes?: string[];\n}"

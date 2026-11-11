@@ -109,10 +109,10 @@ const detailTemplate = createTableTemplate({
 | `titleHeightMm` / `titleGapMm` | 标题默认占高 10 mm，距表格 4 mm；无标题不占空间 |
 | `dataset` / `params` | 默认 `detail` 数据集 / 模板查询参数 |
 | `listOptions` | 继承列表行高、字号、重复表头、分组、小计与总计；位置和列宽由工厂生成 |
-| 列 / `listOptions.align` | `auto/left/center/right/justify`；标准明细默认 auto，真实数字居右，日期/布尔居中，文本居左 |
+| 列 / `listOptions.align` | `auto/left/center/right/justify`；标准明细与低层列表默认 auto，真实数字/日期/布尔居中，文本居左 |
 | 列 / `listOptions.headerAlign` | 表头独立对齐；标准明细默认 center，不随内容自动对齐 |
 | 列 / `listOptions.headerStyle` | 表头独立样式，列级覆盖整表；表头字号参与真实折行与行高测量 |
-| 列 `semanticRole` | auto模式中 identifier/text居左、dimension/date居中、measure居右；显式align优先 |
+| 列 `semanticRole` | auto模式中 identifier/dimension/date/measure居中，text居左；显式align优先 |
 | `listOptions.rowKey / revisionField / sourceTokenField` | 来源字段，随生成单元格的 `source` 传递；不得使用显示行号替代 |
 | `listOptions.headerGrid` | 重复多层合并表头，通常由Excel绑定生成；列数与列宽须一致 |
 
@@ -130,7 +130,9 @@ const wideTemplate = createTableTemplate({
 
 `PlanPage.layout` 标识 wide 分段；列表网格自动携带 `PlanComponent.table` 的稳定表 ID、逻辑行序、角色和列身份。`createReportSource` 合并报表时隔离表 ID，供 Excel 精确还原同一逻辑表；手工修改这些元数据需保持一致。
 
-内容样式优先级为条件规则 → 列 `align` → 列 `style.align` → 列表 `align` → 旧默认；表头依次取列 `headerStyle`、列 `headerAlign`、列表 `headerStyle`、列表 `headerAlign`，再回退旧样式。低层 `.list()` 未声明新字段时保持兼容。数值字符串不会仅因外观而自动右对齐；显式 number/percent 格式可声明其数值呈现意图。
+内容样式优先级为条件规则 → 列 `align` → 列 `style.align` → 列表 `align` → 自动类型规则。表头依次取列 `headerStyle`、列 `headerAlign`、列表 `headerStyle`、列表 `headerAlign`，最后采用居中默认。低层 `.list()` 未声明对齐时同样采用 auto，旧模板中的明确对齐继续生效。数值字符串按文本居左，显式 number/percent 格式可声明其数值呈现意图并采用居中默认。
+
+Node 独立逐行出口 `writeRowsToXlsx` 的 `columns[].align` 也支持 `auto/left/center/right/justify`，缺省 `auto` 使用同一类型规则，表头居中。非法对齐在读取业务行和写出内容前拒绝，详细用法见[流式 Excel](./EXCEL.md#node-真正逐行写出)。
 
 ### 模板管理 API
 

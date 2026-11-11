@@ -5,6 +5,8 @@
  * 纯 DOM 操作，虚拟化窗口外的页不处理（随窗口重建自然清理）。
  */
 
+import { scanTextMatches } from "./text-matches";
+
 const HIT_CLASS = "mrp-hit";
 
 /** Resolve a mounted highlight within its logical component/cell, independent of clipped DOM order. */
@@ -50,22 +52,18 @@ export function highlightTextNodes(root: HTMLElement, query: string): number {
   let count = 0;
   for (const node of targets) {
     const text = node.nodeValue ?? "";
-    const lowerText = text.toLowerCase();
     const parent = node.parentElement;
     if (!parent) continue;
     const frag = document.createDocumentFragment();
     let cursor = 0;
-    let idx = lowerText.indexOf(lower);
-    while (idx >= 0) {
-      if (idx > cursor) frag.appendChild(document.createTextNode(text.slice(cursor, idx)));
+    count += scanTextMatches(text, lower, (start, end) => {
+      if (start > cursor) frag.appendChild(document.createTextNode(text.slice(cursor, start)));
       const mark = document.createElement("mark");
       mark.className = HIT_CLASS;
-      mark.textContent = text.slice(idx, idx + q.length);
+      mark.textContent = text.slice(start, end);
       frag.appendChild(mark);
-      count++;
-      cursor = idx + q.length;
-      idx = lowerText.indexOf(lower, cursor);
-    }
+      cursor = end;
+    });
     if (cursor < text.length) frag.appendChild(document.createTextNode(text.slice(cursor)));
     parent.replaceChild(frag, node);
   }

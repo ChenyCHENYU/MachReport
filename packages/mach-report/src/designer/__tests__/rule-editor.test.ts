@@ -8,6 +8,7 @@ import { DEFAULT_RULE_EDITOR_MESSAGES } from "../rule-messages";
 import { computeDataset } from "../../analytics/computed";
 import { evalStyleRule } from "../../format";
 import type { ListComponent } from "../../layout/paginate";
+import { resolveListSampleCell } from "../../layout/list-cell";
 function component(): ListComponent {
   return {
     kind: "list",
@@ -47,6 +48,14 @@ function setup(extra: Partial<RuleEditorOptions> = {}) {
   return { props, change, editor, wrapper };
 }
 describe("declarative rule editor", () => {
+  it.each([undefined, "left", "center", "right"] as const)("new computed columns inherit the table alignment %s", async align => {
+    const { props, editor, wrapper } = setup({ list: { ...component(), align } });
+    editor.formula.value = { field: "amount", expression: { op: "multiply", args: [{ field: "qty" }, { field: "price" }] } };
+    editor.applyComputed(); await nextTick();
+    const column = props.list.columns.find(item => item.field === "amount")!;
+    expect(resolveListSampleCell(props.list, column, { amount: 6 }).style?.align).toBe(align ?? "center");
+    wrapper.unmount();
+  });
   it("builds, checks, applies and removes computed columns without mutating source values", async () => {
     const { props, change, editor, wrapper } = setup();
     editor.formula.value = {

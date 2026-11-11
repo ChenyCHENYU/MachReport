@@ -4,6 +4,8 @@ import { setImmediate as yieldToIo } from "node:timers/promises";
 import { isWritable, type Writable } from "node:stream";
 import ExcelJS from "exceljs";
 import { observeOutput } from "../output/progress";
+import type { ListAlignment } from "../layout/list-model";
+import { automaticCellAlignment, hasNumericCellFormat } from "../render/cell-style";
 
 export type XlsxRowValue = string | number | boolean | Date | null | undefined;
 
@@ -12,6 +14,8 @@ export interface XlsxStreamColumn<Row> {
   header?: string;
   width?: number;
   numberFormat?: string;
+  /** Data alignment. Defaults to auto, centering numeric/date/boolean values. */
+  align?: ListAlignment;
   value?: (row: Row, rowIndex: number) => XlsxRowValue;
 }
 
@@ -61,6 +65,7 @@ function validateColumns<Row>(columns: readonly XlsxStreamColumn<Row>[]): void {
     if (!column.key || keys.has(column.key)) throw new TypeError("XLSX column keys must be nonempty and unique.");
     keys.add(column.key);
     if (column.width !== undefined && (!Number.isFinite(column.width) || column.width <= 0 || column.width > 255)) throw new RangeError("XLSX column width must be greater than 0 and at most 255.");
+    if (column.align !== undefined && !["auto", "left", "center", "right", "justify"].includes(column.align)) throw new TypeError("XLSX column align must be auto, left, center, right or justify.");
     checkedValue(column.header ?? column.key);
   }
 }
@@ -111,11 +116,34 @@ function configureSheet<Row>(workbook: ExcelJS.stream.xlsx.WorkbookWriter, optio
   const sheet = workbook.addWorksheet(options.sheetName ?? "Report", { views: [{ state: "frozen", ySplit: 1 }] });
   sheet.columns = options.columns.map((column) => ({
     header: column.header ?? column.key, width: column.width ?? 16,
-    style: column.numberFormat ? { numFmt: column.numberFormat } : undefined
+    style: { ...(column.numberFormat ? { numFmt: column.numberFormat } : {}),
+      ...(column.align && column.align !== "auto" ? { alignment: { horizontal: column.align } } : {}) }
   }));
   sheet.getRow(1).font = { bold: true };
+  sheet.getRow(1).alignment = { horizontal: "center" };
   sheet.getRow(1).commit();
   return sheet;
+}
+
+interface AutomaticRowAlignment {
+  numericBlank: boolean;
+  left: Partial<ExcelJS.Alignment>;
+  center: Partial<ExcelJS.Alignment>;
+}
+function automaticRowAlignments<Row>(columns: readonly XlsxStreamColumn<Row>[]): Array<AutomaticRowAlignment | undefined> {
+  const left: Partial<ExcelJS.Alignment> = { horizontal: "left" }, center: Partial<ExcelJS.Alignment> = { horizontal: "center" };
+  return columns.map(column => column.align && column.align !== "auto" ? undefined : {
+    numericBlank: hasNumericCellFormat(column.numberFormat), left, center
+  });
+}
+function commitDataRow(sheet: ExcelJS.Worksheet, values: XlsxRowValue[], alignments: Array<AutomaticRowAlignment | undefined>): void {
+  const row = sheet.addRow(values);
+  alignments.forEach((alignment, index) => {
+    const value = values[index];
+    if (!alignment || value == null && !alignment.numericBlank) return;
+    row.getCell(index + 1).alignment = alignment[automaticCellAlignment(value, value == null && alignment.numericBlank)];
+  });
+  row.commit();
 }
 
 function rowIterator<Row>(rows: AsyncIterable<Row> | Iterable<Row>): AsyncIterator<Row> | Iterator<Row> {
@@ -136,7 +164,7 @@ function cleanupDestination<Row>(destination: Writable, iterator: AsyncIterator<
 
 /**
  * Commits each source row directly to ExcelJS WorkbookWriter. No RenderPlan, full row array,
- * Workbook or Buffer is retained. Styles are column-scoped; shared strings are disabled.
+ * Workbook or Buffer is retained. Alignment variants are reused; shared strings are disabled.
  * Destination is ended by the writer. An abort/error leaves a partial, unusable XLSX file.
  */
 export async function writeRowsToXlsx<Row extends object>(rows: AsyncIterable<Row> | Iterable<Row>, options: XlsxStreamOptions<Row>): Promise<XlsxStreamProgress> {
@@ -157,13 +185,14 @@ export async function writeRowsToXlsx<Row extends object>(rows: AsyncIterable<Ro
     if (destination.destroyed || destination.writableEnded) throw new Error("XLSX destination must be an open writable stream.");
     const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: destination, useStyles: true, useSharedStrings: false });
     const sheet = configureSheet(workbook, options);
+    const alignments = automaticRowAlignments(options.columns);
     while (true) {
       checkBudget(controller.signal, startedAt, options.maxDurationMs);
       const next = await withAbort(iterator.next(), controller.signal);
       if (next.done) break;
       if (rowsWritten >= (options.maxRows ?? MAX_DATA_ROWS)) throw new RangeError("XLSX export exceeded maxRows; no rows were silently omitted.");
       const values = options.columns.map((column) => checkedValue(column.value ? column.value(next.value, rowsWritten) : next.value[column.key]));
-      sheet.addRow(values).commit();
+      commitDataRow(sheet, values, alignments);
       rowsWritten++;
       if (rowsWritten % (options.batchSize ?? 256) === 0) {
         await downstreamReady(destination, controller.signal);

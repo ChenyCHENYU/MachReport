@@ -5,6 +5,8 @@ import { useCanvasViewport } from "./useCanvasViewport";
 import { createCanvasGridLayouts } from "./canvas-grid-layouts";
 import CanvasPrimitivePreview from "./CanvasPrimitivePreview.vue";
 import { resolveFontSize } from "../render/style";
+import { resolveGridCellStyle } from "../render/cell-style";
+import type { GridCell, PlanComponent } from "../schema/render-plan";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { canvasContentSample, canvasRulerMarks } from "./canvas-samples";
 import { pageName } from "./page-commands";
@@ -57,6 +59,16 @@ const horizontalMarks = computed(() => canvasRulerMarks(page.value.widthMm, scal
 const verticalMarks = computed(() => canvasRulerMarks(page.value.heightMm, scale.value));
 function sampleStyle(cell: ReturnType<typeof resolveListSampleCell>, width: number, hidden?: boolean) {
   return { width: `${width * scale.value}px`, opacity: hidden ? .35 : 1, textAlign: cell.style?.align, paddingLeft: cell.indentMm ? `${cell.indentMm * scale.value}px` : undefined, color: cell.style?.color, backgroundColor: cell.style?.backgroundColor, fontWeight: cell.style?.bold ? "700" : "400", fontSize: `${resolveFontSize(cell.style).fontSizePx * zoom.value}px` };
+}
+function gridCellStyle(component: Pick<PlanComponent, "style">, cell: GridCell) {
+  const style = resolveGridCellStyle(component.style, cell);
+  return {
+    backgroundColor: style.backgroundColor,
+    color: style.color,
+    fontWeight: style.bold ? "700" : "400",
+    fontSize: `${resolveFontSize(style).fontSizePx * zoom.value}px`,
+    textAlign: style.align
+  };
 }
 function isLocked(index: number): boolean { return props.locked?.({ pageIndex: props.pageIndex, componentIndex: index }) === true; }
 function selectPointer(event: PointerEvent, index: number): void {
@@ -294,15 +306,11 @@ function resizeColumn(
               v-for="(box, cellIndex) in gridLayouts.read(component).cells"
               :key="cellIndex"
               :style="{
+                ...gridCellStyle(component, box.cell),
                 left: `${box.xMm * scale}px`,
                 top: `${box.yMm * scale}px`,
                 width: `${box.widthMm * scale}px`,
                 height: `${box.heightMm * scale}px`,
-                backgroundColor: box.cell.style?.backgroundColor,
-                color: box.cell.style?.color,
-                fontWeight: box.cell.style?.bold ? '700' : '400',
-                fontSize: `${resolveFontSize(box.cell.style).fontSizePx * zoom}px`,
-                textAlign: box.cell.style?.align ?? 'left',
               }"
             >
               {{ box.cell.text }}

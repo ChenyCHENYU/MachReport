@@ -345,6 +345,7 @@ const { editing, cells, cellStatus, discard, confirmDiscard } = usePreviewEditin
 });
 const conflictRecovery = usePreviewConflictRecovery({
   plan, busy: () => interactionBlocked.value || importing.value || editing.saving.value || !!exporting.value || printing.value,
+  query: () => loadedContext.value,
   canQuery: () => loadedContext.value !== null,
   pending: editing.getPendingEdits, pause: editing.pauseForReview,
   pendingRevision: () => editing.pendingRevision.value,

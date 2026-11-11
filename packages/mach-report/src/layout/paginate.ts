@@ -218,7 +218,7 @@ function interList(list: ListComponent, measurer: TextMeasurer, rows: readonly D
   const fontSizePt = list.fontSizePt ?? DEFAULT_FONT_PT;
   const paddingMm = list.paddingMm ?? 1;
 
-  const alignments = list.columns.map((col) => col.align ?? col.style?.align ?? list.align ?? "left");
+  const alignments = list.columns.map((col) => col.align ?? col.style?.align ?? list.align ?? "auto");
   // 每列样式驻留：auto 只预建三种对齐，避免每行分配新对象。
   const cellStyles = list.columns.map((col, index): ComponentStyle => ({
     ...mergeComponentStyles({
@@ -326,7 +326,7 @@ function buildRowGridFast(
     const col = columns[i]!;
     const visible = inter.visibility[i]?.(row) !== false;
     const rawValue = visible ? row[col.field] : null;
-    const alignment = inter.autoStyles[i] ? resolveListAutoAlignment(rawValue, col.format, col.semanticRole) : "left";
+    const alignment = inter.autoStyles[i] ? resolveListAutoAlignment(rawValue, col.format, col.semanticRole, col.valueType) : "left";
     let style = inter.autoStyles[i]?.[alignment] ?? inter.cellStyles[i]!;
     // 条件格式首个命中生效；所有变体在列表级驻留，热路径不构造样式对象。
     if (col.rules) {
@@ -437,7 +437,7 @@ function buildSpanRow(
   for (let i = span; i < inter.columns.length; i++) {
     const col = inter.columns[i]!;
     const valueCell = values.get(col.field);
-    const columnStyle = inter.autoStyles[i]?.[resolveListAutoAlignment(valueCell?.value, col.format)] ?? inter.cellStyles[i];
+    const columnStyle = inter.autoStyles[i]?.[resolveListAutoAlignment(valueCell?.value, col.format, col.semanticRole, col.valueType)] ?? inter.cellStyles[i];
     cells.push({ ...valueCell, text: valueCell?.text ?? "", style: mergeComponentStyles(columnStyle, style) });
   }
   // 度量占首列时，标签单独成行；不牺牲任何请求的汇总值，raw Excel 仍保留数字。

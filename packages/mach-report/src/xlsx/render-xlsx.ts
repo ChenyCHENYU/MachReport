@@ -1,3 +1,4 @@
+import { resolveGridCellStyle } from "../render/cell-style";
 import { assertXlsxDataBarBudget, createXlsxDataBarWriter } from "./data-bar-xlsx";
 import { cellRichText, excelRichText } from "./rich-text";
 import { assertOutputActive, outputCheckpoint, createOutputScheduler, notifyOutputProgress } from "../output/progress";
@@ -8,7 +9,7 @@ import type { ComponentStyle, GridCell, PlanComponent, PlanPage } from "../schem
 import { isImageBackedComponent } from "../schema/render-plan";
 import { createXlsxImageWriter, type XlsxImageOptions, type XlsxImageWriter } from "./image-xlsx";
 import { resolveGridLayout, type GridLayout } from "../render/grid-geometry";
-import { mergeComponentStyles, resolveFontSize } from "../render/style";
+import { resolveFontSize } from "../render/style";
 import { mmToExcelColumnWidth } from "./column-width";
 import { collectOutputDiagnostics, type OutputDiagnostic } from "../output/capabilities";
 import { createDiagnosticMessages, type DiagnosticSummary } from "../output/diagnostic-collector";
@@ -390,7 +391,7 @@ async function writeGrid(writer: SheetWriter, comp: PlanComponent, layout: GridL
     for (const child of box.cell.children ?? []) {
       if (isImageBackedComponent(child) && !child.grid) writer.images.write(writer.sheet, child, cursorRow + box.ri, { leftMm: box.xMm + padding + (box.cell.indentMm ?? 0) + child.leftMm, offsetMm: padding + child.topMm });
     }
-    applyGridCellStyle(cell, mergeComponentStyles(comp.style, box.cell.style));
+    applyGridCellStyle(cell, resolveGridCellStyle(comp.style, box.cell));
     if (box.cell.indentMm) cell.alignment = { ...cell.alignment, indent: Math.min(250, Math.max(1, Math.round(box.cell.indentMm / 2.5))) };
     mergeGridCell(writer.sheet, box, layout, cursorRow);
     const pause = writer.schedule(); if (pause) await pause;

@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.24.0-2563eb" alt="Source version 2.24.0" />
+  <img src="https://img.shields.io/badge/source-2.25.0-2563eb" alt="Source version 2.25.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -357,7 +357,7 @@ const { template, warnings } = bindExcelTemplate(imported, [{
 | --- | --- |
 | 表头 | 标准明细默认居中；长说明列可单独居左 |
 | 名称、描述、文本编号 | 居左；编码不会因长得像数字而自动变成数值 |
-| 数量、金额、百分比 | 真实数字或明确指定数字格式时居右，便于比较位数 |
+| 数量、金额、百分比 | 默认居中，真实 0、原始值与精度按字段定义展示 |
 | 日期、班组、分类、布尔值 | 自动模式日期 / 布尔居中；列 `semanticRole: "dimension"` 使业务分类居中 |
 | 统一业务要求 | `listOptions.align` / `headerAlign` 设置整表，列级配置优先 |
 
@@ -371,7 +371,7 @@ const template = createTableTemplate({
 });
 ```
 
-`align` 支持 `auto / left / center / right / justify`；`headerAlign` 支持四种明确对齐。`headerStyle` 可独立配置表头字体、底色与垂直对齐。条件规则只覆盖内容；旧低层模板未配置新字段时保留原有行为。DOM、Canvas、PDF 和 Excel 使用同一份解析后的样式。
+`align` 支持 `auto / left / center / right / justify`；`headerAlign` 支持四种明确对齐。`headerStyle` 可独立配置表头字体、底色与垂直对齐。条件规则只覆盖内容。未指定对齐的旧列表与原始网格也采用数值居中的默认规则，已保存的明确对齐设置继续生效。DOM、Canvas、PDF 和 Excel 使用同一份解析后的样式。
 
 ## 还原一致性与宿主样式
 
@@ -725,7 +725,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.24.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准，npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.25.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准，npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

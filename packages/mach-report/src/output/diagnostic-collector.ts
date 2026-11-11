@@ -34,6 +34,7 @@ export function diagnosticLimit(value: number | undefined): number {
 export function createDiagnosticCollector<T extends { code: string }>(limit?: number) {
   const maximum = diagnosticLimit(limit);
   const entries: T[] = [];
+  const entryBuckets: string[] = [];
   const counts: Record<string, number> = Object.create(null) as Record<string, number>;
   const retained = new Map<string, number>();
   const explanationCounts: Record<string, number> = Object.create(null) as Record<string, number>;
@@ -47,16 +48,16 @@ export function createDiagnosticCollector<T extends { code: string }>(limit?: nu
     return bucket;
   }
   function retain(entry: T, codeBucket: string): void {
+    if (maximum === Infinity) { entries.push(entry); return; }
     const bucket = `${explained(entry) ? "e" : "o"}:${codeBucket}`;
-    if (entries.length < maximum) { entries.push(entry); retained.set(bucket, (retained.get(bucket) ?? 0) + 1); return; }
+    if (entries.length < maximum) { entries.push(entry); entryBuckets.push(bucket); retained.set(bucket, (retained.get(bucket) ?? 0) + 1); return; }
     if (!maximum || retained.has(bucket)) return;
     // Preserve a representative for later categories by replacing a redundant detail, never growing the window.
     for (let index = entries.length - 1; index >= 0; index--) {
-      const existing = entries[index]!;
-      const code = `${explained(existing) ? "e" : "o"}:${counts[existing.code] === undefined ? OTHER_CODE : existing.code}`;
+      const code = entryBuckets[index]!;
       const amount = retained.get(code) ?? 0;
       if (amount <= 1) continue;
-      entries[index] = entry; retained.set(code, amount - 1); retained.set(bucket, 1); return;
+      entries[index] = entry; entryBuckets[index] = bucket; retained.set(code, amount - 1); retained.set(bucket, 1); return;
     }
   }
   function push(entry: T): void {
@@ -67,11 +68,18 @@ export function createDiagnosticCollector<T extends { code: string }>(limit?: nu
   }
   function merge(summary: DiagnosticSummary<T>): void {
     total += summary.total;
+    const buckets = new Map<string, string>();
     for (const [code, amount] of Object.entries(summary.counts)) {
       const bucket = count(code, amount), explanations = summary.explanations?.counts[code] ?? 0;
+      buckets.set(code, bucket);
       if (explanations) { explanationTotal += explanations; explanationCounts[bucket] = (explanationCounts[bucket] ?? 0) + explanations; }
     }
-    for (const entry of summary.entries) retain(entry, counts[entry.code] === undefined ? OTHER_CODE : entry.code);
+    if (maximum === Infinity) { for (const entry of summary.entries) entries.push(entry); return; }
+    const sampled = new Map<string, number>();
+    for (const entry of summary.entries) {
+      const sourceBucket = sampleBucket(summary, entry, sampled);
+      if (sourceBucket !== undefined) retain(entry, buckets.get(sourceBucket)!);
+    }
   }
   function snapshot(): DiagnosticSummary<T> {
     return { total, counts: { ...counts }, entries: entries.slice(), omitted: total - entries.length, ...(explanationTotal ? { explanations: { total: explanationTotal, counts: { ...explanationCounts } } } : {}) };
@@ -92,18 +100,28 @@ export function validDiagnosticSummary(value: unknown): value is DiagnosticSumma
 }
 function validSummarySamples(item: DiagnosticSummary<unknown>): boolean {
   const sampled = new Map<string, number>();
-  for (const entry of item.entries) {
-    const code = entry && typeof entry === "object" && typeof (entry as { code?: unknown }).code === "string" ? (entry as { code: string }).code : "unknown";
-    const bucket = Object.prototype.hasOwnProperty.call(item.counts, code) ? code : OTHER_CODE;
-    const explanation = !!entry && typeof entry === "object" && explained(entry);
-    const channel = `${explanation ? "e" : "o"}:${bucket}`;
-    const amount = (sampled.get(channel) ?? 0) + 1;
-    const explanationCount = item.explanations?.counts[bucket] ?? 0;
-    const available = explanation ? explanationCount : (item.counts[bucket] ?? 0) - explanationCount;
-    if (available < amount) return false;
-    sampled.set(channel, amount);
-  }
+  return item.entries.every(entry => sampleBucket(item, entry, sampled) !== undefined);
+}
+
+function claimSample(item: DiagnosticSummary<unknown>, bucket: string, explanation: boolean, sampled: Map<string, number>): boolean {
+  const channel = `${explanation ? "e" : "o"}:${bucket}`;
+  const amount = (sampled.get(channel) ?? 0) + 1;
+  const explanationCount = item.explanations?.counts[bucket] ?? 0;
+  const available = explanation ? explanationCount : (item.counts[bucket] ?? 0) - explanationCount;
+  if (available < amount) return false;
+  sampled.set(channel, amount);
   return true;
+}
+
+/** Folded custom codes retain their original names in details. After merging independently
+ * bounded summaries, a name can appear both explicitly and inside `other`. Allocate the
+ * finite source quotas before folding them into the destination's own buckets. */
+function sampleBucket(item: DiagnosticSummary<unknown>, entry: unknown, sampled: Map<string, number>): string | undefined {
+  const code = entry && typeof entry === "object" && typeof (entry as { code?: unknown }).code === "string" ? (entry as { code: string }).code : "unknown";
+  const bucket = Object.prototype.hasOwnProperty.call(item.counts, code) ? code : OTHER_CODE;
+  const explanation = !!entry && typeof entry === "object" && explained(entry);
+  if (claimSample(item, bucket, explanation, sampled)) return bucket;
+  if (bucket !== OTHER_CODE && !PRESERVED_CODES.has(code) && claimSample(item, OTHER_CODE, explanation, sampled)) return OTHER_CODE;
 }
 
 function explained(value: object): boolean { return (value as { valueState?: unknown }).valueState !== undefined; }

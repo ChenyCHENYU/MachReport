@@ -28,7 +28,7 @@ export function resolveMatrixLayout(list: ListComponent, rows: Record<string, un
   if (!list.matrix) return { list, rows };
   if (list.detail || list.groupBy || list.groups?.length || list.grandTotal) throw new Error("矩阵不能同时配置普通分组、总计或主从明细");
   const result = createMatrixTable(rows, matrixDisplayOptions(list));
-  const columns: ListColumn[] = result.columns.map(column => ({ ...column, widthMm: column.semanticRole === "dimension" ? list.matrix!.rowWidthMm ?? 40 : list.matrix!.columnWidthMm ?? 28, editable: false, align: column.semanticRole === "dimension" ? "center" : "right" }));
+  const columns: ListColumn[] = result.columns.map(column => ({ ...column, widthMm: column.semanticRole === "dimension" ? list.matrix!.rowWidthMm ?? 40 : list.matrix!.columnWidthMm ?? 28, editable: false, align: list.align ?? "auto" }));
   const derived: ListComponent = { ...list, columns, headerGrid: result.headerGrid, rowKey: undefined, revisionField: undefined, sourceTokenField: undefined };
   if (list.layout === "wide") derived.widthMm = columns.reduce((sum, column) => sum + column.widthMm, 0);
   const metadata = result.metadata;

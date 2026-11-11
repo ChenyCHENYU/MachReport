@@ -10,6 +10,8 @@ import { renderPlanToXlsx } from "../xlsx/render-xlsx";
 import { validReportWorkerResult, runReportWorkerRequest, REPORT_WORKER_PROTOCOL } from "../worker/protocol";
 import type { PreparedReport } from "../server/types";
 import type { RenderPlan, PlanComponent } from "../schema/render-plan";
+import type { ReportDiagnostic } from "../source/provider";
+import { createDiagnosticCollector, validDiagnosticSummary } from "../output/diagnostic-collector";
 
 const rect: PlanComponent = { kind: "rect", leftMm: 0, topMm: 0, widthMm: 40, heightMm: 5 };
 function prepared(components: PlanComponent[]): PreparedReport {
@@ -20,6 +22,25 @@ function cellPlan(rows = 3): PreparedReport {
 }
 
 describe("runtime diagnostic windows", () => {
+  it("accepts and re-exports independently folded diagnostic summaries through the real Runtime/RPC path", async () => {
+    const source = createDiagnosticCollector<ReportDiagnostic>(200), collector = createDiagnosticCollector<ReportDiagnostic>(200);
+    for (let index = 0; index < 128; index++) source.push({ code: `source-${index}`, message: `message ${index}`, severity: "info" });
+    source.push({ code: "folded", message: "folded source code", severity: "info" });
+    collector.push({ code: "folded", message: "explicit destination code", severity: "info" });
+    collector.merge(JSON.parse(JSON.stringify(source.snapshot())));
+    const input = prepared([]);
+    input.diagnostics = [...collector.entries]; input.diagnosticSummary = collector.snapshot();
+    expect(validDiagnosticSummary(input.diagnosticSummary)).toBe(true);
+    const runtime = createReportRuntime({ reports: {} });
+    const result = await runtime.exportPrepared({ prepared: input, format: "xlsx", diagnosticLimit: 3 });
+    expect(result.diagnosticSummary).toMatchObject({ total: 130, counts: { folded: 1, other: 2 }, omitted: 127 });
+    expect(validReportWorkerResult(result, "exportPrepared")).toBe(true);
+    const rpc = await runReportWorkerRequest(runtime, { protocol: REPORT_WORKER_PROTOCOL, id: "folded", operation: "exportPrepared", input: { prepared: JSON.parse(JSON.stringify(input)), format: "xlsx", diagnosticLimit: 3 } });
+    expect(rpc.error).toBeUndefined();
+    expect(validReportWorkerResult(structuredClone(rpc).result, "exportPrepared")).toBe(true);
+    expect(rpc.result?.diagnosticSummary).toMatchObject({ total: 130, counts: { folded: 1, other: 2 }, omitted: 127 });
+    expect(input.diagnostics).toHaveLength(130);
+  });
   it("preserves query occurrence metadata and counts omitted business explanations before encoding", async () => {
     const query = vi.fn(() => ({ datasets: { detail: [{ id: "ROW", qty: 0 }] }, revision: "v1", sourceToken: "t1", diagnostics: Array.from({ length: 500 }, (_, index) => ({ code: "source", message: `missing ${index}`, severity: "info" as const, valueState: "missing-source" as const, target: { datasetId: "detail", field: "qty" } })) }));
     const runtime = createReportRuntime({ reports: { daily: { template: createTableTemplate({ columns: [{ header: "Qty", field: "qty" }] }), provider: { query } } } });

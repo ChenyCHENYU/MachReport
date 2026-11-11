@@ -97,4 +97,83 @@ describe("bounded output diagnostics", () => {
     expect(serializeError("bad")).toEqual({ name: "Error", message: "bad" });
     expect(serializeError(Object.assign(new Error("primitive issues"), { issues: ["plain"] })).issues).toEqual([{ message: "plain" }]);
   });
+  it.each([0, 1, 3, 129, 200, undefined])("preserves folded code quotas across independent and repeated merges with limit %s", limit => {
+    const source = createDiagnosticCollector<{ code: string }>(200);
+    for (let index = 0; index < 128; index++) source.push({ code: `source-${index}` });
+    source.push({ code: "overflow" });
+    const destination = createDiagnosticCollector<{ code: string }>(limit);
+    destination.push({ code: "overflow" });
+    destination.merge(JSON.parse(JSON.stringify(source.snapshot())));
+    const merged = destination.snapshot();
+    expect(merged.total).toBe(130);
+    expect(merged.counts.overflow).toBe(1);
+    expect(Object.values(merged.counts).reduce((sum, count) => sum + count, 0)).toBe(130);
+    expect(validDiagnosticSummary(merged)).toBe(true);
+    const next = createDiagnosticCollector<{ code: string }>(limit);
+    next.merge(JSON.parse(JSON.stringify(merged)));
+    next.merge(JSON.parse(JSON.stringify(source.snapshot())));
+    expect(next.snapshot().total).toBe(259);
+    expect(next.snapshot().counts.overflow).toBe(1);
+    expect(validDiagnosticSummary(next.snapshot())).toBe(true);
+    expect(next.entries.length).toBe(Math.min(limit ?? Infinity, 259));
+  });
+  it("keeps representative slots stable when an earlier folded name later gains its own bucket", () => {
+    const collector = createDiagnosticCollector<{ code: string }>(3);
+    collector.merge({ total: 3, counts: { other: 3 }, entries: Array.from({ length: 3 }, () => ({ code: "folded" })), omitted: 0 });
+    collector.push({ code: "folded" });
+    collector.push({ code: "pdf-font" });
+    expect(collector.entries.map(entry => entry.code)).toContain("pdf-font");
+    expect(collector.snapshot()).toMatchObject({ total: 5, counts: { other: 3, folded: 1, "pdf-font": 1 }, omitted: 2 });
+    expect(validDiagnosticSummary(collector.snapshot())).toBe(true);
+  });
+  it("accepts a genuine other code alongside folded names and keeps explanation quotas independent", () => {
+    const source = createDiagnosticCollector<{ code: string; valueState?: string }>(200);
+    for (let index = 0; index < 128; index++) source.push({ code: `source-${index}` });
+    source.push({ code: "folded", valueState: "missing-source" });
+    source.push({ code: "folded" });
+    source.push({ code: "other", valueState: "missing-source" });
+    const collector = createDiagnosticCollector<{ code: string; valueState?: string }>(200);
+    collector.push({ code: "folded", valueState: "missing-source" });
+    collector.push({ code: "folded" });
+    collector.push({ code: "other" });
+    collector.merge(JSON.parse(JSON.stringify(source.snapshot())));
+    const merged = collector.snapshot();
+    expect(merged).toMatchObject({ total: 134, counts: { folded: 2, other: 6 }, explanations: { total: 3, counts: { folded: 1, other: 2 } } });
+    expect(merged.entries).toHaveLength(134);
+    expect(validDiagnosticSummary(merged)).toBe(true);
+    const next = createDiagnosticCollector<typeof merged.entries[number]>(200);
+    next.merge(JSON.parse(JSON.stringify(merged)));
+    expect(next.snapshot()).toEqual(merged);
+    expect(validDiagnosticSummary(next.snapshot())).toBe(true);
+  });
+  it("never borrows folded custom quotas for safety-critical output codes or for the other channel", () => {
+    expect(validDiagnosticSummary({ total: 3, counts: { "pdf-font": 1, other: 2 }, entries: [{ code: "pdf-font" }, { code: "pdf-font" }], omitted: 1 })).toBe(false);
+    expect(validDiagnosticSummary({ total: 3, counts: { custom: 1, other: 2 }, entries: [{ code: "custom", valueState: "missing-source" }], omitted: 2 })).toBe(false);
+    expect(validDiagnosticSummary({ total: 3, counts: { custom: 1, other: 2 }, explanations: { total: 3, counts: { custom: 1, other: 2 } }, entries: [{ code: "custom" }], omitted: 2 })).toBe(false);
+  });
+  it("round-trips mixed folded explanations and output diagnostics through bounded Worker errors", () => {
+    type Entry = { code: string; severity: "info"; message: string; valueState?: "missing-source"; target?: { datasetId: string; field: string } };
+    const entry = (code: string, explanation = false): Entry => ({ code, severity: "info", message: code,
+      ...(explanation ? { valueState: "missing-source", target: { datasetId: "detail", field: "qty" } } : {}) });
+    const source = createDiagnosticCollector<Entry>(200), collector = createDiagnosticCollector<Entry>(200);
+    for (let index = 0; index < 128; index++) source.push(entry(`source-${index}`));
+    source.push(entry("folded", true)); source.push(entry("folded"));
+    collector.push(entry("folded", true)); collector.push(entry("folded"));
+    collector.merge(source.snapshot());
+    const original = collector.snapshot();
+    const error = Object.assign(new Error("business diagnostics"), { diagnostics: original.entries, diagnosticSummary: original });
+    const response = JSON.parse(JSON.stringify(serializeError(error))) as ReturnType<typeof serializeError>;
+    expect(response.diagnosticSummary).toMatchObject({ total: 132, counts: original.counts, explanations: { total: 2 }, omitted: 0 });
+    expect(response.diagnostics).toHaveLength(132);
+    expect(validDiagnosticSummary(response.diagnosticSummary)).toBe(true);
+    expect(new ReportWorkerError(response).diagnosticSummary?.explanations?.total).toBe(2);
+  });
+  it("does not turn malformed business markers into explanation counts while sanitizing legacy RPC errors", () => {
+    const error = Object.assign(new Error("untrusted details"), { diagnostics: Array.from({ length: 250 }, () => ({ code: "source", message: "missing target", severity: "warning", valueState: "missing-source" })) });
+    const response = serializeError(error);
+    expect(response.diagnosticSummary).toMatchObject({ total: 250, omitted: 50 });
+    expect(response.diagnosticSummary?.explanations).toBeUndefined();
+    expect((response.diagnostics as object[]).every(entry => !("valueState" in entry))).toBe(true);
+    expect(validDiagnosticSummary(response.diagnosticSummary)).toBe(true);
+  });
 });

@@ -38,8 +38,15 @@ describe("hierarchical matrix actual delivery", () => {
     expect(sheet.model.merges).toEqual(expect.arrayContaining(["A1:A3", "B1:B3", "C1:E1"]));
     expect(sheet.getCell("C2").value).toBe("1"); expect(sheet.getCell("E2").value).toBe("Subtotal");
     expect(sheet.getCell("C3").value).toBe("Value"); expect(sheet.getCell("C4").value).toBe(0);
+    expect(sheet.getCell("C4").alignment.horizontal).toBe("center");
     expect(sheet.getCell("D6").value).toBe(10); expect(sheet.getCell("E6").value).toBe(10);
     expect(sheet.getCell("E8").value).toBe(20); expect(sheet.getCell("B8").value).toBe("Subtotal");
+  });
+  it("honors an explicit list alignment for generated matrix measures", () => {
+    const document = source(); (document.pages[0]!.components[0] as ListComponent).align = "right";
+    const cells = paginateTemplate(document, { rows }).plan.pages.flatMap(page => page.components.filter(component => component.table?.role === "body").flatMap(component => component.grid!.cells.flat()));
+    expect(cells.some(cell => cell?.value === 0)).toBe(true);
+    expect(cells.filter(cell => typeof cell?.value === "number").every(cell => cell?.style?.align === "right")).toBe(true);
   });
   it("encodes physical hierarchical headers and subtotal values into parseable PDF pages", async () => {
     const document = source(), component = document.pages[0]!.components[0] as ListComponent;

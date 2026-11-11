@@ -2,12 +2,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { computed, effectScope, ref } from "vue";
-import type { RenderPlan, ReportCellFieldOptions } from "@agile-team/mach-report";
+import { getReportCellContext, type RenderPlan, type ReportCellFieldOptions } from "@agile-team/mach-report";
 import ReportPreview from "../ReportPreview.vue";
 import { useEditHistory } from "../composables/useEditHistory";
 import { useCellEditing } from "../composables/useCellEditing";
 import type { MachReportController } from "../controller";
 import type { ReportEditingOptions } from "../editing";
+import { createCellEditor } from "../cell-editor";
 
 const wrappers = new Set<VueWrapper>();
 afterEach(() => { for (const wrapper of wrappers) wrapper.unmount(); wrappers.clear(); document.body.replaceChildren(); });
@@ -50,6 +51,7 @@ describe("optional typed cell controls", () => {
     const { wrapper, api, onError } = await fixture({ fields, save });
     const input = await begin(wrapper, 0);
     expect(input.element.tagName).toBe("INPUT");
+    expect((input.element as HTMLElement).style.textAlign).toBe("center");
     expect(input.attributes("inputmode")).toBe("decimal");
     expect(wrapper.find(".mrp-cell-editor-hint").text()).toContain("录入净重 · 吨 · ≥ 0 · ≤ 10 · 最多 2 位小数");
     expect((input.element as HTMLElement).style.background).toContain("var(--mrp-toolbar-bg");
@@ -59,6 +61,17 @@ describe("optional typed cell controls", () => {
     expect(onError.mock.calls.at(-1)?.[0]).toBe("数量最多保留 2 位小数"); expect(save).not.toHaveBeenCalled();
     await input.setValue("0"); await input.trigger("keydown", { key: "Enter" }); await flushPromises();
     expect(api.getPlan!()!.pages[0]!.components[0]!.grid!.cells[0]![0]!.value).toBe(0); expect(save).toHaveBeenCalledOnce();
+  });
+  it.each(["left", "right"] as const)("keeps an explicitly %s-aligned cell aligned while editing", align => {
+    const source = plan();
+    source.pages[0]!.components[0]!.style = { align: "right" };
+    source.pages[0]!.components[0]!.grid!.cells[0]![0]!.style = { align };
+    const context = getReportCellContext(source, { pageIndex: 0, componentIndex: 0, rowIndex: 0, columnIndex: 0 })!;
+    const cell = document.createElement("td");
+    const editor = createCellEditor(cell, "数量", context, fields.qty);
+    expect(editor.input.style.textAlign).toBe(align);
+    expect(editor.value()).toBe("3");
+    editor.root.remove();
   });
   it("preserves booleans, enum business values and explicit business dates", async () => {
     const save = vi.fn();

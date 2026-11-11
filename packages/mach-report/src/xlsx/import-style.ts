@@ -1,3 +1,4 @@
+import { automaticCellAlignment, hasNumericCellFormat } from "../render/cell-style";
 import type * as ExcelJS from "exceljs";
 import type { ComponentStyle, RichSegment } from "../schema/render-plan";
 import { ImportWarnings } from "./import-types";
@@ -92,21 +93,21 @@ function createCellStyle(cell: ExcelJS.Cell, theme: string[], sheet: string, war
 
 /** ExcelJS interns workbook styles; reuse the mapped object for large repeated grids. */
 export function styleImporter(theme: string[], sheet: string, warnings: ImportWarnings, scale = 1): (cell: ExcelJS.Cell) => ComponentStyle {
-  const cache = new WeakMap<object, { left: ComponentStyle; center: ComponentStyle; right: ComponentStyle }>();
+  const cache = new WeakMap<object, { left: ComponentStyle; center: ComponentStyle }>();
   return (cell) => {
     let variants = cache.get(cell.style);
     if (!variants) {
       const base = createCellStyle(cell, theme, sheet, warnings);
       base.fontSize = (base.fontSize ?? 11) * scale;
-      variants = cell.alignment?.horizontal ? { left: base, center: base, right: base } : {
-        left: base, center: { ...base, align: "center" }, right: { ...base, align: "right" }
+      variants = cell.alignment?.horizontal ? { left: base, center: base } : {
+        left: base, center: { ...base, align: "center" }
       };
       cache.set(cell.style, variants);
     }
     const raw = cell.value;
     const value = raw && typeof raw === "object" && ("formula" in raw || "sharedFormula" in raw) ? cell.result : raw;
-    const numericBlank = value == null && /[0#?]/.test((cell.numFmt ?? "").replace(/"[^"]*"|\\.|\[[^\]]*\]/g, ""));
-    return typeof value === "boolean" ? variants.center : typeof value === "number" || value instanceof Date || numericBlank ? variants.right : variants.left;
+    const numericBlank = value == null && hasNumericCellFormat(cell.numFmt);
+    return variants[automaticCellAlignment(value, numericBlank)];
   };
 }
 

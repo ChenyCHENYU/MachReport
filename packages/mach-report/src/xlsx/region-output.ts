@@ -1,6 +1,6 @@
 import type { GridCell, PlanComponent, PlanPage } from "../schema/render-plan";
 import { resolveGridLayout, type GridLayout } from "../render/grid-geometry";
-import { mergeComponentStyles } from "../render/style";
+import { resolveGridCellStyle } from "../render/cell-style";
 
 export interface ExcelFlowMetadata { version: "1.0"; columnStart: number }
 export interface ExcelFlowPageInfo { key: string; sheet: string; widths: number[] }
@@ -73,7 +73,7 @@ function placeGridCells(grids: PositionedGrid[], boundaries: number[], widths: n
       if (occupied.has(slot)) throw new Error("Excel 多区域实际单元格互相覆盖，已终止输出，未覆盖已有内容");
       occupied.set(slot, key);
     }
-    anchors.set(key, { ...box.cell, style: mergeComponentStyles(item.component.style, box.cell.style), rowSpan: bottom - top, colSpan: right - left });
+    anchors.set(key, { ...box.cell, style: resolveGridCellStyle(item.component.style, box.cell), rowSpan: bottom - top, colSpan: right - left });
   }
   return Array.from({ length: rows }, (_, row) => {
     const cells: (GridCell | null)[] = [];

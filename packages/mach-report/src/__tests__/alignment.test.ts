@@ -25,7 +25,7 @@ describe("表头与内容对齐", () => {
     });
     const [header, row] = grids(template, [{ name: "物料", code: "00123", qty: 0, ratio: 0.25, date: "2026-10-15", enabled: false }]);
     expect(header!.grid!.cells[0]!.map((cell) => cell?.style?.align)).toEqual(Array(6).fill("center"));
-    expect(row!.grid!.cells[0]!.map((cell) => cell?.style?.align)).toEqual(["left", "left", "right", "right", "center", "center"]);
+    expect(row!.grid!.cells[0]!.map((cell) => cell?.style?.align)).toEqual(["left", "left", "center", "center", "center", "center"]);
     expect(row!.grid!.cells[0]!.map((cell) => cell?.text)).toEqual(["物料", "00123", "0", "25.00%", "2026-10-15", "否"]);
   });
 
@@ -47,7 +47,7 @@ describe("表头与内容对齐", () => {
     expect(row!.grid!.cells[0]![1]?.style?.color).toBeUndefined();
   });
 
-  it("低层模板缺省对齐和旧列 style 继承行为兼容", () => {
+  it("低层旧模板缺省数值居中，显式列 style 继续优先", () => {
     const list: ListComponent = {
       kind: "list", dataset: "detail", leftMm: 10, topMm: 10, widthMm: 190,
       columns: [
@@ -57,7 +57,7 @@ describe("表头与内容对齐", () => {
     };
     const [header, row] = grids({ pages: [{ widthMm: 210, heightMm: 297, components: [list] }] }, [{ name: 9, qty: 2 }]);
     expect(header!.grid!.cells[0]!.map((cell) => cell?.style?.align)).toEqual(["center", "right"]);
-    expect(row!.grid!.cells[0]!.map((cell) => cell?.style?.align)).toEqual(["left", "right"]);
+    expect(row!.grid!.cells[0]!.map((cell) => cell?.style?.align)).toEqual(["center", "right"]);
   });
 
   it("auto 的同类型样式驻留复用，条件规则仍能显式覆盖", () => {
@@ -73,7 +73,7 @@ describe("表头与内容对齐", () => {
     expect(styles[2]).toBe(styles[3]);
     expect(styles[4]).toBe(styles[5]);
     expect(styles[6]).toMatchObject({ align: "center", color: "red" });
-    expect(styles[0]).toMatchObject({ align: "right" });
+    expect(styles[0]).toMatchObject({ align: "center" });
   });
 
   it("日期对象居中，未声明格式的数字字符串和空值不被推断为数字", () => {
@@ -81,7 +81,20 @@ describe("表头与内容对齐", () => {
     const rows = grids(template, [{ value: new Date("2026-10-15T00:00:00Z") }, { value: "123" }, { value: null }]).slice(1);
     expect(rows.map((row) => row.grid!.cells[0]![0]!.style?.align)).toEqual(["center", "left", "left"]);
     const formatted = createTableTemplate({ columns: [{ header: "数值", field: "value", format: { kind: "number" } }] });
-    expect(grids(formatted, [{ value: "123" }])[1]!.grid!.cells[0]![0]!.style?.align).toBe("right");
+    expect(grids(formatted, [{ value: "123" }])[1]!.grid!.cells[0]![0]!.style?.align).toBe("center");
+  });
+
+  it("空白度量与已声明类型使用居中，语义文本和明确对齐继续独立", () => {
+    const template = createTableTemplate({ columns: [
+      { header: "度量", field: "measure", semanticRole: "measure" },
+      { header: "空数值", field: "number", valueType: "number" },
+      { header: "空布尔", field: "boolean", valueType: "boolean" },
+      { header: "说明", field: "text", semanticRole: "text" },
+      { header: "明确右", field: "right", align: "right" },
+      { header: "明确左", field: "left", align: "left" }
+    ] });
+    const row = grids(template, [{ measure: null, number: null, boolean: null, text: 123, right: 2, left: 3 }])[1]!;
+    expect(row.grid!.cells[0]!.map(cell => cell?.style?.align)).toEqual(["center", "center", "center", "left", "right", "left"]);
   });
 
   it("独立表头字号参与行高测量，不与首行内容重叠", () => {
@@ -186,13 +199,13 @@ describe("Excel 原始值元数据", () => {
         { header: "名称", field: "name" },
         { header: "金额", field: "amount", format: { kind: "number", digits: 2 } }
       ],
-      listOptions: { groupBy: { field: "group", subtotal: ["amount"] }, grandTotal: { fields: ["amount"], style: { align: "center" } } }
+      listOptions: { groupBy: { field: "group", subtotal: ["amount"] }, grandTotal: { fields: ["amount"], style: { align: "right" } } }
     });
     const components = grids(template, [{ name: "A", group: "一", amount: 1.25 }, { name: "B", group: "一", amount: 2 }]);
     const subtotal = components.find((component) => component.nid?.startsWith("listst"))!.grid!.cells[0]![1]!;
     const grand = components.find((component) => component.nid?.startsWith("listgt"))!.grid!.cells[0]![1]!;
-    expect(subtotal).toMatchObject({ text: "3.25", value: 3.25, numberFormat: "0.00", style: { align: "right" } });
-    expect(grand).toMatchObject({ text: "3.25", value: 3.25, numberFormat: "0.00", style: { align: "center" } });
+    expect(subtotal).toMatchObject({ text: "3.25", value: 3.25, numberFormat: "0.00", style: { align: "center" } });
+    expect(grand).toMatchObject({ text: "3.25", value: 3.25, numberFormat: "0.00", style: { align: "right" } });
   });
 
   it("Excel 数字格式与无格式、千分位、百分比和日期边界一致", () => {
