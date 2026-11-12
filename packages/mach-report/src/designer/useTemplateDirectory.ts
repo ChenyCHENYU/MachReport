@@ -11,6 +11,7 @@ import type {
   useTemplateInspector,
   TemplateInspectorSection,
 } from "./useTemplateInspector";
+import { revealInScrollContainer } from "./designer-focus";
 
 type Inspector = ReturnType<typeof useTemplateInspector>;
 
@@ -64,13 +65,7 @@ export function useTemplateDirectory<T extends { index: number }>(
     );
     if (!viewport || !button) return;
     if (focus) button.focus({ preventScroll: true });
-    const bounds = viewport.getBoundingClientRect(),
-      target = button.getBoundingClientRect();
-    const top = bounds.top + viewport.clientTop,
-      bottom = top + viewport.clientHeight;
-    if (target.top < top) viewport.scrollTop += target.top - top;
-    else if (target.bottom > bottom)
-      viewport.scrollTop += target.bottom - bottom;
+    revealInScrollContainer(viewport, button);
   }
   async function close(restoreFocus = false): Promise<void> {
     if (!open.value) return;

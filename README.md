@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.25.2-2563eb" alt="Source version 2.25.2" />
+  <img src="https://img.shields.io/badge/source-2.26.0-2563eb" alt="Source version 2.26.0" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -48,10 +48,10 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 预览交互 | 多选 / 级联 / 数值范围、远程字典、紧凑数据工具、搜索与字段目录、右下分页、跨页选区、原生固定列与 Sheet 导航 |
 | 标识工作台 | `ReportLabelStudio` 直接传 rows/schema；包内完成标签设计、真实码图、逐记录预览与原尺寸输出 |
 | 内容编辑 | 默认只读；双击 / 粘贴、整批候选校验、安全预填、原子保存、按行依赖增量计算、撤销 / 重做与差异审阅 |
-| Excel 导入 | 混合字体与只读富文本、PNG/JPEG Logo、完整索引色、多 Sheet 会话复用、可取消预检、合并样式与缓存公式值转换为模板 |
-| 模板配置 | 可视化画布、Excel 业务绑定向导、计算与规则、变更对比与发布验收、CAS 历史 / 回滚 |
+| Excel 导入 | 混合字体、PNG/JPEG Logo、合并样式与缓存公式值、多 Sheet 会话复用；结构化提示、准确计数与原始单元格定位 |
+| 模板配置 | 可视化画布、统一字段搜索、批量列宽 / 格式 / 样式、Excel 绑定向导、单次撤销、变更对比与 CAS 版本流程 |
 | 工业标签 | 模板 + 行数组直接接入、逐记录字段绑定、多版相邻与份数、真实 QR / 条码、可视化设计 |
-| 输出 | 浏览器打印、HTML、PDF、真正的 `.xlsx`、逐页 PNG、Word 兼容 HTML `.doc` |
+| 输出 | 浏览器打印、HTML、PDF、真正的 `.xlsx`、逐页 PNG、Word 兼容 HTML `.doc`；PDF 整组透明度、旋转与两端对齐 |
 | 工程接入 | 局部组件、全局插件、异步入口、分层配置、结构化错误与导出告警 |
 | 引擎复用 | 共用业务语义与计算、逐页排版、按页文档存储、OpenAPI / Java客户端、自动隔离编码、流式 Excel、可恢复持久任务 |
 | 分析扩展 | 只读选区计算、按业务键精确期间对比、交叉汇总、IF / 数值 / 文本 / 日期表达式与按需资源适配 |
@@ -80,17 +80,21 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 字典搜索、厂别/产线级联、查看关联详情 | [参数](./docs/PARAMETERS.md) · [关联动作与隔离](./docs/RELIABILITY.md) · `/parameters.html`、`/product.html` |
 | 大批量标签、标准纸张拼版、持久任务 | [交付](./docs/DELIVERY.md) · [持久任务](./docs/DURABLE_JOBS.md) · [打印校准](./docs/PRINT_AND_DATA.md) |
 | 层级交叉表、复杂区域、指标语义与组件扩展 | [复杂报表](./docs/COMPLEX_REPORTS.md) · [组件扩展](./docs/COMPONENT_EXTENSIONS.md) · [稳定接入](./docs/API_STABILITY.md) |
-| 服务端按页读取、HTTP契约、Java客户端 | [后端复用](./docs/SERVER.md) · [Java参考](./examples/server-java-node/README.md) |
+| 服务端按页读取、前端远程窗口、HTTP契约 | [按页预览](./docs/DOCUMENT_PREVIEW.md) · [后端复用](./docs/SERVER.md) · [Java参考](./examples/server-java-node/README.md) |
 | 大文件编码、压缩期硬取消 | [自动执行策略](./docs/guides/automatic-export.md)：浏览器一个Worker工厂，Node自动定位线程入口 |
 | 持续回归与设备交接 | [深层测试](./docs/DEEP_VALIDATION.md) · [Office与设备验收](./docs/EXTERNAL_ACCEPTANCE.md) · [迭代安排](./docs/NEXT_ITERATION.md) |
 
-同次预览发布复用来源与几何索引。内置来源会话中，普通列表的纯字符串编辑在证明所有镜像换行数不变时复用未修改布局，计算、分组、格式化与复杂绑定沿用完整重排。输出诊断默认展示有界定位样本并保留准确总数，显式完整诊断接口继续可用。
+同次预览发布复用来源与几何索引。普通列表的纯字符串编辑在证明所有镜像换行数不变时复用布局；复杂编辑重算变化的报表分部，完全未变化的独立分部在数据身份、计划守卫与总预算验证通过后复用。计算与矩阵纯准备在同次自有请求内共享，不跨查询缓存业务数据。
+
+首次取数的自有快照物化、字段校验与声明式计算按工作量分片，支持取消；安全捕获和部分聚合仍有同步边界。普通接入无需添加配置。超大文档可选 `ReportDocumentPreview :source="source"`，只读取有界页窗口，导出仍走后端的完整不可变版本。
 
 多个预览可共用 `createProviderEditing` 配置，包内为每个实例隔离保存回执。底层编辑候选在读取时提供独立预览，校验和提交拒绝被修改的候选；自定义执行器与本地导出回调使用一致的结果校验。慢偏好存储合并连续修改，搜索定位复用有界命中索引，使用侧无需增加配置。
 
 稳定业务键的数据源自动维护编辑重算会话，独立报表默认隔离；镜像来源显式声明共享。保存前准备重算，成功后更新派生结果与修订，导出等待在途编辑。工作簿公式继续只显示缓存结果。严格输出拒绝已知缺字或损坏图片，宽松策略返回明确诊断。
 
-设计工具按需加载，设计与成品预览分别保留视角；多选移动、复制、删除和批量添加字段都复用一笔撤销事务。绑定图表在画布使用有界真实样本，标明样本范围。大列目录窗口化，连续 Excel 按工作量让出执行并响应取消。可选自动执行同时估算主表与附加表，隔离编码并覆盖最终压缩期硬取消；已准备结果原样交付，无需再次取数。
+设计工具按需加载，字段映射、组件绑定与标签主键共用可搜索的有界候选，支持键盘、输入法和已有字段。多选列一次应用列宽、对齐、数字格式与文字样式，一次撤销；混合属性保持不动。Excel 提示可按 Sheet / 单元格定位，折叠摘要保留准确数量。绑定图表仍使用标明范围的真实样本。
+
+连续 Excel 按工作量让出执行并响应取消。可选自动执行同时估算主表与附加表，隔离编码并覆盖最终压缩期硬取消；已准备结果原样交付，无需再次取数。输出诊断保留有界定位样本与准确总数，显式完整诊断接口继续可用。
 
 ### 项目接入体验
 
@@ -729,7 +733,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.25.2`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准，npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.26.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准，npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

@@ -1,7 +1,8 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 const xlsxUrl = `/@fs${fileURLToPath(new URL("../packages/mach-report/src/xlsx.ts", import.meta.url))}`;
 const coreUrl = `/@fs${fileURLToPath(new URL("../packages/mach-report/src/index.ts", import.meta.url))}`;
+async function field(control: Locator, value: string): Promise<void> { await control.fill(value); await control.press("Tab"); }
 async function excelFile(page: Page, large = false) {
   return Buffer.from(
     await page.evaluate(
@@ -85,16 +86,10 @@ test("Excel graphical binding removes samples, preserves zero/precision, reopens
   await page
     .getByLabel("业务数据集", { exact: true })
     .selectOption("production");
-  await page.getByLabel("稳定业务主键", { exact: true }).selectOption("heat");
-  await page
-    .getByLabel("Excel 列 A · 业务字段", { exact: true })
-    .selectOption("heat");
-  await page
-    .getByLabel("Excel 列 B · 业务字段", { exact: true })
-    .selectOption("weight");
-  await page
-    .getByLabel("Excel 列 C · 业务字段", { exact: true })
-    .selectOption("energy");
+  await field(page.getByRole("combobox", { name: "稳定业务主键", exact: true }), "heat");
+  await field(page.getByRole("combobox", { name: "Excel 列 A · 业务字段", exact: true }), "heat");
+  await field(page.getByRole("combobox", { name: "Excel 列 B · 业务字段", exact: true }), "weight");
+  await field(page.getByRole("combobox", { name: "Excel 列 C · 业务字段", exact: true }), "energy");
   await expect(page.locator(".mr-binding-actions")).toContainText(
     "绑定校验通过",
   );
@@ -108,20 +103,18 @@ test("Excel graphical binding removes samples, preserves zero/precision, reopens
   await expect(page.locator(".binding-result")).not.toContainText(
     "TEMPLATE-SAMPLE",
   );
-  await page
-    .getByLabel("Excel 列 A · 业务字段", { exact: true })
-    .selectOption("");
+  await field(page.getByRole("combobox", { name: "Excel 列 A · 业务字段", exact: true }), "");
   await expect(apply).toBeDisabled();
   await page
     .getByRole("button", { name: "恢复已保存绑定", exact: true })
     .click();
   await expect(
-    page.getByLabel("Excel 列 A · 业务字段", { exact: true }),
+    page.getByRole("combobox", { name: "Excel 列 A · 业务字段", exact: true }),
   ).toHaveValue("heat");
   await page.getByLabel("只读模式", { exact: true }).check();
   await expect(apply).toBeDisabled();
   await expect(
-    page.getByLabel("Excel 列 A · 业务字段", { exact: true }),
+    page.getByRole("combobox", { name: "Excel 列 A · 业务字段", exact: true }),
   ).toBeDisabled();
   await expect(
     page.getByRole("button", { name: "更换文件", exact: true }),
@@ -177,8 +170,8 @@ test("same-Sheet record and repeat regions are selected, mapped, applied and reo
     await panel.getByRole("button", { name: /^创建区域/ }).click();
     await panel.getByLabel("填充方式", { exact: true }).selectOption(mode);
     await panel.getByLabel("业务数据集", { exact: true }).selectOption(dataset);
-    await panel.getByLabel("稳定业务主键", { exact: true }).selectOption("heat");
-    for (const [column, field] of [["A", "heat"], ["B", "weight"], ["C", "energy"]]) await panel.getByLabel(`Excel 列 ${column} · 业务字段`, { exact: true }).selectOption(field!);
+    await field(panel.getByRole("combobox", { name: "稳定业务主键", exact: true }), "heat");
+    for (const [column, value] of [["A", "heat"], ["B", "weight"], ["C", "energy"]]) await field(panel.getByRole("combobox", { name: `Excel 列 ${column} · 业务字段`, exact: true }), value!);
   }
   await createRegion(3, "summary", "record"); await createRegion(4, "production", "repeat");
   await expect(panel.locator(".mr-binding-region-entry")).toHaveCount(2);
@@ -187,10 +180,10 @@ test("same-Sheet record and repeat regions are selected, mapped, applied and reo
   await expect(page.locator(".binding-result")).toContainText("LIVE-001");
   await expect(page.locator(".binding-result")).toContainText("64200.125");
   await expect(page.locator(".binding-result")).not.toContainText("SAMPLE");
-  await panel.getByLabel("Excel 列 A · 业务字段", { exact: true }).selectOption("");
+  await field(panel.getByRole("combobox", { name: "Excel 列 A · 业务字段", exact: true }), "");
   await page.getByRole("button", { name: "恢复已保存绑定", exact: true }).click();
   await expect(panel.locator(".mr-binding-region-entry")).toHaveCount(2);
-  await expect(panel.getByLabel("Excel 列 A · 业务字段", { exact: true })).toHaveValue("heat");
+  await expect(panel.getByRole("combobox", { name: "Excel 列 A · 业务字段", exact: true })).toHaveValue("heat");
   await testInfo.attach("excel-regions-workbench.png", { body: await page.screenshot(), contentType: "image/png" });
   expect(errors).toEqual([]);
 });

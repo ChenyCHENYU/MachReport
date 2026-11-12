@@ -1,3 +1,4 @@
+import { createDiagnosticCollector, DEFAULT_DIAGNOSTIC_LIMIT, type DiagnosticSummary } from "../output/diagnostic-collector";
 import type { OutputTaskOptions } from "../output/progress";
 import type { ReportTemplate } from "../layout/paginate";
 
@@ -44,7 +45,37 @@ export interface ExcelImportedSheet {
   pageCount: number;
 }
 
-export interface ExcelImportResult {
+export type ExcelImportDiagnosticCode =
+  | "formula-shared" | "formula-cached" | "formula-result-missing" | "number-format"
+  | "date-readonly" | "date-epoch" | "literal-placeholder" | "style-color" | "style-fill"
+  | "style-border" | "style-alignment" | "font-decoration" | "rich-text-color" | "rich-text-decoration"
+  | "hidden-column" | "hidden-row" | "paper-scale" | "hidden-sheet" | "protected-sheet"
+  | "conditional-format" | "auto-filter" | "data-validation" | "image-omitted" | "image-segment"
+  | "image-crop" | "image-transform" | "image-external" | "drawing-shape" | "chart" | "pivot"
+  | "external-link" | "embedded-object";
+
+/** Original workbook coordinates, independent of preview segmentation. Rows/columns are one-based. */
+export interface ExcelImportDiagnosticLocation {
+  sheet?: string;
+  range?: string;
+  cell?: string;
+  row?: number;
+  column?: number;
+  /** OOXML part when a workbook feature cannot safely be attributed to a sheet. */
+  part?: string;
+}
+export interface ExcelImportDiagnostic extends ExcelImportDiagnosticLocation {
+  code: ExcelImportDiagnosticCode;
+  severity: "warning";
+  message: string;
+}
+export interface ExcelImportDiagnostics {
+  /** Bounded detail window (200); use summary counts for all feature occurrences. */
+  diagnostics?: readonly ExcelImportDiagnostic[];
+  diagnosticSummary?: DiagnosticSummary<ExcelImportDiagnostic>;
+}
+
+export interface ExcelImportResult extends ExcelImportDiagnostics {
   template: ReportTemplate;
   warnings: string[];
   sheets: ExcelImportedSheet[];
@@ -91,15 +122,29 @@ export function resolveImportOptions(options: ExcelImportOptions): ResolvedImpor
   return { layout, landscape: options.landscape ?? true, maxRowsPerPage, limits };
 }
 
-/** Deduplicate feature warnings without retaining every cell address in a large workbook. */
+/** Legacy messages remain deduplicated; structured counts describe every source occurrence. */
 export class ImportWarnings {
   private readonly messages = new Set<string>();
+  private readonly collector = createDiagnosticCollector<ExcelImportDiagnostic>(DEFAULT_DIAGNOSTIC_LIMIT);
   private overflow = false;
-  add(message: string): void {
+  add(message: string, code: ExcelImportDiagnosticCode, location: ExcelImportDiagnosticLocation = {}): void {
     if (this.messages.size < 200) this.messages.add(message);
     else if (!this.messages.has(message)) this.overflow = true;
+    this.collector.push({ code, severity: "warning", message, ...location });
   }
   result(): string[] {
     return [...this.messages, ...(this.overflow ? ["其余导入告警已合并；请缩小范围进一步检查"] : [])];
+  }
+  structured(): Required<ExcelImportDiagnostics> {
+    const diagnosticSummary = this.collector.snapshot();
+    return { diagnostics: diagnosticSummary.entries, diagnosticSummary };
+  }
+  /** Preserve exact preflight counts without accumulating diagnostics across session selections. */
+  fork(): ImportWarnings {
+    const result = new ImportWarnings();
+    for (const message of this.messages) result.messages.add(message);
+    result.overflow = this.overflow;
+    result.collector.merge(this.collector.snapshot());
+    return result;
   }
 }

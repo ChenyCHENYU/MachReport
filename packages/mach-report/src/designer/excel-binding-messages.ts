@@ -1,5 +1,10 @@
+const IMPORT_DIAGNOSTIC_MESSAGES = {
+  diagnosticDetails: "显示 {shown} / {total} 项来源提示",
+  locateSource: "定位来源",
+};
 /** Optional wizard labels remain independent of the general designer configuration. */
 export const EXCEL_BINDING_MESSAGES = {
+  ...IMPORT_DIAGNOSTIC_MESSAGES,
   recoveredMapping: "映射配置已恢复，请重新选择原 Excel 文件后核对；源文件及业务数据未暂存。",
   recoveredSheetMissing: "所选文件没有草稿所需的工作表，请重新选择原文件或放弃映射草稿。",
   tableMode: "传统整表",
@@ -45,7 +50,7 @@ export const EXCEL_BINDING_MESSAGES = {
   sourceTokenField: "来源令牌字段",
   selectionCellLabel: "选择源单元格",
   searchFields: "搜索字段名称、编码或单位",
-  fieldLimit: "候选最多显示 64 项；输入字段名筛选，已选映射始终保留。",
+  fieldLimit: "字段可按名称、编码或单位搜索，使用键盘或翻页查看全部候选。",
   restoreDraft: "恢复工具草稿",
   title: "Excel 业务绑定",
   intro: "保留模板版式，明确数据来源",
@@ -115,4 +120,4 @@ export const EXCEL_BINDING_MESSAGES = {
   sampleOnly: "仅契约样例",
   schemaOnly: "契约字段，不执行接口查询",
 };
-export type ExcelBindingMessages = typeof EXCEL_BINDING_MESSAGES;
+export type ExcelBindingMessages = Omit<typeof EXCEL_BINDING_MESSAGES, keyof typeof IMPORT_DIAGNOSTIC_MESSAGES> & Partial<typeof IMPORT_DIAGNOSTIC_MESSAGES>;

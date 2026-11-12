@@ -184,18 +184,18 @@ for (const width of [1024, 1440]) {
     const last = rows.last().getByRole("button");
     await expect(last).toBeFocused();
     await expect(last).toBeInViewport({ ratio: 1 });
-    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
+    await expect(root.getByRole("combobox", { name: "业务字段", exact: true })).toHaveValue(
       "c1",
     );
     await last.press("Enter");
     await expect(rows).toHaveCount(0);
-    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
+    await expect(root.getByRole("combobox", { name: "业务字段", exact: true })).toHaveValue(
       "c55",
     );
     await trigger.click();
     // 多选只负责批量操作，不改变当前字段或关闭目录。
     await rows.nth(1).getByRole("checkbox").check();
-    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
+    await expect(root.getByRole("combobox", { name: "业务字段", exact: true })).toHaveValue(
       "c55",
     );
     await expect(
@@ -204,6 +204,7 @@ for (const width of [1024, 1440]) {
     await root
       .getByLabel("批量正文对齐", { exact: true })
       .selectOption("center");
+    await root.getByRole("button", { name: "应用到所选字段", exact: true }).click();
     await root
       .getByRole("button", { name: "关闭字段目录", exact: true })
       .click();
@@ -211,11 +212,20 @@ for (const width of [1024, 1440]) {
     await expect(rows).toHaveCount(0);
     await trigger.click();
     await expect(rows.nth(1).getByRole("checkbox")).toBeChecked();
+    await testInfo.attach("directory-reopen-layout.json", { body: JSON.stringify(await last.evaluate(element => {
+      const ancestors = [];
+      for (let node: Element | null = element; node; node = node.parentElement) {
+        const box = node.getBoundingClientRect(), style = getComputedStyle(node);
+        ancestors.push({ tag: node.tagName, class: node.className, box: box.toJSON(), clientHeight: node.clientHeight, scrollHeight: node.scrollHeight, scrollTop: node.scrollTop, overflow: [style.overflowX, style.overflowY], padding: style.padding, flex: style.flex, minHeight: style.minHeight });
+      }
+      return ancestors;
+    }), null, 2), contentType: "application/json" });
+    await root.screenshot({ path: testInfo.outputPath("directory-reopen-layout.png") });
     await expect(last).toBeInViewport({ ratio: 1 });
     await last.press("Enter");
     await expect(rows).toHaveCount(0);
     await expect(trigger).toBeFocused();
-    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
+    await expect(root.getByRole("combobox", { name: "业务字段", exact: true })).toHaveValue(
       "c55",
     );
     await root.getByRole("button", { name: "撤销", exact: true }).click();
@@ -229,7 +239,10 @@ for (const width of [1024, 1440]) {
     await trigger.click();
     const focusedSearch = root.getByLabel("搜索列名或字段", { exact: true });
     await focusedSearch.press("Shift+Tab");
+    const reverseFocus = [await page.evaluate(() => document.activeElement?.outerHTML)];
     await page.keyboard.press("Shift+Tab");
+    reverseFocus.push(await page.evaluate(() => document.activeElement?.outerHTML));
+    await testInfo.attach("reverse-tab-focus.json", { body: JSON.stringify(reverseFocus), contentType: "application/json" });
     await expect(
       root.getByRole("checkbox", { name: "显示此列", exact: true }),
     ).toBeFocused();
@@ -245,7 +258,7 @@ for (const width of [1024, 1440]) {
     await fieldsTab.click();
     await expect(fieldsTab).toBeFocused();
     await expect(rows).toHaveCount(0);
-    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
+    await expect(root.getByRole("combobox", { name: "业务字段", exact: true })).toHaveValue(
       "c55",
     );
     expect(await root.evaluate((element) => element.scrollTop)).toBe(0);
@@ -261,12 +274,12 @@ for (const width of [1024, 1440]) {
     const search = root.getByLabel("搜索列名或字段", { exact: true });
     await search.fill("c54");
     await expect(rows).toHaveCount(1);
-    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
+    await expect(root.getByRole("combobox", { name: "业务字段", exact: true })).toHaveValue(
       "c55",
     );
     await search.press("Enter");
     await expect(rows).toHaveCount(0);
-    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
+    await expect(root.getByRole("combobox", { name: "业务字段", exact: true })).toHaveValue(
       "c54",
     );
     await root.getByLabel("表头", { exact: true }).fill("精准字段54");
@@ -284,11 +297,11 @@ for (const width of [1024, 1440]) {
     ).toEqual(["精准字段54", "业务指标55"]);
     // 关闭目录后的前后切换走完整物理列，保留目录查询也不能跳到错误字段。
     await root.getByRole("button", { name: "下一字段", exact: true }).click();
-    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
+    await expect(root.getByRole("combobox", { name: "业务字段", exact: true })).toHaveValue(
       "c55",
     );
     await root.getByRole("button", { name: "上一字段", exact: true }).click();
-    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
+    await expect(root.getByRole("combobox", { name: "业务字段", exact: true })).toHaveValue(
       "c54",
     );
     await trigger.click();
@@ -297,14 +310,14 @@ for (const width of [1024, 1440]) {
     await expect(
       root.getByText("没有匹配的列", { exact: true }).last(),
     ).toBeVisible();
-    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
+    await expect(root.getByRole("combobox", { name: "业务字段", exact: true })).toHaveValue(
       "c54",
     );
     await search.press("Enter");
     await expect(
       root.getByRole("dialog", { name: "字段目录", exact: true }),
     ).toBeVisible();
-    await expect(root.getByLabel("业务字段", { exact: true })).toHaveValue(
+    await expect(root.getByRole("combobox", { name: "业务字段", exact: true })).toHaveValue(
       "c54",
     );
     await expect(root.locator(".mr-designer-properties")).toHaveCount(1);

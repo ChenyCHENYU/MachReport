@@ -75,6 +75,8 @@ import ReportConflictReview from "./ReportConflictReview.vue";
 import { usePreviewConflictRecovery } from "./composables/usePreviewConflictRecovery";
 import ReportNavigation from "./ReportNavigation.vue";
 import ReportImportSummary from "./ReportImportSummary.vue";
+import { importedDiagnosticAddress, importedDiagnosticPage } from "./import-diagnostic-location";
+import type { ExcelImportDiagnostic } from "../xlsx/import-types";
 import type { ReportParamDef } from "@agile-team/mach-report";
 import {
   MACH_REPORT_CONTROLLER_KEY,
@@ -419,6 +421,13 @@ function locateDiagnostic(entry: Readonly<ReportPreviewDiagnostic>): void {
   gotoPage(entry.pageIndex + 1);
   const path = entry.componentPath;
   if (entry.componentIndex !== undefined && path && path.length === 2) void cells.focusCell({ pageIndex: entry.pageIndex, componentIndex: entry.componentIndex, rowIndex: path[0]!, columnIndex: path[1]! });
+}
+function locateImportedDiagnostic(entry: ExcelImportDiagnostic): void {
+  if (!plan.value || !importedResult.value) return;
+  const address = importedDiagnosticAddress(plan.value, entry);
+  if (address) { void cells.focusCell(address); return; }
+  const page = importedDiagnosticPage(importedResult.value.sheets, entry);
+  if (page !== undefined) gotoPage(page + 1);
 }
 const sections = computed<ReportSection[]>(() => {
   if (importedResult.value) return importedResult.value.sheets.map((sheet) => ({ label: sheet.name, pageIndex: sheet.pageStart }));
@@ -809,7 +818,7 @@ defineExpose({ ...controller, state });
       <ReportPrintSettings v-if="toolState.print" :value="effectivePrintOptions.calibration ?? {}" :messages="resolvedMessages" :busy="printing || loading || importing || editing.saving.value" :can-test="canCalibratePrint" @change="localPrintCalibration = $event" @test="testPrintCalibration" />
     </ReportSettings>
     <ReportNavigation :plan="plan" @locate-target="locateTarget" v-if="sections.length > 1 && pageCount > 0 && effectiveInteraction.navigation !== false" :sections="sections" :current-page="currentPage" :messages="resolvedMessages" :busy="interactionBlocked || importing || editing.saving.value" @goto="gotoPage" @locate="locateField" />
-    <ReportImportSummary v-if="importedResult" :result="importedResult" :messages="resolvedMessages" />
+    <ReportImportSummary v-if="importedResult" :result="importedResult" :messages="resolvedMessages" @locate="locateImportedDiagnostic" />
     <ReportEditBar v-if="effectiveEditable && pageCount > 0" :plan="plan" :history-limited="editing.historyLimited.value" :differences="editing.differences.value" :conflicts="editing.conflicts.value" :pending-count="editing.pendingEdits.value.length" review-conflicts :messages="resolvedMessages" :saving="editing.saving.value" :can-undo="editing.canUndo.value" :can-redo="editing.canRedo.value" :persisted="persistedEditing" :busy="interactionBlocked || importing || !!exporting || printing" @review-conflicts="reviewConflicts" @undo="editing.undo" @redo="editing.redo" @restore="editing.restore" @locate="locateEdit" />
     <input v-if="effectiveExcelImport" ref="importInputRef" class="mrp-import-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden @change="onImportFile" />
     <div v-if="effectiveEditable && pageCount > 0" class="mrp-edit-hint" role="status" aria-live="polite"><template v-if="!editing.saving.value && cellStatus"><span class="mrp-cell-access" :class="{ 'is-editable': cellStatus.editable }">{{ cellStatus.label }}</span><span class="mrp-cell-access-message" :title="cellStatus.message">{{ cellStatus.message }}</span></template><template v-else>{{ editing.saving.value ? resolvedMessages.saving : resolvedMessages.editingHint }}</template></div>
@@ -907,7 +916,7 @@ defineExpose({ ...controller, state });
         <ReportSelectionSummary v-if="calculationsEnabled" :state="calculation" :messages="calculationMessages" />
         <button v-if="calculationsEnabled" ref="calculationTrigger" class="mrp-calculation-toggle" type="button" :aria-label="calculationMessages.calculationAdvanced" :aria-expanded="calculationOpen" @click="openCalculations"><span aria-hidden="true">∑</span>{{ calculationMessages.calculationAdvanced }}</button>
       </div>
-      <ReportPagination :page-count="pageCount" :current-page="currentPage" :messages="resolvedMessages" :busy="interactionBlocked || importing || editing.saving.value" @goto="gotoPage" />
+      <slot name="pagination" :page-count="pageCount" :current-page="currentPage" :goto-page="gotoPage"><ReportPagination :page-count="pageCount" :current-page="currentPage" :messages="resolvedMessages" :busy="interactionBlocked || importing || editing.saving.value" @goto="gotoPage" /></slot>
     </footer>
     <!-- 默认插槽（overlay 层）：自定义操作按钮/状态徽标 -->
     <div class="mrp-overlay">

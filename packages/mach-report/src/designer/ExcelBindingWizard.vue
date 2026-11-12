@@ -4,6 +4,10 @@ import { useDesignerTheme } from "./useDesignerTheme";
 const shellStyle = useDesignerTheme();
 import { bindingTargetRange } from "./excel-binding-guidance";
 import ExcelRegionBindingPanel from "./ExcelRegionBindingPanel.vue";
+import FieldSelect from "./FieldSelect.vue";
+import ExcelImportDiagnostics from "./ExcelImportDiagnostics.vue";
+import type { ImportDiagnosticTarget } from "./import-diagnostic-target";
+import { revealDesignerTarget } from "./designer-focus";
 import ReportIcon from "../vue/ReportIcon.vue";
 import type { ExcelBindingRegion } from "../xlsx/binding-workflow";
 import {
@@ -48,6 +52,15 @@ const element = ref<HTMLElement>();
 const issuePage = ref(0);
 const issuePages = computed(() => Math.max(1, Math.ceil(wizard.issueEntries.value.length / 12)));
 const visibleIssues = computed(() => wizard.issueEntries.value.slice(issuePage.value * 12, (issuePage.value + 1) * 12));
+async function locateImport(target: ImportDiagnosticTarget): Promise<void> {
+  await wizard.chooseSheet(target.sheet);
+  if (recipe.value.sheet !== target.sheet) return;
+  row.value = target.row; column.value = target.column;
+  await nextTick();
+  const cell = element.value?.querySelector<HTMLElement>(`td[data-source-cell="${target.row}:${target.column}"]`);
+  cell?.focus(); cell?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  revealDesignerTarget(cell);
+}
 watch(issuePages, count => { issuePage.value = Math.min(issuePage.value, count - 1); });
 watch(wizard.focusTarget, async value => {
   if (!value) return;
@@ -59,6 +72,7 @@ watch(wizard.focusTarget, async value => {
   const target = element.value?.querySelector<HTMLElement>(`.mr-binding-table-editor [data-binding-control="${control}"]`);
   const focus = disabled.value ? target?.closest<HTMLElement>("label") : target;
   focus?.focus(); focus?.scrollIntoView?.({ block: "nearest" });
+  revealDesignerTarget(focus);
 });
 const dragging = ref(false);
 const regions: ExcelBindingRegion[] = ["title", "header", "detail", "footer"];
@@ -308,7 +322,7 @@ defineExpose({
                     :colspan="cell.colSpan"
                     :title="`${cell.address} · ${cell.text}`"
                     :data-source-cell="`${cell.row}:${cell.column}`"
-                    :tabindex="mode === 'regions' ? 0 : undefined"
+                    :tabindex="mode === 'regions' ? 0 : -1"
                     :aria-label="mode === 'regions' ? `${m.selectionCellLabel} ${cell.address}` : undefined"
                     :aria-selected="mode === 'regions' ? regionBindings.selected(cell.row, cell.column) : undefined"
                     :class="{ 'is-continued': cell.continued, 'is-cell-selected': mode === 'regions' && regionBindings.selected(cell.row, cell.column) }"
@@ -450,16 +464,7 @@ defineExpose({
                 {{ m.noContract }}
               </p>
               <label v-if="dataset" class="mr-binding-label" tabindex="-1">{{ m.rowKey
-                }}<select data-binding-control="rowKey" :value="recipe.rowKey" :aria-label="m.rowKey" @change="wizard.setRowKey(value($event))">
-                  <option value="">{{ m.chooseRowKey }}</option>
-                  <option
-                    v-for="field in rowKeys"
-                    :key="field.field"
-                    :value="field.field"
-                  >
-                    {{ field.label || field.field }} · {{ field.field }}
-                  </option>
-                </select></label>
+                }}<FieldSelect data-binding-control="rowKey" :model-value="recipe.rowKey" :fields="rowKeys" :label="m.rowKey" :disabled="disabled" :messages="m" :placeholder="m.chooseRowKey" @change="wizard.setRowKey" /></label>
               <div v-if="dataset" class="mr-binding-mappings">
                 <label
                   v-for="item in mappings"
@@ -468,20 +473,16 @@ defineExpose({
                   tabindex="-1"
                   ><span>{{ item.physical }}</span>
                   <div>
-                    <select
+                    <FieldSelect
                       :data-binding-control="`field-${item.index}`"
-                      :aria-label="`${m.physical} ${item.physical} · ${m.business}`"
-                      :value="item.field"
-                      @change="wizard.setMapping(item.index, value($event))"
-                    >
-                      <option value="">{{ m.chooseField }}</option>
-                      <option
-                        v-for="field in dataset.fields"
-                        :key="field.field"
-                        :value="field.field"
-                      >
-                        {{ field.label || field.field }} · {{ field.field }}
-                      </option></select><small v-if="item.field">{{
+                      :label="`${m.physical} ${item.physical} · ${m.business}`"
+                      :model-value="item.field"
+                      :fields="dataset.fields"
+                      :disabled="disabled"
+                      :messages="m"
+                      :placeholder="m.chooseField"
+                      @change="wizard.setMapping(item.index, $event)"
+                    /><small v-if="item.field">{{
                       fieldInfo(item.field)
                     }}</small>
                   </div></label>
@@ -534,7 +535,8 @@ defineExpose({
         </ul>
         <div v-if="issuePages > 1" class="mr-binding-issue-pages"><button type="button" :disabled="issuePage === 0" :aria-label="m.previousIssues" @click="issuePage--"><ReportIcon name="chevron-left" :size="12" /></button><span>{{ issuePage + 1 }}/{{ issuePages }}</span><button type="button" :disabled="issuePage + 1 >= issuePages" :aria-label="m.nextIssues" @click="issuePage++"><ReportIcon name="chevron-right" :size="12" /></button></div>
       </details>
-      <details v-if="imported.warnings.length" class="mr-binding-warnings">
+      <ExcelImportDiagnostics v-if="imported.diagnostics" :source="imported" :current-sheet="recipe.sheet" :disabled="disabled" :messages="m" @locate="locateImport" />
+      <details v-else-if="imported.warnings.length" class="mr-binding-warnings">
         <summary>
           {{ m.inspectWarning }} · {{ imported.warnings.length }}
         </summary>

@@ -13,7 +13,8 @@ import { heuristicMeasurer, wrapText, type TextMeasureOptions, type TextMeasurer
 import { createTextMeasurementCache } from "./text-measure-cache";
 import { compileReportPredicate, type ReportPredicateReader } from "../processing/predicate";
 import { formatValue, toExcelNumberFormat } from "../format";
-import { computeDataset, type FormulaAdapter } from "../processing/computed";
+import type { FormulaAdapter } from "../processing/computed";
+import { preparedListRows } from "./list-preparation";
 import { createChartResolver, validateChartComponentLimit, type ChartComponentResolver } from "./chart-layout";
 import { aggregateRows, type AggregateDefinition } from "../processing/aggregate";
 import { estimateMatrixTable } from "../processing/matrix";
@@ -690,9 +691,7 @@ function prepareListData(list: ListComponent, input: DataRow[], context: ListPag
   const record = prepareRecordData(list, input);
   if (record) { context.prepared.set(list, record); return record; }
   if (list.tree) { const result = prepareTreeData(list, input, context); context.prepared.set(list, result); return result; }
-  let rows = list.computed?.length ? computeDataset(input, { fields: list.computed, signal: context.signal, formula: context.formula }).rows : input;
-  const originals = rows === input ? undefined : new Map(rows.map((row, index) => [row, input[index]!]));
-  if (list.rowVisibleWhen) rows = rows.filter(compileReportPredicate(list.rowVisibleWhen));
+  const { rows, originals } = preparedListRows(list, input, context.datasets, context);
   const result: PreparedListData = resolveMatrixLayout(list, rows);
   if (!list.matrix) {
     const sourceRows = checkedRowSources(list, originals ? rows.map((row) => originals.get(row)!) : rows);
@@ -942,9 +941,7 @@ function estimateTreeCells(list: ListComponent, datasets: DatasetRows, signal?: 
 export function estimateListLayoutCells(list: ListComponent, datasets: DatasetRows, options: Pick<PaginateOptions, "formula" | "signal"> = {}): number {
   if (list.tree) return estimateTreeCells(list, datasets, options.signal);
   if (list.matrix) {
-    let rows = datasets[list.dataset] ?? [];
-    if (list.computed?.length) rows = computeDataset(rows, { fields: list.computed, ...options }).rows;
-    if (list.rowVisibleWhen) rows = rows.filter(compileReportPredicate(list.rowVisibleWhen));
+    const { rows } = preparedListRows(list, datasets[list.dataset] ?? [], datasets, options);
     const shape = estimateMatrixTable(rows, list.matrix);
     return shape.cells + (list.header === false ? 0 : shape.columnCount * (list.matrix.hierarchy ? list.matrix.columnFields.length + 1 : 1));
   }

@@ -1,6 +1,9 @@
 // Vue 使用侧从同一入口获取模板、类型与分页能力；重导出不加载 PDF/XLSX/SQL。
 export * from "@agile-team/mach-report";
 export { default as ReportPreview } from "./ReportPreview.vue";
+export { default as ReportDocumentPreview } from "./ReportDocumentPreview.vue";
+export type { ReportDocumentMessages } from "./document-messages";
+export type { ReportDocumentSource, ReportDocumentWindowRequest, ReportDocumentWindow, ReportDocumentExportRequest } from "../server/document-source";
 export { default as ReportToolbar } from "./ReportToolbar.vue";
 export { default as ReportPagination } from "./ReportPagination.vue";
 export type { ReportCalculationMessages } from "./composables/useSelectionCalculation";

@@ -506,7 +506,7 @@
   scrollbar-width: thin;
   overscroll-behavior: contain;
   margin: 0 -4px;
-  padding: 0 3px;
+  padding: 0 3px 2px;
 }
 .mr-designer-column-row {
   display: flex;
@@ -566,6 +566,11 @@
 .mr-designer-batch {
   padding-top: 8px;
   border-top: 1px solid var(--mrp-toolbar-border, #e2e8f0);
+  flex-shrink: 0;
+  max-height: 55%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 .mr-designer-batch label {
   grid-template-columns: 88px minmax(0, 1fr);

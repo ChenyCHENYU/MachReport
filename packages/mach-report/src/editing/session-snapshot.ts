@@ -2,6 +2,8 @@ import type { ReportEditSessionPart } from "./session-data";
 import type { RenderPlan } from "../schema/render-plan";
 import { ReportCellEditError } from "./value";
 import { registerComputedDataset } from "../processing/computation-workspace";
+import { checkCooperativeAbort, drainCooperatively } from "../processing/cooperative";
+import { materializeSnapshot } from "./snapshot-materialization";
 
 interface Budget { nodes: number }
 interface ObjectStamp { object: object; prototype: object | null; keys: string[]; values: unknown[]; date?: number; length?: number }
@@ -24,20 +26,35 @@ function checkObject(value: object): void {
     if (value instanceof Date || Array.isArray(value) && !/^(0|[1-9]\d*)$/.test(key)) throw new ReportCellEditError("conflict");
   }
 }
+function capturedPrototype(object: object, array: boolean, date: boolean): object | null {
+  const prototype = Object.getPrototypeOf(object);
+  if (array && prototype !== Array.prototype || !array && !date && prototype !== Object.prototype && prototype !== null) throw new ReportCellEditError("conflict");
+  return prototype;
+}
+function captureObject(object: object): ObjectStamp {
+  const array = Array.isArray(object), date = object instanceof Date, prototype = capturedPrototype(object, array, date);
+  const keys: string[] = [], values: unknown[] = [];
+  for (const key of Reflect.ownKeys(object)) {
+    if (array && key === "length") continue;
+    const descriptor = Object.getOwnPropertyDescriptor(object, key)!;
+    if (typeof key === "symbol" || key === "toJSON" || date || !descriptor.enumerable || descriptor.get || descriptor.set) throw new ReportCellEditError("conflict");
+    if (array && !/^(0|[1-9]\d*)$/.test(key)) throw new ReportCellEditError("conflict");
+    keys.push(key); values.push(descriptor.value);
+  }
+  if (array && keys.length !== object.length) throw new ReportCellEditError("conflict");
+  return { object, prototype, keys, values, ...(date ? { date: Date.prototype.getTime.call(object) } : {}), ...(array ? { length: object.length } : {}) };
+}
 function collect(value: unknown, stamps: ObjectStamp[], active: Set<object>, budget: Budget, depth: number, seen?: Set<object>): void {
   checkBudget(budget, depth);
   if (typeof value === "function" || typeof value === "symbol") throw new ReportCellEditError("conflict");
   if (value === null || typeof value !== "object") return;
-  checkObject(value);
   if (active.has(value)) throw new ReportCellEditError("conflict");
   if (seen?.has(value)) return;
   seen?.add(value);
   active.add(value);
-  const keys = Object.keys(value), values = keys.map((key) => ownValue(value, key));
-  stamps.push({ object: value, prototype: Object.getPrototypeOf(value), keys, values,
-    ...(value instanceof Date ? { date: Date.prototype.getTime.call(value) } : {}),
-    ...(Array.isArray(value) ? { length: value.length } : {}) });
-  for (const item of values) collect(item, stamps, active, budget, depth + 1, seen);
+  const stamp = captureObject(value);
+  stamps.push(stamp);
+  for (const item of stamp.values) collect(item, stamps, active, budget, depth + 1, seen);
   active.delete(value);
 }
 function matches(stamp: ObjectStamp): boolean {
@@ -97,6 +114,23 @@ export function snapshotCandidatePlan(plan: RenderPlan): RenderPlan {
  * descriptor checks share edit-session policy and never invoke custom getters. */
 export function snapshotLayoutPart(part: ReportEditSessionPart): ReportEditSessionPart {
   return clone(part, { nodes: 0 }, 0, true) as ReportEditSessionPart;
+}
+/** Descriptor capture is deliberately synchronous: host events cannot produce a
+ * mixed query snapshot. Allocation/materialization then yields on captured data. */
+export async function snapshotLayoutPartAsync(part: ReportEditSessionPart, signal?: AbortSignal): Promise<ReportEditSessionPart> {
+  return snapshotOwnedValueAsync(part, signal);
+}
+/** Internal capture also owns declarative validation metadata across row slices. */
+export async function snapshotOwnedValueAsync<T extends object>(value: T, signal?: AbortSignal): Promise<T> {
+  checkCooperativeAbort(signal);
+  return drainCooperatively(captureOwnedValue(value), signal);
+}
+/** Capture may reject synchronously so exotic readonly callers can retain their
+ * uninterrupted validate/render boundary instead of inserting a microtask. */
+export function captureOwnedValue<T extends object>(value: T): Generator<void, T> {
+  const stamps: ObjectStamp[] = [];
+  collect(value, stamps, new Set(), { nodes: 0 }, 0);
+  return materializeSnapshot(value, stamps) as Generator<void, T>;
 }
 /** Called only after the guard succeeds; depth/node bounds apply again to the owned snapshot. */
 export function snapshotSessionParts(parts: readonly ReportEditSessionPart[]): ReportEditSessionPart[] {

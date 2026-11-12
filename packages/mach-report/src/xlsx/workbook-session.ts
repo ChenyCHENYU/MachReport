@@ -41,7 +41,7 @@ export async function openExcelWorkbook(input: ArrayBuffer | Uint8Array | Blob, 
       busy = true;
       try {
         const selected = { ...defaults, ...selection, signal: controller.signal };
-        const result = await importLoadedWorkbook(source, selected, resolveImportOptions(selected), newWarnings(warnings));
+        const result = await importLoadedWorkbook(source, selected, resolveImportOptions(selected), warnings.fork());
         assertOutputActive(controller.signal);
         current();
         return result;
@@ -51,10 +51,4 @@ export async function openExcelWorkbook(input: ArrayBuffer | Uint8Array | Blob, 
     },
     dispose: () => { workbook = undefined; lifetime.abort(); },
   };
-}
-
-function newWarnings(source: ImportWarnings): ImportWarnings {
-  const warnings = new ImportWarnings();
-  source.result().forEach((message) => warnings.add(message));
-  return warnings;
 }

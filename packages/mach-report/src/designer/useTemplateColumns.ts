@@ -6,6 +6,7 @@ import {
   type ReportTemplateDocument,
 } from "@agile-team/mach-report";
 import { inspectTemplateFieldUsage, type TemplateFieldUsage } from "../source/template-outline";
+import { setColumnHeaderAlignment, synchronizeColumnWidths } from "./column-appearance";
 function assignColumnValue(column: ListComponent["columns"][number], key: string, value: string | boolean | ColumnVisual | undefined): void {
   if (key === "visual" && value === undefined) delete column.visual;
   else Object.assign(column, { [key]: key === "widthMm" ? Number(value) : value });
@@ -149,22 +150,7 @@ export function useTemplateColumns(
   function updateWidths(): void {
     const target = lists.value[selected.value];
     if (!target) return;
-    const list = target.component,
-      page = draft.value.template.pages[target.pageIndex]!;
-    const widths = list.columns.map((column) => column.widthMm);
-    if (list.headerGrid) list.headerGrid.colWidthsMm = widths;
-    if (
-      page.layout === "wide" &&
-      widths.every((width) => Number.isFinite(width) && width > 0)
-    ) {
-      list.widthMm = widths.reduce((sum, width) => sum + width, 0);
-      page.widthMm =
-        Math.max(
-          ...page.components.map(
-            (component) => component.leftMm + component.widthMm,
-          ),
-        ) + (page.marginRightMm ?? 0);
-    }
+    synchronizeColumnWidths(draft.value.template.pages[target.pageIndex]!, target.component);
   }
   function updateMergedHeader(index: number, text: string): void {
     const list = activeList.value;
@@ -186,23 +172,7 @@ export function useTemplateColumns(
     align: "left" | "center" | "right" | "justify",
   ): void {
     const list = activeList.value;
-    const column = list?.columns[index];
-    if (column?.headerStyle?.align !== undefined)
-      column.headerStyle = { ...column.headerStyle, align };
-    if (!list?.headerGrid) return;
-    const boxes = resolveGridLayout(list.headerGrid, list.widthMm, 100).cells;
-    const box = boxes
-      .filter(({ ci, cell }) => ci <= index && ci + (cell.colSpan ?? 1) > index)
-      .slice(-1)[0];
-    if (!box) return;
-    box.cell.style = { ...box.cell.style, align };
-    list.columns
-      .slice(box.ci, box.ci + (box.cell.colSpan ?? 1))
-      .forEach((item) => {
-        item.headerAlign = align;
-        if (item.headerStyle?.align !== undefined)
-          item.headerStyle = { ...item.headerStyle, align };
-      });
+    if (list) setColumnHeaderAlignment(list, index, align);
   }
 
   function alignColumns(

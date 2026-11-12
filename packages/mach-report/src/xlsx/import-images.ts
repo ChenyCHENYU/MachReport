@@ -1,7 +1,7 @@
 import type * as ExcelJS from "exceljs";
 import type { PlanComponent } from "../schema/render-plan";
 import { createImageMediaInspector } from "../output/media";
-import type { CellRange, RowSegment } from "./import-range";
+import { columnName, type CellRange, type RowSegment } from "./import-range";
 import type { ImportWarnings } from "./import-types";
 interface ImageGeometry { margin: number; scale: number; columns: number[]; rowHeight(row: number): number }
 interface ImageMetrics extends ImageGeometry { columnOffsets: number[]; rowOffsets: number[] }
@@ -12,7 +12,7 @@ function imageMetrics(geometry: ImageGeometry, range: CellRange): ImageMetrics {
   return { ...geometry, columnOffsets, rowOffsets };
 }
 interface NativeAnchor { nativeCol: number; nativeRow: number; nativeColOff: number; nativeRowOff: number }
-interface PositionedImage { row: number; rowOffset: number; left: number; width: number; height: number; data: string; id: string }
+interface PositionedImage { row: number; column: number; rowOffset: number; left: number; width: number; height: number; data: string; id: string }
 function anchorPoint(anchor: NativeAnchor, range: CellRange, geometry: ImageMetrics): { x: number; y: number } | undefined {
   if (![anchor.nativeCol, anchor.nativeRow, anchor.nativeColOff, anchor.nativeRowOff].every(value => Number.isSafeInteger(value) && value >= 0)) return;
   if (anchor.nativeCol < range.left - 1 || anchor.nativeCol > range.right || anchor.nativeRow < range.top - 1 || anchor.nativeRow > range.bottom) return;
@@ -40,7 +40,7 @@ function positionImage(image: ReturnType<ExcelJS.Worksheet["getImages"]>[number]
   const height = extent ? extent.height * 25.4 / 96 * geometry.scale : (br?.y ?? first.y) - first.y;
   const fullWidth = geometry.columnOffsets[geometry.columnOffsets.length - 1]!;
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0 || first.x + width > fullWidth + 0.01) return;
-  return { row: tl.nativeRow + 1, rowOffset: tl.nativeRowOff / 36_000 * geometry.scale, left: first.x, width, height, data, id: image.imageId };
+  return { row: tl.nativeRow + 1, column: tl.nativeCol + 1, rowOffset: tl.nativeRowOff / 36_000 * geometry.scale, left: first.x, width, height, data, id: image.imageId };
 }
 /** Native PNG/JPEG drawings only. No linked media, scripts, cropping, rotation or hidden I/O. */
 export function createSheetImageImporter(workbook: ExcelJS.Workbook, sheet: ExcelJS.Worksheet, range: CellRange, geometry: ImageGeometry, warnings: ImportWarnings, inspect: ReturnType<typeof createImageMediaInspector>): (segment: RowSegment) => PlanComponent[] {
@@ -51,7 +51,7 @@ export function createSheetImageImporter(workbook: ExcelJS.Workbook, sheet: Exce
     if (!media.has(image.imageId)) media.set(image.imageId, dataUrl(workbook, image.imageId));
     const data = media.get(image.imageId), positioned = data ? positionImage(image, range, metrics, inspect(data).dataUrl) : undefined;
     if (positioned) images.push({ ...positioned, id: `${positioned.id}:${index}` });
-    else warnings.add(`${sheet.name}: 图片 ${image.imageId} 不在完整选区内或不是 PNG/JPEG，未导入；可扩大 range`);
+    else warnings.add(`${sheet.name}: 图片 ${image.imageId} 不在完整选区内或不是 PNG/JPEG，未导入；可扩大 range`, "image-omitted", { sheet: sheet.name, cell: `${columnName(image.range.tl.nativeCol + 1)}${image.range.tl.nativeRow + 1}`, row: image.range.tl.nativeRow + 1, column: image.range.tl.nativeCol + 1 });
   }
   return segment => {
     const result: PlanComponent[] = [];
@@ -59,7 +59,7 @@ export function createSheetImageImporter(workbook: ExcelJS.Workbook, sheet: Exce
       if (image.row < segment.top || image.row > segment.bottom) continue;
       const start = metrics.rowOffsets[segment.top - range.top]!;
       const top = metrics.rowOffsets[image.row - range.top]! - start + image.rowOffset, available = metrics.rowOffsets[segment.bottom - range.top + 1]! - start;
-      if (top + image.height > available + 0.01) { warnings.add(`${sheet.name}: 图片 ${image.id} 跨越预览分段，未裁剪导入；请提高 maxRowsPerPage 或调整图片位置`); continue; }
+      if (top + image.height > available + 0.01) { warnings.add(`${sheet.name}: 图片 ${image.id} 跨越预览分段，未裁剪导入；请提高 maxRowsPerPage 或调整图片位置`, "image-segment", { sheet: sheet.name, row: image.row, column: image.column, cell: `${columnName(image.column)}${image.row}`, range: `${columnName(range.left)}${segment.top}:${columnName(range.right)}${segment.bottom}` }); continue; }
       result.push({ kind: "image", nid: `xlsx-image:${sheet.name}:${image.id}:${image.row}`, leftMm: geometry.margin + image.left, topMm: geometry.margin + top, widthMm: image.width, heightMm: image.height, imageData: image.data,
         meta: { xlsxOverlay: { version: "1", row: image.row - range.top, pageRow: image.row - segment.top, offsetMm: image.rowOffset, leftMm: image.left, sourceTopMm: geometry.margin + top, sourceLeftMm: geometry.margin + image.left } } });
     }

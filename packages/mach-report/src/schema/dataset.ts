@@ -103,6 +103,13 @@ function rowKeyIssue(row: Record<string, unknown>, field: string, keys: Set<stri
 
 /** 浏览器/Node共用的只读值校验；返回精确路径，不以0或空数组掩盖接口结构错误。 */
 export function validateDatasetRows(input: unknown, contract: DatasetContract, options: DatasetValidationOptions = {}): { ok: boolean; issues: DatasetIssue[] } {
+  const work = iterateDatasetValidation(input, contract, options, false);
+  let next = work.next();
+  while (!next.done) next = work.next();
+  return next.value;
+}
+/** Internal row checkpoints; callers must own input before yielding. */
+export function* iterateDatasetValidation(input: unknown, contract: DatasetContract, options: DatasetValidationOptions = {}, checkpoints = true): Generator<void, { ok: boolean; issues: DatasetIssue[] }> {
   checkContract(contract);
   const path = options.path ?? "$.rows", issues: DatasetIssue[] = [];
   const limit = positive(options.maxIssues, 100);
@@ -111,8 +118,9 @@ export function validateDatasetRows(input: unknown, contract: DatasetContract, o
   const keys = new Set<string>();
   for (let rowIndex = 0; rowIndex < input.length && issues.length < limit; rowIndex++) {
     const row = input[rowIndex];
-    if (!row || typeof row !== "object" || Array.isArray(row)) { issues.push({ code: "row", path: `${path}[${rowIndex}]`, rowIndex, message: "行应为对象" }); continue; }
-    validateRow(row, contract, rowIndex, path, keys, issues, limit);
+    if (!row || typeof row !== "object" || Array.isArray(row)) issues.push({ code: "row", path: `${path}[${rowIndex}]`, rowIndex, message: "行应为对象" });
+    else validateRow(row, contract, rowIndex, path, keys, issues, limit);
+    if (checkpoints) yield;
   }
   return { ok: issues.length === 0, issues };
 }

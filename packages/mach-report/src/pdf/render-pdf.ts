@@ -1,3 +1,5 @@
+import { createPdfGraphicsStyle, textOnlyStyle } from "./graphics-style";
+import { justificationChunks } from "../render/justification";
 import { resolveGridCellStyle } from "../render/cell-style";
 import { dataBarBox } from "../render/data-bar";
 import { outputCheckpoint, createOutputScheduler, type OutputTaskOptions } from "../output/progress";
@@ -102,6 +104,7 @@ function encodeText(font: PDFFont, text: string): { encoded: string; supported: 
 }
 
 interface PdfRenderer {
+  graphics: ReturnType<typeof createPdfGraphicsStyle>;
   signal?: AbortSignal;
   schedule: ReturnType<typeof createOutputScheduler>;
   document: PDFDocument;
@@ -152,10 +155,7 @@ function checkTextStyle(renderer: PdfRenderer, style: ComponentStyle, location: 
   if (renderer.customFont && missingFace) {
     warnStyle(renderer, "custom-font-weight", "自定义 PDF 字体只提供单个字面，粗体/斜体按该字体自身字形导出", location);
   }
-  if (style.align === "justify") warnStyle(renderer, "justify", "PDF 两端对齐暂按左对齐导出", location);
   if (style.fontFamily && style.fontFamily.trim().toLowerCase() !== "helvetica" && !renderer.customFont) warnStyle(renderer, "font-family", "PDF 字体族需提供 customFontBytes；当前使用内置 Helvetica", location);
-  if (style.rotateDeg) warnStyle(renderer, "rotate", "PDF 文字旋转暂未应用", location);
-  if (style.opacity !== undefined && style.opacity !== 1) warnStyle(renderer, "opacity", "PDF 透明度暂未应用", location);
 }
 
 function drawTextLine(renderer: PdfRenderer, page: PDFPage, line: string, style: ComponentStyle, box: TextBox, baseline: number): void {
@@ -183,15 +183,19 @@ function drawTextLine(renderer: PdfRenderer, page: PDFPage, line: string, style:
   }
 }
 
-function drawTextLines(renderer: PdfRenderer, page: PDFPage, lines: string[], style: ComponentStyle, box: TextBox): void {
-  const allLines = lines.flatMap((line) => line.split(/\r\n|\r|\n/));
+function drawTextLines(renderer: PdfRenderer, page: PDFPage, lines: PdfTextLine[], style: ComponentStyle, box: TextBox): void {
+  const allLines = lines;
   const fontSize = resolveFontSize(style).fontSizePt;
   const lineHeight = fontSize * resolveLineHeight(style);
   const textHeight = allLines.length * lineHeight;
   let top = box.yTop;
   if (style.verticalAlign === "middle") top -= (box.height - textHeight) / 2;
   else if (style.verticalAlign === "bottom") top -= box.height - textHeight;
-  allLines.forEach((line, index) => drawTextLine(renderer, page, line, style, box, top - fontSize - index * lineHeight));
+  allLines.forEach((line, index) => {
+    const baseline = top - fontSize - index * lineHeight;
+    if (style.align === "justify" && line.justify) drawJustifiedLine(renderer, page, line.text, style, box, baseline);
+    else drawTextLine(renderer, page, line.text, style, box, baseline);
+  });
 }
 
 function wrappedLines(renderer: PdfRenderer, text: string, widthMm: number, style: ComponentStyle): string[] {
@@ -205,16 +209,46 @@ function wrappedLines(renderer: PdfRenderer, text: string, widthMm: number, styl
   }, renderer.measurer);
 }
 
-function textComponentLines(renderer: PdfRenderer, comp: PlanComponent): string[] {
-  if (Array.isArray(comp.lines) && comp.lines.length) return comp.lines;
-  return wrappedLines(renderer, comp.text ?? "", comp.widthMm, comp.style ?? {});
+interface PdfTextLine { text: string; justify: boolean }
+function paragraphTextLines(renderer: PdfRenderer, text: string, widthMm: number, style: ComponentStyle): PdfTextLine[] {
+  if (!text) return [];
+  return text.split(/\r\n|\r|\n/).flatMap(paragraph => {
+    const lines = paragraph ? wrappedLines(renderer, paragraph, widthMm, style) : [""];
+    return lines.map((text, index) => ({ text, justify: index < lines.length - 1 }));
+  });
+}
+function textComponentLines(renderer: PdfRenderer, comp: PlanComponent): PdfTextLine[] {
+  // DOM renders each precomputed line as its own block, whose final line is never expanded.
+  if (Array.isArray(comp.lines) && comp.lines.length) return comp.lines.flatMap(line => line.split(/\r\n|\r|\n/).map(text => ({ text, justify: false })));
+  return paragraphTextLines(renderer, comp.text ?? "", comp.widthMm, comp.style ?? {});
+}
+function drawJustifiedLine(renderer: PdfRenderer, page: PDFPage, text: string, style: ComponentStyle, box: TextBox, baseline: number): void {
+  text = text.trimEnd();
+  const chunks = justificationChunks(text), font = fontForStyle(renderer, style), size = resolveFontSize(style).fontSizePt;
+  // Validate the complete string before measuring; missing glyphs retain the normal diagnostic path.
+  if (chunks.length < 2 || !encodeText(font, text).supported) { drawTextLine(renderer, page, text, style, box, baseline); return; }
+  const spacing = style.letterSpacing ?? 0;
+  const widths = chunks.map(chunk => font.widthOfTextAtSize(chunk, size) + Array.from(chunk).length * spacing);
+  const naturalWidth = widths.reduce((sum, width) => sum + width, 0) - spacing;
+  const extra = Math.max(0, box.width - naturalWidth) / (chunks.length - 1);
+  let x = box.x;
+  chunks.forEach((chunk, index) => {
+    drawTextLine(renderer, page, chunk, { ...style, align: "left" }, { ...box, x }, baseline);
+    x += widths[index]! + extra;
+  });
 }
 
 function drawTextComponent(renderer: PdfRenderer, page: PDFPage, comp: PlanComponent, box: TextBox, location: string): void {
+  drawBackground(page, box, comp.style?.backgroundColor);
+  page.pushOperators(pushGraphicsState(), rectangle(box.x, box.yTop - box.height, box.width, box.height), clip(), endPath());
+  try { drawTextPayload(renderer, page, comp, box, location); }
+  finally { page.pushOperators(popGraphicsState()); }
+}
+function drawTextPayload(renderer: PdfRenderer, page: PDFPage, comp: PlanComponent, box: TextBox, location: string): void {
   const style = comp.style ?? {};
   checkTextStyle(renderer, style, location);
   if (isRichText(comp)) {
-    const overflow = drawPdfRichText(comp, box, {
+    const overflow = drawPdfRichText({ ...comp, style: textOnlyStyle(style) }, box, {
       measure(text, runStyle) {
         const font = fontForStyle(renderer, runStyle), size = resolveFontSize(runStyle).fontSizePt;
         try { return font.widthOfTextAtSize(text, size) + (runStyle.letterSpacing ?? 0); } catch { return size; }
@@ -222,7 +256,8 @@ function drawTextComponent(renderer: PdfRenderer, page: PDFPage, comp: PlanCompo
       draw(text, runStyle, x, baseline, width) {
         checkTextStyle(renderer, runStyle, location);
         const size = resolveFontSize(runStyle).fontSizePt;
-        drawBackground(page, { x, yTop: baseline + size, width, height: size * resolveLineHeight(runStyle) }, runStyle.backgroundColor);
+        const runBox = { x, yTop: baseline + size, width, height: size * resolveLineHeight(runStyle) };
+        drawBackground(page, runBox, runStyle.backgroundColor);
         drawTextLine(renderer, page, text, runStyle, { ...box, x, width }, baseline);
       }
     });
@@ -230,9 +265,9 @@ function drawTextComponent(renderer: PdfRenderer, page: PDFPage, comp: PlanCompo
     return;
   }
   const lines = textComponentLines(renderer, comp);
-  const count = lines.reduce((sum, line) => sum + line.split(/\r\n|\r|\n/).length, 0);
+  const count = lines.length;
   if (count * resolveFontSize(style).fontSizePt * resolveLineHeight(style) > box.height + TEXT_HEIGHT_EPSILON_PT) {
-    renderer.fidelityWarnings.push(`${location}: 文本行高超出组件高度，文字已保留，可能超出版面`);
+    renderer.fidelityWarnings.push(`${location}: 文本行高超出组件高度，文字按组件边界裁切`);
   }
   drawTextLines(renderer, page, lines, style, box);
 }
@@ -295,6 +330,7 @@ async function drawGridCell(
     x: origin.x + mmToPt(cell.xMm), yTop: origin.yTop - mmToPt(cell.yMm),
     width: mmToPt(cell.widthMm), height: mmToPt(cell.heightMm)
   };
+  await renderer.graphics.group(page, cell.cell.style, box, async page => {
   drawBackground(page, box, style.backgroundColor);
 
   checkTextStyle(renderer, style, location);
@@ -315,6 +351,7 @@ async function drawGridCell(
     }
   } finally { page.pushOperators(popGraphicsState()); }
   if (bar) page.drawRectangle({ x: box.x + mmToPt(bar.x), y: box.yTop - mmToPt(bar.y + bar.height), width: mmToPt(bar.width), height: mmToPt(bar.height), color: colorOf(bar.color), opacity: .35 });
+  });
 }
 
 function drawCellText(renderer: PdfRenderer, page: PDFPage, cell: import("../schema/render-plan").GridCell, style: ComponentStyle, content: TextBox, location: string): void {
@@ -323,7 +360,7 @@ function drawCellText(renderer: PdfRenderer, page: PDFPage, cell: import("../sch
     return;
   }
   if (!cell.text) return;
-  const lines = wrappedLines(renderer, cell.text, content.width * 25.4 / 72, style);
+  const lines = paragraphTextLines(renderer, cell.text, content.width * 25.4 / 72, style);
   const lineHeight = resolveFontSize(style).fontSizePt * resolveLineHeight(style);
   const capacity = Math.floor((content.height + TEXT_HEIGHT_EPSILON_PT) / lineHeight);
   if (lines.length > capacity) renderer.fidelityWarnings.push(`${location}: 单元格文本超出可用高度，PDF 文本裁切；请增加行高或减少字号（${lines.length} 行，可容纳 ${capacity} 行）`);
@@ -373,6 +410,7 @@ function drawShape(page: PDFPage, comp: PlanComponent, box: TextBox): boolean {
 async function drawComponent(renderer: PdfRenderer, page: PDFPage, comp: PlanComponent, pageHeightPt: number, location: string): Promise<void> {
   checkCancelled(renderer.signal);
   const box = componentBox(comp, pageHeightPt);
+  await renderer.graphics.group(page, comp.style, box, async page => {
   if (isImageBackedComponent(comp)) {
     const image = await embedImage(renderer, comp.imageData!);
     if (image) {
@@ -388,6 +426,7 @@ async function drawComponent(renderer: PdfRenderer, page: PDFPage, comp: PlanCom
     if (comp.text) drawTextComponent(renderer, page, comp, box, location);
     else renderer.fidelityWarnings.push(`${location}: 组件类型 ${comp.kind} 缺少可导出的图片或文本，已跳过`);
   }
+  });
 }
 
 async function createRenderer(document: PDFDocument, options: PdfRenderOptions, onWarning: (message: string) => void): Promise<PdfRenderer> {
@@ -410,7 +449,7 @@ async function createRenderer(document: PDFDocument, options: PdfRenderOptions, 
     boldItalic: await embedFace(embedding, options.customFontFaces?.boldItalic, customFont, fontCache)
   } : { regular, bold, italic, boldItalic };
   return {
-    signal: options.signal, schedule: createOutputScheduler(options), document, fonts, customFont, customFontFaces: options.customFontFaces, embedding,
+    graphics: createPdfGraphicsStyle(document), signal: options.signal, schedule: createOutputScheduler(options), document, fonts, customFont, customFontFaces: options.customFontFaces, embedding,
     measurer: options.measurer ?? heuristicMeasurer,
     imageCache: new Map(), inspectImage: createImageMediaInspector(options), fidelityWarnings: createDiagnosticMessages(options.diagnosticLimit, onWarning), styleWarnings: new Set(), unsupportedTextCount: 0
   };

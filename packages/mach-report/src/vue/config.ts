@@ -10,6 +10,7 @@ import type { AssetRenderOptions } from "@agile-team/mach-report";
 import type { ReportCalculationMessages } from "./composables/useSelectionCalculation";
 import { DEFAULT_PRINT_MESSAGES, type ReportPrintMessages, type ReportPrintOptions } from "./print-options";
 import { DEFAULT_CONFLICT_MESSAGES, type ConflictReviewMessages } from "./conflict-messages";
+import { DEFAULT_DOCUMENT_MESSAGES, type ReportDocumentMessages } from "./document-messages";
 
 /**
  * 配置中心（对齐 mach-table 的 defineMachTableConfig 体验）：
@@ -19,8 +20,9 @@ import { DEFAULT_CONFLICT_MESSAGES, type ConflictReviewMessages } from "./confli
  */
 
 /** 工具栏与状态文案（默认简体中文；出海场景覆写） */
-export interface MachReportMessages extends Partial<ReportCalculationMessages>, Partial<ReportDataReviewMessages>, Partial<ConflictReviewMessages>, ReportPrintMessages, ReportParamOptionsMessages {
+export interface MachReportMessages extends Partial<ReportDocumentMessages>, Partial<ReportCalculationMessages>, Partial<ReportDataReviewMessages>, Partial<ConflictReviewMessages>, ReportPrintMessages, ReportParamOptionsMessages {
   previousSnapshot?: string;
+  importOmitted?: string;
   reviewTools?: string;
   validationTitle?: string;
   validationError?: string;
@@ -274,6 +276,8 @@ export function resolveCalculationMessages(messages: Partial<ReportCalculationMe
 }
 
 export const DEFAULT_MESSAGES: MachReportMessages = {
+  ...DEFAULT_DOCUMENT_MESSAGES,
+  importOmitted: "另有 {count} 项同类提示；可缩小导入范围查看详细位置。",
   ...DEFAULT_CONFLICT_MESSAGES,
   previousSnapshot: "当前保留上次成功结果，刷新成功后恢复编辑和输出。",
   ...PARAM_OPTIONS_MESSAGES,

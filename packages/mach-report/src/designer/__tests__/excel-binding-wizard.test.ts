@@ -123,6 +123,18 @@ function guidanceSession(): { session: ExcelRegionBindingSession; datasets: Exce
   ] } } };
 }
 describe("Excel binding wizard interaction", () => {
+  it("locates structured import diagnostics in the original cell without editing the binding", async () => {
+    const restored = session();
+    restored.source.diagnostics = [{ code: "formula-cached", severity: "warning", message: "Formula kept read-only", sheet: "日报", cell: "B4", row: 4, column: 2 }];
+    const wrapper = mount(ExcelBindingWizard, { props: { datasets, session: restored, readonly: true }, attachTo: document.body });
+    await wrapper.get('button[aria-label="定位来源 · 日报 B4"]').trigger("click");
+    await flushPromises();
+    expect((wrapper.get('input[aria-label="预览起始行"]').element as HTMLInputElement).value).toBe("4");
+    expect((wrapper.get('input[aria-label="预览起始列"]').element as HTMLInputElement).value).toBe("2");
+    expect(document.activeElement).toBe(wrapper.get('td[data-source-cell="4:2"]').element);
+    expect((wrapper.vm as unknown as { pendingLocalChanges: boolean }).pendingLocalChanges).toBe(false);
+    wrapper.unmount();
+  });
   it("locates a multi-region issue across source and field windows, then updates pending regions to ready", async () => {
     const options = guidanceSession();
     const wrapper = mount(ExcelBindingWizard, { props: options, attachTo: document.body });
@@ -137,14 +149,14 @@ describe("Excel binding wizard interaction", () => {
     expect((wrapper.get('input[aria-label="预览起始行"]').element as HTMLInputElement).value).toBe("30");
     expect((wrapper.get('input[aria-label="预览起始列"]').element as HTMLInputElement).value).toBe("26");
     expect(wrapper.get('td[data-source-cell="30:26"]').classes()).toContain("is-cell-selected");
-    const mapping = wrapper.get('select[aria-label="Excel 列 Z · 业务字段"]');
+    const mapping = wrapper.get('input[aria-label="Excel 列 Z · 业务字段"]');
     expect(document.activeElement).toBe(mapping.element);
     expect(wrapper.findAll(".mr-binding-map")).toHaveLength(2);
     expect(wrapper.findAll(".mr-binding-grid td").length).toBeLessThanOrEqual(24 * 12);
     await mapping.setValue("f13");
     await wrapper.findAll("button").find(button => button.text() === "校验绑定")!.trigger("click");
     await wrapper.get('button[aria-label="定位并修正 · cost · 稳定业务主键"]').trigger("click"); await flushPromises();
-    const key = wrapper.get('.mr-binding-multi select[aria-label="稳定业务主键"]');
+    const key = wrapper.get('.mr-binding-multi input[aria-label="稳定业务主键"]');
     expect(document.activeElement).toBe(key.element);
     await key.setValue("id");
     expect(directory[1]!.attributes("data-state")).toBe("ready");
@@ -166,7 +178,7 @@ describe("Excel binding wizard interaction", () => {
     expect(document.activeElement?.tagName).toBe("LABEL");
     const range = wrapper.get('.mr-binding-multi input[aria-label="原型范围"]');
     await range.setValue("A4:N4");
-    const key = wrapper.get('.mr-binding-multi select[aria-label="稳定业务主键"]');
+    const key = wrapper.get('.mr-binding-multi input[aria-label="稳定业务主键"]');
     await key.setValue("id");
     expect(exposed.pendingLocalChanges).toBe(false);
     expect(wrapper.get(".mr-binding-primary").attributes("disabled")).toBeDefined();
@@ -216,9 +228,9 @@ describe("Excel binding wizard interaction", () => {
       await wrapper.get(`td[data-source-cell="${row}:2"]`).trigger("keydown", { key: "Enter", shiftKey: true });
       await wrapper.get(".mr-binding-add-region").trigger("click");
       await wrapper.get('.mr-binding-multi select[aria-label="业务数据集"]').setValue("rows");
-      await wrapper.get('.mr-binding-multi select[aria-label="稳定业务主键"]').setValue("id");
-      await wrapper.get('.mr-binding-multi select[aria-label="Excel 列 A · 业务字段"]').setValue("id");
-      await wrapper.get('.mr-binding-multi select[aria-label="Excel 列 B · 业务字段"]').setValue("weight");
+      await wrapper.get('.mr-binding-multi input[aria-label="稳定业务主键"]').setValue("id");
+      await wrapper.get('.mr-binding-multi input[aria-label="Excel 列 A · 业务字段"]').setValue("id");
+      await wrapper.get('.mr-binding-multi input[aria-label="Excel 列 B · 业务字段"]').setValue("weight");
     }
     await selectRange(3);
     await wrapper.get('.mr-binding-multi select[aria-label="填充方式"]').setValue("record");
@@ -260,14 +272,19 @@ describe("Excel binding wizard interaction", () => {
     const multi = { version: "2.0" as const, source: structuredClone(source), identity: { id: "multi", name: "大字段目录" }, recipe: { version: "2.0" as const, sheet: "日报", regions: [{ id: "cost", range: "A3:B3", mode: "repeat" as const, dataset: "large", fields: ["id", "field500"], rowKey: "id" }] } };
     const wrapper = mount(ExcelBindingWizard, { props: { datasets: [{ id: "large", fields }], session: multi } });
     const panel = wrapper.get(".mr-binding-multi");
-    expect(panel.findAll(".mr-binding-map select option").length).toBeLessThan(140);
-    const selected = panel.get('select[aria-label="Excel 列 B · 业务字段"]');
-    expect((selected.element as HTMLSelectElement).value).toBe("field500");
-    await panel.get('input[aria-label="搜索字段名称、编码或单位"]').setValue("特殊单位");
-    expect(selected.find('option[value="field999"]').exists()).toBe(true);
-    expect(selected.find('option[value="field500"]').exists()).toBe(true);
-    await selected.setValue("field999");
-    expect((selected.element as HTMLSelectElement).value).toBe("field999");
+    const selected = panel.get('input[aria-label="Excel 列 B · 业务字段"]');
+    expect((selected.element as HTMLInputElement).value).toBe("field500");
+    await selected.trigger("focus");
+    expect(panel.findAll('[role="option"]').length).toBeLessThanOrEqual(100);
+    await selected.trigger("keydown", { key: "End" });
+    expect(panel.get('[role="option"][aria-selected="true"]').text()).toContain("field999");
+    (selected.element as HTMLInputElement).value = "特殊单位";
+    await selected.trigger("input");
+    expect(panel.findAll('[role="option"]')).toHaveLength(1);
+    expect((selected.element as HTMLInputElement).value).toBe("特殊单位");
+    await selected.trigger("keydown", { key: "ArrowDown" });
+    await selected.trigger("keydown", { key: "Enter" });
+    expect((selected.element as HTMLInputElement).value).toBe("field999");
     wrapper.unmount();
   });
   it("graphic row selection and explicit mappings create a new document with a reopenable session", async () => {
@@ -350,7 +367,7 @@ describe("Excel binding wizard interaction", () => {
     const wrapper = mount(ExcelBindingWizard, {
       props: { datasets, session: session() },
     });
-    // Explicit labels must stay exact even though the native select contains multiple options.
+    // Explicit labels stay exact while the field combobox renders a bounded popup.
     expect(
       (wrapper.get('select[aria-label="工作表"]').element as HTMLSelectElement)
         .value,
@@ -363,8 +380,8 @@ describe("Excel binding wizard interaction", () => {
     ).toBe("rows");
     expect(
       (
-        wrapper.get('select[aria-label="稳定业务主键"]')
-          .element as HTMLSelectElement
+        wrapper.get('input[aria-label="稳定业务主键"]')
+          .element as HTMLInputElement
       ).value,
     ).toBe("id");
     const row = wrapper.get('button[data-source-row="3"]');
@@ -379,7 +396,7 @@ describe("Excel binding wizard interaction", () => {
     expect(wrapper.text()).toContain("number · kg · 3位小数 · 契约样例: 0");
     expect(wrapper.findAll("td")).toHaveLength(7);
     await wrapper
-      .get('select[aria-label="Excel 列 A · 业务字段"]')
+      .get('input[aria-label="Excel 列 A · 业务字段"]')
       .setValue("");
     expect(
       wrapper.get(".mr-binding-primary").attributes("disabled"),

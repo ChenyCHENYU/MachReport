@@ -42,7 +42,7 @@ try {
     symlinkSync(dirname(createRequire(nodeTypes).resolve("undici-types/package.json")), resolve(scratch, "node_modules/undici-types"), "dir");
   }
   writeFileSync(resolve(scratch, "consumer.mts"), `
-import { ReportPreview, createProviderEditing, defineMachReportConfig, machReportPlugin, type ReportEditHistoryOptions, type ReportPreviewTask, type MachReportController, type MachReportTheme } from '@agile-team/mach-report/vue';
+import { ReportDocumentPreview, type ReportDocumentSource, ReportPreview, createProviderEditing, defineMachReportConfig, machReportPlugin, type ReportEditHistoryOptions, type ReportPreviewTask, type MachReportController, type MachReportTheme } from '@agile-team/mach-report/vue';
 import { createApp } from 'vue';
 import { ReportTemplateEditor, ExcelBindingWizard, RuleEditor, TemplateReviewPanel, type TemplateDraftStorage } from '@agile-team/mach-report/designer';
 import { createReportRuntime, type ReportRuntimeInput } from '@agile-team/mach-report/server';
@@ -60,6 +60,13 @@ const themeOverrides: Partial<MachReportTheme> = { colorScheme: 'dark', btnActiv
 const invalidTheme: Partial<MachReportTheme> = { colorScheme: 'automatic' };
 void [existingTheme, themeOverrides, invalidTheme];
 createApp({}).use(machReportPlugin, { config: defineMachReportConfig({ defaults: { theme: themeOverrides } }) });
+declare const documentSource: ReportDocumentSource;
+const remoteProps: InstanceType<typeof ReportDocumentPreview>['$props'] = {source:documentSource};
+declare const remotePreview: InstanceType<typeof ReportDocumentPreview>;
+remotePreview.gotoPage(2); remotePreview.reload(); remotePreview.cancel(); remotePreview.export('pdf');
+// @ts-expect-error 远程页码与普通分页器一样必须为数字
+remotePreview.gotoPage('2');
+void remoteProps;
 const props: PreviewProps = { reportId: 'sample', onLoaded: (count: number) => { void count; } };
 // @ts-expect-error 参数必须为字符串字典
 const invalidParams: PreviewProps = { params: 12 };
@@ -162,7 +169,7 @@ void [props, input, task, controller, createReportRuntime, ReportTemplateEditor,
   writeFileSync(resolve(scratch, "smoke.mjs"), `
 import { createSSRApp } from 'vue';
 import { renderToString } from '@vue/server-renderer';
-import { ReportPreview, machReportPlugin } from '@agile-team/mach-report/vue';
+import { ReportDocumentPreview, ReportPreview, machReportPlugin } from '@agile-team/mach-report/vue';
 import { createTableTemplate } from '@agile-team/mach-report';
 import { createReportRuntime,createMemoryReportJobStore,createReportJobService } from '@agile-team/mach-report/server';
 import { openFileReportJobStore, createNodeAutoReportExporter } from '@agile-team/mach-report/server/node';
@@ -170,6 +177,9 @@ import { mkdtemp,rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 ${entries.map((entry) => `await import('@agile-team/mach-report${entry}');`).join("\n")}
+let documentReads=0;
+await renderToString(createSSRApp(ReportDocumentPreview,{source:{load:async()=>{documentReads++;throw Error('SSR must not query');}}}));
+if(documentReads!==0) throw Error('Document SSR started a request');
 const template = createTableTemplate({columns:[{field:'id',header:'ID'}]});
 const reports = {sample:{template,datasets:{detail:[{id:'0001'}]}}};
 const runtime=createReportRuntime({reports});

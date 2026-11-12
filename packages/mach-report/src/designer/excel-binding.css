@@ -23,6 +23,7 @@
 .mr-binding-mode button { min-height: 26px; padding: 0 9px; border-color: transparent; background: transparent; font-size: 10px; }
 .mr-binding-mode button[aria-pressed="true"] { background: var(--mrp-toolbar-bg, #fff); color: var(--mrp-btn-hover-fg, #2563eb); border-color: var(--mrp-btn-active-bg, #dbe7f7); box-shadow: 0 1px 3px var(--mrp-shadow-color, #16325a0d); }
 .mr-binding-grid td[tabindex="0"] { cursor: crosshair; }
+.mr-binding-grid td:focus { outline: 2px solid var(--mrp-btn-active-bg, #2563eb); outline-offset: -2px; }
 .mr-binding-grid td.is-cell-selected { background: #fff !important; background: color-mix(in srgb, var(--mrp-btn-active-bg, #2563eb) 18%, #fff) !important; box-shadow: inset 0 0 0 1px var(--mrp-btn-border, #dbe3ef); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mrp-btn-active-bg, #2563eb) 45%, #fff); }
 .mr-binding-add-region { width: 100%; margin-top: 10px; color: var(--mrp-btn-hover-fg, #2563eb) !important; border-style: dashed !important; background: var(--mrp-shell-bg, #f7faff) !important; }
 .mr-binding-add-region code { margin-left: auto; font-size: 10px; }

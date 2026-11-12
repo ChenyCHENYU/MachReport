@@ -1,7 +1,7 @@
 import type * as ExcelJS from "exceljs";
 import type { GridCell } from "../schema/render-plan";
 import { formatExcelNumber } from "../editing/number-format";
-import { ImportWarnings } from "./import-types";
+import { ImportWarnings, type ExcelImportDiagnosticLocation } from "./import-types";
 
 const DAY_MS = 86_400_000;
 type RawValue = NonNullable<GridCell["value"]> | null;
@@ -60,18 +60,19 @@ function valueType(value: RawValue, format: string): GridCell["valueType"] {
 }
 
 function applyFormulaMetadata(imported: GridCell, cell: ExcelJS.Cell, result: ExcelJS.CellValue | undefined, sheet: string, warnings: ImportWarnings): void {
+  const location = cellLocation(cell, sheet);
   // Shared formulas are translated by ExcelJS without evaluating or resolving external links.
   let expression: string | undefined;
-  try { expression = cell.formula; } catch { warnings.add(`${sheet}: 部分共享公式无法展开，仅保留缓存结果`); }
+  try { expression = cell.formula; } catch { warnings.add(`${sheet}: 部分共享公式无法展开，仅保留缓存结果`, "formula-shared", location); }
   Object.assign(imported, { editable: false, ...(expression ? { formula: expression } : {}) });
-  warnings.add(`${sheet}: 公式使用 Excel 已保存的计算结果并保持只读；修改其他单元格不会自动重算公式`);
-  if (result === undefined || result === null) warnings.add(`${sheet}: 存在没有缓存结果的公式，显示为空；请先在 Excel 中计算并保存`);
+  warnings.add(`${sheet}: 公式使用 Excel 已保存的计算结果并保持只读；修改其他单元格不会自动重算公式`, "formula-cached", location);
+  if (result === undefined || result === null) warnings.add(`${sheet}: 存在没有缓存结果的公式，显示为空；请先在 Excel 中计算并保存`, "formula-result-missing", location);
 }
 
 /** Formulas are never evaluated; their cached scalar result is the only displayed value. */
 export function importCellValue(cell: ExcelJS.Cell, date1904: boolean, sheet: string, warnings: ImportWarnings): GridCell {
-  const format = cell.numFmt;
-  const warn = () => warnings.add(`${sheet}: 存在无法完整还原的自定义数字或日期格式，已保留原值和 numberFormat`);
+  const format = cell.numFmt, location = cellLocation(cell, sheet);
+  const warn = () => warnings.add(`${sheet}: 存在无法完整还原的自定义数字或日期格式，已保留原值和 numberFormat`, "number-format", location);
   const raw = cell.value;
   const formula = raw && typeof raw === "object" && ("formula" in raw || "sharedFormula" in raw);
   // ExcelJS 4.4 cell.value omits falsy formula results; its public result getter preserves 0/false.
@@ -81,11 +82,15 @@ export function importCellValue(cell: ExcelJS.Cell, date1904: boolean, sheet: st
   imported.valueType = valueType(value.value, format);
   if (result instanceof Date) {
     Object.assign(imported, { editable: false });
-    warnings.add(`${sheet}: 日期单元格保留 Excel 日期序列与格式，目前在预览中保持只读`);
-    if (date1904) warnings.add(`${sheet}: 1904 日期系统已统一转换为 1900 日期系统，保留相同日历日期`);
+    warnings.add(`${sheet}: 日期单元格保留 Excel 日期序列与格式，目前在预览中保持只读`, "date-readonly", location);
+    if (date1904) warnings.add(`${sheet}: 1904 日期系统已统一转换为 1900 日期系统，保留相同日历日期`, "date-epoch", location);
   }
   if (formula) applyFormulaMetadata(imported, cell, result, sheet, warnings);
 
-  if (typeof imported.text === "string" && /\{\{[^}]+\}\}/.test(imported.text)) warnings.add(`${sheet}: {{字段}} 占位符按原文导入；动态业务数据需显式绑定，不会自动推断接口字段`);
+  if (typeof imported.text === "string" && /\{\{[^}]+\}\}/.test(imported.text)) warnings.add(`${sheet}: {{字段}} 占位符按原文导入；动态业务数据需显式绑定，不会自动推断接口字段`, "literal-placeholder", location);
   return imported;
+}
+
+export function cellLocation(cell: ExcelJS.Cell, sheet: string): ExcelImportDiagnosticLocation {
+  return { sheet, cell: cell.address, row: Number(cell.row), column: Number(cell.col) };
 }

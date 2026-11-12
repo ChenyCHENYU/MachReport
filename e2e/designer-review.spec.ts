@@ -102,7 +102,7 @@ async function mountReview(page: Page) {
 test("发布检查展示变更、字段错误与样例，定位回属性且不会自动发布", async ({page}, testInfo) => {
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   const root = await mountReview(page);
-  await root.getByLabel("业务字段", {exact:true}).fill("missing_source");
+  await root.getByRole("combobox", { name: "业务字段", exact: true }).fill("missing_source");
   await root.getByLabel("表头", {exact:true}).click();
   await root.getByRole("tab", {name:"工具",exact:true}).click();
   await root.getByRole("button", {name:"发布检查",exact:true}).click();
@@ -118,9 +118,9 @@ test("发布检查展示变更、字段错误与样例，定位回属性且不�
   await page.screenshot({path:testInfo.outputPath("template-review-field-issue.png"),fullPage:true});
   await issue.getByRole("button", {name:"定位",exact:true}).click();
   await expect(root.getByRole("tab", {name:"字段",exact:true})).toHaveAttribute("aria-selected","true");
-  await expect(root.getByLabel("业务字段", {exact:true})).toHaveValue("missing_source");
+  await expect(root.getByRole("combobox", { name: "业务字段", exact: true })).toHaveValue("missing_source");
   await expect(root.locator(".mr-canvas-component.is-selected")).toHaveCount(1);
-  await root.getByLabel("业务字段", {exact:true}).fill("id");
+  await root.getByRole("combobox", { name: "业务字段", exact: true }).fill("id");
   await root.getByLabel("表头", {exact:true}).click();
   await root.getByRole("tab", {name:"工具",exact:true}).click();
   await panel.getByRole("button", {name:"运行检查",exact:true}).click();

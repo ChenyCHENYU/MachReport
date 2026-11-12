@@ -35,6 +35,19 @@ function createPreview(props: Record<string, unknown> = {}) {
 }
 
 describe("Excel import preview lifecycle", () => {
+  it("shows bounded structured diagnostics and locates the original Excel cell", async () => {
+    const workbook = new ExcelJS.Workbook(), sheet = workbook.addWorksheet("Formula");
+    for (let row = 1; row <= 210; row++) sheet.getCell(row, 1).value = { formula: "1+1", result: 2 };
+    const { wrapper, report } = createPreview();
+    const result = await report.importExcel(new Uint8Array(await workbook.xlsx.writeBuffer()));
+    await vi.waitFor(() => expect(wrapper.find(".mrp-import-summary").text()).toContain("210"));
+    expect(wrapper.findAll(".mrp-import-summary li button")).toHaveLength(200);
+    expect(wrapper.findAll(".mrp-export-notice")).toHaveLength(0);
+    const entries = result!.diagnostics!; const chosen = entries.findIndex(entry => (entry.row ?? 0) > 100);
+    await wrapper.findAll(".mrp-import-summary li button")[chosen]!.trigger("click");
+    await vi.waitFor(() => expect(wrapper.find(".mrp-cell-focus").exists()).toBe(true));
+    expect(wrapper.find(".mrp-cell-focus").text()).toBe("2"); expect(wrapper.find(".mrp-import-summary").text()).toContain("另有 10 项");
+  });
   it("explicit controller import works without a fetcher and keeps snapshots isolated", async () => {
     const { wrapper, report } = createPreview();
     expect(wrapper.find(".mrp-import-excel").exists()).toBe(false);

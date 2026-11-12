@@ -45,6 +45,12 @@ try {
   symlinkSync(dirname(packageRequire.resolve("vue/package.json")), resolve(scratch, "node_modules/vue"), "dir");
 
   const runtime = `
+const documents = server.createMemoryReportDocumentStore();
+const documentIdentity = {scope:"consumer",id:"window",version:"v1",plan:{schemaVersion:core.RENDER_PLAN_SCHEMA_VERSION}};
+await server.writeReportDocument(documents,{...documentIdentity,pages:[{pageWidthMm:80,pageHeightMm:55,components:[]}]});
+const documentSource = server.createReportDocumentSource(documents,documentIdentity);
+const documentWindow = await documentSource.load({fromPage:0,limit:1});
+if(documentWindow.manifest.state!=="complete" || documentWindow.pages.length!==1 || typeof vue.ReportDocumentPreview!=="object") throw new Error("Packed document preview contract failed");
 const labelTemplate = core.createLabelTemplate({ dataset: "labels", rowKey: "id", components: [
   { kind: "text", leftMm: 2, topMm: 2, widthMm: 60, heightMm: 6, binding: { field: "id" } },
   { kind: "qrcode", leftMm: 30, topMm: 15, widthMm: 25, heightMm: 25, binding: { field: "id" } }
@@ -174,18 +180,24 @@ import { validateReportDataset, assertReportValidation, compareReportData, creat
 import { renderPlanToXlsx } from "@agile-team/mach-report/xlsx";
 import { renderPlanToPdf } from "@agile-team/mach-report/pdf";
 import { compileDynamicSql } from "@agile-team/mach-report/sql";
-import { machReportPlugin, ReportPreview, createTemplate as createVueTemplate, createTableTemplate, createLabelTemplate, createReportSource, defineLabelReport, defineReport, defineReportTemplate, parseReportTemplate, serializeReportTemplate, createTemplateRegistry, defineMachReportConfig, useMachReport, type PdfFontCheckResult, type MachReportToolbarOptions, type ReportEmptyState, type ReportPreviewPreferences } from "@agile-team/mach-report/vue";
+import { machReportPlugin, ReportPreview, ReportDocumentPreview, type ReportDocumentSource, createTemplate as createVueTemplate, createTableTemplate, createLabelTemplate, createReportSource, defineLabelReport, defineReport, defineReportTemplate, parseReportTemplate, serializeReportTemplate, createTemplateRegistry, defineMachReportConfig, useMachReport, type PdfFontCheckResult, type MachReportToolbarOptions, type ReportEmptyState, type ReportPreviewPreferences } from "@agile-team/mach-report/vue";
 import { preloadMachReport } from "@agile-team/mach-report/vue/async";
-import { createReportRuntime, createReportTaskQueue, reviewReportPublication, createReportJobService, createMemoryReportJobStore, createMemoryReportInstanceStore, createReportGenerationService, runLabelStream, type PreparedReport, type ReportRuntimePreparedExportInput, type ReportInstanceSnapshot, type LabelStreamContext } from "@agile-team/mach-report/server";
+import { createMemoryReportDocumentStore, createReportDocumentSource, createReportRuntime, createReportTaskQueue, reviewReportPublication, createReportJobService, createMemoryReportJobStore, createMemoryReportInstanceStore, createReportGenerationService, runLabelStream, type PreparedReport, type ReportRuntimePreparedExportInput, type ReportInstanceSnapshot, type LabelStreamContext } from "@agile-team/mach-report/server";
 import { createNodeReportExecutor, reportArtifactSha256 } from "@agile-team/mach-report/server/node";
 import { createBrowserReportExecutor } from "@agile-team/mach-report/worker";
 import { writeRowsToXlsx } from "@agile-team/mach-report/xlsx/node";
-import { ReportTemplateEditor, ExcelBindingWizard, RuleEditor, TemplateReviewPanel, type TemplateEditorOptions, type TemplateEditorMessages } from "@agile-team/mach-report/designer";
+import { ReportTemplateEditor, ExcelBindingWizard, EXCEL_BINDING_MESSAGES, type ExcelBindingMessages, RuleEditor, TemplateReviewPanel, type TemplateEditorOptions, type TemplateEditorMessages } from "@agile-team/mach-report/designer";
 import { computeDataset, createCrossTable, createChartComponents } from "@agile-team/mach-report/analytics";
 import { Writable } from "node:stream";
 async function consume() {
   const dataRules: ReportValidationRule[] = [{ id: "balance", assert: { all: [{ field: "output", op: ">=", value: 0 }, { field: "output", op: "<=", right: { field: "input" }, numeric: "decimal" }] }, message: "Balance" }];
   assertReportValidation(validateReportDataset([{ id: "A", input: "2", output: "1" }], { rowKey: "id", rules: dataRules }));
+  const {diagnosticDetails,locateSource,...oldBindingLabels}=EXCEL_BINDING_MESSAGES;
+  const legacyBindingLabels:ExcelBindingMessages=oldBindingLabels;
+  void [diagnosticDetails,locateSource,legacyBindingLabels];
+  const documentSource: ReportDocumentSource = createReportDocumentSource(createMemoryReportDocumentStore(), {scope:"consumer",id:"document"});
+  const documentProps: InstanceType<typeof ReportDocumentPreview>["$props"] = {source:documentSource,height:"500px",messages:{documentLoading:"Loading page"}};
+  void documentProps;
   const dataToolProps: InstanceType<typeof ReportPreview>["$props"] = { editable: { validation: { rules: dataRules } }, prefill: { datasetId: "detail", fields: [{ field: "note" }], load: () => [{ rowKey: "A", values: { note: "From history" } }] }, dataComparison: { datasetId: "detail", fields: [{ field: "n", type: "decimal", tolerance: "0.001" }], load: () => [] } };
   const visualChart = createReportChartData([{ shift: "A", n: 0 }], { dataset: "detail", categoryField: "shift", type: "percentBar", measures: [{ field: "n", op: "sum" }] });
   compareReportData({ datasetId: "detail", rows: [] }, { datasetId: "detail", rows: [] }, { fields: [{ field: "n" }] });

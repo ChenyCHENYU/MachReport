@@ -55,7 +55,8 @@ describe("strict publication with trusted image adapters", () => {
   it("does not defer unsupported styles or existing unsupported image formats", async () => {
     const qrcode = vi.fn(createCodeAssetRenderers().qrcode);
     const options: ReportPublicationOptions = { fixtures, formats: ["pdf"], strictOutputs: true, assets: { assetRenderers: { qrcode } } };
-    const style = await reviewReportPublication(document([symbol({ style: { opacity: 0.5 } })]), options);
+    const unsupported: PlanComponent = { kind: "text", leftMm: 30, topMm: 2, widthMm: 30, heightMm: 10, richParagraphs: [{ segments: [{ text: "Inline rotation", style: { rotateDeg: 20 } }] }] };
+    const style = await reviewReportPublication(document([symbol(), unsupported]), options);
     expect(style.ok).toBe(false);
     expect(style.issues).toContainEqual(expect.objectContaining({ diagnostic: expect.objectContaining({ code: "unsupported-style" }), severity: "error" }));
     const existing = symbol({ code: { value: "trace" }, imageData: "data:image/svg+xml,%3Csvg/%3E" });
@@ -64,6 +65,21 @@ describe("strict publication with trusted image adapters", () => {
     expect(image.ok).toBe(false);
     expect(image.issues).toContainEqual(expect.objectContaining({ diagnostic: expect.objectContaining({ code: "unsupported-image-format" }), severity: "error" }));
     expect(qrcode).not.toHaveBeenCalled();
+  });
+
+  it("publishes supported transparent symbols as isolated PDF groups after the trusted renderer succeeds", async () => {
+    const qrcode = vi.fn(createCodeAssetRenderers({ dpi: 203 }).qrcode);
+    const artifact = vi.fn<NonNullable<ReportPublicationOptions["onArtifact"]>>(async (_fixture, output) => {
+      const pdf = await PDFDocument.load(output.bytes);
+      expect(pdf.getPageCount()).toBe(1);
+      const forms = pdf.getPage(0).node.Resources()!.lookup(PDFName.of("XObject"), PDFDict);
+      expect(forms.keys()).toHaveLength(1);
+    });
+    const review = await reviewReportPublication(document([symbol({ style: { opacity: .5 } })]), { fixtures, formats: ["pdf"], strictOutputs: true, assets: { assetRenderers: { qrcode } }, onArtifact: artifact });
+    expect(review.ok, JSON.stringify(review.issues)).toBe(true);
+    expect(review.issues).toEqual([]);
+    expect(qrcode).toHaveBeenCalledOnce();
+    expect(artifact).toHaveBeenCalledOnce();
   });
 
   it("does not use a PDF-only adapter to bypass missing XLSX symbols", async () => {

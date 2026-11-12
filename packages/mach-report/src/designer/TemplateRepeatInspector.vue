@@ -3,6 +3,7 @@ import { computed, getCurrentInstance } from "vue";
 import type { DatasetContract, ReportTemplateDocument, ReportTemplate } from "@agile-team/mach-report";
 import { TEMPLATE_EDITOR_MESSAGES, type TemplateEditorMessages } from "./messages";
 import { pageOverflow } from "./page-commands";
+import FieldSelect from "./FieldSelect.vue";
 const props = defineProps<{ document: ReportTemplateDocument; datasets?: string[]; schemas?: Record<string, DatasetContract>; disabled?: boolean; messages?: Partial<TemplateEditorMessages> }>();
 const emit = defineEmits<{ (event: "change", value: ReportTemplate["repeat"]): void }>();
 const m = computed(() => ({ ...TEMPLATE_EDITOR_MESSAGES, ...props.messages }));
@@ -21,10 +22,10 @@ function toggle(event: Event): void {
     if (!incompatible.value) emit("change", { dataset: datasets.value[0] ?? "detail", copies: 1 });
   } else if (!hasBindings.value) emit("change", undefined);
 }
-function rowKey(event: Event): void {
+function rowKey(value: string): void {
   if (!repeat.value || props.disabled) return;
-  const next = { ...repeat.value }, value = input(event).trim();
-  if (value) next.rowKey = value; else delete next.rowKey;
+  const next = { ...repeat.value }, key = value.trim();
+  if (key) next.rowKey = key; else delete next.rowKey;
   emit("change", next);
 }
 function copiesMode(event: Event): void {
@@ -37,9 +38,8 @@ function copiesMode(event: Event): void {
     <template v-if="repeat">
       <label>{{ m.recordDataset }}<input :value="repeat.dataset" :list="`${id}-datasets`" @change="input($event).trim() && patch({ dataset: input($event).trim() })" /></label>
       <datalist :id="`${id}-datasets`"><option v-for="dataset in datasets" :key="dataset" :value="dataset" /></datalist>
-      <label>{{ m.recordRowKey }}<input :value="repeat.rowKey ?? ''" :list="id" @change="rowKey" /></label>
-      <datalist :id="id"><option v-for="field in fields" :key="field.field" :value="field.field">{{ field.label }}</option></datalist>
-      <div class="mr-repeat-grid"><label>{{ m.labelCopies }}<select :value="mode" @change="copiesMode"><option value="fixed">{{ m.fixedCopies }}</option><option value="field">{{ m.fieldCopies }}</option></select></label><label v-if="mode === 'fixed'">{{ m.copiesPerRecord }}<input type="number" min="1" max="1000" step="1" :value="repeat.copies ?? 1" @change="input($event).trim() && patch({ copies: Number(input($event)) })" /></label><label v-else>{{ m.copiesField }}<input :value="typeof repeat.copies === 'object' ? repeat.copies.field : ''" :list="id" @change="input($event).trim() && patch({ copies: { field: input($event).trim() } })" /></label></div>
+      <label>{{ m.recordRowKey }}<FieldSelect data-mr-control="repeat-row-key" :model-value="repeat.rowKey ?? ''" :fields="fields" :label="m.recordRowKey" :disabled="disabled" :messages="m" @change="rowKey" /></label>
+      <div class="mr-repeat-grid"><label>{{ m.labelCopies }}<select :value="mode" @change="copiesMode"><option value="fixed">{{ m.fixedCopies }}</option><option value="field">{{ m.fieldCopies }}</option></select></label><label v-if="mode === 'fixed'">{{ m.copiesPerRecord }}<input type="number" min="1" max="1000" step="1" :value="repeat.copies ?? 1" @change="input($event).trim() && patch({ copies: Number(input($event)) })" /></label><label v-else>{{ m.copiesField }}<FieldSelect data-mr-control="repeat-copies-field" :model-value="typeof repeat.copies === 'object' ? repeat.copies.field : ''" :fields="fields" :label="m.copiesField" :disabled="disabled" :messages="m" @change="$event.trim() && patch({ copies: { field: $event.trim() } })" /></label></div>
       <p class="mr-repeat-note">{{ hasBindings ? m.repeatBoundHint : m.repeatOrderHint }}</p>
     </template>
   </fieldset>

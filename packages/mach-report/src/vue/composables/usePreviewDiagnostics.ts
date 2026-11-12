@@ -78,6 +78,11 @@ export function usePreviewDiagnostics(notify: (entry: Entry) => void) {
     const current = generation, added = addItems([entry]);
     schedule(); notifyMany(added, current);
   }
+  function addBaseSummary(value: DiagnosticSummary<ReportPreviewDiagnostic>): void {
+    const current = generation;
+    base.merge(value); value.entries.forEach(entry => { if (keys.size < DEFAULT_DIAGNOSTIC_LIMIT) keys.add(entryKey(entry)); });
+    publish(); notifyMany(entries.value, current);
+  }
   function addSummary(value: DiagnosticSummary<ReportPreviewDiagnostic>, format: OutputFormat): void {
     const current = generation, previous = outputs.get(format);
     const oldKeys = new Set(previous?.entries.map(entryKey));
@@ -107,5 +112,5 @@ export function usePreviewDiagnostics(notify: (entry: Entry) => void) {
     value.outputs.forEach(([format, group]) => outputs.set(format, group)); publish();
     if (notifySamples) notifyMany(entries.value, generation);
   }
-  return { entries, summary, outputSummary, reset, add, addMany, addSummary, inspect, inspectSummary, capture, restore };
+  return { entries, summary, outputSummary, reset, add, addMany, addBaseSummary, addSummary, inspect, inspectSummary, capture, restore };
 }

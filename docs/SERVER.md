@@ -69,6 +69,8 @@ var response = reports.prepare("sales", mapper.writeValueAsString(params),
 
 ## 按页文档与渐进预览
 
+前端可选 [`ReportDocumentPreview`](./DOCUMENT_PREVIEW.md) 与同一文档清单对接。`createReportDocumentSource(store, identity, { export })` 复用存储的页窗口；HTTP宿主提供同形状的 `load/export` 即可。常规完整计划预览保持原入口。
+
 需要提前展示已排出的页面或按页持久化时，使用可选的 `ReportDocumentStore`。普通预览和 `runtime.prepare()` 的接入保持不变。
 
 ```ts

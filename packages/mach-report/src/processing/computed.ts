@@ -315,23 +315,37 @@ export function computeDataset(
   input: readonly Record<string, unknown>[],
   options: ComputedDatasetOptions,
 ): { rows: Record<string, unknown>[]; issues: ComputationIssue[] } {
+  const work = iterateComputedDataset(input, options, false);
+  let next = work.next();
+  while (!next.done) next = work.next();
+  return next.value;
+}
+/** Internal checkpoints used only after the source has captured private data. */
+export function* iterateComputedDataset(input: readonly Record<string, unknown>[], options: ComputedDatasetOptions, checkpoints = true): Generator<void, { rows: Record<string, unknown>[]; issues: ComputationIssue[] }> {
   checkInput(input, options);
   checkAbort(options.signal);
   const program = computedProgram(input, options.fields, () => compileFields(options));
   const run: ComputationRun = { program, writes: new WeakMap() };
   const compiled = program?.fields ?? compileFields(options),
     issues: ComputationIssue[] = [];
-  const rows = input.map((source, index) => {
+  const rows: Record<string, unknown>[] = [];
+  const inputLength = input.length;
+  for (let index = 0; index < inputLength; index++) {
+    const source = input[index];
     if (!source || typeof source !== "object" || Array.isArray(source))
       throw new Error(`第 ${index + 1} 行应为对象`);
-    return { ...source };
-  });
+    rows.push({ ...source });
+    if (checkpoints) yield;
+  }
   for (const item of compiled) {
     const scope = scopeRows(rows, item.definition);
-    rows.forEach((row, index) => {
+    const rowCount = rows.length;
+    for (let index = 0; index < rowCount; index++) {
+      const row = rows[index]!;
       checkAbort(options.signal);
       evaluateCachedField(run, input[index]!, item, row, index, scope(row), options, issues);
-    });
+      if (checkpoints) yield;
+    }
   }
   return { rows, issues };
 }

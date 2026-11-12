@@ -40,6 +40,9 @@ export function sourcePagination(options: PaginateOptions | undefined, budget: S
 }
 
 export function accountSourcePagination(budget: SourcePaginationBudget, result: Pick<PaginateResult, "plan" | "chartComponents">): void {
+  const remainingPages = remainingLimit(budget.maxPages, budget.usedPages), remainingCharts = budget.maxChartComponents - budget.usedChartComponents;
+  if (remainingPages !== undefined && result.plan.pages.length > remainingPages) throw new PaginatePageLimitError(remainingPages, result.plan.pages.length);
+  if (result.chartComponents > remainingCharts) throw new PaginateChartComponentLimitError(remainingCharts, result.chartComponents);
   const cells = planCells(result.plan), remainingCells = remainingLimit(budget.maxCells, budget.usedCells);
   if (remainingCells !== undefined && cells > remainingCells) throw new PaginateCellLimitError(remainingCells, cells);
   budget.usedPages += result.plan.pages.length;

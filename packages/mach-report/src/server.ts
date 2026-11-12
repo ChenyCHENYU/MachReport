@@ -17,3 +17,4 @@ export * from "./server/template-package";
 export { createMemoryReportDocumentStore, readReportDocumentPages, writeReportDocument, ReportDocumentError } from "./server/document-store";
 export type { ReportDocumentManifest, ReportDocumentBudget, ReportDocumentStore } from "./server/document-store";
 export * from "./server/http-contract";
+export * from "./server/document-source";

@@ -1,3 +1,4 @@
+import type { ExcelImportDiagnostics, ExcelImportDiagnosticLocation } from "./import-types";
 import { assertOutputActive, outputCheckpoint, waitForOutput, type OutputTaskOptions } from "../output/progress";
 import ExcelJSRuntime from "exceljs";
 import type * as ExcelJS from "exceljs";
@@ -10,10 +11,10 @@ import { createSheetImageImporter } from "./import-images";
 import { importCellValue } from "./import-value";
 import { importTheme, styleImporter, importRichSegments } from "./import-style";
 import { excelColumnWidthToMm } from "./column-width";
-import { checkedRange, columnName, mergeLookup, mergeRowGroups, rangeName, rowSegments, selectedMerges, selectedRange, type CellRange, type RowSegment } from "./import-range";
+import { checkedRange, columnName, mergeLookup, mergeRowGroups, rangeName, rowSegments, parseImportRange, selectedMerges, selectedRange, type CellRange, type RowSegment } from "./import-range";
 import { ImportWarnings, resolveImportOptions, type ExcelImportOptions, type ExcelImportedSheet, type ExcelImportResult, type ResolvedImportOptions } from "./import-types";
 
-export type { ExcelImportOptions, ExcelImportLimits, ExcelImportedSheet, ExcelImportResult } from "./import-types";
+export type { ExcelImportOptions, ExcelImportLimits, ExcelImportedSheet, ExcelImportResult, ExcelImportDiagnostic, ExcelImportDiagnosticCode, ExcelImportDiagnosticLocation, ExcelImportDiagnostics } from "./import-types";
 
 const PT_TO_MM = 25.4 / 72;
 
@@ -56,7 +57,7 @@ function sheetGeometry(sheet: ExcelJS.Worksheet, range: CellRange, options: Reso
   const columns: number[] = [];
   for (let column = range.left; column <= range.right; column++) {
     const source = sheet.getColumn(column);
-    if (source.hidden) warnings.add(`${sheet.name}: 隐藏行列按隐藏尺寸保留；需要编辑时请先在 Excel 中取消隐藏`);
+    if (source.hidden) warnings.add(`${sheet.name}: 隐藏行列按隐藏尺寸保留；需要编辑时请先在 Excel 中取消隐藏`, "hidden-column", { sheet: sheet.name, column, row: range.top, cell: `${columnName(column)}${range.top}`, range: `${columnName(column)}${range.top}:${columnName(column)}${range.bottom}` });
     const width = source.width ?? sheet.properties.defaultColWidth ?? 8.43;
     columns.push(safeSize(source.hidden || width === 0 ? 0.01 : excelColumnWidthToMm(width), "Excel 列宽", 2_000));
   }
@@ -68,10 +69,14 @@ function sheetGeometry(sheet: ExcelJS.Worksheet, range: CellRange, options: Reso
   const margin = wide ? 0 : 10;
   const width = pageWidth - 2 * margin;
   const scale = wide ? 1 : width / naturalWidth;
-  if (!wide && scale < 0.5) warnings.add(`${sheet.name}: 标准纸张列宽压缩较大；完整宽表建议使用 layout: 'wide'`);
+  if (!wide && scale < 0.5) warnings.add(`${sheet.name}: 标准纸张列宽压缩较大；完整宽表建议使用 layout: 'wide'`, "paper-scale", { sheet: sheet.name, range: rangeName(range), row: range.top, column: range.left, cell: `${columnName(range.left)}${range.top}` });
+  const warnedRows = new Set<number>();
   const rowHeight = (number: number): number => {
     const source = sheet.getRow(number);
-    if (source.hidden) warnings.add(`${sheet.name}: 隐藏行列按隐藏尺寸保留；需要编辑时请先在 Excel 中取消隐藏`);
+    if (source.hidden && !warnedRows.has(number)) {
+      warnedRows.add(number);
+      warnings.add(`${sheet.name}: 隐藏行列按隐藏尺寸保留；需要编辑时请先在 Excel 中取消隐藏`, "hidden-row", { sheet: sheet.name, row: number, column: range.left, cell: `${columnName(range.left)}${number}`, range: `${columnName(range.left)}${number}:${columnName(range.right)}${number}` });
+    }
     return safeSize(source.hidden ? 0.01 : (source.height ?? sheet.properties.defaultRowHeight ?? 15) * PT_TO_MM * scale, "Excel 行高", 1_000);
   };
   return { width, pageWidth, pageHeight, margin, scale, columns: columns.map((value) => value * scale), rowHeight };
@@ -106,7 +111,7 @@ function gridCells(context: SheetImportContext, segment: RowSegment): Array<Arra
       cell.style = style(source);
       const raw = source.value;
       if (raw && typeof raw === "object" && "richText" in raw) {
-        cell.richParagraphs = [{ segments: importRichSegments(raw.richText, context.theme, warnings, `${sheet.name}!${source.address}`, geometry.scale) }];
+        cell.richParagraphs = [{ segments: importRichSegments(raw.richText, context.theme, warnings, `${sheet.name}!${source.address}`, geometry.scale, { sheet: sheet.name, cell: source.address, row, column }) }];
         cell.editable = false;
       }
       const merge = merges.masters.get(key);
@@ -154,13 +159,23 @@ function segmentPage(context: SheetImportContext, segment: RowSegment): Template
   };
 }
 
+/** OOXML feature ranges may contain multiple rectangles; the first bounded cell is the navigation anchor. */
+function featureLocation(sheet: string, range: string): ExcelImportDiagnosticLocation {
+  try {
+    const coordinates = parseImportRange(range.split(/\s+/)[0]!);
+    return { sheet, range, cell: `${columnName(coordinates.left)}${coordinates.top}`, row: coordinates.top, column: coordinates.left };
+  } catch { return { sheet, range }; }
+}
+
 function warnSheetFeatures(sheet: ExcelJS.Worksheet, warnings: ImportWarnings): void {
-  const featureSource = sheet as unknown as { conditionalFormattings?: unknown[]; dataValidations?: { model: Record<string, unknown> } };
-  if (sheet.state !== "visible") warnings.add(`${sheet.name}: 已按显式选择导入隐藏工作表`);
-  if ((sheet as unknown as { sheetProtection?: { sheet?: boolean } }).sheetProtection?.sheet === true) warnings.add(`${sheet.name}: 已保留启用的工作表保护，锁定单元格在预览中保持只读`);
-  if (featureSource.conditionalFormattings?.length) warnings.add(`${sheet.name}: 条件格式规则暂不执行，仅使用已保存的基础单元格样式`);
-  if (sheet.autoFilter) warnings.add(`${sheet.name}: Excel 筛选下拉与排序操作不导入，完整保留选区单元格`);
-  if (Object.keys(featureSource.dataValidations?.model ?? {}).length) warnings.add(`${sheet.name}: Excel 数据验证与下拉输入规则不导入；业务校验应由宿主配置`);
+  const featureSource = sheet as unknown as { conditionalFormattings?: Array<{ ref: string }>; dataValidations?: { model: Record<string, unknown> } };
+  if (sheet.state !== "visible") warnings.add(`${sheet.name}: 已按显式选择导入隐藏工作表`, "hidden-sheet", { sheet: sheet.name });
+  if ((sheet as unknown as { sheetProtection?: { sheet?: boolean } }).sheetProtection?.sheet === true) warnings.add(`${sheet.name}: 已保留启用的工作表保护，锁定单元格在预览中保持只读`, "protected-sheet", { sheet: sheet.name });
+  for (const formatting of featureSource.conditionalFormattings ?? []) warnings.add(`${sheet.name}: 条件格式规则暂不执行，仅使用已保存的基础单元格样式`, "conditional-format", featureLocation(sheet.name, formatting.ref));
+  if (sheet.autoFilter) warnings.add(`${sheet.name}: Excel 筛选下拉与排序操作不导入，完整保留选区单元格`, "auto-filter", { sheet: sheet.name });
+  for (const range of Object.keys(featureSource.dataValidations?.model ?? {})) {
+    warnings.add(`${sheet.name}: Excel 数据验证与下拉输入规则不导入；业务校验应由宿主配置`, "data-validation", featureLocation(sheet.name, range));
+  }
 }
 
 async function importSheet(sheet: ExcelJS.Worksheet, range: CellRange, workbook: ExcelJS.Workbook, options: ResolvedImportOptions, warnings: ImportWarnings, index: number, task: OutputTaskOptions, inspectImages: ReturnType<typeof createImageMediaInspector>): Promise<TemplatePage[]> {
@@ -214,7 +229,7 @@ export interface ExcelWorkbookSheet {
   columnCount: number;
   visible: boolean;
 }
-export interface ExcelWorkbookInspection { sheets: ExcelWorkbookSheet[]; warnings: string[] }
+export interface ExcelWorkbookInspection extends ExcelImportDiagnostics { sheets: ExcelWorkbookSheet[]; warnings: string[] }
 /** Internal shared conversion; the public session never exposes the mutable Workbook. */
 export function inspectLoadedWorkbook(workbook: ExcelJS.Workbook, options: ExcelImportOptions, warnings: ImportWarnings): ExcelWorkbookInspection {
   const sheets = workbook.worksheets.map((sheet, index) => {
@@ -222,7 +237,7 @@ export function inspectLoadedWorkbook(workbook: ExcelJS.Workbook, options: Excel
     return { name: sheet.name, index: index + 1, range: rangeName(range), rowCount: range.bottom - range.top + 1, columnCount: range.right - range.left + 1, visible: sheet.state === "visible" };
   });
   assertOutputActive(options.signal);
-  return { sheets, warnings: warnings.result() };
+  return { sheets, warnings: warnings.result(), ...warnings.structured() };
 }
 /** Inspect sheet metadata before selecting a bounded import; does not construct any template grids. */
 export async function inspectExcelWorkbook(input: ArrayBuffer | Uint8Array | Blob, options: ExcelImportOptions = {}): Promise<ExcelWorkbookInspection> {
@@ -258,5 +273,5 @@ export async function importLoadedWorkbook(workbook: ExcelJS.Workbook, options: 
     template.pages.push(...pages);
     await outputCheckpoint(options, sheets.length, selected.length);
   }
-  return { template, warnings: warnings.result(), sheets };
+  return { template, warnings: warnings.result(), ...warnings.structured(), sheets };
 }

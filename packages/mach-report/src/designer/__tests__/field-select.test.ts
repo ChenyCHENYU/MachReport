@@ -1,0 +1,74 @@
+import { mount, type VueWrapper } from "@vue/test-utils";
+import { afterEach, expect, it } from "vitest";
+import FieldSelect from "../FieldSelect.vue";
+
+const wrappers: VueWrapper[] = [];
+afterEach(() => wrappers.splice(0).forEach(wrapper => wrapper.unmount()));
+function mountFields(modelValue = "legacy") {
+  const fields = Array.from({ length: 2048 }, (_, index) => ({ field: `f${index}`, label: `字段${index}`, type: "number" as const, unit: "kg" }));
+  const wrapper = mount(FieldSelect, { props: { modelValue, fields, label: "字段", "onChange": (value: string) => { void wrapper.setProps({ modelValue: value }); } } });
+  wrappers.push(wrapper);
+  return wrapper;
+}
+it("keeps 100 DOM options while keyboard, pagination and search reach the final schema field", async () => {
+  const wrapper = mountFields();
+  const input = wrapper.get("input");
+  await input.trigger("focus");
+  expect(wrapper.findAll('[role="option"]')).toHaveLength(100);
+  await input.trigger("keydown", { key: "End" });
+  expect(wrapper.get('[role="option"][aria-selected="true"]').attributes("aria-posinset")).toBe("2048");
+  expect(wrapper.findAll('[role="option"]').length).toBeLessThanOrEqual(100);
+  await input.trigger("keydown", { key: "Enter" });
+  expect((input.element as HTMLInputElement).value).toBe("f2047");
+  await input.trigger("focus");
+  await input.trigger("keydown", { key: "Home" });
+  await wrapper.get('[aria-label="下一组字段"]').trigger("click");
+  expect(wrapper.get('[role="option"]').attributes("aria-posinset")).toBe("101");
+  (input.element as HTMLInputElement).value = "字段2046 kg";
+  await input.trigger("input");
+  expect(wrapper.findAll('[role="option"]')).toHaveLength(1);
+  await input.trigger("keydown", { key: "ArrowDown" });
+  const option = wrapper.get('[role="option"]');
+  expect(input.attributes("aria-activedescendant")).toBe(option.attributes("id"));
+  await input.trigger("keydown", { key: "Enter" });
+  expect(wrapper.emitted("change")?.at(-1)).toEqual(["f2046"]);
+});
+it("preserves free text, stale field values, cancellation and IME composition", async () => {
+  const wrapper = mountFields();
+  const input = wrapper.get("input");
+  expect((input.element as HTMLInputElement).value).toBe("legacy");
+  await input.trigger("focus");
+  await input.trigger("compositionstart");
+  (input.element as HTMLInputElement).value = "新字段";
+  await input.trigger("input");
+  await input.trigger("keydown", { key: "Enter", isComposing: true });
+  expect(wrapper.emitted("change")).toBeUndefined();
+  await input.trigger("compositionend");
+  expect(wrapper.findAll('[role="option"]')).toHaveLength(0);
+  await input.trigger("keydown", { key: "Enter" });
+  expect(wrapper.emitted("change")).toEqual([["新字段"]]);
+  await input.trigger("focus");
+  (input.element as HTMLInputElement).value = "cancelled";
+  await input.trigger("input");
+  await input.trigger("keydown", { key: "Escape" });
+  expect((input.element as HTMLInputElement).value).toBe("新字段");
+  expect(input.attributes("aria-expanded")).toBe("false");
+  await input.setValue("");
+  expect(wrapper.emitted("change")?.at(-1)).toEqual([""]);
+});
+it("does not claim a mapping rejected by host confirmation and disables without pending candidates", async () => {
+  const wrapper = mount(FieldSelect, { props: { modelValue: "retained", fields: [{ field: "next", type: "text" }], label: "字段" } });
+  wrappers.push(wrapper);
+  const input = wrapper.get("input");
+  await input.trigger("focus");
+  await input.trigger("keydown", { key: "End" });
+  await input.trigger("keydown", { key: "Enter" });
+  expect(wrapper.emitted("change")).toEqual([["next"]]);
+  expect((input.element as HTMLInputElement).value).toBe("retained");
+  await input.trigger("focus");
+  await wrapper.setProps({ disabled: true });
+  expect(input.attributes("aria-expanded")).toBe("false");
+  expect(wrapper.find('[role="listbox"]').exists()).toBe(false);
+  await input.trigger("keydown", { key: "Enter" });
+  expect(wrapper.emitted("change")).toHaveLength(1);
+});

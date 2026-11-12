@@ -1,0 +1,2486 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "kind": "application-report-structure-snapshot",
+    "sourceFile": "catalog.json",
+    "sourceSha256": "07b294f5028825a9884b6f78c33be5c74163724489b0206458b89914db79cce5",
+    "sourceRuleVersion": "20261030.2",
+    "declaredWorkbook": "炼钢报表（涵逻辑）.xlsx",
+    "originalWorkbookAvailable": false,
+    "businessMappingVerified": false,
+    "allValuesSynthetic": true
+  },
+  "reports": [
+    {
+      "id": "eafDaily",
+      "title": "电炉日报",
+      "renderTitle": "EAF daily",
+      "columns": [
+        {
+          "key": "F001",
+          "cell": "A1",
+          "label": "爐號",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F002",
+          "cell": "B1",
+          "label": "鋼種",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F003",
+          "cell": "C1",
+          "label": "班别",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F004",
+          "cell": "D1",
+          "label": "废不锈钢配比",
+          "mappingKind": "declared-source",
+          "precisionHint": 2
+        },
+        {
+          "key": "F005",
+          "cell": "E1",
+          "label": "总用電量(kWh)",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F006",
+          "cell": "F1",
+          "label": "配料电耗",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F007",
+          "cell": "G1",
+          "label": "鋼水電耗(kwh/t)",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F008",
+          "cell": "H1",
+          "label": "配料重（kg）",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F009",
+          "cell": "I1",
+          "label": "鋼水重(t)",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F010",
+          "cell": "J1",
+          "label": "產率(%)",
+          "mappingKind": "declared-source",
+          "precisionHint": 2
+        },
+        {
+          "key": "F011",
+          "cell": "K1",
+          "label": "配料C(%)",
+          "mappingKind": "declared-source",
+          "precisionHint": 2
+        },
+        {
+          "key": "F012",
+          "cell": "L1",
+          "label": "配料Si(%)",
+          "mappingKind": "declared-source",
+          "precisionHint": 2
+        },
+        {
+          "key": "F013",
+          "cell": "M1",
+          "label": "配料Cr(%)",
+          "mappingKind": "declared-source",
+          "precisionHint": 2
+        },
+        {
+          "key": "F014",
+          "cell": "N1",
+          "label": "配料Ni(%)",
+          "mappingKind": "declared-source",
+          "precisionHint": 2
+        },
+        {
+          "key": "F015",
+          "cell": "O1",
+          "label": "配料P(%)",
+          "mappingKind": "declared-source",
+          "precisionHint": 2
+        },
+        {
+          "key": "F016",
+          "cell": "P1",
+          "label": "出鋼C%)",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F017",
+          "cell": "Q1",
+          "label": "出鋼Si%)",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F018",
+          "cell": "R1",
+          "label": "出鋼Cr(%)",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F019",
+          "cell": "S1",
+          "label": "出鋼Ni(%)",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F020",
+          "cell": "T1",
+          "label": "出鋼P(%)",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F021",
+          "cell": "U1",
+          "label": "Cr產率(%)",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F022",
+          "cell": "V1",
+          "label": "矽铁粉耗用量/kg",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F023",
+          "cell": "W1",
+          "label": "计算碱度",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F024",
+          "cell": "X1",
+          "label": "配料站加入石灰重（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F025",
+          "cell": "Y1",
+          "label": "电炉加入石灰重（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F026",
+          "cell": "Z1",
+          "label": "石灰总重（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F027",
+          "cell": "AA1",
+          "label": "设定堿度",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F028",
+          "cell": "AB1",
+          "label": "二次料电耗",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F029",
+          "cell": "AC1",
+          "label": "三次料电耗",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F030",
+          "cell": "AD1",
+          "label": "吹氧时电耗",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F031",
+          "cell": "AE1",
+          "label": "理論吹氧量",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F032",
+          "cell": "AF1",
+          "label": "實際吹氧量",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F033",
+          "cell": "AG1",
+          "label": "Ni產率(%)",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F034",
+          "cell": "AH1",
+          "label": "TTT(min)",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F035",
+          "cell": "AI1",
+          "label": "煉製時間(min)",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F036",
+          "cell": "AJ1",
+          "label": "power on時間min",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F037",
+          "cell": "AK1",
+          "label": "power off时间",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F038",
+          "cell": "AL1",
+          "label": "开钢包车时间",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F039",
+          "cell": "AM1",
+          "label": "加料(min)",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F040",
+          "cell": "AN1",
+          "label": "出钢时间（min）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F041",
+          "cell": "AO1",
+          "label": "製程整備(min)",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F042",
+          "cell": "AP1",
+          "label": "协停时间/min",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F043",
+          "cell": "AQ1",
+          "label": "计划性停机时间/min",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F044",
+          "cell": "AR1",
+          "label": "制程异常时间/min",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F045",
+          "cell": "AS1",
+          "label": "设备故障时间/min",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F046",
+          "cell": "AT1",
+          "label": "出鋼溫度(℃)",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F047",
+          "cell": "AU1",
+          "label": "后站受钢温度",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F048",
+          "cell": "AV1",
+          "label": "生產日期",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F049",
+          "cell": "AW1",
+          "label": "是否试熔",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F050",
+          "cell": "AX1",
+          "label": "出钢班别",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F051",
+          "cell": "AY1",
+          "label": "甲",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F052",
+          "cell": "AZ1",
+          "label": "乙",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F053",
+          "cell": "BA1",
+          "label": "丙",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F054",
+          "cell": "BB1",
+          "label": "电极重量（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F055",
+          "cell": "BC1",
+          "label": "硅铁耗用（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        }
+      ]
+    },
+    {
+      "id": "refiningDaily",
+      "title": "精炼日报",
+      "renderTitle": "Refining daily",
+      "columns": [
+        {
+          "key": "F001",
+          "cell": "A1",
+          "label": "爐號",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F002",
+          "cell": "B1",
+          "label": "鋼種",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F003",
+          "cell": "C1",
+          "label": "規格",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F004",
+          "cell": "D1",
+          "label": "精煉爐編號",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F005",
+          "cell": "E1",
+          "label": "班别",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F006",
+          "cell": "F1",
+          "label": "精煉開始時間",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F007",
+          "cell": "G1",
+          "label": "精煉結束時間",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F008",
+          "cell": "H1",
+          "label": "LC/LF受鋼重（t）",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F009",
+          "cell": "I1",
+          "label": "精炼原料投入重（kg）",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F010",
+          "cell": "J1",
+          "label": "VOD受鋼重（t）",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F011",
+          "cell": "K1",
+          "label": "爐蓋壽命",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F012",
+          "cell": "L1",
+          "label": "大包編號",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F013",
+          "cell": "M1",
+          "label": "鋼包回數",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F014",
+          "cell": "N1",
+          "label": "鋼包空重（t）",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F015",
+          "cell": "O1",
+          "label": "自由距",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F016",
+          "cell": "P1",
+          "label": "理論出鋼重（t）",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F017",
+          "cell": "Q1",
+          "label": "吹氧量",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F018",
+          "cell": "R1",
+          "label": "計畫製程",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F019",
+          "cell": "S1",
+          "label": "實際製程",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F020",
+          "cell": "T1",
+          "label": "製程說明",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F021",
+          "cell": "U1",
+          "label": "P1管路",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F022",
+          "cell": "V1",
+          "label": "P2管路",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F023",
+          "cell": "W1",
+          "label": "連鑄序",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F024",
+          "cell": "X1",
+          "label": "總用電量",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F025",
+          "cell": "Y1",
+          "label": "精煉總用電量（kWh）",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F026",
+          "cell": "Z1",
+          "label": "移動時間",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F027",
+          "cell": "AA1",
+          "label": "冶煉時間",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F028",
+          "cell": "AB1",
+          "label": "鋼胚重量（t）",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F029",
+          "cell": "AC1",
+          "label": "出鋼溫度",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F030",
+          "cell": "AD1",
+          "label": "LC/LF受鋼溫度",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F031",
+          "cell": "AE1",
+          "label": "VOD受鋼溫度",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F032",
+          "cell": "AF1",
+          "label": "氬氣用量",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F033",
+          "cell": "AG1",
+          "label": "LC/LF產率(%)",
+          "mappingKind": "declared-source",
+          "precisionHint": 2
+        },
+        {
+          "key": "F034",
+          "cell": "AH1",
+          "label": "受鋼Cr差",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F035",
+          "cell": "AI1",
+          "label": "受鋼Ni差",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F036",
+          "cell": "AJ1",
+          "label": "LC/LF受鋼C成分",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F037",
+          "cell": "AK1",
+          "label": "LC/LF受鋼Si成分",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F038",
+          "cell": "AL1",
+          "label": "LC/LF受鋼Mo成分",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F039",
+          "cell": "AM1",
+          "label": "LC/LF受鋼Cr成分",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F040",
+          "cell": "AN1",
+          "label": "LC/LF受鋼Ni成分",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F041",
+          "cell": "AO1",
+          "label": "LC/LF出鋼C成份",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F042",
+          "cell": "AP1",
+          "label": "LC/LF出鋼Mo成份",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F043",
+          "cell": "AQ1",
+          "label": "LC/LF出鋼Cr成份",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F044",
+          "cell": "AR1",
+          "label": "VOD破空Cr成份",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F045",
+          "cell": "AS1",
+          "label": "△Cr",
+          "mappingKind": "declared-source",
+          "precisionHint": 2
+        },
+        {
+          "key": "F046",
+          "cell": "AT1",
+          "label": "LC/LF出鋼Ni成份",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F047",
+          "cell": "AU1",
+          "label": "LF/LC配料C成份",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F048",
+          "cell": "AV1",
+          "label": "LF/LC配料SI成份",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F049",
+          "cell": "AW1",
+          "label": "LF/LC配料CR成份",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F050",
+          "cell": "AX1",
+          "label": "LF/LC配料NI成份",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F051",
+          "cell": "AY1",
+          "label": "30%高碳鎳鐵NI: 20-32%C <3.0% SI< 5.0%（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F052",
+          "cell": "AZ1",
+          "label": "50%中碳镍铁_(Ni≥50%)_(Cu≤0.30%Sn≤0.030%)（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F053",
+          "cell": "BA1",
+          "label": "60 低矽高鉻Cr50~60C≦8Si≦4P≦0.025（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F054",
+          "cell": "BB1",
+          "label": "A1 (廢鋼)（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F055",
+          "cell": "BC1",
+          "label": "A3 (廢鋼)（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F056",
+          "cell": "BD1",
+          "label": "Ni_高碳镍铁_40%（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F057",
+          "cell": "BE1",
+          "label": "低碳鉬Mo:55-70C<0.1P<.05S<0.1SIZE:20-60（Cu<1.5）（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F058",
+          "cell": "BF1",
+          "label": "废碳钢_for400（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F059",
+          "cell": "BG1",
+          "label": "生石灰/A級/CaO≧90%/SIZE:4~65mm（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F060",
+          "cell": "BH1",
+          "label": "硅铁75 Si≧75C≦.2Al≦1.5P≦.03(硅铁)（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F061",
+          "cell": "BI1",
+          "label": "萤石CaF2≧8510-80mmPb≦0.1%含水≦0.5%（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F062",
+          "cell": "BJ1",
+          "label": "通用鎳Ni≧96C≦.35P≦.02S≦.143-80mm（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F063",
+          "cell": "BK1",
+          "label": "鎳板 Ni:96% Min C:0.3%Max SIZE:3-60（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F064",
+          "cell": "BL1",
+          "label": "高碳錳鐵（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F065",
+          "cell": "BM1",
+          "label": "高鎳鎳生鐵-高P  Ni:11 ； P:<0.040（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F066",
+          "cell": "新增",
+          "label": "处理次数",
+          "mappingKind": "declared-source",
+          "precisionHint": 0
+        }
+      ]
+    },
+    {
+      "id": "vodDaily",
+      "title": "VOD日报",
+      "renderTitle": "VOD daily",
+      "columns": [
+        {
+          "key": "F001",
+          "cell": "A1",
+          "label": "爐號",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F002",
+          "cell": "B1",
+          "label": "鋼種",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F003",
+          "cell": "C1",
+          "label": "製程1",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F004",
+          "cell": "D1",
+          "label": "製程2",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F005",
+          "cell": "E1",
+          "label": "攪拌狀況",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F006",
+          "cell": "F1",
+          "label": "班组",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F007",
+          "cell": "G1",
+          "label": "是否GDI汽车钢",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F008",
+          "cell": "H1",
+          "label": "有無測試",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F009",
+          "cell": "I1",
+          "label": "受鋼重（t）",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F010",
+          "cell": "J1",
+          "label": "空包重（t）",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F011",
+          "cell": "K1",
+          "label": "出鋼重（t）",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F012",
+          "cell": "L1",
+          "label": "钢包回數",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F013",
+          "cell": "M1",
+          "label": "氧枪回数",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F014",
+          "cell": "N1",
+          "label": "防溅盖回数",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F015",
+          "cell": "O1",
+          "label": "自由距",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F016",
+          "cell": "P1",
+          "label": "受鋼Cr",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F017",
+          "cell": "Q1",
+          "label": "還原Cr",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F018",
+          "cell": "R1",
+          "label": "真空时间",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F019",
+          "cell": "S1",
+          "label": "VCD",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F020",
+          "cell": "T1",
+          "label": "VD",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F021",
+          "cell": "U1",
+          "label": "作業時間",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F022",
+          "cell": "V1",
+          "label": "真空石灰（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F023",
+          "cell": "W1",
+          "label": "真空矽铁（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F024",
+          "cell": "X1",
+          "label": "真空铝（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F025",
+          "cell": "Y1",
+          "label": "真空萤石（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F026",
+          "cell": "Z1",
+          "label": "還原期石灰螢石比",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F027",
+          "cell": "AA1",
+          "label": "生石灰/A級/CaO≧90%/kg",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F028",
+          "cell": "AB1",
+          "label": "螢石CaF≧85/kg",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F029",
+          "cell": "AC1",
+          "label": "Mn-高碳錳/kg",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F030",
+          "cell": "AD1",
+          "label": "Cr-60%低矽鉻/kg",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F031",
+          "cell": "AE1",
+          "label": "Ni-通用鎳/kg",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F032",
+          "cell": "AF1",
+          "label": "高碳鎳/kg",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F033",
+          "cell": "AG1",
+          "label": "Ni-60%中碳鎳/kg",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F034",
+          "cell": "AH1",
+          "label": "Si-75%硅鐵/kg",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F035",
+          "cell": "AI1",
+          "label": "Si-低铝硅鐵/kg",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F036",
+          "cell": "AJ1",
+          "label": "Si-極低鋁硅鐵/kg",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F037",
+          "cell": "AK1",
+          "label": "Cr-低碳鉻/kg",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F038",
+          "cell": "AL1",
+          "label": "B-17%硼鐵/kg",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F039",
+          "cell": "AM1",
+          "label": "Cu-銅（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F040",
+          "cell": "AN1",
+          "label": "Mn-電解錳/kg",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F041",
+          "cell": "AO1",
+          "label": "Ti-鈦合金/kg",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F042",
+          "cell": "AP1",
+          "label": "Mo-鉬鐵/kg",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F043",
+          "cell": "AQ1",
+          "label": "Nb-鈮鐵/kg",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F044",
+          "cell": "AR1",
+          "label": "V-钒鐵/kg",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F045",
+          "cell": "AS1",
+          "label": "W-钨鐵/kg",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F046",
+          "cell": "AT1",
+          "label": "鈣矽線/m",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F047",
+          "cell": "AU1",
+          "label": "碳線,Φ13mm,C≧95%/m",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F048",
+          "cell": "AV1",
+          "label": "硫线",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F049",
+          "cell": "AW1",
+          "label": "钛铁线",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F050",
+          "cell": "AX1",
+          "label": "纯钙棒（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F051",
+          "cell": "AY1",
+          "label": "不锈钢冷材（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F052",
+          "cell": "AZ1",
+          "label": "一級廢鋼forT91系/kg",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F053",
+          "cell": "BA1",
+          "label": "微調合金总量（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F054",
+          "cell": "BB1",
+          "label": "鎂質中包覆蓋劑/kg",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F055",
+          "cell": "BC1",
+          "label": "低碳保温剂（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F056",
+          "cell": "BD1",
+          "label": "LF矽基（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F057",
+          "cell": "BE1",
+          "label": "VOD矽基（kg）",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F058",
+          "cell": "BF1",
+          "label": "V值",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F059",
+          "cell": "BG1",
+          "label": "精煉產率(%)",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F060",
+          "cell": "BH1",
+          "label": "出钢温度",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F061",
+          "cell": "BI1",
+          "label": "整爐石灰螢石比",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F062",
+          "cell": "BJ1",
+          "label": "是否超REL成份",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F063",
+          "cell": "BK1",
+          "label": "回LF升温炉次",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F064",
+          "cell": "BL1",
+          "label": "Ni成分偏差",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F065",
+          "cell": "BM1",
+          "label": "Mo成分偏差",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F066",
+          "cell": "BN1",
+          "label": "還原溫度",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F067",
+          "cell": "BO1",
+          "label": "鑄序",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F068",
+          "cell": "BP1",
+          "label": "吹氧总量",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F069",
+          "cell": "BQ1",
+          "label": "LF2电耗",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F070",
+          "cell": "新增",
+          "label": "处理次数",
+          "mappingKind": "declared-source",
+          "precisionHint": 0
+        }
+      ]
+    },
+    {
+      "id": "castingDaily",
+      "title": "连铸日报",
+      "renderTitle": "Casting daily",
+      "columns": [
+        {
+          "key": "F001",
+          "cell": "A1",
+          "label": "爐號",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F002",
+          "cell": "B1",
+          "label": "班別",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F003",
+          "cell": "C1",
+          "label": "鋼種",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F004",
+          "cell": "D1",
+          "label": "CC開始時間",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F005",
+          "cell": "E1",
+          "label": "CC結束時間",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F006",
+          "cell": "F1",
+          "label": "台車高度",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F007",
+          "cell": "G1",
+          "label": "電子偵渣是否使用",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F008",
+          "cell": "H1",
+          "label": "電子偵渣是否報警",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F009",
+          "cell": "I1",
+          "label": "LD編號",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F010",
+          "cell": "J1",
+          "label": "鑄序",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F011",
+          "cell": "K1",
+          "label": "總連數",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F012",
+          "cell": "L1",
+          "label": "第一道尺寸",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F013",
+          "cell": "M1",
+          "label": "第二道尺寸",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F014",
+          "cell": "N1",
+          "label": "第三道尺寸",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F015",
+          "cell": "O1",
+          "label": "啟鑄爐號",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F016",
+          "cell": "P1",
+          "label": "TD編號",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F017",
+          "cell": "Q1",
+          "label": "TD CAR NO",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F018",
+          "cell": "R1",
+          "label": "澆鑄時間",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F019",
+          "cell": "S1",
+          "label": "停機時間",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F020",
+          "cell": "T1",
+          "label": "鋼包過熱度",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F021",
+          "cell": "U1",
+          "label": "VOD出鋼重（t）",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F022",
+          "cell": "V1",
+          "label": "第一道鑄粉型式",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F023",
+          "cell": "W1",
+          "label": "第二道鑄粉型式",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F024",
+          "cell": "X1",
+          "label": "第三道鑄粉型式",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F025",
+          "cell": "Y1",
+          "label": "第一道鑄粉比例",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F026",
+          "cell": "Z1",
+          "label": "第二道鑄粉比例",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F027",
+          "cell": "AA1",
+          "label": "第三道鑄粉比例",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F028",
+          "cell": "AB1",
+          "label": "第一道中包水口型式",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F029",
+          "cell": "AC1",
+          "label": "第二道中包水口型式",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F030",
+          "cell": "AD1",
+          "label": "第三道中包水口型式",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F031",
+          "cell": "AE1",
+          "label": "第一道結晶器編號",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F032",
+          "cell": "AF1",
+          "label": "第二道結晶器編號",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F033",
+          "cell": "AG1",
+          "label": "第三道結晶器編號",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F034",
+          "cell": "AH1",
+          "label": "第一道結晶器使用回數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F035",
+          "cell": "AI1",
+          "label": "第二道結晶器使用回數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F036",
+          "cell": "AJ1",
+          "label": "第三道結晶器使用回數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F037",
+          "cell": "AK1",
+          "label": "第一道模水流量",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F038",
+          "cell": "AL1",
+          "label": "第二道模水流量",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F039",
+          "cell": "AM1",
+          "label": "第三道模水流量",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F040",
+          "cell": "AN1",
+          "label": "第一道比水量(l/kg)",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F041",
+          "cell": "AO1",
+          "label": "第二道比水量(l/kg)",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F042",
+          "cell": "AP1",
+          "label": "第三道比水量(l/kg)",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F043",
+          "cell": "AQ1",
+          "label": "第一道F-EMS電流",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F044",
+          "cell": "AR1",
+          "label": "第二道F-EMS電流",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F045",
+          "cell": "AS1",
+          "label": "第三道F-EMS電流",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F046",
+          "cell": "AT1",
+          "label": "第一道F-EMS頻率",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F047",
+          "cell": "AU1",
+          "label": "第二道F-EMS頻率",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F048",
+          "cell": "AV1",
+          "label": "第三道F-EMS頻率",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F049",
+          "cell": "AW1",
+          "label": "第一道M-EMS電流",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F050",
+          "cell": "AX1",
+          "label": "第二道M-EMS電流",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F051",
+          "cell": "AY1",
+          "label": "第三道M-EMS電流",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F052",
+          "cell": "AZ1",
+          "label": "第一道M-EMS頻率",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F053",
+          "cell": "BA1",
+          "label": "第二道M-EMS頻率",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F054",
+          "cell": "BB1",
+          "label": "第三道M-EMS頻率",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F055",
+          "cell": "BC1",
+          "label": "是否完鑄",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F056",
+          "cell": "BD1",
+          "label": "是否自然開口",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F057",
+          "cell": "BE1",
+          "label": "總投入重",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F058",
+          "cell": "BF1",
+          "label": "CC受鋼重（t）",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F059",
+          "cell": "BG1",
+          "label": "CC產出重（t）",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F060",
+          "cell": "BH1",
+          "label": "CC產率(%)",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F061",
+          "cell": "BI1",
+          "label": "總產率(%)",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F062",
+          "cell": "BJ1",
+          "label": "過熱度MAX",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F063",
+          "cell": "BK1",
+          "label": "過熱度MIN",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F064",
+          "cell": "BL1",
+          "label": "過熱度AVG",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F065",
+          "cell": "BM1",
+          "label": "第一道檢驗段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F066",
+          "cell": "BN1",
+          "label": "第一道夾渣段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F067",
+          "cell": "BO1",
+          "label": "第一道結疤段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F068",
+          "cell": "BP1",
+          "label": "第一道直裂段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F069",
+          "cell": "BQ1",
+          "label": "第一道直凹段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F070",
+          "cell": "BR1",
+          "label": "第一道表面不規則段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F071",
+          "cell": "BS1",
+          "label": "第二道檢驗段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F072",
+          "cell": "BT1",
+          "label": "第二道夾渣段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F073",
+          "cell": "BU1",
+          "label": "第二道結疤段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F074",
+          "cell": "BV1",
+          "label": "第二道直裂段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F075",
+          "cell": "BW1",
+          "label": "第二道直凹段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F076",
+          "cell": "BX1",
+          "label": "第二道表面不規則段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F077",
+          "cell": "BY1",
+          "label": "第三道檢驗段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F078",
+          "cell": "BZ1",
+          "label": "第三道夾渣段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F079",
+          "cell": "CA1",
+          "label": "第三道結疤段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F080",
+          "cell": "CB1",
+          "label": "第三道直裂段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F081",
+          "cell": "CC1",
+          "label": "第三道直凹段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F082",
+          "cell": "CD1",
+          "label": "第三道表面不規則段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        }
+      ]
+    },
+    {
+      "id": "ingotDaily",
+      "title": "模铸日报",
+      "renderTitle": "Ingot daily",
+      "columns": [
+        {
+          "key": "F001",
+          "cell": "A1",
+          "label": "生產日期",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F002",
+          "cell": "B1",
+          "label": "爐號",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F003",
+          "cell": "C1",
+          "label": "鋼種",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F004",
+          "cell": "D1",
+          "label": "第一道尺寸",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F005",
+          "cell": "E1",
+          "label": "第二道尺寸",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F006",
+          "cell": "F1",
+          "label": "第三道尺寸",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F007",
+          "cell": "G1",
+          "label": "第一道澆鑄支數",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F008",
+          "cell": "H1",
+          "label": "第二道澆鑄支數",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F009",
+          "cell": "I1",
+          "label": "第三道澆鑄支數",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F010",
+          "cell": "J1",
+          "label": "第一道鑄粉类型",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F011",
+          "cell": "K1",
+          "label": "第二道鑄粉类型",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F012",
+          "cell": "L1",
+          "label": "第三道鑄粉类型",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F013",
+          "cell": "M1",
+          "label": "壓模支數",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F014",
+          "cell": "N1",
+          "label": "瞎支支數",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F015",
+          "cell": "O1",
+          "label": "第一道理論單重（t）",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F016",
+          "cell": "P1",
+          "label": "第二道理論單重（t）",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F017",
+          "cell": "Q1",
+          "label": "第三道理論單重（t）",
+          "mappingKind": "computed",
+          "precisionHint": 3
+        },
+        {
+          "key": "F018",
+          "cell": "R1",
+          "label": "總投料重",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F019",
+          "cell": "S1",
+          "label": "受鋼重（t）",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F020",
+          "cell": "T1",
+          "label": "澆鑄量（t）",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F021",
+          "cell": "U1",
+          "label": "鋼錠产出重(t)",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F022",
+          "cell": "V1",
+          "label": "剩餘鋼水重（t）",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F023",
+          "cell": "W1",
+          "label": "剩餘鋼水是否回爐",
+          "mappingKind": "declared-source",
+          "precisionHint": 3
+        },
+        {
+          "key": "F024",
+          "cell": "X1",
+          "label": "湯道殘鋼",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F025",
+          "cell": "Y1",
+          "label": "開澆殘鋼",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F026",
+          "cell": "Z1",
+          "label": "鋼錠總產率(%)",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F027",
+          "cell": "AA1",
+          "label": "煉制產率(%)",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F028",
+          "cell": "AB1",
+          "label": "剩餘鋼水影響總產率(%)",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F029",
+          "cell": "AC1",
+          "label": "模鑄澆鑄產率(%)",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F030",
+          "cell": "AD1",
+          "label": "剩餘鋼水影響模鑄產率(%)",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F031",
+          "cell": "AE1",
+          "label": "整爐檢驗段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F032",
+          "cell": "AF1",
+          "label": "整爐夾渣段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F033",
+          "cell": "AG1",
+          "label": "整爐結疤段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F034",
+          "cell": "AH1",
+          "label": "整爐表面不規則段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F035",
+          "cell": "AI1",
+          "label": "整爐重接段數",
+          "mappingKind": "reserved",
+          "precisionHint": 3
+        },
+        {
+          "key": "F036",
+          "cell": "AJ1",
+          "label": "整爐夾渣率",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F037",
+          "cell": "AK1",
+          "label": "整爐結疤率",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F038",
+          "cell": "AL1",
+          "label": "整爐表面不規則率",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        },
+        {
+          "key": "F039",
+          "cell": "AM1",
+          "label": "整爐重接率",
+          "mappingKind": "reserved",
+          "precisionHint": 2
+        }
+      ]
+    },
+    {
+      "id": "morning",
+      "title": "不锈钢生产晨会报表",
+      "renderTitle": "Morning summary",
+      "columns": [],
+      "metrics": [
+        {
+          "key": "r30",
+          "label": "每日排程日產量",
+          "unit": "t",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r31",
+          "label": "本月累計排程總產量",
+          "unit": "t",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r32",
+          "label": "生計月計劃日產量",
+          "unit": "t",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r33",
+          "label": "電爐實際日產出",
+          "unit": "",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r34",
+          "label": "實際日產量",
+          "unit": "t",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r35",
+          "label": "平均每爐噸數",
+          "unit": "t/炉",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r36",
+          "label": "月計劃產量",
+          "unit": "t",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r37",
+          "label": "本月累計計劃產量",
+          "unit": "t",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r38",
+          "label": "本月累計實際產量",
+          "unit": "t",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r39",
+          "label": "產量進度",
+          "unit": "t",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r40",
+          "label": "本月累計鋼錠實際產量",
+          "unit": "t",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r41",
+          "label": "剩餘計劃生產天數平均日產能需求",
+          "unit": "t/日",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r42",
+          "label": "EAF事故累計",
+          "unit": "分鐘",
+          "monthlyLabel": null,
+          "cell": "F30"
+        },
+        {
+          "key": "r43",
+          "label": "EAF等待累計",
+          "unit": "分鐘",
+          "monthlyLabel": null,
+          "cell": "F31"
+        },
+        {
+          "key": "r44",
+          "label": "CC事故累計",
+          "unit": "分鐘",
+          "monthlyLabel": null,
+          "cell": "F33"
+        },
+        {
+          "key": "r45",
+          "label": "CC等待累計",
+          "unit": "分鐘",
+          "monthlyLabel": null,
+          "cell": "F34"
+        },
+        {
+          "key": "r47",
+          "label": "電爐鋼坯耗電",
+          "unit": "KWH/T",
+          "monthlyLabel": "月累積電爐鋼坯耗電"
+        },
+        {
+          "key": "r48",
+          "label": "精煉鋼坯耗電",
+          "unit": "KWH/T",
+          "monthlyLabel": "月累積精煉鋼坯耗電"
+        },
+        {
+          "key": "r49",
+          "label": "電爐鋼水耗電",
+          "unit": "KWH/T",
+          "monthlyLabel": "月累積電爐鋼水耗電"
+        },
+        {
+          "key": "r50",
+          "label": "自然開口率",
+          "unit": "%",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r51",
+          "label": "新製程比例",
+          "unit": "%",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r52",
+          "label": "EAF TTT time avg",
+          "unit": "分鐘",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r53",
+          "label": "LC  TTT time avg",
+          "unit": "分鐘",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r54",
+          "label": "VOD vtv time avg",
+          "unit": "分鐘",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r55",
+          "label": "超REL成份爐數",
+          "unit": "爐",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r56",
+          "label": "VOD冷材添加率",
+          "unit": "%",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r57",
+          "label": "VOD受鋼溫＞1740爐數",
+          "unit": "爐",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r58",
+          "label": "VOD還原溫＞1650爐數",
+          "unit": "爐",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r59",
+          "label": "連澆爐數",
+          "unit": "爐/鑄序",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r64",
+          "label": "EAF日平均產率",
+          "unit": "%",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r65",
+          "label": "EAF Ni日平均產率",
+          "unit": "%",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r66",
+          "label": "EAF Cr日平均產率",
+          "unit": "%",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r67",
+          "label": "煉鋼當日鋼坯總產率",
+          "unit": "%",
+          "monthlyLabel": "月累積鋼坯總產率"
+        },
+        {
+          "key": "r68",
+          "label": "煉鋼當日鋼錠總產率",
+          "unit": "%",
+          "monthlyLabel": "月累積鋼錠總產率"
+        },
+        {
+          "key": "r69",
+          "label": "煉鋼當日總產率",
+          "unit": "%",
+          "monthlyLabel": "月累積總產率"
+        },
+        {
+          "key": "r70",
+          "label": "LC當日平均受鋼溫",
+          "unit": "℃",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r71",
+          "label": "當日使用L/D平均回數",
+          "unit": "回",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r72",
+          "label": "當日下線L/D平均回數",
+          "unit": "回",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r73",
+          "label": "當日新製程平均自由距",
+          "unit": "米",
+          "monthlyLabel": null
+        },
+        {
+          "key": "r74",
+          "label": "當日舊製程平均自由距",
+          "unit": "米",
+          "monthlyLabel": null
+        }
+      ]
+    }
+  ]
+}

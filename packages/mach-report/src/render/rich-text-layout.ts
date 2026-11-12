@@ -1,7 +1,8 @@
+import { justificationChunks } from "./justification";
 import type { ComponentStyle, PlanComponent } from "../schema/render-plan";
 import { mergeComponentStyles, resolveFontSize, resolveLineHeight } from "./style";
 interface Run { text: string; style: ComponentStyle; width: number }
-interface RichLine { runs: Run[]; width: number; height: number; fontSize: number }
+interface RichLine { runs: Run[]; width: number; height: number; fontSize: number; justify?: boolean }
 interface RichDrawing {
   measure(text: string, style: ComponentStyle): number;
   draw(text: string, style: ComponentStyle, x: number, baseline: number, width: number): void;
@@ -26,7 +27,7 @@ function paragraphLines(component: PlanComponent, index: number, available: numb
       let line = lines[lines.length - 1]!;
       if (character === "\n") { lines.push(newLine(style)); continue; }
       const width = drawing.measure(character, style);
-      if (line.runs.length && line.width + width > available - (lines.length === 1 ? indent : 0)) { line = newLine(style); lines.push(line); }
+      if (line.runs.length && line.width + width > available - (lines.length === 1 ? indent : 0)) { line.justify = true; line = newLine(style); lines.push(line); }
       append(line, character, style, width);
     }
   }
@@ -49,10 +50,41 @@ export function drawRichText(component: PlanComponent, box: { x: number; yTop: n
       const align = paragraph.align ?? component.style?.align;
       const lineIndent = lineIndex === 0 ? indent : 0, lineWidth = lineIndex === 0 ? available : box.width;
       let x = box.x + lineIndent + (align === "center" ? (lineWidth - line.width) / 2 : align === "right" ? lineWidth - line.width : 0);
-      for (const run of line.runs) { drawing.draw(run.text, { ...run.style, align: "left" }, x, top - line.fontSize, run.width); x += run.width; }
+      if (align === "justify" && line.justify) drawJustifiedRichLine(line, drawing, x, top - line.fontSize, lineWidth);
+      else for (const run of line.runs) { drawing.draw(run.text, { ...run.style, align: "left" }, x, top - line.fontSize, run.width); x += run.width; }
       top -= line.height;
     }
     top -= (paragraph.spaceAfterMm ?? 0) * 72 / 25.4;
   }
   return height > box.height + 0.01;
+}
+
+function drawJustifiedRichLine(line: RichLine, drawing: RichDrawing, x: number, baseline: number, available: number): void {
+  line = trimJustifiedLine(line, drawing);
+  const chunks = justificationChunks(line.runs.map(run => run.text).join(""));
+  const extra = chunks.length > 1 ? Math.max(0, available - line.width) / (chunks.length - 1) : 0;
+  const boundaries = new Set<number>();
+  let total = 0;
+  for (const chunk of chunks.slice(0, -1)) { total += chunk.length; boundaries.add(total); }
+  let offset = 0;
+  for (const run of line.runs) {
+    let text = "", width = 0;
+    const flush = (): void => { if (text) drawing.draw(text, { ...run.style, align: "left" }, x, baseline, width); x += width; text = ""; width = 0; };
+    for (const character of run.text) {
+      text += character; width += drawing.measure(character, run.style); offset += character.length;
+      if (boundaries.has(offset)) { flush(); x += extra; }
+    }
+    flush();
+  }
+}
+
+function trimJustifiedLine(line: RichLine, drawing: RichDrawing): RichLine {
+  const runs = line.runs.slice();
+  while (runs.length) {
+    const last = runs[runs.length - 1]!, text = last.text.trimEnd();
+    if (!text) { runs.pop(); continue; }
+    if (text !== last.text) runs[runs.length - 1] = { ...last, text, width: Array.from(text).reduce((sum, character) => sum + drawing.measure(character, last.style), 0) };
+    break;
+  }
+  return { ...line, runs, width: runs.reduce((sum, run) => sum + run.width, 0) };
 }

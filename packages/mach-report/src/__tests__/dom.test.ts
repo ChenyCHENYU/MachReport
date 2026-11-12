@@ -12,6 +12,19 @@ function makePlan(pages: PlanPage[]): RenderPlan {
 }
 
 describe("dom renderer", () => {
+  it("applies explicit cell rotation/opacity once while component styles remain on their parent", () => {
+    const component = renderComponent({ kind: "rect", leftMm: 10, topMm: 10, widthMm: 60, heightMm: 20,
+      style: { rotateDeg: 30, opacity: .5 }, grid: { cells: [[{ text: "Own", style: { rotateDeg: 45, opacity: .4 } }, { text: "Inherited" }]] }
+    }, 96, {}, dom());
+    const cells = component.querySelectorAll("td");
+    expect(component.style.transform).toBe("rotate(30deg)");
+    expect(component.style.opacity).toBe("0.5");
+    expect(cells[0]!.style.transform).toBe("rotate(45deg)");
+    expect(cells[0]!.style.opacity).toBe("0.4");
+    expect(cells[1]!.style.transform).toBe("");
+    expect(cells[1]!.style.opacity).toBe("");
+    expect(cells[0]!.querySelector<HTMLElement>(".mr-cell-content")!.style.overflow).toBe("hidden");
+  });
   it("keeps ellipse corners and line bounds transparent while retaining rectangle fills", () => {
     const style = { backgroundColor: "#123456", borderTop: false, borderRight: false, borderBottom: false, borderLeft: false };
     const base = { leftMm: 0, topMm: 0, widthMm: 40, heightMm: 20, style };

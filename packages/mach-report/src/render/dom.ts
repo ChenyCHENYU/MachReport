@@ -151,7 +151,9 @@ function renderGridCell(
     .mm("left", box.xMm, dpi).mm("top", box.yMm, dpi)
     .mm("width", box.widthMm, dpi).mm("height", box.heightMm, dpi)
     .add("background-color", style.backgroundColor)
-    .add("vertical-align", style.verticalAlign ?? "middle");
+    .add("vertical-align", style.verticalAlign ?? "middle")
+    .add("opacity", cell.style?.opacity != null ? String(cell.style.opacity) : undefined)
+    .add("transform", cell.style?.rotateDeg ? `rotate(${cell.style.rotateDeg}deg)` : undefined);
   applyTypography(cellBag, style, dpi);
   cellBag.applyTo(cellEl);
 

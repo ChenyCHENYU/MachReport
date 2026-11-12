@@ -88,6 +88,19 @@ function harness(count = 55) {
 }
 
 describe("按需字段目录", () => {
+  it.each([100, 101])("fully reveals a candidate with fractional flex sizing and rounded clientHeight %i", async clientHeight => {
+    const { wrapper, directory } = harness();
+    await directory.toggle();
+    const viewport = directory.list.value!, last = wrapper.findAll("[data-column-index]").at(-1)!.element;
+    let scrollTop = 0;
+    Object.defineProperty(viewport, "clientHeight", { value: clientHeight, configurable: true });
+    Object.defineProperty(viewport, "scrollTop", { get: () => scrollTop, set: value => { scrollTop = Math.floor(Number(value)); }, configurable: true });
+    vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 100, 100.5));
+    vi.spyOn(last, "getBoundingClientRect").mockReturnValue(new DOMRect(0, clientHeight - 37.5, 100, 38));
+    await directory.navigate(new KeyboardEvent("keydown", { key: "End", cancelable: true }));
+    expect(scrollTop).toBe(1);
+    wrapper.unmount();
+  });
   it("ignores IME navigation and keeps a 100-field window while End reaches the last real column", async () => {
     const { wrapper, inspector, directory } = harness(1000);
     await directory.toggle();

@@ -59,6 +59,12 @@ xlsx/node ── AsyncIterable → 逐行工作表（不构造完整计划）
 
 `paginateTemplatePages`是真正逐页生成器，`paginateTemplate`在同一内核上收集完整计划。双遍页数计数复用计算 / 矩阵准备结果，输入数据与分组 / 关联索引仍按预算保留。Runtime在分页前预检逻辑规模，逐页累计实际渲染格（含重复锚点与嵌套网格），最后核对总量；多报表共用额度。Node全量Excel可另走AsyncIterable出口。[质量矩阵](./QUALITY.md)记录各输出能力差异。
 
+`processing/cooperative` 调度纯计算与校验分片；`editing/session-snapshot` 同步捕获调用时数据图，`snapshot-materialization` 在捕获结果上异步物化。无法安全捕获的旧式对象保留同步校验和排版边界，取消不能触发回退。`layout/list-preparation` 的workspace只属于一次自有来源请求，供Runtime预检和实际排版共享，finally释放，不增加使用侧钩子。
+
+`source/reflow-cache` 每个独立报表分部最多保留一份结果，复用前验证自有数据身份与计划守卫，复用后仍记入同一请求的全部页/格/图元预算。自定义公式、测量与警告观察者走原路径；失败候选不能推进编辑基线。
+
+`server/document-source` 仅绑定既有文档存储与宿主完整导出；`vue/document-window` 负责有界页缓存和订阅取消，`ReportDocumentPreview` 负责版本、状态及全局导航。当前页计划不暴露普通完整导出/编辑能力，普通 `ReportPreview` 沿用原用法。
+
 设计器按 `useTemplateEditor`（文档事务）、`useTemplateCanvas/useCanvasPointer`（几何交互）、`useRuleEditor/useRuleDataLayout`（声明式规则）、`useExcelBindingWizard`（工作簿会话）、`useTemplateWorkspace`（工具导航）拆分。大JSON历史保存可逆增量与周期检查点，拖动在RAF局部预览后一次提交，不把频繁交互变成全模板重排。
 
 `source/template-diff/template-review`处理纯变更和样例预检；`server/publication`才按需编码真实文件。`server/job-service`通过注入的原子CAS存储处理租约、attempt围栏、进度和恢复；`node-job-store`是独立单进程文件适配器，集群数据库由宿主提供。

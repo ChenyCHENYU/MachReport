@@ -33,6 +33,10 @@ import HeaderStructureEditor from "./HeaderStructureEditor.vue";
 import { useDesignerNavigation } from "./useDesignerNavigation";
 import { useTemplateWorkspace } from "./useTemplateWorkspace";
 import AlignmentControl from "./AlignmentControl.vue";
+import FieldSelect from "./FieldSelect.vue";
+import ColumnBatchEditor from "./ColumnBatchEditor.vue";
+import { bodyAlignment } from "./column-appearance";
+import { applyColumnBatch, type ColumnBatchPatch } from "./column-batch";
 import ColumnVisualEditor from "./ColumnVisualEditor.vue";
 import { useTemplateDirectory } from "./useTemplateDirectory";
 import {
@@ -275,13 +279,10 @@ function value(event: Event): string {
 function checked(event: Event): boolean {
   return (event.target as HTMLInputElement).checked;
 }
-function batch(event: Event, target: "align" | "headerAlign"): void {
-  const select = event.target as HTMLSelectElement;
-  editor.alignColumns(
-    target,
-    select.value as "left" | "center" | "right" | "justify" | "auto",
-  );
-  select.value = "";
+function batch(patch: ColumnBatchPatch): boolean {
+  const location = lists.value[selected.value];
+  if (!location) return false;
+  return editor.transaction(document => applyColumnBatch(document, location.pageIndex, location.componentIndex, selectedColumns.value, patch, m.value.invalid));
 }
 </script>
 
@@ -600,26 +601,21 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
                       "
                   /></label>
                   <label>{{ m.field
-                    }}<input
+                    }}<FieldSelect
                       data-mr-control="column-field"
-                      :value="activeColumn.column.field"
-                      :list="dataSchema ? `${id}-fields` : undefined"
+                      :model-value="activeColumn.column.field"
+                      :fields="dataSchema?.fields"
+                      :label="m.field"
+                      :messages="m"
+                      :disabled="editDisabled"
                       @change="
                         editor.setColumn(
                           activeColumn.index,
                           'field',
-                          value($event),
+                          $event,
                         )
                       "
-/></label><datalist v-if="dataSchema" :id="`${id}-fields`">
-                    <option
-                      v-for="field in dataSchema.fields"
-                      :key="field.field"
-                      :value="field.field"
-                    >
-                      {{ field.label }} · {{ field.type }} {{ field.unit }}
-                    </option>
-                  </datalist>
+/></label>
                 </div>
                 <div class="mr-designer-property-group">
                   <h3>{{ m.formatGroup }}</h3>
@@ -661,12 +657,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
                   </div>
                   <div class="mr-designer-control-row">
                     <span>{{ m.bodyAlign }}</span><AlignmentControl
-                      :model-value="
-                        activeColumn.column.align ??
-                        activeColumn.column.style?.align ??
-                        activeList.align ??
-                        'left'
-                      "
+                      :model-value="bodyAlignment(activeColumn.column, activeList)"
                       :label="m.bodyAlign"
                       :labels="alignLabels"
                       :auto-label="m.autoShort"
@@ -729,6 +720,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
 </button><label>{{ m.columnVisible
                     }}<input
                       type="checkbox"
+                      tabindex="0"
                       :checked="activeColumn.column.hidden !== true"
                       :disabled="
                         fieldFlow || activeColumn.column.hidden !== true &&
@@ -759,6 +751,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
                   <strong>{{ m.columnDirectory }}
                     <span>{{ activeList.columns.length }}</span></strong><button
                     type="button"
+                    tabindex="0"
                     class="mr-designer-icon-button"
                     :aria-label="m.closeDirectory"
                     @click="directory.close(true)"
@@ -855,30 +848,7 @@ function batch(event: Event, target: "align" | "headerAlign"): void {
                   <button type="button" :disabled="directory.windowStart.value + directory.windowSize >= visibleColumns.length" :aria-label="m.nextColumns" @click="directory.stepWindow(1)"><ReportIcon name="chevron-right" :size="14" /></button>
                 </nav>
                 <div v-if="selectedColumns.length" class="mr-designer-batch">
-                  <label>{{ m.batchBody
-                    }}<select
-                      :aria-label="m.batchBody"
-                      :disabled="readonly || blocked || jsonPending"
-                      @change="batch($event, 'align')"
-                    >
-                      <option value="">{{ m.chooseAlignment }}</option>
-                      <option value="auto">{{ m.auto }}</option>
-                      <option value="left">{{ m.left }}</option>
-                      <option value="center">{{ m.center }}</option>
-                      <option value="right">{{ m.right }}</option>
-                      <option value="justify">{{ m.justify }}</option>
-                    </select></label><label>{{ m.batchHeader
-                    }}<select
-                      :aria-label="m.batchHeader"
-                      :disabled="readonly || blocked || jsonPending"
-                      @change="batch($event, 'headerAlign')"
-                    >
-                      <option value="">{{ m.chooseAlignment }}</option>
-                      <option value="left">{{ m.left }}</option>
-                      <option value="center">{{ m.center }}</option>
-                      <option value="right">{{ m.right }}</option>
-                      <option value="justify">{{ m.justify }}</option>
-                    </select></label>
+                  <ColumnBatchEditor :list="activeList" :indices="selectedColumns" :header-alignments="editor.headerAlignments.value" :flow="fieldFlow" :disabled="editDisabled" :messages="m" :apply="batch" />
                 </div>
               </div>
             </template>

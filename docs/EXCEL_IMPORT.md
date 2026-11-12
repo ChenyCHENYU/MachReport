@@ -70,7 +70,7 @@ const fetcher = createLocalFetcher({
 | 数字格式 | 保留格式元数据，支持的格式用于预览，原始值供 Excel 导出 |
 | 公式 | 使用文件中的缓存结果，标为只读；不计算或访问外部引用，重导出为缓存值 |
 | 日期 | 保留 Excel 日期序列与格式，使用毫秒精度；预览中保持只读 |
-| 未支持内容 | 通过 `warnings` 报告，应用应展示或记录有意义的告警 |
+| 未支持内容 | `warnings` 继续兼容；`diagnostics` / `diagnosticSummary` 提供有界位置、稳定代码及准确总数 |
 
 源单元格没有边框时，预览与导出保持无边框；显式单边、单元格级边框颜色和线宽由 DOM、Canvas、PDF 共用同一套几何，合并区域不会补出内部边线。共边只绘制一次，冲突时较粗边线优先，同粗按稳定的行列顺序处理。Excel 同一单元格四边使用不同线型或颜色时仍按单元格统一实线近似，并返回告警。
 
@@ -160,3 +160,47 @@ ZIP 预检逐项、逐块检查 `signal`，取消会主动结束当前读取并�
 图片在设计器中调整位置后，Excel 导出会重新计算锚点，跨行移动也不会插入额外数据行；重复 Logo 共用媒体并保留独立组件身份。
 
 图表对象、链接图片、裁剪/旋转/翻转及绘图形状会返回明确告警，不保证还原；应在Excel内转成普通PNG/JPEG图片后导入。格内混合字体转换为 `GridCell.richParagraphs`，保留片段文字、字体族、字号、粗斜体、单下划线和颜色，同时保留 `text` / `value` 作为纯文本回退。混合字体单元格保持只读，避免普通文本编辑覆盖原字面；删除线、上下标及特殊下划线等未支持格式继续返回告警。
+
+## 结构化诊断与原始位置
+
+`ExcelImportResult` 和 `ExcelWorkbookInspection` 兼容保留 `warnings: string[]`，同时提供可选的 `diagnostics`、`diagnosticSummary`。本版本的实际导入与检查都会返回这两个新字段；类型保持可选，便于旧结果、已有宿主适配器逐步接入。无需增加导入配置。
+
+```ts
+import {
+  importExcelTemplate,
+  type ExcelImportDiagnostic
+} from "@agile-team/mach-report/xlsx";
+
+const result = await importExcelTemplate(file);
+const issues: readonly ExcelImportDiagnostic[] = result.diagnostics ?? [];
+const total = result.diagnosticSummary?.total ?? 0;
+const formulas = result.diagnosticSummary?.counts["formula-cached"] ?? 0;
+const omitted = result.diagnosticSummary?.omitted ?? 0;
+// result.template 与之前保持一致，可直接交给预览或绑定向导。
+```
+
+| 字段 | 约定 |
+| --- | --- |
+| `code` | 稳定的英文分类，类型为 `ExcelImportDiagnosticCode`；不应解析中文 `message` 判断类型 |
+| `severity` | 当前为 `"warning"`；包含公式缓存、只读日期等使用说明，不表示文件导入失败 |
+| `message` | 可展示的说明；旧 `warnings` 继续保留有界、去重的字符串提示 |
+| `sheet` | 原始工作簿的精确 Sheet 名；不使用预览分段的页名替代 |
+| `cell`、`row`、`column` | 原始 Excel 单元格地址及一基行列；合并格可由预览映射到其主格 |
+| `range` | 原始或受影响范围。区域规则可能含多个矩形，存在可靠位置时另给 `cell` 作为定位锚点 |
+| `part` | 仅能确定 OOXML 部件时给出的 ZIP 路径，例如 `xl/charts/chart1.xml`；不推断它属于哪个 Sheet |
+
+定位字段按实际证据提供，不要求每条都具有单元格位置。比如工作簿宏、图表部件或图片变换预检可能只有 `part`；工作表保护可能只有 `sheet`。宿主应对缺少坐标的诊断显示说明或跳到对应 Sheet，不应构造假的格地址。标准预览和 Excel 绑定向导已接入具备位置的诊断，点击后按源 Sheet、选区、合并格和预览分段定位。
+
+诊断默认最多保留 **200 条代表性明细**，不同分类尽量保留样本。`diagnosticSummary` 的 `total` 是实际发生次数，`counts` 按 `code` 准确累计，`omitted` 是未保留明细的次数；`entries` 与 `diagnostics` 对应。超过明细窗口后依然累计，不按明细条数估算总量。样式转换缓存也会为每个受影响源格记录正确位置，不会把所有问题归到首次命中的单元格。
+
+常见分类包括 `formula-cached` / `formula-result-missing`、`date-readonly` / `number-format`、`style-color` / `style-alignment`、`conditional-format` / `data-validation`、`image-omitted` / `image-segment`、`chart` / `external-link`。完整可选值以导出类型为准。`warnings.length` 是去重后的兼容提示数，不能替代上述总量或分类计数。
+
+工作簿会话复用 ZIP 预检的诊断摘要，每次 `importTemplate()` 独立累计当前选择的转换结果；切换范围或重复导入不会叠加上一次的告警。200 条明细窗口、既有 ZIP/解压/单元格预算和取消行为分别生效，结构化诊断不放宽安全预算。
+
+### 六类生产报表结构回归
+
+仓库增加了[生产项目列与指标结构快照](../packages/mach-report/src/__tests__/fixtures/production-report-structures.json)：五张日报分别为 55、66、70、82、39 列，晨会报表包含 40 项指标。快照仅保留列/指标元数据、来源摘要及映射状态分类，不包含业务取数表达式或实际生产数据。
+
+[可重放测试](../packages/mach-report/src/__tests__/production-report-structures.test.ts)使用合成的 `0`、空值、`1`、前导零编号、长精度十进制文本和布尔值，经过实际 XLSX 编码导入、DOM 渲染、严格 PDF 编码与文本流回读，以及 XLSX 再编码回读。[真实浏览器回归](../e2e/production-report-structures.spec.ts)另查全部格的几何、对齐及文字溢出。
+
+该语料是项目列/指标结构快照，源目录声明的工作簿名为《炼钢报表（涵逻辑）.xlsx》；原始工作簿本轮不在场。它不能替代原始《炼钢报表.xlsx》的逐格版式验收，也不确认 PL 字段映射、计量单位或业务计算口径。中文元数据保留在快照，渲染用拉丁字段编号，避免把字体覆盖率误当成业务结构验证结果。

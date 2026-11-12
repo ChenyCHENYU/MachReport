@@ -68,13 +68,20 @@ function diagnostic(comp: PlanComponent, format: OutputFormat, pageIndex: number
   const extension = typeof id === "string" && id.length <= 128 && typeof version === "string" && version.length <= 64 ? { id, version } : undefined;
   return { ...issue, severity: "warning", format, pageIndex, componentIndex, kind: comp.kind, nid: comp.nid, ...(extension ? { extension } : {}) };
 }
-function unsupportedStyle(style: ComponentStyle | undefined, format: OutputFormat): string | undefined {
+function unsupportedPdfGraphics(style: ComponentStyle, inlineRun: boolean): string[] {
+  const properties: string[] = [];
+  if (style.rotateDeg && (inlineRun || !Number.isFinite(style.rotateDeg))) properties.push("rotateDeg");
+  if (style.opacity !== undefined && style.opacity !== 1 && (inlineRun || !Number.isFinite(style.opacity) || style.opacity < 0 || style.opacity > 1)) properties.push("opacity");
+  return properties;
+}
+function unsupportedStyle(style: ComponentStyle | undefined, format: OutputFormat, inlineRun = false): string | undefined {
   if (!style || format === "dom") return;
-  const unsupported: string[] = [];
-  if (style.rotateDeg) unsupported.push("rotateDeg");
-  if (style.opacity !== undefined && style.opacity !== 1) unsupported.push("opacity");
-  if (format !== "xlsx" && style.align === "justify") unsupported.push("justify");
-
+  const unsupported = format === "pdf" ? unsupportedPdfGraphics(style, inlineRun) : [];
+  if (format !== "pdf") {
+    if (style.rotateDeg) unsupported.push("rotateDeg");
+    if (style.opacity !== undefined && style.opacity !== 1) unsupported.push("opacity");
+    if (format !== "xlsx" && style.align === "justify") unsupported.push("justify");
+  }
   if (format === "xlsx" && style.letterSpacing) unsupported.push("letterSpacing");
   return unsupported.length ? `${format} does not preserve these styles: ${unsupported.join(", ")}.` : undefined;
 }
@@ -97,7 +104,7 @@ function collectRichStyleDiagnostics(comp: PlanComponent, format: OutputFormat, 
       const paragraphMessage = unsupportedStyle({ align: paragraph.align }, format);
       if (paragraphMessage) add(paragraphMessage);
       for (const segment of paragraph.segments) {
-        const message = unsupportedStyle(segment.style, format) ?? (format === "xlsx" ? richExcelStyleIssue(segment.style) : undefined);
+        const message = unsupportedStyle(segment.style, format, true) ?? (format === "xlsx" ? richExcelStyleIssue(segment.style) : undefined);
         if (message) add(message);
       }
     }

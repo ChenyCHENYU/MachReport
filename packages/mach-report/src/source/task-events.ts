@@ -35,6 +35,16 @@ export function createReportTaskReporter(input: ReportTaskMonitoring & { signal?
     progress(stage: ReportTaskEvent["stage"], completed: number, total: number): void {
       notifyReportTaskEvent(input.onEvent, { taskId, ...(input.correlationId === undefined ? {} : { correlationId: input.correlationId }), stage, status: "started", completed, total }, input.signal);
     },
+    /** Internal preparation can preserve an exotic synchronous fallback while
+     * owned work reports completion after its cooperative slices finish. */
+    runMaybeAsync<T>(stage: ReportTaskEvent["stage"], operation: () => T | Promise<T>, reportId?: string): T | Promise<T> {
+      emit(stage, "started", reportId);
+      try {
+        const result = operation();
+        if (result instanceof Promise) return result.then(value => { emit(stage, "completed", reportId); return value; }, error => { emit(stage, "failed", reportId); throw error; });
+        emit(stage, "completed", reportId); return result;
+      } catch (error) { emit(stage, "failed", reportId); throw error; }
+    },
     async run<T>(stage: ReportTaskEvent["stage"], operation: () => T | Promise<T>, reportId?: string): Promise<T> {
       emit(stage, "started", reportId);
       try { const result = await operation(); emit(stage, "completed", reportId); return result; }

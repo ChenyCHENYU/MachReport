@@ -37,7 +37,7 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
   let loadedKey: string | undefined;
   const loadedContext = shallowRef<Readonly<ReportQueryContext> | null>(null);
   let loadedFetcher: PlanFetcher | null = null;
-  const importedResult = shallowRef<Pick<ExcelImportResult, "sheets" | "warnings"> | null>(null);
+  const importedResult = shallowRef<Pick<ExcelImportResult, "sheets" | "warnings" | "diagnostics" | "diagnosticSummary"> | null>(null);
   const { errorMessage, lastError, notice: exportNotice, reportError } = feedback;
   const timing = useLoadTiming();
   const preparedDiagnostics = usePreviewDiagnostics(() => {});
@@ -245,11 +245,12 @@ export function usePreviewSession({ source, policy, feedback, view, events, task
     loadedContext.value = null;
     loadedFetcher = null;
     diagnostics.reset();
-    importedResult.value = { sheets: cloneReportSnapshot(result.sheets), warnings: [...result.warnings] };
+    importedResult.value = cloneReportSnapshot({ sheets: result.sheets, warnings: result.warnings, diagnostics: result.diagnostics, diagnosticSummary: result.diagnosticSummary });
     errorMessage.value = "";
-    exportNotice.value = result.warnings.length ? { kind: "warning", message: result.warnings.join("；") } : null;
+    exportNotice.value = null;
     view.accepted("import");
-    diagnostics.addMany(result.warnings.map((message) => ({ code: "excel-import", severity: "warning" as const, message })));
+    if (result.diagnosticSummary) diagnostics.addBaseSummary(result.diagnosticSummary);
+    else diagnostics.addMany(result.warnings.map((message) => ({ code: "excel-import", severity: "warning" as const, message })));
     if (plan.value === next) diagnostics.inspectSummary(next, "dom");
   }
 

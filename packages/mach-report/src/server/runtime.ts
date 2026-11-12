@@ -18,6 +18,7 @@ import { resolvePlanAssets } from "../output/assets";
 import { encodePreparedReport, outputDiagnostics } from "./runtime-output";
 import { assertReportExportResult, assertReportPreparedMetadata } from "./execution-result";
 import { checkPreparedFont, reportFontFingerprint, snapshotPreparedReport, snapshotPdfFonts, snapshotXlsxOptions } from "./prepared";
+import { inspectOwnedSource } from "../source/owned-inspection";
 
 /** Capture IDs and flat parameters before font/Worker loading can yield. */
 function snapshotRuntimeInput<T extends ReportRuntimeInput>(input: T): T {
@@ -33,9 +34,10 @@ function definitions(reports: ReportRegistry, ids: string[]) {
 function cellCount(component: PlanComponent): number {
   return component.grid?.cells.reduce((sum, row) => sum + row.reduce((count, cell) => count + (cell ? 1 + (cell.children?.reduce((nested, child) => nested + cellCount(child), 0) ?? 0) : 0), 0), 0) ?? 0;
 }
-function logicalCells(template: ReportTemplate, datasets: DatasetRows, pagination?: ReportRuntimeOptions["pagination"]): number {
+function logicalCells(template: ReportTemplate, datasets: DatasetRows, matrix: boolean, pagination?: ReportRuntimeOptions["pagination"]): number {
   return template.pages.reduce((sum, page) => sum + page.components.reduce((count, component) => {
-    if (component.kind !== "list") return count + cellCount(component);
+    if (component.kind !== "list") return count + (matrix ? 0 : cellCount(component));
+    if (!!component.matrix !== matrix) return count;
     return count + estimateListLayoutCells(component, datasets, pagination);
   }, 0), 0);
 }
@@ -91,13 +93,16 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
         maxCells: Math.min(budget.maxCells ?? 2_000_000, definition.dataValidation?.maxCells ?? Infinity)
       }
     }]));
-    const source = createReportSource(reports, { maxPages: budget.maxPages, maxCells: budget.maxCells, maxChartComponents: budget.maxChartComponents, onDatasets: (id, data, template) => {
+    const source = createReportSource(reports, inspectOwnedSource({ maxPages: budget.maxPages, maxCells: budget.maxCells, maxChartComponents: budget.maxChartComponents, onDatasets: (_id: string, data: DatasetRows, template: ReportTemplate) => {
       try { rows += templateDatasetRowCount(template, data, { maxRows: budget.maxRows, signal: input.signal }); }
       catch (error) { if (error instanceof TreeRowLimitError) throw new ReportRuntimeError("budget", error.message, "$.budget.maxRows"); throw error; }
       assertBudget(budget, "maxRows", rows);
-      inputCells += logicalCells(template, data, reports[id]?.pagination);
+      inputCells += logicalCells(template, data, false, reports[_id]?.pagination);
       assertBudget(budget, "maxCells", inputCells);
-    } });
+    } }, (id, data, template) => {
+      inputCells += logicalCells(template, data, true, reports[id]?.pagination);
+      assertBudget(budget, "maxCells", inputCells);
+    }));
     const rawPlan = await source({ ...input, params: input.params ?? {}, onWarning: (message) => diagnostics.push({ code: "layout", message, severity: "warning" }), onQueryResult: (id, result, reportIndex = 0) => {
       const reportScope = reportOccurrenceScope(reportIndex, id);
       Object.defineProperty(revisions, id, { value: { revision: result.revision, sourceToken: result.sourceToken }, enumerable: true, writable: true });

@@ -5,11 +5,12 @@ import { columnName, parseImportRange } from "../xlsx/import-range";
 import type { ExcelBindingDataset } from "../xlsx/binding-workflow";
 import type { ExcelBindingMessages } from "./excel-binding-messages";
 import type { useExcelRegionBindings } from "./useExcelRegionBindings";
+import FieldSelect from "./FieldSelect.vue";
+import { revealDesignerTarget } from "./designer-focus";
 
 const props = defineProps<{ controller: ReturnType<typeof useExcelRegionBindings>; datasets: readonly ExcelBindingDataset[]; disabled: boolean; messages: ExcelBindingMessages }>();
 const page = ref(0);
 const panel = ref<HTMLElement>();
-const fieldSearch = ref("");
 const active = props.controller.active;
 const dataset = computed(() => props.datasets.find(item => item.id === active.value?.dataset));
 const columns = computed(() => {
@@ -19,18 +20,11 @@ const columns = computed(() => {
   return active.value.fields.slice(page.value * 12, page.value * 12 + 12).map((field, index) => ({ field, index: page.value * 12 + index, physical: columnName(left + page.value * 12 + index) }));
 });
 const pages = computed(() => Math.max(1, Math.ceil((active.value?.fields.length ?? 0) / 12)));
-const fieldChoices = computed(() => {
-  const query = fieldSearch.value.trim().toLocaleLowerCase(), fields = dataset.value?.fields ?? [];
-  const visible = fields.filter(field => [field.field, field.label, field.unit].some(text => text?.toLocaleLowerCase().includes(query))).slice(0, 64);
-  const selected = new Set(columns.value.map(column => column.field));
-  return [...visible, ...fields.filter(field => selected.has(field.field) && !visible.includes(field))];
-});
 function value(event: Event): string { return (event.target as HTMLInputElement).value; }
-function select(id: string): void { props.controller.setActive(id); page.value = 0; fieldSearch.value = ""; }
+function select(id: string): void { props.controller.setActive(id); page.value = 0; }
 watch(() => props.controller.focusTarget.value, async value => {
   if (!value) return;
   page.value = Math.floor((value.target.fieldIndex ?? 0) / 12);
-  fieldSearch.value = "";
   await nextTick();
   const control = value.target.control === "field" ? `field-${value.target.fieldIndex}` : value.target.control === "contract" ? "dataset" : value.target.control;
   const element = panel.value?.querySelector<HTMLElement>(`[data-binding-control="${control}"]`);
@@ -38,6 +32,7 @@ watch(() => props.controller.focusTarget.value, async value => {
   if (details) details.open = true;
   const target = props.disabled && element?.matches("input,select,textarea,button") ? element.closest<HTMLElement>("label") : element;
   target?.focus(); target?.scrollIntoView?.({ block: "nearest" });
+  revealDesignerTarget(target);
 });
 function rangeChanged(event: Event): void {
   if (!active.value || props.disabled) return;
@@ -73,15 +68,13 @@ function rangeChanged(event: Event): void {
         <label class="mr-binding-label">{{ messages.regionMode }}<select :value="active.mode" :aria-label="messages.regionMode" @change="controller.property('mode', value($event))"><option value="record">{{ messages.recordMode }}</option><option value="repeat">{{ messages.repeatMode }}</option></select></label>
         <p class="mr-binding-note">{{ active.mode === 'record' ? messages.recordHint : messages.repeatHint }}</p>
         <label class="mr-binding-label" tabindex="-1">{{ messages.dataset }}<select data-binding-control="dataset" :value="active.dataset" :aria-label="messages.dataset" @change="controller.dataset(value($event))"><option value="">{{ messages.chooseDataset }}</option><option v-for="item in datasets" :key="item.id" :value="item.id">{{ item.label || item.id }}</option></select></label>
-        <label v-if="dataset" class="mr-binding-label" tabindex="-1">{{ messages.rowKey }}<select data-binding-control="rowKey" :value="active.rowKey" :aria-label="messages.rowKey" @change="controller.property('rowKey', value($event))"><option value="">{{ messages.chooseRowKey }}</option><option v-for="field in dataset.fields.filter(item => item.type !== 'boolean')" :key="field.field" :value="field.field">{{ field.label || field.field }}</option></select></label>
+        <label v-if="dataset" class="mr-binding-label" tabindex="-1">{{ messages.rowKey }}<FieldSelect data-binding-control="rowKey" :model-value="active.rowKey" :fields="dataset.fields.filter(item => item.type !== 'boolean')" :label="messages.rowKey" :disabled="disabled" :messages="messages" :placeholder="messages.chooseRowKey" @change="controller.property('rowKey', $event)" /></label>
         <div class="mr-binding-region-tools"><button type="button" :disabled="!controller.selection.value" @click="controller.header">{{ messages.bindRegionHeader }}</button><code>{{ active.headerRange || messages.noRegionHeader }}</code><button v-if="active.headerRange" type="button" :aria-label="messages.clearHeader" @click="controller.clearHeader"><ReportIcon name="close" :size="11" /></button></div>
         <div v-if="dataset" class="mr-binding-mappings">
-          <label class="mr-binding-field-search"><ReportIcon name="search" :size="13" /><input v-model="fieldSearch" type="search" :placeholder="messages.searchFields" :aria-label="messages.searchFields" /></label>
-          <small v-if="dataset.fields.length > 64" class="mr-binding-note">{{ messages.fieldLimit }}</small>
-          <label v-for="column in columns" :key="column.index" class="mr-binding-map" tabindex="-1"><span>{{ column.physical }}</span><div><select :data-binding-control="`field-${column.index}`" :value="active.fields[column.index]" @change="controller.mapping(column.index, value($event))" :aria-label="`${messages.physical} ${column.physical} · ${messages.business}`"><option value="">{{ messages.chooseField }}</option><option v-for="field in fieldChoices" :key="field.field" :value="field.field">{{ field.label || field.field }} · {{ field.field }}</option></select><small v-if="column.field">{{ dataset.fields.find(field => field.field === column.field)?.type }} · {{ dataset.fields.find(field => field.field === column.field)?.unit || '—' }}</small></div></label>
+          <label v-for="column in columns" :key="column.index" class="mr-binding-map" tabindex="-1"><span>{{ column.physical }}</span><div><FieldSelect :data-binding-control="`field-${column.index}`" :model-value="active.fields[column.index] ?? ''" :fields="dataset.fields" :disabled="disabled" :messages="messages" :placeholder="messages.chooseField" :label="`${messages.physical} ${column.physical} · ${messages.business}`" @change="controller.mapping(column.index, $event)" /><small v-if="column.field">{{ dataset.fields.find(field => field.field === column.field)?.type }} · {{ dataset.fields.find(field => field.field === column.field)?.unit || '—' }}</small></div></label>
         </div>
         <div v-if="pages > 1" class="mr-binding-map-pages"><button type="button" :disabled="page <= 0" :aria-label="messages.previousColumns" @click="page--"><ReportIcon name="chevron-left" :size="13" /></button><span>{{ page + 1 }}/{{ pages }}</span><button type="button" :disabled="page + 1 >= pages" :aria-label="messages.nextColumns" @click="page++"><ReportIcon name="chevron-right" :size="13" /></button></div>
-        <details v-if="dataset" class="mr-binding-concurrency"><summary>{{ messages.concurrency }}</summary><label v-for="key in (['revisionField', 'sourceTokenField'] as const)" :key="key" class="mr-binding-label" tabindex="-1">{{ key === 'revisionField' ? messages.revisionField : messages.sourceTokenField }}<select :data-binding-control="key" :value="active[key] || ''" @change="controller.property(key, value($event))"><option value="">{{ messages.optional }}</option><option v-for="field in dataset.fields" :key="field.field" :value="field.field">{{ field.label || field.field }}</option></select></label></details>
+        <details v-if="dataset" class="mr-binding-concurrency"><summary>{{ messages.concurrency }}</summary><label v-for="key in (['revisionField', 'sourceTokenField'] as const)" :key="key" class="mr-binding-label" tabindex="-1">{{ key === 'revisionField' ? messages.revisionField : messages.sourceTokenField }}<FieldSelect :data-binding-control="key" :model-value="active[key] || ''" :fields="dataset.fields" :disabled="disabled" :messages="messages" :placeholder="messages.optional" :label="key === 'revisionField' ? messages.revisionField : messages.sourceTokenField" @change="controller.property(key, $event)" /></label></details>
       </section>
       <section class="mr-binding-group" tabindex="-1" data-binding-control="footer">
         <h3>{{ messages.flowFooter }}</h3><p class="mr-binding-note">{{ messages.flowFooterHint }}</p>

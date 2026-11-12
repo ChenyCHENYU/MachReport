@@ -66,11 +66,32 @@ test("multi-region diagnostics locate the 13th mapping and row key across bounde
   const panel = root.locator(".mr-binding-multi");
   await expect(panel.locator(".mr-binding-map-pages")).toContainText("2/2");
   await expect(panel.locator(".mr-binding-map")).toHaveCount(1);
-  const mapping = panel.getByLabel("Excel 列 Y · 业务字段", { exact: true });
+  const mapping = panel.getByRole("combobox", { name: "Excel 列 Y · 业务字段", exact: true });
   await expect(mapping).toBeFocused();
+  await testInfo.attach("mapping-focus-layout.json", { body: JSON.stringify(await mapping.evaluate(element => {
+    const ancestors = [];
+    for (let node: Element | null = element; node; node = node.parentElement) {
+      const box = node.getBoundingClientRect(), style = getComputedStyle(node);
+      ancestors.push({ tag: node.tagName, class: node.className, box: box.toJSON(), clientHeight: node.clientHeight, scrollHeight: node.scrollHeight, scrollTop: node.scrollTop, overflow: [style.overflowX, style.overflowY], padding: style.padding, flex: style.flex, minHeight: style.minHeight });
+    }
+    return ancestors;
+  }), null, 2), contentType: "application/json" });
+  await root.screenshot({ path: testInfo.outputPath("mapping-focus-layout.png") });
   await expect(mapping).toBeInViewport({ ratio: 1 });
+  const popup = panel.locator(".mr-field-popup");
+  await expect(popup).toHaveClass(/is-above/);
+  await expect(popup).toBeInViewport({ ratio: 1 });
+  const popupBounds = await popup.boundingBox(), inspectorBounds = await root.locator(".mr-binding-inspector").boundingBox();
+  expect(popupBounds!.y).toBeGreaterThanOrEqual(inspectorBounds!.y);
+  expect(popupBounds!.y + popupBounds!.height).toBeLessThanOrEqual(inspectorBounds!.y + inspectorBounds!.height);
+  await mapping.press("End");
+  const finalOption = popup.getByRole("option").last();
+  await expect(finalOption).toContainText("f12");
+  await expect(finalOption).toBeInViewport({ ratio: 1 });
+  await root.screenshot({ path: testInfo.outputPath("mapping-popup-above.png") });
   expect(await root.locator(".mr-binding-grid td").count()).toBeLessThanOrEqual(24 * 12);
-  await mapping.selectOption("f12");
+  await finalOption.click();
+  await expect(mapping).toHaveValue("f12");
   await expect(directory.nth(1)).toHaveAttribute("data-state", "pending");
   // Moving elsewhere before the second issue ensures row-key navigation truly changes the active region.
   await directory.nth(0).getByRole("button").first().click();
@@ -81,10 +102,10 @@ test("multi-region diagnostics locate the 13th mapping and row key across bounde
   await expect(directory.nth(1)).toHaveClass(/is-active/);
   await expect(root.getByLabel("预览起始行", { exact: true })).toHaveValue("30");
   await expect(root.getByLabel("预览起始列", { exact: true })).toHaveValue("13");
-  const rowKey = panel.getByLabel("稳定业务主键", { exact: true });
+  const rowKey = panel.getByRole("combobox", { name: "稳定业务主键", exact: true });
   await expect(rowKey).toBeFocused();
   await expect(rowKey).toBeInViewport({ ratio: 1 });
-  await rowKey.selectOption("id");
+  await rowKey.fill("id"); await rowKey.press("Tab");
   await expect(directory.nth(1)).toHaveAttribute("data-state", "ready");
   await expect(root.locator(".mr-binding-actions")).toContainText("绑定校验通过");
   await expect(root.getByRole("button", { name: "校验并使用模板", exact: true })).toBeEnabled();

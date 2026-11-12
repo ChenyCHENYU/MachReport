@@ -8,15 +8,19 @@ import { assertReportParams } from "./param-validation";
 import { registerOwnedReportEditSession } from "../editing/session";
 import { reflowReportTemplateResult } from "../editing/session-pagination";
 import type { ReportEditSessionPart } from "../editing/session-data";
-import { snapshotLayoutPart } from "../editing/session-snapshot";
+import { captureOwnedValue } from "../editing/session-snapshot";
 import { createReportTaskReporter, type ReportTaskMonitoring } from "./task-events";
 import type { ReportProvider, ReportQueryResult } from "./provider";
 import { hasValidDataExplanation } from "./data-explanation";
-import { validateDatasetRows, type DatasetContract, type DatasetValidationOptions } from "../schema/dataset";
+import { iterateDatasetValidation, type DatasetContract, type DatasetValidationOptions } from "../schema/dataset";
 import { templateValidationDatasets } from "./template-tree-data";
 import { reportOccurrenceScope, reportSourceScope } from "./report-identity";
 import { scopePlanComponents } from "./source-scope";
 import { accountSourcePagination, createSourcePaginationBudget, sourcePagination, sourcePaginationError, type SourcePaginationBudget, type SourcePaginationLimits } from "./source-pagination-budget";
+import { createReflowPartCache } from "./reflow-cache";
+import { drainCooperatively } from "../processing/cooperative";
+import { prepareOwnedLists, registerListPreparation } from "../layout/list-preparation";
+import { notifyOwnedSource } from "./owned-inspection";
 
 /** 取数与排版共同使用的请求上下文；取消只影响本次调用。 */
 export interface ReportLoadContext {
@@ -191,22 +195,51 @@ function validateProviderResult(result: ReportQueryResult, reportId: string): vo
   }
 }
 
-function validateDataContract(definition: ReportDefinition, data: DatasetRows, reportId: string, template: ReportTemplate, signal?: AbortSignal): void {
+function* validateDataContract(definition: ReportDefinition, data: DatasetRows, reportId: string, template: ReportTemplate, signal?: AbortSignal, checkpoints = true): Generator<void, void> {
   try { data = templateValidationDatasets(template, data, { maxRows: definition.dataValidation?.maxRows, signal }); }
   catch (error) { throw new ReportSourceError("validate", `报表 ${reportId} 树形数据无效：${error instanceof Error ? error.message : String(error)}`, error); }
   for (const [name, contract] of Object.entries(definition.dataSchema ?? {})) {
-    let validation: ReturnType<typeof validateDatasetRows>;
-    try { validation = validateDatasetRows(Object.prototype.hasOwnProperty.call(data, name) ? data[name] : undefined, contract, { ...definition.dataValidation, path: `$.datasets.${name}` }); }
-    catch (error) { throw new ReportSourceError("config", `报表 ${reportId} 数据集 ${name} 字段契约配置无效`, error); }
-    if (!validation.ok) throw new ReportSourceError("validate", `报表 ${reportId} 数据集 ${name} 不符合字段契约：${validation.issues[0]?.message}`, { issues: validation.issues });
+    const input = Object.prototype.hasOwnProperty.call(data, name) ? data[name] : undefined;
+    const options = { ...definition.dataValidation, path: `$.datasets.${name}` };
+    try {
+      const validation = yield* iterateDatasetValidation(input, contract, options, checkpoints);
+      if (!validation.ok) throw new ReportSourceError("validate", `报表 ${reportId} 数据集 ${name} 不符合字段契约：${validation.issues[0]?.message}`, { issues: validation.issues });
+    } catch (error) {
+      checkAbort(signal); if (error instanceof ReportSourceError) throw error;
+      throw new ReportSourceError("config", `报表 ${reportId} 数据集 ${name} 字段契约配置无效`, error);
+    }
   }
 }
 
-async function paginateReport(part: ReportEditSessionPart, definition: ReportDefinition, reportId: string, budget: SourcePaginationBudget, signal?: AbortSignal): Promise<{ result: PaginateResult; part: ReportEditSessionPart }> {
+interface SourcePreparation { part: ReportEditSessionPart; owned: boolean; release(): void }
+interface CapturedSource { part: ReportEditSessionPart; validation: Pick<ReportDefinition, "dataSchema" | "dataValidation"> }
+function prepareSourceLayout(part: ReportEditSessionPart, definition: ReportDefinition, reportId: string, options: object, signal?: AbortSignal): SourcePreparation | Promise<SourcePreparation> {
+  let work: Generator<void, CapturedSource>;
+  try { work = captureOwnedValue({ part, validation: { dataSchema: definition.dataSchema, dataValidation: definition.dataValidation } }); }
+  catch {
+    checkAbort(signal);
+    // No await here: contract checks and the following synchronous layout must
+    // observe the same exotic host data, including across queued microtasks.
+    for (const _checkpoint of validateDataContract(definition, part.datasets, reportId, part.template, signal, false)) { /* synchronous compatibility path */ }
+    notifyOwnedSource(options, reportId, part.datasets, part.template);
+    return { part, owned: false, release: () => {} };
+  }
+  return prepareOwnedSourceLayout(work, definition, reportId, options, signal);
+}
+async function prepareOwnedSourceLayout(work: Generator<void, CapturedSource>, definition: ReportDefinition, reportId: string, options: object, signal?: AbortSignal): Promise<SourcePreparation> {
+  const { part, validation } = await drainCooperatively(work, signal);
+  await drainCooperatively(validateDataContract({ ...definition, ...validation }, part.datasets, reportId, part.template, signal), signal);
+  const release = registerListPreparation(part.datasets);
   try {
-    let owned: ReportEditSessionPart | undefined;
-    try { owned = snapshotLayoutPart(part); } catch { /* Preserve synchronous readonly support for exotic host objects. */ }
-    const input = owned ?? part;
+    try { await prepareOwnedLists(part.template, part.datasets, { ...definition.pagination, signal: signal ?? definition.pagination?.signal }); }
+    catch (error) { checkAbort(signal); throw new ReportSourceError("validate", `报表 ${reportId} 排版失败：${error instanceof Error ? error.message : String(error)}`, error); }
+    notifyOwnedSource(options, reportId, part.datasets, part.template);
+    return { part, owned: true, release };
+  } catch (error) { release(); throw error; }
+}
+
+async function paginateReport(input: ReportEditSessionPart, owned: boolean, definition: ReportDefinition, reportId: string, budget: SourcePaginationBudget, signal?: AbortSignal): Promise<PaginateResult> {
+  try {
     const pagination = sourcePagination(definition.pagination, budget, input.template, input.datasets, signal);
     // Arbitrary accessors/functions cannot be snapshotted without changing their
     // semantics. Keep their previous synchronous boundary, rather than mixing
@@ -214,7 +247,7 @@ async function paginateReport(part: ReportEditSessionPart, definition: ReportDef
     const result = owned ? await paginateTemplateAsync(input.template, input.datasets, pagination)
       : paginateTemplate(input.template, input.datasets, pagination);
     accountSourcePagination(budget, result);
-    return { result, part: input };
+    return result;
   } catch (error) {
     checkAbort(signal);
     const cause = sourcePaginationError(error, budget);
@@ -238,13 +271,15 @@ function appendTablePages(pages: RenderPlan["pages"], plan: RenderPlan, reportIn
 }
 
 /** Editing reuses the exact templates, limits and namespace order of the completed query. */
-async function reflowSource(parts: readonly ReportEditSessionPart[], definitions: readonly ReportDefinition[], reportIds: readonly string[], limits: SourcePaginationLimits, signal?: AbortSignal): Promise<RenderPlan> {
+async function reflowSource(parts: readonly ReportEditSessionPart[], definitions: readonly ReportDefinition[], reportIds: readonly string[], limits: SourcePaginationLimits, cached: ReturnType<typeof createReflowPartCache>, signal?: AbortSignal): Promise<RenderPlan> {
   const pages: RenderPlan["pages"] = [];
   const budget = createSourcePaginationBudget(limits);
   for (const [index, part] of parts.entries()) {
     checkAbort(signal);
     try {
-      const result = await reflowReportTemplateResult(part.template, part.datasets, sourcePagination(definitions[index]?.pagination, budget, part.template, part.datasets, signal));
+      const pagination = sourcePagination(definitions[index]?.pagination, budget, part.template, part.datasets, signal);
+      checkAbort(pagination.signal);
+      const result = await cached(index, part, pagination, () => reflowReportTemplateResult(part.template, part.datasets, pagination));
       accountSourcePagination(budget, result);
       appendTablePages(pages, result.plan, index, reportIds[index]!, part.sourceScope);
     } catch (error) { throw sourcePaginationError(error, budget); }
@@ -281,7 +316,10 @@ export function createReportSource(
     const requestedParams = { ...params };
     if (requestedIds.length === 0) throw new ReportSourceError("config", "缺少报表 ID");
     // 先检查所有 ID，避免到中途才发现未注册而发出不必要的业务请求。
-    const definitions = requestedIds.map(definitionFor);
+    const definitions = requestedIds.map(id => {
+      const definition = definitionFor(id);
+      return { ...definition, pagination: { ...definition.pagination } };
+    });
     // 所有静态参数先校验；后一个报表参数非法时，也不会发出前一个数据请求。
     const declaredParams = reporter.runSync("validate", () => definitions.map((definition) => assertReportParams(
       definition.params ?? (typeof definition.template === "function" ? [] : definition.template.params) ?? [], requestedParams
@@ -299,14 +337,18 @@ export function createReportSource(
         : definition.template;
       context.params = reporter.runSync("validate", () => assertReportParams(definition.params ?? template.params ?? [], context.params), reportId);
       const data = await reporter.run("query", () => loadDatasets(definition, context, reportId, (id, result) => onQueryResult?.(id, result, index)), reportId);
-      reporter.runSync("validate", () => {
+      const sourceScope = reportSourceScope(index, reportId, definition.sourceScope);
+      const preparation = reporter.runMaybeAsync("validate", () => {
         validateDatasets(data, reportId);
         options.onDatasets?.(reportId, data, template);
-        validateDataContract(definition, data, reportId, template, signal);
+        return prepareSourceLayout({ template, datasets: data, sourceScope }, definition, reportId, options, signal);
       }, reportId);
-      checkAbort(signal);
-      const sourceScope = reportSourceScope(index, reportId, definition.sourceScope);
-      const { result, part } = await reporter.run("layout", () => paginateReport({ template, datasets: data, sourceScope }, definition, reportId, paginationBudget, signal), reportId);
+      const { part, owned, release } = preparation instanceof Promise ? await preparation : preparation;
+      let result: PaginateResult;
+      try {
+        checkAbort(signal);
+        result = await reporter.run("layout", () => paginateReport(part, owned, definition, reportId, paginationBudget, signal), reportId);
+      } finally { release(); }
       editParts.push(part);
       appendTablePages(pages, result.plan, index, reportId, sourceScope);
       warnings.push(...result.warnings.map((message) => `${reportId}: ${message}`));
@@ -321,7 +363,8 @@ export function createReportSource(
     warnings.push(...validation.warnings.map((warning) => `${warning.path}: ${warning.message}`));
     const reflowDefinitions = definitions.map((definition) => ({ ...definition, pagination: { ...definition.pagination } }));
     const reflowLimits = { maxPages: options.maxPages, maxCells: options.maxCells, maxChartComponents: options.maxChartComponents };
-    try { registerOwnedReportEditSession(plan, { parts: editParts, validationFormulas: reflowDefinitions.map(definition => definition.pagination?.formula), rebuild: (parts, editSignal) => reflowSource(parts, reflowDefinitions, requestedIds, reflowLimits, editSignal) }, reflowDefinitions.map(definition => definition.pagination)); }
+    const cached = createReflowPartCache();
+    try { registerOwnedReportEditSession(plan, { parts: editParts, validationFormulas: reflowDefinitions.map(definition => definition.pagination?.formula), rebuild: (parts, editSignal) => reflowSource(parts, reflowDefinitions, requestedIds, reflowLimits, cached, editSignal) }, reflowDefinitions.map(definition => definition.pagination)); }
     catch { warnings.push("来源数据无法建立本地重算口径；当前预览仅支持计划内编辑，请使用可序列化模板数据启用规则重算"); }
     const warn = onWarning ?? options.onWarning ?? ((message: string) => console.warn("[mach-report]", message));
     for (const message of warnings) {

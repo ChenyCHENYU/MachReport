@@ -16,6 +16,7 @@ test("列搜索与批量对齐可一次撤销，默认恢复确认保留未应�
   await expect(page.locator(".mr-designer-column-row")).toHaveCount(1);
   await page.getByRole("button", { name: "选择当前结果", exact: true }).click();
   await page.getByLabel("批量正文对齐", { exact: true }).selectOption("right");
+  await page.getByRole("button", { name: "应用到所选字段", exact: true }).click();
   await expect(
     page
       .locator(".mr-designer-preview td")
@@ -145,9 +146,9 @@ test("结构大纲跨页定位，改名先展示公式引用并守卫保存", as
     .click();
   await expect(page.locator(".mr-outline")).toBeVisible();
   await page.getByRole("tab", { name: "字段", exact: true }).click();
-  await expect(page.getByLabel("业务字段", { exact: true })).toHaveValue("energy");
-  await page.getByLabel("业务字段", { exact: true }).fill("energy_new");
-  await page.getByLabel("业务字段", { exact: true }).press("Tab");
+  await expect(page.getByRole("combobox", { name: "业务字段", exact: true })).toHaveValue("energy");
+  await page.getByRole("combobox", { name: "业务字段", exact: true }).fill("energy_new");
+  await page.getByRole("combobox", { name: "业务字段", exact: true }).press("Tab");
   const impact = page.getByRole("alertdialog", {
     name: "确认字段映射变化",
     exact: true,
