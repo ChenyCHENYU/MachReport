@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.26.0-2563eb" alt="Source version 2.26.0" />
+  <img src="https://img.shields.io/badge/source-2.26.1-2563eb" alt="Source version 2.26.1" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -115,6 +115,8 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 单次 Excel 编码 | `additionalSheets` 在编码前追加说明表，`sheetNames` 可跨 Worker 传递，继续修改工作簿可用 `renderPlanToWorkbook` |
 
 保留旧快照期间通过 `state.stale` 识别来源状态，编辑与输出同步暂停。刷新策略、导出菜单扩展和偏好作用域见 [交互指南](./docs/INTERACTION.md)。
+
+设计与标签工作台按模板身份复用刷新策略，避免控制器状态变化反复触发预览更新；使用侧不需要缓存配置或增加参数。
 
 大宽表默认按视口挂载单元格并保留完整计划，固定列、冻结表头、搜索与编辑共用真实单元格窗口，使用侧无需维护窗口状态。搜索按逻辑地址挂载命中位置，连续定位复用当前计划索引。编辑计算缓存只属于当前私有会话，简单行计算跳过未变化的依赖；分组、整表、受信任公式适配器和分页按安全路径重算。
 
@@ -733,7 +735,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.26.0`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准，npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.26.1`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准，npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

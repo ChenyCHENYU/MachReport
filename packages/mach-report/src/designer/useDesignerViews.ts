@@ -7,13 +7,17 @@ export function useDesignerViews(document: Ref<ReportTemplateDocument>, mode: Re
   const canvasVisited = ref(false), previewVisited = ref(false);
   const visibleFetcher = shallowRef<PlanFetcher>();
   let identity = document.value.id;
+  // Vue 3.2 eagerly invalidates computed chains. A fresh refresh object on each
+  // parent render feeds child state back into that parent until memory is exhausted.
+  const previewRefresh = shallowRef({ retainPrevious: true, key: identity });
   watch([mode, () => document.value.id, fetcher], () => {
     if (identity !== document.value.id) {
       identity = document.value.id;
+      previewRefresh.value = { retainPrevious: true, key: identity };
       canvasVisited.value = false; previewVisited.value = false; visibleFetcher.value = undefined;
     }
     if (mode.value === "design") canvasVisited.value = true;
     else { previewVisited.value = true; visibleFetcher.value = fetcher.value; }
   }, { immediate: true, flush: "sync" });
-  return { canvasVisited, previewVisited, visibleFetcher };
+  return { canvasVisited, previewVisited, visibleFetcher, previewRefresh };
 }

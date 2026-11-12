@@ -117,7 +117,7 @@ const {
   headerCommand,
   canvas,
 } = workspace;
-const { canvasVisited, previewVisited, visibleFetcher } = useDesignerViews(draft, mode, fetcher);
+const { canvasVisited, previewVisited, visibleFetcher, previewRefresh } = useDesignerViews(draft, mode, fetcher);
 
 const { sections, toolPreview, setMode: navigateMode, toggleToolPreview, chooseToolComponent, openBinding,
   pendingConfigurations, saveReason: navigationSaveReason, openPending, headingStatus, chooseCanvas, locateReview,
@@ -1058,7 +1058,7 @@ function batch(patch: ColumnBatchPatch): boolean {
           :key="`preview-${draft.id}`"
           report-id="draft"
           :fetcher="visibleFetcher"
-          :refresh="{ retainPrevious: true, key: draft.id }"
+          :refresh="previewRefresh"
           :messages="{
             title: m.previewTitle,
             columnDirectory: m.previewFieldDirectory,

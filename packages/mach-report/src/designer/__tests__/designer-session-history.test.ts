@@ -90,9 +90,17 @@ describe("continuous template editing sessions", () => {
     editor.setColumn(0, "header", "AB"); await nextTick();
     editor.setColumn(0, "header", "ABC"); await nextTick();
     expect(editor.fetcher.value).toBe(first);
-    const plan = await editor.fetcher.value!({ reportIds: ["draft"], params: {} });
+    // Force cooperative source processing to yield independently of machine load.
+    let elapsed = 0;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => elapsed += 10);
+    cleanup.push(() => clock.mockRestore());
+    const pending = editor.fetcher.value!({ reportIds: ["draft"], params: {} });
+    // Both the 150ms preview debounce and processing's zero-delay yields use
+    // these fake timers; awaiting the query first would deadlock on its yield.
+    await vi.advanceTimersByTimeAsync(150);
+    const plan = await pending;
     expect(JSON.stringify(plan)).toContain("ABC");
-    await vi.advanceTimersByTimeAsync(150); await flushPromises();
+    await flushPromises();
     expect(editor.fetcher.value).not.toBe(first);
     editor.undo(); expect(editor.activeList.value?.columns[0]?.header).toBe("Heat");
   });
