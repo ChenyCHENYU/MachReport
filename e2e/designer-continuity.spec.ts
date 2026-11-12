@@ -11,6 +11,54 @@ async function applyDocument(page: Page, document: ReportTemplateDocument): Prom
   await page.getByRole("button", { name: "校验并应用 JSON", exact: true }).click();
 }
 
+test("异步暂存状态不移动设计画布或挤占操作空间", async ({ page }) => {
+  await page.goto("http://localhost:8610/designer.html");
+  await expect(page.locator(".mr-designer-preview")).toContainText("000418");
+  await page.getByRole("button", { name: "设计", exact: true }).click();
+  const canvas = page.locator(".mr-canvas"), first = canvas.locator('[data-canvas-component="0"]');
+  await first.click();
+  await first.press("ArrowRight");
+  const before = await canvas.boundingBox();
+  await expect(page.getByRole("status").filter({ hasText: "草稿已暂存" })).toBeVisible();
+  const after = await canvas.boundingBox();
+  expect(after!.y).toBeCloseTo(before!.y, 1);
+  expect(after!.height).toBeCloseTo(before!.height, 1);
+  await expect(page.locator(".mr-designer-bar").getByRole("status")).toContainText("草稿已暂存");
+});
+
+for (const width of [900, 1100]) {
+  test(`${width}px 暂存中与已暂存状态均可感知且不改变头部及画布几何`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await page.addInitScript(() => {
+      const write = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (key: string, value: string) {
+        if (!key.startsWith("mach-report:draft:1:")) return write.call(this, key, value);
+        // The public adapter forwards this controlled asynchronous storage write.
+        return new Promise<void>(resolve => {
+          window.addEventListener("mr-test-complete-draft-write", () => { write.call(this, key, value); resolve(); }, { once: true });
+        });
+      };
+    });
+    await page.goto("http://localhost:8610/designer.html");
+    await expect(page.locator(".mr-designer-preview")).toContainText("000418");
+    await page.getByRole("button", { name: "设计", exact: true }).click();
+    const canvas = page.locator(".mr-canvas"), header = page.locator(".mr-designer-bar"), status = header.getByRole("status", { includeHidden: true });
+    const first = canvas.locator('[data-canvas-component="0"]');
+    await first.click(); await first.press("ArrowRight");
+    const initial = { canvas: await canvas.boundingBox(), header: await header.boundingBox() };
+    for (const message of ["暂存中", "草稿已暂存"]) {
+      await expect(status).toHaveText(message); await expect(status).toBeVisible();
+      await expect(status).toHaveAttribute("aria-atomic", "true");
+      const current = { canvas: await canvas.boundingBox(), header: await header.boundingBox() };
+      expect(current.header!.height).toBeCloseTo(initial.header!.height, 1);
+      expect(current.canvas!.y).toBeCloseTo(initial.canvas!.y, 1);
+      expect(current.canvas!.height).toBeCloseTo(initial.canvas!.height, 1);
+      await expect(status).toBeInViewport({ ratio: 1 });
+      if (message === "暂存中") await page.evaluate(() => window.dispatchEvent(new Event("mr-test-complete-draft-write")));
+    }
+  });
+}
+
 test("真实图表设计、多选整体操作与双视角在同一会话中连续工作", async ({ page }, testInfo) => {
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   await page.goto("http://localhost:8610/designer.html");
@@ -32,15 +80,31 @@ test("真实图表设计、多选整体操作与双视角在同一会话中连�
   await expect(canvas.locator('[data-canvas-component="2"] .mr-shape')).toHaveCSS("background-color", "rgb(219, 234, 254)");
   await first.click(); await second.click({ modifiers: ["Control"] });
   await expect(canvas.locator(".is-selected")).toHaveCount(2);
+  // Unlike raw mouse coordinates, hover waits for the selected inspector's
+  // layout and scroll to settle and checks that the component receives input.
+  await first.hover({ position: { x: 10, y: 10 } });
   const before = await first.boundingBox(), peerBefore = await second.boundingBox();
-  await page.mouse.move(before!.x + 10, before!.y + 10); await page.mouse.down(); await page.mouse.move(before!.x + 40, before!.y + 30, { steps: 12 }); await page.mouse.up();
+  expect(await first.evaluate(element => {
+    const box = element.getBoundingClientRect();
+    return element.ownerDocument.elementFromPoint(box.x + 10, box.y + 10)?.closest("[data-canvas-component]") === element;
+  })).toBe(true);
+  await page.mouse.down(); await page.mouse.move(before!.x + 40, before!.y + 30, { steps: 12 }); await page.mouse.up();
   await expect(canvas.locator(".is-selected")).toHaveCount(2);
   const after = await first.boundingBox(), peerAfter = await second.boundingBox();
+  expect(after!.x - before!.x).toBeGreaterThan(20);
+  expect(after!.y - before!.y).toBeGreaterThan(10);
   expect(after!.x - before!.x).toBeCloseTo(peerAfter!.x - peerBefore!.x, 0);
   expect(after!.y - before!.y).toBeCloseTo(peerAfter!.y - peerBefore!.y, 0);
+  const moved = await readDocument(page), components = moved.template.pages[0]!.components;
+  const original = document.template.pages[0]!.components, scale = before!.width / original[0]!.widthMm;
+  for (const [index, box, previous] of [[0, after!, before!], [1, peerAfter!, peerBefore!]] as const) {
+    expect((components[index]!.leftMm - original[index]!.leftMm) * scale).toBeCloseTo(box.x - previous.x, 0);
+    expect((components[index]!.topMm - original[index]!.topMm) * scale).toBeCloseTo(box.y - previous.y, 0);
+  }
   await page.getByRole("button", { name: "撤销", exact: true }).click();
   await expect(canvas.locator(".is-selected")).toHaveCount(2);
   await expect.poll(async () => (await first.boundingBox())!.x).toBeCloseTo(before!.x, 0);
+  expect((await readDocument(page)).template.pages[0]!.components).toEqual(original);
   await first.focus(); await first.press("Control+d");
   await expect(canvas.locator(".is-selected")).toHaveCount(2);
   await expect(canvas.locator("[data-canvas-component]")).toHaveCount(6);

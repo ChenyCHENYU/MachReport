@@ -42,13 +42,6 @@ const m = computed(() => ({ ...TEMPLATE_RECOVERY_MESSAGES, ...props.messages }))
       <button type="button" @click="recovery.discard">{{ m.discard }}</button>
     </div>
   </div>
-  <small
-    v-else-if="recovery.status.value !== 'idle'"
-    class="mr-recovery-status"
-    role="status"
-  >
-    {{ recovery.status.value === 'saving' ? m.saving : m.autosaved }}
-  </small>
 
   <details v-if="conflict.active.value" class="mr-recovery-conflict" open>
     <summary>{{ m.conflict }}</summary>
@@ -161,12 +154,6 @@ const m = computed(() => ({ ...TEMPLATE_RECOVERY_MESSAGES, ...props.messages }))
   cursor: pointer;
 }
 .mr-recovery-actions button:disabled { opacity: .45; cursor: default; }
-.mr-recovery-status {
-  display: block;
-  padding: 4px 16px;
-  color: var(--mrp-btn-fg, #64748b);
-  font-size: 11px;
-}
 .mr-recovery-conflict {
   padding: 12px 16px;
   border-bottom: 1px solid var(--mrp-toolbar-border, #e2e8f0);

@@ -28,6 +28,7 @@ import TemplatePageInspector from "./TemplatePageInspector.vue";
 import TemplateRepeatInspector from "./TemplateRepeatInspector.vue";
 import TemplateFieldImpactPanel from "./TemplateFieldImpactPanel.vue";
 import TemplateRecoveryPanel from "./TemplateRecoveryPanel.vue";
+import { TEMPLATE_RECOVERY_MESSAGES } from "./recovery-messages";
 import { applyPageCommand, pageName, type PageCommand } from "./page-commands";
 import HeaderStructureEditor from "./HeaderStructureEditor.vue";
 import { useDesignerNavigation } from "./useDesignerNavigation";
@@ -122,6 +123,12 @@ const { canvasVisited, previewVisited, visibleFetcher, previewRefresh } = useDes
 const { sections, toolPreview, setMode: navigateMode, toggleToolPreview, chooseToolComponent, openBinding,
   pendingConfigurations, saveReason: navigationSaveReason, openPending, headingStatus, chooseCanvas, locateReview,
   chooseRuleList, navigateSection, diagnosticTarget, locationNotice, returnToReview, backToReview } = useDesignerNavigation(editor, workspace, inspector, { id, readonly: () => props.readonly === true, capabilities: () => props.capabilities });
+const headerStatus = computed(() => {
+  const status = editor.recovery.status.value;
+  if (saving.value || props.readonly || !pendingLocalChanges.value || editor.recovery.error.value || status === "idle") return headingStatus.value;
+  const key = status === "saving" ? "saving" : "autosaved";
+  return props.recoveryMessages?.[key] ?? TEMPLATE_RECOVERY_MESSAGES[key];
+});
 const editorRoot = ref<HTMLElement>();
 watch(diagnosticTarget, async target => {
   if (!target || target.tool) return;
@@ -292,8 +299,8 @@ function batch(patch: ColumnBatchPatch): boolean {
       <div class="mr-designer-heading">
         <ReportIcon name="columns" :size="15" />
         <strong>{{ m.heading }}</strong>
-        <span :class="{ 'mr-designer-dirty': pendingLocalChanges }">{{
-          headingStatus
+        <span class="mr-designer-status" role="status" aria-atomic="true" :title="headerStatus === headingStatus ? headerStatus : `${headerStatus} · ${headingStatus}`" :class="{ 'mr-designer-dirty': pendingLocalChanges }">{{
+          headerStatus
         }}</span>
       </div>
       <nav
