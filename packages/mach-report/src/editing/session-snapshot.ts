@@ -62,7 +62,7 @@ function captureStructureGuard(value: unknown, seen?: Set<object>): () => boolea
   collect(value, stamps, new Set(), { nodes: 0 }, 0, seen);
   return () => { try { return stamps.every(matches); } catch { return false; } };
 }
-function clone(value: unknown, budget: Budget, depth: number, validate = false): unknown {
+function clone(value: unknown, budget: Budget, depth: number, validate = false, copies?: WeakMap<object, object>): unknown {
   checkBudget(budget, depth);
   if (validate) {
     if (typeof value === "function" || typeof value === "symbol") throw new ReportCellEditError("conflict");
@@ -70,13 +70,28 @@ function clone(value: unknown, budget: Budget, depth: number, validate = false):
   }
   // Strings are immutable: retain their value without copying or scanning their characters.
   if (value === null || typeof value !== "object") return value;
-  if (value instanceof Date) return new Date(Date.prototype.getTime.call(value));
+  const retained = copies?.get(value);
+  if (retained) return retained;
+  if (value instanceof Date) { const result = new Date(Date.prototype.getTime.call(value)); copies?.set(value, result); return result; }
   if (Array.isArray(value)) {
     const result: unknown[] = [];
-    for (let index = 0; index < value.length; index++) result[index] = clone(ownValue(value, String(index)), budget, depth + 1, validate);
+    copies?.set(value, result);
+    for (let index = 0; index < value.length; index++) result[index] = clone(ownValue(value, String(index)), budget, depth + 1, validate, copies);
     return result;
   }
-  return Object.fromEntries(Object.keys(value).map((key) => [key, clone(ownValue(value, key), budget, depth + 1, validate)]));
+  return cloneRecord(value, budget, depth, validate, copies);
+}
+function cloneRecord(value: object, budget: Budget, depth: number, validate: boolean, copies?: WeakMap<object, object>): object {
+  if (!copies) return Object.fromEntries(Object.keys(value).map((key) => [key, clone(ownValue(value, key), budget, depth + 1, validate)]));
+  const result: Record<string, unknown> = {};
+  copies.set(value, result);
+  for (const key of Object.keys(value)) Object.defineProperty(result, key, { value: clone(ownValue(value, key), budget, depth + 1, validate, copies), enumerable: true, writable: true, configurable: true });
+  return result;
+}
+/** Public candidate previews are detached, while repeated styles/geometry keep
+ * their sharing inside the copy. No source strings are serialized or rescanned. */
+export function snapshotCandidatePlan(plan: RenderPlan): RenderPlan {
+  return clone(plan, { nodes: 0 }, 0, true, new WeakMap()) as RenderPlan;
 }
 /** Layout owns its plain/Date/scalar input before yielding to host events. The
  * descriptor checks share edit-session policy and never invoke custom getters. */

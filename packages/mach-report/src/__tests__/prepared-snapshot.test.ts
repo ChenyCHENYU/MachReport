@@ -15,7 +15,7 @@ const prepared = (rows = 1, columns = 1): PreparedReport => ({
   }] }] }, stats: { rows, pages: 1, cells: 0, durationMs: 0 }, diagnostics: [], revisions: {}, layout: { textMetrics: "heuristic" }
 });
 const cell = (value: PreparedReport) => value.plan.pages[0]!.components[0]!.grid!.cells[0]![0]!;
-const result = (value: PreparedReport): ReportRuntimeExportResult => ({ bytes: new Uint8Array([1]), format: "xlsx", contentType: "application/octet-stream", stats: value.stats, diagnostics: [], revisions: {} });
+const result = (value: PreparedReport): ReportRuntimeExportResult => ({ bytes: new Uint8Array([1]), format: "xlsx", contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", stats: value.stats, diagnostics: [], revisions: {} });
 
 describe("Prepared geometry snapshot ownership and budgets", () => {
   it("accepts a styled 82 × 2001 grid within byte/cell budgets while generic JSON keeps its node cap", async () => {

@@ -219,6 +219,8 @@ const fetcher: ReportFetcher = async ({ reportIds, params, signal, taskId, corre
 
 把 `fetcher` 传给预览组件即可沿用阶段反馈、取消与过期结果保护。Worker 中的 Provider 应使用 Worker 可用的客户端，例如 `fetch`；依赖 DOM 的宿主代码留在主线程。浏览器入口不会导入 `node:worker_threads`。
 
+自定义 `executor.prepare` 返回值与 Worker 使用同一套元数据契约，计划几何及执行预算继续在原边界校验。自定义导出执行器和自动导出的本地回调必须返回与请求一致的 `format`、MIME、`Uint8Array`、统计与诊断；不合契约会返回结构化 `validate` 错误。内置生成路径不重复扫描同一批元数据或复制输出字节。
+
 ## 大批量数据 Excel
 
 当目标是连续数据导出时，可直接使用独立的 [`/xlsx/node` 流式适配器](../packages/mach-report/src/xlsx/node.ts)，消费 `AsyncIterable` 并处理背压、进度和取消，无需先生成完整 RenderPlan。它输出数据工作表；PDF 或固定版式继续走运行时布局出口。列的可选 `align` 沿用自动数值居中规则，默认接入无需增加配置。详细区别见 [Excel 文档](./EXCEL.md)。

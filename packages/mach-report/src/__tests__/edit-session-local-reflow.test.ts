@@ -40,11 +40,13 @@ describe("proved local source reflow", () => {
     const prepared = await session.prepare(initial, edit(initial));
     const full = paginateTemplate(input.template, { detail: input.datasets.detail.map(row => row.id === "001" ? { ...row, note: "after" } : row) }).plan;
     expect(prepared.plan).toEqual(full);
-    expect(body(prepared.plan)).toBe(body(initial));
-    expect(cell(prepared.plan, "001").cell.style).toBe(cell(initial, "001").cell.style);
+    expect(body(prepared.plan)).not.toBe(body(initial));
+    expect(body(prepared.plan)).toEqual(body(initial));
     expect(check).toHaveBeenCalledWith(prepared.plan);
     expect(cell(initial, "001").value).toBe("before"); expect(input.datasets.detail[0]!.note).toBe("before");
     const committed = prepared.commit({ revision: 2, sourceToken: "v2" });
+    expect(body(committed).grid).toBe(body(initial).grid);
+    expect(cell(committed, "001").cell.style).toBe(cell(initial, "001").cell.style);
     expect(cell(committed, "002").source).toMatchObject({ revision: 2, sourceToken: "v2" });
     expect(() => prepared.commit()).toThrow("conflict");
     const undo = await session.prepareHistory(committed, edit(initial).edits, "previousValue", "undo");

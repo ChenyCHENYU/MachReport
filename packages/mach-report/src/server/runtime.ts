@@ -16,7 +16,7 @@ import { templateDatasetRowCount, templateDatasetJsonSchema } from "../source/te
 import { TreeRowLimitError } from "../processing/tree";
 import { resolvePlanAssets } from "../output/assets";
 import { encodePreparedReport, outputDiagnostics } from "./runtime-output";
-import { assertReportExportResult } from "./execution-result";
+import { assertReportExportResult, assertReportPreparedMetadata } from "./execution-result";
 import { checkPreparedFont, reportFontFingerprint, snapshotPreparedReport, snapshotPdfFonts, snapshotXlsxOptions } from "./prepared";
 
 /** Capture IDs and flat parameters before font/Worker loading can yield. */
@@ -150,6 +150,7 @@ export function createReportRuntime(options: ReportRuntimeOptions): ReportRuntim
         throwIfAborted(signal); measurer = pdf.createFontBytesMeasurer(faces);
       }
       const result = options.executor ? await options.executor.prepare(request, signal, observe) : await localPrepare(monitoring, measurer);
+      if (options.executor) assertReportPreparedMetadata(result);
       return enforcePrepared(result, budget);
     }),
     exportPrepared: (input: ReportRuntimePreparedExportInput) => controlled(input.signal, budget.maxDurationMs, async (signal) => {

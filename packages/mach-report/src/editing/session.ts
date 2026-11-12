@@ -14,9 +14,10 @@ import { indexSessionContexts } from "./session-context";
 import { captureSessionGuard, snapshotSessionParts } from "./session-snapshot";
 import { reflowReportTemplate } from "./session-pagination";
 import { createLocalSessionReflow } from "./session-reflow";
+import { protectSessionCandidate } from "./session-candidate";
 
 export interface ReportPreparedEdit {
-  /** Calculated preview; no source/session state changes until commit succeeds. */
+  /** Calculated preview; mutations are rejected before validation/commit. */
   readonly plan: RenderPlan;
   readonly validationIssues: readonly ReportValidationIssue[];
   /** Validate complete candidate source rows and derived fields before invoking persistence. */
@@ -114,21 +115,25 @@ export function registerOwnedReportEditSession(initial: RenderPlan, registration
     const base = baseline(plan), nextParts = updateSessionRows(base, changesFor(base, batch.edits));
     const candidate = await local?.candidate(plan, batch.edits, options.signal); active(options.signal);
     const nextPlan = applyReportSourceMetadata(candidate?.plan ?? await rebuild(nextParts, options.signal), concurrency); active(options.signal);
+    const protectedCandidate = protectSessionCandidate(nextPlan, pagination !== undefined);
     let committed = false;
     let validationIssues: readonly ReportValidationIssue[] = [], warningPolicy: "allow" | "block" = "allow";
     let validationFailed = false;
     function validate(validation: ReportCandidateValidationOptions): readonly ReportValidationIssue[] {
       validationFailed = true;
+      protectedCandidate.assertUnchanged();
       validationIssues = Object.freeze(validateSessionCandidates(nextParts, validation, options.signal, validationFormulas).map(issue => Object.freeze({ ...issue })));
+      protectedCandidate.assertUnchanged();
       validationFailed = false;
       warningPolicy = validation.warningPolicy ?? "allow";
       return validationIssues;
     }
     if (options.validation) validate(options.validation);
-    return { plan: nextPlan, get validationIssues() { return validationIssues; }, validate, commit(result) {
+    return { get plan() { return protectedCandidate.plan; }, get validationIssues() { return validationIssues; }, validate, commit(result) {
       active(options.signal);
       if (committed || current !== plan) throw new ReportCellEditError("conflict");
       if (candidate && !candidate.unchanged()) throw new ReportCellEditError("conflict");
+      protectedCandidate.assertUnchanged();
       if (result?.conflicts?.length) throw new ReportCellEditError("conflict");
       if (validationFailed) throw new Error("候选规则校验未完成，不能提交");
       assertReportValidation(validationIssues, warningPolicy);

@@ -3,6 +3,7 @@ import { createPageWindowIndex } from "../../render/page-window-index";
 import type { RenderPlan } from "@agile-team/mach-report";
 import { pageTexts, type PlanTextTarget } from "./plan-texts";
 import { scanTextMatches } from "./text-matches";
+import { createSearchTargetIndex, locateSearchTarget } from "./search-target-index";
 
 /**
  * 预览交互 composables 集合（本文件包含四件）：
@@ -41,20 +42,6 @@ export interface ReportSearchOptions {
   clearHighlights: (pageEl: HTMLElement) => void;
 }
 
-/** Only the active page is revisited. Repeated text hits remain compressed into page counts. */
-function matchTarget(plan: RenderPlan, pageIndex: number, occurrence: number, query: string): ReportSearchTarget | undefined {
-  let previous = "", local = 0;
-  for (const item of pageTexts(plan, pageIndex, pageIndex + 1)) {
-    if (!item.target) continue;
-    const key = `${item.target.componentIndex}:${item.target.rowIndex}:${item.target.columnIndex}`;
-    if (key !== previous) { previous = key; local = 0; }
-    const count = scanTextMatches(item.text, query);
-    if (occurrence < count) return { ...item.target, occurrence: local + occurrence };
-    occurrence -= count;
-    local += count;
-  }
-}
-
 export function useReportSearch(options: ReportSearchOptions): ReportSearchState {
   const { plan, gotoPage, highlight, clearHighlights } = options;
   const visible = ref(false);
@@ -64,8 +51,11 @@ export function useReportSearch(options: ReportSearchOptions): ReportSearchState
   const searching = ref(false);
   // 每个命中页只保存一次累计数量；百万次重复文本命中也不创建百万个页号。
   let matches: { pageIndex: number; cumulative: number }[] = [];
+  let targets = createSearchTargetIndex();
+  const resolved = shallowRef<{ index: number; target: ReportSearchTarget } | null>(null);
+  let stopLookup: (() => void) | undefined, lookupGeneration = 0;
   const activeMatch = computed(() => {
-    if (matchCount.value === 0) return null;
+    if (matchCount.value === 0 || resolved.value?.index !== matchIndex.value) return null;
     const target = matchIndex.value;
     let lo = 0;
     let hi = matches.length - 1;
@@ -77,14 +67,32 @@ export function useReportSearch(options: ReportSearchOptions): ReportSearchState
     const match = matches[lo];
     if (!match) return null;
     const occurrence = target - (matches[lo - 1]?.cumulative ?? 0);
-    return { pageIndex: match.pageIndex, occurrence, target: plan.value ? matchTarget(plan.value, match.pageIndex, occurrence, query.value.trim().toLowerCase()) : undefined };
+    return { pageIndex: match.pageIndex, occurrence, target: resolved.value.target };
   });
+  function resolveTarget(): void {
+    stopLookup?.(); stopLookup = undefined;
+    const token = ++lookupGeneration, index = matchIndex.value;
+    resolved.value = null;
+    const current = plan.value;
+    if (!current || !matchCount.value) return;
+    const known = targets.find(index);
+    if (known) { resolved.value = { index, target: known.target }; return; }
+    const page = matches.findIndex(item => item.cumulative > index);
+    if (page < 0) return;
+    const occurrence = index - (matches[page - 1]?.cumulative ?? 0), pageIndex = matches[page]!.pageIndex;
+    stopLookup = locateSearchTarget(current, pageIndex, occurrence, query.value.trim().toLowerCase(), target => {
+      if (token !== lookupGeneration || plan.value !== current || !target) return;
+      resolved.value = { index, target }; gotoPage(pageIndex + 1);
+    });
+  }
+  watch([matchIndex, matchCount], resolveTarget, { flush: "sync" });
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let scanTimer: ReturnType<typeof setTimeout> | null = null;
   let generation = 0;
 
   function cancel(): void {
     generation++;
+    lookupGeneration++; stopLookup?.(); stopLookup = undefined; resolved.value = null;
     if (debounceTimer) clearTimeout(debounceTimer);
     if (scanTimer) clearTimeout(scanTimer);
     debounceTimer = scanTimer = null;
@@ -96,6 +104,7 @@ export function useReportSearch(options: ReportSearchOptions): ReportSearchState
     matchIndex.value = 0;
     matchCount.value = 0;
     matches = [];
+    targets = createSearchTargetIndex();
     searching.value = false;
     const q = input.trim().toLowerCase();
     const current = plan.value;
@@ -121,6 +130,7 @@ export function useReportSearch(options: ReportSearchOptions): ReportSearchState
           return;
         }
         const occurrences = scanTextMatches(next.value.text, q);
+        targets.record(next.value.pageIndex, next.value.target, occurrences, count);
         if (occurrences > 0) {
           count += occurrences;
           const previous = nextMatches[nextMatches.length - 1];
@@ -140,6 +150,7 @@ export function useReportSearch(options: ReportSearchOptions): ReportSearchState
     query.value = input;
     matchIndex.value = matchCount.value = 0;
     matches = [];
+    targets = createSearchTargetIndex();
     if (!input.trim()) {
       search("");
       return;
@@ -164,6 +175,7 @@ export function useReportSearch(options: ReportSearchOptions): ReportSearchState
     query.value = "";
     matchIndex.value = matchCount.value = 0;
     matches = [];
+    targets = createSearchTargetIndex();
   }
   watch(plan, reset, { flush: "sync" });
   onScopeDispose(reset);

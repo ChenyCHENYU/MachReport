@@ -22,10 +22,17 @@ function layoutMetrics(value: unknown): boolean {
   return object(value) && ["heuristic", "provided", "font-bytes"].includes(value.textMetrics as string)
     && (value.fontFingerprint === undefined || typeof value.fontFingerprint === "string" && /^[a-f0-9]{64}$/.test(value.fontFingerprint));
 }
+function validExecutionMetadata(value: unknown): value is Record<string, unknown> {
+  if (!object(value) || !stats(value.stats) || !diagnostics(value.diagnostics) || !revisions(value.revisions) || !layoutMetrics(value.layout) || !validPreparedSources(value.sources)) return false;
+  return value.diagnosticSummary === undefined || matchingDiagnosticSummary(value.diagnosticSummary, value.diagnostics as PreparedReport["diagnostics"]);
+}
+/** Metadata is checked before the runtime's existing geometry/budget pass. */
+export function assertReportPreparedMetadata(value: unknown): void {
+  if (!validExecutionMetadata(value)) throw new ReportSourceError("validate", "报表执行器返回的准备结果元数据无效");
+}
 /** One result contract for direct executors and Worker/RPC transport. */
 export function validReportExecutionResult(value: unknown, operation: "prepare" | "export" | "exportPrepared"): value is PreparedReport | ReportRuntimeExportResult {
-  if (!object(value) || !stats(value.stats) || !diagnostics(value.diagnostics) || !revisions(value.revisions) || !layoutMetrics(value.layout) || !validPreparedSources(value.sources)) return false;
-  if (value.diagnosticSummary !== undefined && !matchingDiagnosticSummary(value.diagnosticSummary, value.diagnostics as PreparedReport["diagnostics"])) return false;
+  if (!validExecutionMetadata(value)) return false;
   if (operation === "prepare") return validateRenderPlan(value.plan).ok;
   const contentType = value.format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   return value.bytes instanceof Uint8Array && (value.format === "pdf" || value.format === "xlsx") && value.contentType === contentType;

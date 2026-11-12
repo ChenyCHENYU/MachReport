@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/source-2.25.1-2563eb" alt="Source version 2.25.1" />
+  <img src="https://img.shields.io/badge/source-2.25.2-2563eb" alt="Source version 2.25.2" />
   <a href="https://www.npmjs.com/package/@agile-team/mach-report"><img src="https://img.shields.io/npm/v/@agile-team/mach-report?label=npm&color=3178c6" alt="npm version" /></a>
   <a href="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml"><img src="https://github.com/ChenyCHENYU/MachReport/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-authorization%20required-dc2626" alt="Authorization required" /></a>
@@ -85,6 +85,8 @@ MachReport 把模板、数据和输出分开：用 TypeScript DSL 或 JSON 定�
 | 持续回归与设备交接 | [深层测试](./docs/DEEP_VALIDATION.md) · [Office与设备验收](./docs/EXTERNAL_ACCEPTANCE.md) · [迭代安排](./docs/NEXT_ITERATION.md) |
 
 同次预览发布复用来源与几何索引。内置来源会话中，普通列表的纯字符串编辑在证明所有镜像换行数不变时复用未修改布局，计算、分组、格式化与复杂绑定沿用完整重排。输出诊断默认展示有界定位样本并保留准确总数，显式完整诊断接口继续可用。
+
+多个预览可共用 `createProviderEditing` 配置，包内为每个实例隔离保存回执。底层编辑候选在读取时提供独立预览，校验和提交拒绝被修改的候选；自定义执行器与本地导出回调使用一致的结果校验。慢偏好存储合并连续修改，搜索定位复用有界命中索引，使用侧无需增加配置。
 
 稳定业务键的数据源自动维护编辑重算会话，独立报表默认隔离；镜像来源显式声明共享。保存前准备重算，成功后更新派生结果与修订，导出等待在途编辑。工作簿公式继续只显示缓存结果。严格输出拒绝已知缺字或损坏图片，宽松策略返回明确诊断。
 
@@ -727,7 +729,7 @@ CI 使用同一套校验命令，并在构建后检查实际发布产物。协�
 
 ## 版本与授权
 
-当前源码版本为 `2.25.1`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准，npm 已发布版本由顶部 npm 标识展示。
+当前源码版本为 `2.25.2`，以 [`packages/mach-report/package.json`](./packages/mach-report/package.json) 为准，npm 已发布版本由顶部 npm 标识展示。
 
 Copyright © 2026 ChenyCHENYU (Agile Team). All rights reserved.
 

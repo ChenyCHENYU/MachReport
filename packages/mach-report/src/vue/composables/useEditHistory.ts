@@ -12,6 +12,7 @@ import { cloneReportSnapshot } from "../snapshot";
 import { resolveCellField } from "../cell-field";
 import { assertRecalculationReady, createEditAddressResolver, prepareCurrentTransaction, prepareHistoryTransaction, type EditTransaction, type HistoryEditTarget, type EditAddressResolver } from "./edit-recalculation";
 import { createBoundedEditHistory, editHistoryLimits, mergeEditDifferences } from "./edit-history-state";
+import { createProviderEditingScope } from "../provider-editing-scope";
 
 export interface EditHistoryHost {
   plan: Ref<RenderPlan | null>;
@@ -38,6 +39,7 @@ function buildTransaction(plan: RenderPlan, target: readonly ReportCellInput[] |
 
 /** Shared transaction path for single edits, paste, undo, redo and restore. */
 export function useEditHistory(host: EditHistoryHost) {
+  const providerEditing = createProviderEditingScope();
   const changes = shallowRef<ReportCellEdit[]>([]);
   const historyState = shallowRef(createBoundedEditHistory());
   const retained = historyState.value;
@@ -100,9 +102,10 @@ export function useEditHistory(host: EditHistoryHost) {
     }
   }
   async function persist(batch: ReportEditBatch, option: ReportEditingOptions, operation: ReportEditOperation): Promise<void | ReportEditResult> {
-    if (option.saveBatch) return option.saveBatch(cloneReportSnapshot(batch), operation);
-    if (option.save && batch.edits.length > 1) throw new ReportCellEditError("atomic");
-    if (batch.edits[0]) return option.save?.(cloneReportSnapshot(batch.edits[0]), operation);
+    const persistence = providerEditing(option);
+    if (persistence.saveBatch) return persistence.saveBatch(cloneReportSnapshot(batch), operation);
+    if (persistence.save && batch.edits.length > 1) throw new ReportCellEditError("atomic");
+    if (batch.edits[0]) return persistence.save?.(cloneReportSnapshot(batch.edits[0]), operation);
   }
   async function validate(batch: ReportEditBatch, option: ReportEditingOptions, operation: ReportEditOperation): Promise<void> {
     for (const edit of batch.edits) {

@@ -5,6 +5,7 @@ import { MachReportError } from "./errors";
 import { cloneReportSnapshot } from "./snapshot";
 import { assertProviderSaveResult } from "./provider-save-result";
 import { observeOutput } from "../output/progress";
+import { registerProviderEditing } from "./provider-editing-scope";
 
 type Current<T> = T | (() => T);
 export interface ProviderEditingOptions extends Pick<ReportEditingOptions, "canEdit" | "readOnlyReason" | "history" | "fields" | "validate" | "validation" | "validateBatch" | "requireSource"> {
@@ -37,13 +38,14 @@ function queryBinding(options: ProviderEditingOptions, operation: ReportEditOper
   const sources = query?.sources.filter(source => source.reportId === reportId) ?? [];
   const source = sources.length === 1 ? sources[0] : undefined;
   return { reportId, params, source, automatic,
-    identity: JSON.stringify([reportId, params, query?.queryId ?? query?.sources]) };
+    identity: JSON.stringify([reportId, params, query?.queryId, query?.sources]) };
 }
 function requestIdentity(operation: ReportEditOperation): string {
   return operation.requestId ?? globalThis.crypto?.randomUUID?.() ?? `mr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-/** Explicit persistence bridge. Merely registering ReportProvider never enables editing or saving. */
+/** Explicit persistence bridge. Direct callbacks own one logical editing session;
+ * Preview instances isolate a shared bridge automatically. Registration never enables saving. */
 export function createProviderEditing(provider: ReportProvider, options: ProviderEditingOptions = {}): ReportEditingOptions {
   if (!provider.save) throw new MachReportError("config", "ReportProvider.save 未配置，无法启用业务保存");
   let queryIdentity = "";
@@ -52,7 +54,8 @@ export function createProviderEditing(provider: ReportProvider, options: Provide
   let generation = 0;
   function remember(result: ReportSaveResult, identity: string, currentGeneration: number): void {
     if (result.conflicts?.length || identity !== queryIdentity || currentGeneration !== generation) return;
-    revision = result.revision; sourceToken = result.sourceToken;
+    revision = result.revision;
+    if (result.sourceToken !== undefined) sourceToken = result.sourceToken;
   }
   async function saveBatch(batch: Readonly<ReportEditBatch>, operation: ReportEditOperation): Promise<ReportEditResult> {
     if (operation.signal.aborted) throw operation.signal.reason ?? new DOMException("Aborted", "AbortError");
@@ -76,11 +79,13 @@ export function createProviderEditing(provider: ReportProvider, options: Provide
     remember(result, identity, currentGeneration);
     return { revision: result.revision, sourceToken: result.sourceToken, conflicts };
   }
-  return {
+  const editing: ReportEditingOptions = {
     requireSource: options.requireSource ?? true,
     canEdit: options.canEdit, readOnlyReason: options.readOnlyReason, history: options.history,
     fields: options.fields, validate: options.validate, validation: options.validation, validateBatch: options.validateBatch,
     saveBatch,
     save: (edit, operation) => saveBatch({ requestId: requestIdentity(operation), edits: [cloneReportSnapshot(edit)] }, operation)
   };
+  registerProviderEditing(editing, () => createProviderEditing(provider, options));
+  return editing;
 }

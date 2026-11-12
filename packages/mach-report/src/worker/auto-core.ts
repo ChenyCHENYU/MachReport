@@ -2,6 +2,7 @@ import { observeOutput } from "../output/progress";
 import { createReportRuntime, enforcePrepared } from "../server/runtime";
 import { DEFAULT_REPORT_RUNTIME_BUDGET, assertBudget, controlled, ReportRuntimeError, throwIfAborted, validateBudget } from "../server/control";
 import { assertPreparedOutputBudget, snapshotPdfFonts, capturePreparedHandoff, snapshotXlsxOptions } from "../server/prepared";
+import { assertReportExportResult } from "../server/execution-result";
 import type { ReportRuntimeBudget, ReportRuntimeExecutor, ReportRuntimeExportResult, ReportRuntimePreparedExportInput } from "../server/types";
 import { decideReportExport } from "./auto-policy";
 import { ReportWorkerStartError } from "./client";
@@ -74,6 +75,7 @@ export function createAutoExporterController(options: ReportExportExecutionOptio
     }
     const result = localOverride ? await controlled(input.signal, remaining(), signal => localOverride({ ...request, signal })) : await controlled(input.signal, remaining(), signal => local.exportPrepared({ ...captured.forward(), signal }));
     throwIfAborted(input.signal);
+    if (localOverride) assertReportExportResult(result, request.format);
     assertOutputResult(result, request, config.budget);
     return { ...result, execution: decision };
   }
